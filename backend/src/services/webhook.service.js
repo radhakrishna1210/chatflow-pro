@@ -11,6 +11,11 @@ export async function processWebhook(body) {
       const value = change.value;
       if (!value) continue;
 
+      if (change.field === 'message_template_status_update') {
+        await handleTemplateStatusUpdate(entry.id, value);
+        continue;
+      }
+
       if (value.messages) {
         for (const msg of value.messages) {
           await handleInboundMessage(value, msg);
@@ -24,6 +29,45 @@ export async function processWebhook(body) {
       }
     }
   }
+}
+
+function mapMetaTemplateEvent(event) {
+  if (event === 'APPROVED') return 'APPROVED';
+  if (event === 'REJECTED' || event === 'DISABLED' || event === 'FLAGGED' || event === 'PAUSED') return 'REJECTED';
+  return 'PENDING';
+}
+
+async function handleTemplateStatusUpdate(wabaId, value) {
+  const metaTemplateId = value.message_template_id ? String(value.message_template_id) : null;
+  const templateName   = value.message_template_name;
+  const templateLang   = value.message_template_language;
+  const event          = value.event;
+  const newStatus      = mapMetaTemplateEvent(event);
+
+  console.log(`[Template] WABA=${wabaId} id=${metaTemplateId} name="${templateName}" event=${event} → ${newStatus}`);
+
+  // Find affected templates. Prefer metaTemplateId, fall back to name+language scoped to the WABA's workspaces.
+  let where;
+  if (metaTemplateId) {
+    where = { metaTemplateId };
+  } else if (templateName) {
+    const waNumbers = await prisma.waNumber.findMany({ where: { wabaId }, select: { workspaceId: true } });
+    const wsIds = [...new Set(waNumbers.map((n) => n.workspaceId))];
+    if (wsIds.length === 0) {
+      console.warn(`[Template] No workspace owns WABA ${wabaId} — dropping update.`);
+      return;
+    }
+    where = { workspaceId: { in: wsIds }, name: templateName, language: templateLang };
+  } else {
+    console.warn('[Template] update lacked id and name — ignoring.');
+    return;
+  }
+
+  const result = await prisma.template.updateMany({
+    where,
+    data: { status: newStatus, ...(metaTemplateId ? {} : { metaTemplateId: undefined }) },
+  });
+  console.log(`[Template] Updated ${result.count} row(s) to ${newStatus}.`);
 }
 
 async function handleInboundMessage(value, msg) {

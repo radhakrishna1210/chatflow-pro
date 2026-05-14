@@ -185,13 +185,7 @@ export async function duplicateTemplate(workspaceId, id) {
 }
 
 export async function listLibrary(workspaceId) {
-  const waNumber = await prisma.waNumber.findFirst({ where: { workspaceId } });
-  if (!waNumber) {
-    const e = new Error('Connect a WhatsApp number to browse the template library.');
-    e.status = 400;
-    throw e;
-  }
-
+  // Library is browsable without a connected number — installing still requires one.
   const installed = await prisma.template.findMany({
     where: { workspaceId },
     select: { name: true, status: true },
