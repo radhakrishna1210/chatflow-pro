@@ -4,9 +4,6 @@ const ROLE_HIERARCHY = { CLIENT: 0, ADMIN: 1 };
 
 export function authorize(...roles) {
   return async (req, res, next) => {
-    // Global admin (JWT-level) bypasses workspace role check
-    if (req.user?.jwtRole === 'ADMIN') return next();
-
     const { id: userId, workspaceId } = req.user;
     const member = await prisma.workspaceMember.findUnique({
       where: { userId_workspaceId: { userId, workspaceId } },

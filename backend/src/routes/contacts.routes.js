@@ -11,9 +11,9 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/', contactsController.list);
-router.post('/', authorize('ADMIN'), contactsController.create);
-router.post('/import', authorize('ADMIN'), upload.single('file'), contactsController.importCsv);
-router.delete('/:id', authorize('ADMIN'), contactsController.remove);
-router.patch('/:id', authorize('ADMIN'), contactsController.update);
+router.post('/', authorize('CLIENT'), contactsController.create);
+router.post('/import', authorize('CLIENT'), upload.single('file'), contactsController.importCsv);
+router.delete('/:id', authorize('CLIENT'), contactsController.remove);
+router.patch('/:id', authorize('CLIENT'), contactsController.update);
 
 export default router;
