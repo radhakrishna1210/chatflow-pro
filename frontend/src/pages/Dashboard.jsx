@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import CreateCampaign from './CreateCampaign.jsx';
 import { wFetch } from '../lib/api.js';
+import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 import ContactsView from './ContactsView.jsx';
 import InboxView from './InboxView.jsx';
 import AutomationView from './AutomationView.jsx';
@@ -243,35 +244,81 @@ const niceDateLabel = () => {
   return `${parts} — ${greet}!`;
 };
 
+const slugify = (value) => value
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '')
+  .slice(0, 60);
+
+const createTemplatePayload = (prompt, body) => {
+  const slug = slugify(prompt) || `ai_template_${Date.now()}`;
+  return {
+    name: `${slug}_${Date.now()}`.slice(0, 64),
+    category: 'MARKETING',
+    language: 'en',
+    components: [{ type: 'BODY', text: body.trim() || prompt.trim() }],
+  };
+};
+
 const HomeView = () => {
-  const [overview, setOverview] = useState(null);
-  const [delivery, setDelivery] = useState([]);
-  const [number, setNumber]     = useState(null);
-  const [loading, setLoading]   = useState(true);
+  const [prompt, setPrompt] = useState('');
+  const [guided, setGuided] = useState(true);
+  const [number, setNumber] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [aiResponse, setAiResponse] = useState(null);
+  const [aiError, setAiError] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiCard, setAiCard] = useState(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      wFetch('/analytics/overview').then(r => r.ok && r.json()).catch(() => null),
-      wFetch('/analytics/delivery').then(r => r.ok && r.json()).catch(() => null),
-      wFetch('/whatsapp/numbers')  .then(r => r.ok && r.json()).catch(() => null),
-    ]).then(([ov, del, nums]) => {
-      if (ov)  setOverview(ov);
-      if (Array.isArray(del))  setDelivery(del);
-      if (Array.isArray(nums) && nums[0]) setNumber(nums[0]);
-      setLoading(false);
-    });
+    wFetch('/whatsapp/numbers')
+      .then(r => r.ok && r.json())
+      .then(nums => { if (Array.isArray(nums) && nums[0]) setNumber(nums[0]); })
+      .catch(() => null)
+      .finally(() => setLoading(false));
   }, []);
 
-  const stats = [
-    { icon:'msg',   label:'Messages Sent',  value: overview?.messagesSent ?? 0, color:'var(--green)', id:'msg' },
-    { icon:'users', label:'Active Contacts', value: (overview?.totalContacts ?? 0) - (overview?.optOuts ?? 0), color:'#0EA5E9', id:'ct' },
-    { icon:'send',  label:'Campaigns',       value: overview?.totalCampaigns ?? 0, color:'#A78BFA', id:'cp' },
-    { icon:'chart', label:'Delivery Rate',   value: overview?.deliveryRate ?? 0, suffix:'%', color:'#F59E0B', id:'dr' },
-  ];
+  const handleSend = async () => {
+    if (!prompt.trim() || aiLoading) return;
 
-  const wkData   = delivery.length ? delivery.map(d => d.sent) : [0,0,0,0,0,0,0];
-  const wkLabels = delivery.length ? delivery.map(d => d.date) : ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const totalWeek = wkData.reduce((a,b)=>a+b, 0);
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    setAiLoading(true);
+    setAiError(null);
+    setAiResponse(null);
+    setAiCard(null);
+
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      
+      const res = await fetch('/api/v1/onboarding/chat', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ message: prompt, workspaceId: user.workspaceId, guided }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      
+      setAiResponse(data.content || prompt);
+      if (data.card) {
+        setAiCard(data.card);
+        window.dispatchEvent(new CustomEvent('app:data-updated', { detail: { templates: true, campaigns: true } }));
+      }
+      setPrompt('');
+    } catch (err) {
+      setAiError(err.message || 'Unable to send request');
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   return (
     <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -281,6 +328,24 @@ const HomeView = () => {
           <div style={{ textAlign:'center', padding:'40px 0', color:'var(--t2)', fontSize:13 }}>
             <div style={{ width:24, height:24, border:'2px solid var(--green)', borderTopColor:'transparent', borderRadius:'50%', margin:'0 auto 10px', animation:'spin 1s linear infinite' }} />
             Loading dashboard…
+          </div>
+        )}
+
+        {showLoginModal && (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
+            <div style={{ background:'#070B14', border:'1px solid rgba(255,255,255,0.08)', width: 400, borderRadius: 12, padding: 24, display:'flex', flexDirection:'column', alignItems:'center', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
+              <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: '24px' }}>🔒</div>
+              </div>
+              <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight: 700, fontSize: 18, color:'#F0F2F8', marginBottom: 8, margin: 0 }}>Login Required</h3>
+              <p style={{ fontSize: 14, color:'rgba(255,255,255,0.6)', textAlign:'center', marginBottom: 24, lineHeight: 1.5 }}>
+                You need to be logged in to use the AI Agent. Please sign in to your account to continue.
+              </p>
+              <div style={{ display: 'flex', gap: 12, width: '100%' }}>
+                <button onClick={() => setShowLoginModal(false)} style={{ flex: 1, padding: '10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={() => { window.dispatchEvent(new CustomEvent('app:nav', { detail: 'login' })); }} style={{ flex: 1, padding: '10px', borderRadius: 8, background: '#1EBF5E', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Log in</button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -299,36 +364,91 @@ const HomeView = () => {
           <Btn size="sm" style={{ flexShrink: 0 }}>Upgrade Plan</Btn>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '12px' }}>
-          {stats.map(s => (
-            <div key={s.label} style={{ ...card, padding: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-                <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <I n={s.icon} s={15} c={s.color} />
-                </div>
-              </div>
-              <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '28px', color: 'var(--t1)', marginBottom: '2px', letterSpacing: '-.03em' }}>
-                {typeof s.value === 'number' ? s.value.toLocaleString() : s.value}{s.suffix ?? ''}
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--t2)' }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ ...card, padding: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div>
-              <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', marginBottom: '3px' }}>Messages Sent</h3>
-              <p style={{ fontSize: '12px', color: 'var(--t2)' }}>Last 7 days performance</p>
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--green)', fontWeight: 700, padding: '4px 10px', borderRadius: '6px', background: 'var(--gbg)', border: '1px solid var(--gbd)' }}>
-              {totalWeek.toLocaleString()} this week
-            </div>
+        <div style={{ width: '100%', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(30, 191, 94, 0.4)', boxShadow: '0 0 30px rgba(30, 191, 94, 0.15), inset 0 0 20px rgba(30, 191, 94, 0.05)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', transition: 'all 0.3s ease', marginBottom: '16px' }}>
+          <div style={{ padding: '24px 24px 12px' }}>
+            <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '18px', color: '#fff', marginBottom: '8px' }}>Create your Free WhatsApp AI Assistant</h3>
+            <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}>Describe your business flow or campaign parameters below to automatically build and register templates.</p>
           </div>
-          {totalWeek > 0 ? (
-            <ActivityChart data={wkData} labels={wkLabels} />
-          ) : (
-            <p style={{ textAlign:'center', padding:'30px 0', color:'var(--t3)', fontSize:12 }}>No messages sent this week yet. Launch a campaign to see activity here.</p>
+          <textarea 
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe your ideal WhatsApp campaign or onboarding flow..."
+            style={{ width: '100%', height: '120px', background: 'transparent', border: 'none', padding: '0 24px 24px', color: '#fff', fontSize: '15px', resize: 'none', outline: 'none', fontFamily: 'inherit' }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+          />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '0 24px 16px' }}>
+            {[
+              'Create a template for an abandoned cart',
+              'Delete a template',
+              'Create a campaign for Diwali sale',
+              'Delete a campaign'
+            ].map(s => (
+              <button
+                key={s}
+                onClick={() => setPrompt(s)}
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '10px 14px', color: '#fff', fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30, 191, 94, 0.1)'; e.currentTarget.style.borderColor = 'rgba(30, 191, 94, 0.3)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 24px 24px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#1EBF5E', fontWeight: 600 }}>
+              <input type="checkbox" checked={guided} onChange={(e) => setGuided(e.target.checked)} style={{ accentColor: '#1EBF5E', width: '15px', height: '15px', cursor: 'pointer' }} />
+              Guided Flow
+            </label>
+            <button 
+              onClick={handleSend}
+              disabled={aiLoading || !prompt.trim()}
+              style={{ background: aiLoading || !prompt.trim() ? 'rgba(30,191,94,0.4)' : '#1EBF5E', color: '#000', border: 'none', borderRadius: '8px', padding: '9px 18px', fontSize: '13px', fontWeight: 700, cursor: aiLoading || !prompt.trim() ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', transition: 'transform 0.1s' }}
+              onMouseDown={e => { if (!aiLoading && prompt.trim()) e.currentTarget.style.transform = 'scale(0.96)'; }}
+              onMouseUp={e => { if (!aiLoading && prompt.trim()) e.currentTarget.style.transform = 'scale(1)'; }}
+            >
+              {aiLoading ? 'Sending…' : 'Send'}
+            </button>
+          </div>
+          {aiResponse && (
+            <div style={{ padding: '16px 24px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', color: '#fff', lineHeight: 1.6, fontSize: '13px' }}>
+              <strong style={{ display: 'block', marginBottom: '8px', color: '#b8f3b8' }}>AI response:</strong>
+              <div>{aiResponse}</div>
+              {aiCard && (
+                  <div style={{
+                    marginTop: '10px',
+                    background: 'rgba(0,0,0,0.2)',
+                    border: '1px solid rgba(30,191,94,0.3)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                  }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', color: '#1EBF5E', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {aiCard.icon || '✅'} {aiCard.title}
+                    </div>
+                    {aiCard.details && Object.entries(aiCard.details).map(([k, v]) => (
+                      <div key={k} style={{ fontSize: '11px', marginBottom: '4px' }}>
+                        <span style={{ color: '#56688A', textTransform: 'capitalize' }}>{k}:</span>{' '}
+                        <span style={{ color: '#F0F2F8' }}>{typeof v === 'object' ? JSON.stringify(v) : v}</span>
+                      </div>
+                    ))}
+                    {aiCard.preview && (
+                       <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', fontSize: '11px', fontStyle: 'italic', borderLeft: '2px solid #1EBF5E' }}>
+                         {aiCard.preview}
+                       </div>
+                    )}
+                  </div>
+              )}
+            </div>
+          )}
+          {aiError && (
+            <div style={{ padding: '16px 24px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: '10px', color: '#f8c6c6', lineHeight: 1.6, fontSize: '13px' }}>
+              <strong style={{ display: 'block', marginBottom: '8px' }}>Error:</strong>
+              <div>{aiError}</div>
+            </div>
           )}
         </div>
 
@@ -381,15 +501,30 @@ const CampaignsView = ({ onCreateCampaign }) => {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading]     = useState(true);
 
+  const loadCampaigns = async () => {
+    setLoading(true);
+    try {
+      const res = await wFetch('/campaigns');
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+      setCampaigns(list);
+    } catch (e) {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    wFetch('/campaigns')
-      .then(r => r.ok && r.json())
-      .then(d => {
-        const list = Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [];
-        setCampaigns(list);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    loadCampaigns();
+  }, []);
+
+  useEffect(() => {
+    const onDataUpdated = (e) => {
+      if (e.detail?.campaigns) loadCampaigns();
+    };
+    window.addEventListener('app:data-updated', onDataUpdated);
+    return () => window.removeEventListener('app:data-updated', onDataUpdated);
   }, []);
 
   return (
@@ -742,6 +877,14 @@ const TemplatesView = () => {
     }, 20000);
     return () => clearInterval(interval);
   }, []); // eslint-disable-line
+
+  useEffect(() => {
+    const onDataUpdated = (e) => {
+      if (e.detail?.templates) loadTemplates();
+    };
+    window.addEventListener('app:data-updated', onDataUpdated);
+    return () => window.removeEventListener('app:data-updated', onDataUpdated);
+  }, []);
 
   useEffect(() => {
     if (tab === 'library' && library.length === 0) loadLibrary();
