@@ -2,6 +2,7 @@ import './config/env.js';
 import app from './app.js';
 import { env } from './config/env.js';
 import { startCampaignWorker } from './workers/campaign.worker.js';
+import { startEmailWorker } from './workers/email.worker.js';
 import { prisma } from './lib/prisma.js';
 
 async function main() {
@@ -15,6 +16,8 @@ async function main() {
 
   startCampaignWorker();
   console.log('[Worker] Campaign worker started');
+  startEmailWorker();
+  console.log('[Worker] Email worker started');
 
   app.listen(env.PORT, () => {
     console.log(`[Server] ChatFlow Pro backend running on port ${env.PORT}`);

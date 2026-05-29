@@ -6,7 +6,7 @@ export async function list(req, res) {
 }
 
 export async function create(req, res) {
-  const result = await apiKeysService.createApiKey(req.params.workspaceId, req.body);
+  const result = await apiKeysService.createApiKey(req.params.workspaceId, req.body, req.user);
   res.status(201).json(result);
 }
 
