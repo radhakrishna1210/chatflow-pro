@@ -1,6 +1,16 @@
+import { parsePhoneNumber } from 'libphonenumber-js';
 import { prisma } from '../lib/prisma.js';
 import { encrypt, decrypt } from '../lib/encryption.js';
-import { getWabaPhoneNumbers, systemClient } from '../lib/meta.js';
+import {
+  getWabaPhoneNumbers,
+  addPhoneNumberToWaba,
+  requestOtp,
+  verifyOtp,
+  exchangeCodeForToken,
+  subscribeAppToWaba,
+  registerPhoneNumber,
+  getPhoneNumberById,
+} from '../lib/meta.js';
 import { syncTemplatesFromMeta } from './templates.service.js';
 import { env } from '../config/env.js';
 
@@ -69,25 +79,15 @@ export async function onboardFromPool(workspaceId, poolEntryId) {
     throw err;
   }
 
-  // Attempt to create an isolated sub-WABA for this workspace
-  let wabaId = entry.wabaId;
-  try {
-    const { data } = await systemClient.post(`/${env.META_BUSINESS_ID}/owned_whatsapp_business_accounts`, {
-      name: `Workspace ${workspaceId}`,
-    });
-    if (data?.id) wabaId = data.id;
-  } catch {
-    // Fallback to shared WABA — non-fatal
-  }
-
-  // Atomic: mark pool entry ASSIGNED + create WaNumber record
+  // The pool entry already has its own dedicated sub-WABA (created + registered +
+  // webhook-subscribed at provisioning time), so claiming is just an assignment.
   const [number] = await prisma.$transaction([
     prisma.waNumber.create({
       data: {
         workspaceId,
         phoneNumber:          entry.phoneNumber,
         metaPhoneNumberId:    entry.phoneNumberId,
-        wabaId,
+        wabaId:               entry.wabaId,
         encryptedAccessToken: entry.encryptedAccessToken,
         displayName:          entry.displayName,
       },
@@ -101,22 +101,16 @@ export async function onboardFromPool(workspaceId, poolEntryId) {
   // Fire-and-forget: sync templates from Meta for this workspace
   syncTemplatesFromMeta(workspaceId).catch(() => {});
 
-  return { phoneNumber: number.phoneNumber, displayName: number.displayName, wabaId };
+  return { phoneNumber: number.phoneNumber, displayName: number.displayName, wabaId: entry.wabaId };
 }
 
 export async function disconnectNumber(workspaceId, numberId) {
   const waNumber = await prisma.waNumber.findFirst({ where: { id: numberId, workspaceId } });
   if (!waNumber) { const e = new Error('Number not found in this workspace'); e.status = 404; throw e; }
 
-  // Templates live on the Meta WABA tied to the number. Once the last number is
-  // gone, the workspace cannot operate on those templates anymore, so wipe them.
-  // Campaigns belong to the user's history and stay.
-  const remainingNumbers = await prisma.waNumber.count({
-    where: { workspaceId, id: { not: waNumber.id } },
-  });
-
+  // Template rows are kept (campaigns FK to them as history). They are already
+  // hidden from listTemplates when no WaNumber exists in the workspace.
   await prisma.$transaction([
-    ...(remainingNumbers === 0 ? [prisma.template.deleteMany({ where: { workspaceId } })] : []),
     prisma.waNumber.delete({ where: { id: waNumber.id } }),
     prisma.numberPool.updateMany({
       where: { phoneNumberId: waNumber.metaPhoneNumberId, assignedTo: workspaceId },
@@ -131,4 +125,130 @@ export async function getDecryptedNumber(workspaceId, numberId) {
   const n = await prisma.waNumber.findFirst({ where: { id: numberId, workspaceId } });
   if (!n) return null;
   return { ...n, accessToken: decrypt(n.encryptedAccessToken) };
+}
+
+// ── Embedded Signup (customer connects via Meta) ──────────────
+
+export function getEmbeddedSignupConfig() {
+  return {
+    appId:        env.META_APP_ID,
+    configId:     env.META_ES_CONFIG_ID || null,
+    graphVersion: env.META_API_VERSION,
+  };
+}
+
+// Completes Embedded Signup: the popup already created/selected the customer's WABA and
+// number under THEIR business; here we exchange the code for a token, subscribe our app to
+// their WABA for webhooks, ensure the number is registered, and store it in the workspace.
+export async function completeEmbeddedSignup(workspaceId, { code, wabaId, phoneNumberId }) {
+  if (!code)          { const e = new Error('Missing authorization code'); e.status = 400; throw e; }
+  if (!wabaId)        { const e = new Error('Missing wabaId from signup session'); e.status = 400; throw e; }
+  if (!phoneNumberId) { const e = new Error('Missing phoneNumberId from signup session'); e.status = 400; throw e; }
+
+  // 1. Exchange the code for a (long-lived) business access token scoped to the customer's WABA.
+  const tokenData = await exchangeCodeForToken(code);
+  const accessToken = tokenData.access_token;
+  if (!accessToken) { const e = new Error('Token exchange returned no access_token'); e.status = 502; throw e; }
+
+  // 2. Subscribe our app to the customer's WABA so inbound messages/statuses reach our webhook.
+  try {
+    await subscribeAppToWaba(wabaId, accessToken);
+  } catch (err) {
+    console.error('[ES] subscribed_apps failed (will need retry):', err.response?.data?.error?.message || err.message);
+  }
+
+  // 3. Ensure the number is registered for Cloud API (tolerate already-registered).
+  try {
+    await registerPhoneNumber(phoneNumberId, env.META_TWO_STEP_PIN, accessToken);
+  } catch (err) {
+    console.warn('[ES] register skipped/failed (often already registered):', err.response?.data?.error?.message || err.message);
+  }
+
+  // 4. Fetch the number's details for display.
+  let details = {};
+  try {
+    details = await getPhoneNumberById(phoneNumberId, accessToken);
+  } catch (err) {
+    console.warn('[ES] could not fetch phone number details:', err.response?.data?.error?.message || err.message);
+  }
+
+  const encryptedAccessToken = encrypt(accessToken);
+  const data = {
+    workspaceId,
+    phoneNumber:       details.display_phone_number || '',
+    metaPhoneNumberId: phoneNumberId,
+    wabaId,
+    encryptedAccessToken,
+    displayName:       details.verified_name || null,
+    quality:           details.quality_rating || null,
+  };
+
+  // 5. Upsert the WaNumber (idempotent if the customer reconnects the same number).
+  const existing = await prisma.waNumber.findFirst({ where: { workspaceId, metaPhoneNumberId: phoneNumberId } });
+  const number = existing
+    ? await prisma.waNumber.update({ where: { id: existing.id }, data })
+    : await prisma.waNumber.create({ data });
+
+  // 6. Fire-and-forget: pull the customer's approved templates.
+  syncTemplatesFromMeta(workspaceId).catch(() => {});
+
+  return { id: number.id, phoneNumber: number.phoneNumber, displayName: number.displayName, wabaId };
+}
+
+// ── BYO via OTP (customer's own number → our main WABA) ──────────
+
+export async function byoRequestOtp(workspaceId, { phoneNumber, displayName }) {
+  let parsed;
+  try { parsed = parsePhoneNumber(phoneNumber); } catch {
+    const e = new Error('Invalid phone number — use E.164 format e.g. +91 98765 43210'); e.status = 400; throw e;
+  }
+  if (!parsed.isValid()) {
+    const e = new Error('Phone number is not valid'); e.status = 400; throw e;
+  }
+
+  const added = await addPhoneNumberToWaba(env.META_WABA_ID, {
+    cc: parsed.countryCallingCode,
+    phoneNumber: parsed.nationalNumber,
+    verifiedName: displayName || 'Business',
+  });
+
+  await requestOtp(added.id, 'SMS');
+
+  return { phoneNumberId: added.id, message: 'OTP sent via SMS' };
+}
+
+export async function byoVerifyOtp(workspaceId, { phoneNumberId, code, phoneNumber, displayName }) {
+  if (!phoneNumberId) { const e = new Error('Missing phoneNumberId'); e.status = 400; throw e; }
+  if (!code)          { const e = new Error('Missing OTP code');      e.status = 400; throw e; }
+
+  await verifyOtp(phoneNumberId, code);
+
+  try { await registerPhoneNumber(phoneNumberId, env.META_TWO_STEP_PIN); }
+  catch (err) { console.warn('[BYO] register skipped:', err.response?.data?.error?.message || err.message); }
+
+  try { await subscribeAppToWaba(env.META_WABA_ID); }
+  catch (err) { console.warn('[BYO] subscribed_apps:', err.response?.data?.error?.message || err.message); }
+
+  let details = {};
+  try { details = await getPhoneNumberById(phoneNumberId); } catch {}
+
+  const encryptedAccessToken = encrypt(env.META_SYSTEM_USER_TOKEN);
+  const data = {
+    workspaceId,
+    phoneNumber:       details.display_phone_number || phoneNumber || '',
+    metaPhoneNumberId: phoneNumberId,
+    wabaId:            env.META_WABA_ID,
+    encryptedAccessToken,
+    displayName:       details.verified_name || displayName || null,
+    quality:           details.quality_rating || null,
+  };
+
+  const existing = await prisma.waNumber.findFirst({ where: { workspaceId, metaPhoneNumberId: phoneNumberId } });
+  const number = existing
+    ? await prisma.waNumber.update({ where: { id: existing.id }, data })
+    : await prisma.waNumber.create({ data });
+
+  syncTemplatesFromMeta(workspaceId).catch(() => {});
+
+  return { id: number.id, phoneNumber: number.phoneNumber, displayName: number.displayName, wabaId: env.META_WABA_ID };
 }

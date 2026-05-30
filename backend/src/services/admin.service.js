@@ -1,7 +1,18 @@
 import twilio from 'twilio';
+import { parsePhoneNumber } from 'libphonenumber-js';
 import { prisma } from '../lib/prisma.js';
 import { encrypt } from '../lib/encryption.js';
-import { getWabaPhoneNumbers, requestOtp, verifyOtp, systemClient } from '../lib/meta.js';
+import {
+  getWabaPhoneNumbers,
+  requestOtp,
+  verifyOtp,
+  systemClient,
+  createOwnedWaba,
+  addPhoneNumberToWaba,
+  registerPhoneNumber,
+  subscribeAppToWaba,
+} from '../lib/meta.js';
+import { provisioningQueue } from '../queues/provisioning.queue.js';
 import { env } from '../config/env.js';
 
 // ── Pool summary ──────────────────────────────────────────────
@@ -95,14 +106,30 @@ export async function banPoolEntry(id) {
   });
 }
 
-// ── Twilio auto-sync ──────────────────────────────────────────
+// ── Twilio provisioning (Option 1) ────────────────────────────
+// Kicks off provisioning on a background queue and returns immediately — the
+// per-number pipeline polls for OTPs and can take minutes. The admin UI polls
+// the pool to see numbers appear.
 export async function twilioSync() {
+  const job = await provisioningQueue.add('twilio-sync', { type: 'twilio-sync' });
+  return {
+    queued: true,
+    jobId: job.id,
+    message: 'Provisioning started in the background. Numbers will appear in the pool as they finish registering.',
+  };
+}
+
+// The actual pipeline (runs in the provisioning worker). For every Twilio number
+// not already pooled: create a dedicated sub-WABA under the main business, add the
+// number to it, verify ownership via the OTP that Twilio receives, register the
+// number for Cloud API, subscribe our app for webhooks, and pool it.
+export async function provisionTwilioNumbers() {
   const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
   const twilioNumbers = await client.incomingPhoneNumbers.list();
   const results = [];
 
   for (const tn of twilioNumbers) {
-    const phoneNumber = tn.phoneNumber;
+    const phoneNumber = tn.phoneNumber; // E.164, e.g. +15559396638
     const existing = await prisma.numberPool.findFirst({ where: { phoneNumber } });
     if (existing) {
       results.push({ phoneNumber, status: 'skipped', reason: 'already in pool' });
@@ -110,57 +137,63 @@ export async function twilioSync() {
     }
 
     try {
-      // 1. Request OTP from Meta (SMS to Twilio number)
-      const metaNum = await getMetaPhoneNumberByPhone(phoneNumber);
-      if (!metaNum) {
-        results.push({ phoneNumber, status: 'skipped', reason: 'not registered in Meta WABA' });
+      const parsed = parsePhoneNumber(phoneNumber);
+      if (!parsed) {
+        results.push({ phoneNumber, status: 'failed', reason: 'could not parse phone number' });
         continue;
       }
+      const cc = parsed.countryCallingCode;   // e.g. "1"
+      const national = parsed.nationalNumber;  // e.g. "5559396638"
+      const displayName = tn.friendlyName || env.META_DISPLAY_NAME || 'Business';
 
-      await requestOtp(metaNum.id, 'SMS');
+      // 1. Create a dedicated sub-WABA under the main business
+      const waba = await createOwnedWaba(`CFP ${phoneNumber}`);
+      const wabaId = waba.id;
 
-      // 2. Poll Twilio inbox for OTP (up to 120s)
+      // 2. Add the number to that sub-WABA
+      const pn = await addPhoneNumberToWaba(wabaId, { cc, phoneNumber: national, verifiedName: displayName });
+      const phoneNumberId = pn.id;
+
+      // 3. Request the verification code via SMS (Twilio receives it)
+      await requestOtp(phoneNumberId, 'SMS');
+
+      // 4. Poll the Twilio inbox for the OTP (up to 120s)
       const otp = await pollTwilioForOtp(client, phoneNumber, 120);
       if (!otp) {
-        results.push({ phoneNumber, status: 'failed', reason: 'OTP not received within 120s' });
+        results.push({ phoneNumber, status: 'failed', reason: 'OTP not received within 120s', wabaId });
         continue;
       }
 
-      // 3. Verify with Meta
-      await verifyOtp(metaNum.id, otp);
+      // 5. Verify ownership
+      await verifyOtp(phoneNumberId, otp);
 
-      // 4. Save to pool
-      const encryptedAccessToken = encrypt(env.META_SYSTEM_USER_TOKEN);
+      // 6. Register for Cloud API
+      await registerPhoneNumber(phoneNumberId, env.META_TWO_STEP_PIN);
+
+      // 7. Subscribe our app to the new WABA's webhooks
+      await subscribeAppToWaba(wabaId);
+
+      // 8. Pool it
       await prisma.numberPool.create({
         data: {
           phoneNumber,
-          phoneNumberId: metaNum.id,
-          wabaId: env.META_WABA_ID,
-          encryptedAccessToken,
-          displayName: metaNum.verified_name ?? tn.friendlyName ?? '',
+          phoneNumberId,
+          wabaId,
+          encryptedAccessToken: encrypt(env.META_SYSTEM_USER_TOKEN),
+          displayName,
           status: 'AVAILABLE',
           registeredAt: new Date(),
         },
       });
 
-      results.push({ phoneNumber, status: 'added' });
+      results.push({ phoneNumber, status: 'added', wabaId, phoneNumberId });
     } catch (err) {
-      results.push({ phoneNumber, status: 'failed', reason: err.message });
+      const reason = err.response?.data?.error?.message || err.message;
+      results.push({ phoneNumber, status: 'failed', reason });
     }
   }
 
-  return { synced: results.filter(r => r.status === 'added').length, results };
-}
-
-async function getMetaPhoneNumberByPhone(phoneNumber) {
-  try {
-    const nums = await getWabaPhoneNumbers(env.META_WABA_ID);
-    // Meta returns numbers in E.164 without spaces; normalise for comparison
-    const normalise = p => p.replace(/\s+/g, '').replace(/[^+\d]/g, '');
-    return nums.find(n => normalise(n.display_phone_number) === normalise(phoneNumber)) ?? null;
-  } catch {
-    return null;
-  }
+  return { provisioned: results.filter(r => r.status === 'added').length, results };
 }
 
 async function pollTwilioForOtp(client, to, timeoutSec) {

@@ -9,8 +9,8 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/triggers', automationController.list);
-router.post('/triggers', authorize('ADMIN'), automationController.create);
-router.patch('/triggers/:id', authorize('ADMIN'), automationController.update);
-router.delete('/triggers/:id', authorize('ADMIN'), automationController.remove);
+router.post('/triggers', authorize('CLIENT'), automationController.create);
+router.patch('/triggers/:id', authorize('CLIENT'), automationController.update);
+router.delete('/triggers/:id', authorize('CLIENT'), automationController.remove);
 
 export default router;

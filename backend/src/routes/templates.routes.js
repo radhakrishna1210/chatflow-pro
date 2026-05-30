@@ -9,13 +9,13 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/',                   templatesController.list);
-router.post('/',                  authorize('ADMIN'), templatesController.create);
+router.post('/',                  authorize('CLIENT'), templatesController.create);
 router.post('/sync-from-meta',    templatesController.syncFromMeta);
 router.get('/library',            templatesController.library);
-router.post('/library/:libId/install', authorize('ADMIN'), templatesController.installLibrary);
+router.post('/library/:libId/install', authorize('CLIENT'), templatesController.installLibrary);
 router.get('/:id',                templatesController.getOne);
-router.put('/:id',                authorize('ADMIN'), templatesController.update);
-router.delete('/:id',             authorize('ADMIN'), templatesController.remove);
-router.post('/:id/duplicate',     authorize('ADMIN'), templatesController.duplicate);
+router.put('/:id',                authorize('CLIENT'), templatesController.update);
+router.delete('/:id',             authorize('CLIENT'), templatesController.remove);
+router.post('/:id/duplicate',     authorize('CLIENT'), templatesController.duplicate);
 
 export default router;

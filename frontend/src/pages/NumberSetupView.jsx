@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, adminFetch } from '../lib/api.js';
@@ -51,19 +51,47 @@ const CheckItem = ({ text }) => (
   </div>
 );
 
+// Loads the Facebook JS SDK once and resolves with the initialised FB object.
+function loadFbSdk(appId, version) {
+  return new Promise((resolve) => {
+    if (window.FB) { resolve(window.FB); return; }
+    window.fbAsyncInit = function () {
+      window.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version });
+      resolve(window.FB);
+    };
+    if (document.getElementById('facebook-jssdk')) return;
+    const js = document.createElement('script');
+    js.id = 'facebook-jssdk';
+    js.src = 'https://connect.facebook.net/en_US/sdk.js';
+    js.async = true; js.defer = true; js.crossOrigin = 'anonymous';
+    document.body.appendChild(js);
+  });
+}
+
 export default function NumberSetupView() {
   const [number, setNumber]           = useState(null);
   const [refreshing, setRefreshing]   = useState(false);
   const [pool, setPool]               = useState([]);
   const [poolLoading, setPoolLoading] = useState(false);
   const [getOpen, setGetOpen]         = useState(false);
-  const [connOpen, setConnOpen]       = useState(false);
   const [selPool, setSelPool]         = useState(null);
   const [gotNumber, setGotNumber]     = useState(null);
   const [gettingNum, setGettingNum]   = useState(false);
   const [getError, setGetError]       = useState(null);
-  const [showTok, setShowTok]         = useState(false);
-  const [form, setForm]               = useState({ phoneNumber:'', metaPhoneNumberId:'', wabaId:'', accessToken:'', displayName:'' });
+  // BYO via OTP
+  const [byoStep, setByoStep]             = useState(0); // 0=closed 1=enter phone 2=enter OTP
+  const [byoPhone, setByoPhone]           = useState('');
+  const [byoDisplayName, setByoDisplayName] = useState('');
+  const [byoPhoneNumberId, setByoPhoneNumberId] = useState('');
+  const [byoOtp, setByoOtp]               = useState('');
+  const [byoBusy, setByoBusy]             = useState(false);
+  const [byoError, setByoError]           = useState(null);
+
+  // Embedded Signup ("Connect with Meta")
+  const [esConfig, setEsConfig] = useState(null);   // { appId, configId, graphVersion }
+  const [esBusy, setEsBusy]     = useState(false);
+  const [esError, setEsError]   = useState(null);
+  const esSession               = useRef({});        // { wabaId, phoneNumberId } captured from the popup
 
   // Admin pool management state
   const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
@@ -72,6 +100,8 @@ export default function NumberSetupView() {
   const [adminPoolError, setAplError]     = useState(null);
   const [syncing, setSyncing]             = useState(false);
   const [syncResult, setSyncResult]       = useState(null);
+  const [provisioning, setProvisioning]   = useState(false);
+  const [provisionMsg, setProvisionMsg]   = useState(null);
   const [resetting, setResetting]         = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [assignOpen, setAssignOpen]       = useState(null); // poolEntry being assigned
@@ -85,6 +115,65 @@ export default function NumberSetupView() {
     wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)&&d[0]) setNumber(d[0]); }).catch(()=>{});
     if (isAdmin) loadAdminPool();
   }, []);
+
+  // Load Embedded Signup config and the Facebook SDK.
+  useEffect(() => {
+    wFetch('/whatsapp/embedded-signup/config')
+      .then(r=>r.ok&&r.json())
+      .then(c => { if (c) { setEsConfig(c); if (c.appId && c.graphVersion) loadFbSdk(c.appId, c.graphVersion); } })
+      .catch(()=>{});
+  }, []);
+
+  // Capture waba_id / phone_number_id from the Embedded Signup popup.
+  useEffect(() => {
+    const handler = (event) => {
+      if (typeof event.origin !== 'string' || !event.origin.endsWith('facebook.com')) return;
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data?.type === 'WA_EMBEDDED_SIGNUP' && data.data) {
+          if (data.data.waba_id)         esSession.current.wabaId = data.data.waba_id;
+          if (data.data.phone_number_id) esSession.current.phoneNumberId = data.data.phone_number_id;
+        }
+      } catch { /* non-JSON postMessage, ignore */ }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  const finishEmbeddedSignup = async (code) => {
+    try {
+      const { wabaId, phoneNumberId } = esSession.current || {};
+      const res = await wFetch('/whatsapp/embedded-signup', {
+        method: 'POST',
+        body: JSON.stringify({ code, wabaId, phoneNumberId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setEsError(data.error || `Error ${res.status}`); return; }
+      setNumber(data);
+    } catch (e) {
+      setEsError(e.message || 'Failed to complete signup');
+    } finally {
+      setEsBusy(false);
+    }
+  };
+
+  const launchWhatsAppSignup = () => {
+    setEsError(null);
+    if (!esConfig?.configId) { setEsError('Embedded Signup is not configured yet — add META_ES_CONFIG_ID on the server.'); return; }
+    if (!window.FB)          { setEsError('Facebook SDK is still loading — try again in a moment.'); return; }
+    setEsBusy(true);
+    esSession.current = {};
+    window.FB.login((response) => {
+      const code = response?.authResponse?.code;
+      if (!code) { setEsBusy(false); setEsError('Connection cancelled or permission not granted.'); return; }
+      finishEmbeddedSignup(code);
+    }, {
+      config_id: esConfig.configId,
+      response_type: 'code',
+      override_default_response_type: true,
+      extras: { setup: {}, featureType: '', sessionInfoVersion: '3' },
+    });
+  };
 
   const loadAdminPool = () => {
     setAplLoading(true); setAplError(null);
@@ -104,6 +193,23 @@ export default function NumberSetupView() {
       .then(r=>r.ok&&r.json()).then(d=>{ setSyncResult(d); loadAdminPool(); })
       .catch(()=>setSyncResult({ added:[], skipped:[], error:true }))
       .finally(()=>setSyncing(false));
+  };
+
+  const provisionTwilio = async () => {
+    setProvisioning(true); setProvisionMsg(null);
+    try {
+      const r = await adminFetch('/twilio/sync', { method:'POST' });
+      const d = await r.json();
+      if (!r.ok) { setProvisionMsg(d.error || `Error ${r.status}`); return; }
+      setProvisionMsg(d.message || 'Provisioning started.');
+      // Numbers register in the background — poll the pool for ~2 min so they appear.
+      let n = 0;
+      const iv = setInterval(() => { loadAdminPool(); if (++n >= 12) clearInterval(iv); }, 10000);
+    } catch {
+      setProvisionMsg('Failed to start provisioning — check Twilio/Meta credentials.');
+    } finally {
+      setProvisioning(false);
+    }
   };
 
   const resetAllAssignments = async () => {
@@ -196,9 +302,39 @@ export default function NumberSetupView() {
     }
   };
 
-  const connectOwn = async () => {
-    await wFetch('/whatsapp/numbers/connect-own', { method:'POST', body:JSON.stringify(form) }).catch(()=>{});
-    setConnOpen(false);
+  const byoOpen = () => { setByoStep(1); setByoPhone(''); setByoDisplayName(''); setByoOtp(''); setByoPhoneNumberId(''); setByoError(null); };
+  const byoClose = () => { setByoStep(0); setByoError(null); };
+
+  const byoSendOtp = async () => {
+    if (!byoPhone.trim()) { setByoError('Enter your phone number'); return; }
+    setByoBusy(true); setByoError(null);
+    try {
+      const res = await wFetch('/whatsapp/byo/request-otp', { method:'POST', body: JSON.stringify({ phoneNumber: byoPhone.trim(), displayName: byoDisplayName.trim() || 'Business' }) });
+      const data = await res.json();
+      if (!res.ok) { setByoError(data.error || `Error ${res.status}`); return; }
+      setByoPhoneNumberId(data.phoneNumberId);
+      setByoStep(2);
+    } catch (e) {
+      setByoError(e.message || 'Network error');
+    } finally {
+      setByoBusy(false);
+    }
+  };
+
+  const byoVerify = async () => {
+    if (!byoOtp.trim()) { setByoError('Enter the 6-digit OTP'); return; }
+    setByoBusy(true); setByoError(null);
+    try {
+      const res = await wFetch('/whatsapp/byo/verify-otp', { method:'POST', body: JSON.stringify({ phoneNumberId: byoPhoneNumberId, code: byoOtp.trim(), phoneNumber: byoPhone.trim(), displayName: byoDisplayName.trim() || 'Business' }) });
+      const data = await res.json();
+      if (!res.ok) { setByoError(data.error || `Error ${res.status}`); return; }
+      setNumber(data);
+      byoClose();
+    } catch (e) {
+      setByoError(e.message || 'Network error');
+    } finally {
+      setByoBusy(false);
+    }
   };
 
   const fmtQ = q => ({ color: qualityColor(q), bg:`${qualityColor(q)}18`, bd:`${qualityColor(q)}44` });
@@ -286,8 +422,15 @@ export default function NumberSetupView() {
                 <CheckItem text="Works with existing Meta Business accounts" />
               </div>
             </div>
-            <Btn style={{ boxShadow:'var(--glow)', flexShrink:0 }}>Connect with Meta</Btn>
+            <Btn onClick={launchWhatsAppSignup} disabled={esBusy} style={{ boxShadow:'var(--glow)', flexShrink:0 }}>
+              {esBusy ? 'Connecting…' : 'Connect with Meta'}
+            </Btn>
           </div>
+          {esError && (
+            <div style={{ marginTop:14, padding:'10px 14px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)' }}>
+              <p style={{ fontSize:12, color:'#f87171' }}>{esError}</p>
+            </div>
+          )}
         </div>
 
         {/* Two-option grid */}
@@ -321,7 +464,7 @@ export default function NumberSetupView() {
               <CheckItem text="Full control over settings" />
               <CheckItem text="Direct WABA connection" />
             </div>
-            <Btn variant="outline" onClick={() => setConnOpen(true)} style={{ width:'100%', justifyContent:'center' }}>Connect My Number</Btn>
+            <Btn variant="outline" onClick={byoOpen} style={{ width:'100%', justifyContent:'center' }}>Connect My Number</Btn>
           </div>
         </div>
 
@@ -349,12 +492,23 @@ export default function NumberSetupView() {
                   <I n="x" s={13} c={resetting ? 'var(--t3)' : '#f87171'} />
                   {resetting ? 'Resetting…' : 'Reset All'}
                 </Btn>
+                <Btn variant="outline" onClick={provisionTwilio} disabled={provisioning} style={{ flexShrink:0 }}>
+                  <I n="smartphone" s={13} c={provisioning ? 'var(--t3)' : 'var(--green)'} />
+                  {provisioning ? 'Starting…' : 'Provision from Twilio'}
+                </Btn>
                 <Btn onClick={syncFromWaba} disabled={syncing} style={{ flexShrink:0 }}>
                   <I n="refresh" s={13} c={syncing ? 'var(--t3)' : 'var(--green)'} />
                   {syncing ? 'Syncing…' : 'Sync from Meta WABA'}
                 </Btn>
               </div>
             </div>
+
+            {/* Twilio provisioning feedback */}
+            {provisionMsg && (
+              <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8, background:'rgba(14,165,233,.08)', border:'1px solid rgba(14,165,233,.25)' }}>
+                <p style={{ fontSize:12, color:'#38bdf8' }}>{provisionMsg}</p>
+              </div>
+            )}
 
             {/* Sync result feedback */}
             {syncResult && (
@@ -570,36 +724,75 @@ export default function NumberSetupView() {
         </Modal>
       )}
 
-      {/* Connect Own Dialog */}
-      {connOpen && (
-        <Modal title="Connect Your Number" onClose={() => setConnOpen(false)} footer={
-          <>
-            <Btn variant="ghost" onClick={() => setConnOpen(false)}>Cancel</Btn>
-            <Btn onClick={connectOwn} style={{ boxShadow:'var(--glow)' }}>Connect Number</Btn>
-          </>
-        }>
-          <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-            {[
-              { key:'phoneNumber',      label:'Phone Number',       hint:'', required:true,  ph:'+91 98765 43210',    type:'text' },
-              { key:'metaPhoneNumberId',label:'Phone Number ID',    hint:'From Meta dashboard → WhatsApp → Phone Numbers', required:true, ph:'921047971092757', type:'text' },
-              { key:'wabaId',           label:'WABA ID',            hint:'From Meta Business → WhatsApp Business Accounts', required:true, ph:'1475318980618872', type:'text' },
-              { key:'displayName',      label:'Display Name',       hint:'', required:false, ph:'My Business',         type:'text' },
-            ].map(f => (
-              <div key={f.key}>
-                <Label hint={f.hint} required={f.required}>{f.label}</Label>
-                <FInput value={form[f.key]} onChange={e => setForm(p=>({...p,[f.key]:e.target.value}))} placeholder={f.ph} />
+      {/* BYO OTP Modal — step 1: phone, step 2: OTP */}
+      {byoStep > 0 && (
+        <Modal
+          title={byoStep === 1 ? 'Connect Your Number' : 'Enter Verification Code'}
+          onClose={byoClose}
+          footer={
+            <>
+              <Btn variant="ghost" onClick={byoClose}>Cancel</Btn>
+              {byoStep === 1 && (
+                <Btn onClick={byoSendOtp} disabled={byoBusy} style={{ boxShadow:'var(--glow)' }}>
+                  {byoBusy ? 'Sending…' : 'Send OTP'}
+                </Btn>
+              )}
+              {byoStep === 2 && (
+                <Btn onClick={byoVerify} disabled={byoBusy} style={{ boxShadow:'var(--glow)' }}>
+                  {byoBusy ? 'Verifying…' : 'Verify & Connect'}
+                </Btn>
+              )}
+            </>
+          }
+        >
+          {byoError && (
+            <div style={{ marginBottom:14, padding:'10px 14px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)', fontSize:12, color:'#f87171' }}>
+              {byoError}
+            </div>
+          )}
+
+          {byoStep === 1 && (
+            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              <div>
+                <Label required>Phone Number</Label>
+                <FInput value={byoPhone} onChange={e => setByoPhone(e.target.value)} placeholder="+91 98765 43210" />
+                <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Include country code, e.g. +91 for India</p>
               </div>
-            ))}
-            <div>
-              <Label hint="From Meta → System Users or your WABA access token" required={true}>Access Token</Label>
-              <div style={{ position:'relative' }}>
-                <FInput type={showTok ? 'text' : 'password'} value={form.accessToken} onChange={e => setForm(p=>({...p,accessToken:e.target.value}))} placeholder="EAAxxxxx…" />
-                <button onClick={() => setShowTok(!showTok)} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
-                  <I n={showTok ? 'eyeoff' : 'eye'} s={15} c="var(--t2)" />
-                </button>
+              <div>
+                <Label>Business Display Name</Label>
+                <FInput value={byoDisplayName} onChange={e => setByoDisplayName(e.target.value)} placeholder="My Business" />
+              </div>
+              <div style={{ padding:'12px 14px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.2)' }}>
+                <p style={{ fontSize:12, color:'#38bdf8', lineHeight:1.6 }}>
+                  Meta will send a 6-digit OTP to this number via SMS. Make sure the number is reachable and not already active on the WhatsApp consumer app.
+                </p>
               </div>
             </div>
-          </div>
+          )}
+
+          {byoStep === 2 && (
+            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              <div style={{ textAlign:'center', padding:'8px 0 4px' }}>
+                <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.6 }}>
+                  A 6-digit code was sent to <strong style={{ color:'var(--t1)' }}>{byoPhone}</strong> via SMS.
+                </p>
+              </div>
+              <div>
+                <Label required>Verification Code</Label>
+                <FInput
+                  value={byoOtp}
+                  onChange={e => setByoOtp(e.target.value.replace(/\D/g,'').slice(0,6))}
+                  placeholder="123456"
+                  style={{ fontSize:22, letterSpacing:8, textAlign:'center', fontFamily:'monospace' }}
+                />
+              </div>
+              <button
+                onClick={() => { setByoStep(1); setByoOtp(''); setByoError(null); }}
+                style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'var(--t3)', textDecoration:'underline', padding:0, alignSelf:'center' }}>
+                Wrong number? Go back
+              </button>
+            </div>
+          )}
         </Modal>
       )}
     </div>

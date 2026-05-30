@@ -32,3 +32,22 @@ export async function disconnect(req, res) {
   const result = await whatsappService.disconnectNumber(req.params.workspaceId, req.params.id);
   res.json(result);
 }
+
+export function embeddedSignupConfig(req, res) {
+  res.json(whatsappService.getEmbeddedSignupConfig());
+}
+
+export async function embeddedSignup(req, res) {
+  const number = await whatsappService.completeEmbeddedSignup(req.params.workspaceId, req.body);
+  res.status(201).json(number);
+}
+
+export async function byoRequestOtp(req, res) {
+  const result = await whatsappService.byoRequestOtp(req.params.workspaceId, req.body);
+  res.json(result);
+}
+
+export async function byoVerifyOtp(req, res) {
+  const number = await whatsappService.byoVerifyOtp(req.params.workspaceId, req.body);
+  res.status(201).json(number);
+}

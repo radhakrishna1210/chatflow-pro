@@ -29,6 +29,10 @@ const envSchema = z.object({
   META_DISPLAY_NAME: z.string().min(1),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(1),
   META_API_VERSION: z.string().default('v21.0'),
+  // Two-step-verification PIN used when registering platform-hosted numbers for Cloud API.
+  META_TWO_STEP_PIN: z.string().regex(/^\d{6}$/, 'META_TWO_STEP_PIN must be exactly 6 digits').default('000000'),
+  // Embedded Signup configuration id (from Meta dashboard → WhatsApp → Embedded Signup).
+  META_ES_CONFIG_ID: z.string().optional(),
 
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),

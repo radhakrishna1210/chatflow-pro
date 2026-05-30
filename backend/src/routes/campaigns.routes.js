@@ -9,10 +9,10 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/', campaignsController.list);
-router.post('/', authorize('ADMIN'), campaignsController.create);
+router.post('/', authorize('CLIENT'), campaignsController.create);
 router.get('/:id', campaignsController.getOne);
-router.post('/:id/recipients', authorize('ADMIN'), campaignsController.addRecipients);
-router.post('/:id/launch', authorize('ADMIN'), campaignsController.launch);
-router.patch('/:id/cancel', authorize('ADMIN'), campaignsController.cancel);
+router.post('/:id/recipients', authorize('CLIENT'), campaignsController.addRecipients);
+router.post('/:id/launch', authorize('CLIENT'), campaignsController.launch);
+router.patch('/:id/cancel', authorize('CLIENT'), campaignsController.cancel);
 
 export default router;

@@ -55,6 +55,53 @@ export async function getWabaPhoneNumbers(wabaId) {
   return data.data || [];
 }
 
+// ── Provisioning helpers (Option 1: platform-hosted sub-WABA per number) ──
+
+// Create a new WABA owned by the platform's main business.
+export async function createOwnedWaba(name) {
+  const { data } = await systemClient.post(`/${env.META_BUSINESS_ID}/owned_whatsapp_business_accounts`, {
+    name,
+  });
+  return data; // { id }
+}
+
+// Add a phone number to a WABA. cc = country calling code, phoneNumber = national number.
+export async function addPhoneNumberToWaba(wabaId, { cc, phoneNumber, verifiedName }) {
+  const { data } = await systemClient.post(`/${wabaId}/phone_numbers`, {
+    cc,
+    phone_number: phoneNumber,
+    verified_name: verifiedName,
+  });
+  return data; // { id }
+}
+
+// Register a phone number for Cloud API with a two-step-verification PIN.
+// accessToken is used for customer-owned WABAs (Embedded Signup); defaults to the system user.
+export async function registerPhoneNumber(phoneNumberId, pin, accessToken) {
+  const client = accessToken ? metaClient(accessToken) : systemClient;
+  const { data } = await client.post(`/${phoneNumberId}/register`, {
+    messaging_product: 'whatsapp',
+    pin,
+  });
+  return data;
+}
+
+// Subscribe our app to a WABA so inbound messages and statuses reach our webhook.
+export async function subscribeAppToWaba(wabaId, accessToken) {
+  const client = accessToken ? metaClient(accessToken) : systemClient;
+  const { data } = await client.post(`/${wabaId}/subscribed_apps`);
+  return data;
+}
+
+// Fetch a single phone number's details.
+export async function getPhoneNumberById(phoneNumberId, accessToken) {
+  const client = accessToken ? metaClient(accessToken) : systemClient;
+  const { data } = await client.get(`/${phoneNumberId}`, {
+    params: { fields: 'display_phone_number,verified_name,quality_rating,status' },
+  });
+  return data;
+}
+
 export async function getWabaTemplates(wabaId, accessToken) {
   const client = accessToken ? metaClient(accessToken) : systemClient;
   const results = [];
