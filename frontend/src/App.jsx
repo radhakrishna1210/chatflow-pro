@@ -22,7 +22,9 @@ function getInitialPage() {
     return 'dashboard';
   }
 
-  if (localStorage.getItem('accessToken')) return 'dashboard';
+  const storedUser = localStorage.getItem('user');
+  const storedToken = localStorage.getItem('accessToken');
+  if (storedToken && storedUser) return 'dashboard';
   return 'landing';
 }
 

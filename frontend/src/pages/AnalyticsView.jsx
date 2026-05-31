@@ -36,8 +36,14 @@ export default function AnalyticsView() {
   const [campaigns, setCampaigns] = useState([]);
   const [agents, setAgents]       = useState([]);
   const [loading, setLoading]     = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
+    const stored = localStorage.getItem('user');
+    if (stored) {
+      try { setCurrentUser(JSON.parse(stored)); } catch { setCurrentUser(null); }
+    }
+
     Promise.all([
       wFetch('/analytics/overview').then(r=>r.ok&&r.json()).catch(()=>null),
       wFetch('/analytics/delivery').then(r=>r.ok&&r.json()).catch(()=>null),
@@ -52,6 +58,7 @@ export default function AnalyticsView() {
     });
   }, []);
 
+  const currentAgent = currentUser ? agents.find(a => a.agentId === currentUser.id) : null;
   const maxBar = delivery.length ? Math.max(...delivery.map(d => d.sent)) : 1;
   const BAR_H  = 100;
 
@@ -83,6 +90,56 @@ export default function AnalyticsView() {
           </> : (
             <div style={{ gridColumn:'1/-1', textAlign:'center', padding:'20px', color:'var(--t2)', fontSize:13 }}>No overview data yet.</div>
           )}
+        </div>
+
+        {/* User analytics summary */}
+        <div style={{ ...card, padding:'20px' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+            <div>
+              <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>User Analytics</h3>
+              <p style={{ fontSize:12, color:'var(--t2)' }}>Team activity and agent performance for the workspace.</p>
+            </div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+            <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
+              <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Active users</div>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{agents.length}</div>
+            </div>
+            <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
+              <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Chats handled</div>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{agents.reduce((sum, agent) => sum + (agent.chatsHandled ?? 0), 0)}</div>
+            </div>
+            <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
+              <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Top performer</div>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>{agents.length ? agents.reduce((best, agent) => (agent.chatsHandled ?? 0) > (best.chatsHandled ?? 0) ? agent : best, agents[0]).name : 'No data'}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Current user analytics */}
+        <div style={{ ...card, padding:'20px' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+            <div>
+              <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>Your activity</h3>
+              <p style={{ fontSize:12, color:'var(--t2)' }}>Personal metrics for your account.</p>
+            </div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+            <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
+              <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Your chats</div>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{currentAgent ? (currentAgent.chatsHandled ?? 0) : '0'}</div>
+            </div>
+            <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
+              <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Your rank</div>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>
+                {currentAgent ? `${agents.filter(a => (a.chatsHandled ?? 0) > (currentAgent.chatsHandled ?? 0)).length + 1}/${agents.length}` : 'N/A'}
+              </div>
+            </div>
+            <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
+              <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>{currentUser ? `${currentUser.name}` : 'User'}</div>
+              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>{currentAgent ? currentAgent.chatsHandled ?? 0 : 'No data'}</div>
+            </div>
+          </div>
         </div>
 
         {/* Bar chart */}

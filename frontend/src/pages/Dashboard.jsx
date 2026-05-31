@@ -7,6 +7,7 @@ import ContactsView from './ContactsView.jsx';
 import InboxView from './InboxView.jsx';
 import AutomationView from './AutomationView.jsx';
 import AnalyticsView from './AnalyticsView.jsx';
+import UserAnalyticsView from './UserAnalyticsView.jsx';
 import NumberSetupView from './NumberSetupView.jsx';
 import ApiKeysView from './ApiKeysView.jsx';
 import SettingsView from './SettingsView.jsx';
@@ -1091,16 +1092,17 @@ const PlaceholderView = ({ title, icon }) => (
 );
 
 const ADMIN_NAV = [
-  { id: 'home',       label: 'Home',         icon: 'home'  },
-  { id: 'templates',  label: 'Templates',    icon: 'file'  },
-  { id: 'campaigns',  label: 'Campaigns',    icon: 'send'  },
-  { id: 'contacts',   label: 'Contacts',     icon: 'users' },
-  { id: 'inbox',      label: 'Inbox',        icon: 'msg'   },
-  { id: 'automation', label: 'Automation',   icon: 'zap'   },
-  { id: 'analytics',  label: 'Analytics',    icon: 'chart' },
-  { id: 'setup',      label: 'Number Setup', icon: 'phone' },
-  { id: 'api',        label: 'API Keys',     icon: 'key'   },
-  { id: 'settings',   label: 'Settings',     icon: 'cog'   },
+  { id: 'home',           label: 'Home',           icon: 'home'  },
+  { id: 'templates',      label: 'Templates',      icon: 'file'  },
+  { id: 'campaigns',      label: 'Campaigns',      icon: 'send'  },
+  { id: 'contacts',       label: 'Contacts',       icon: 'users' },
+  { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
+  { id: 'automation',     label: 'Automation',     icon: 'zap'   },
+  { id: 'analytics',      label: 'Analytics',      icon: 'chart' },
+  { id: 'user-analytics', label: 'User Analytics', icon: 'user'  },
+  { id: 'setup',          label: 'Number Setup',   icon: 'phone' },
+  { id: 'api',            label: 'API Keys',       icon: 'key'   },
+  { id: 'settings',       label: 'Settings',       icon: 'cog'   },
 ];
 
 const CLIENT_NAV = ADMIN_NAV;
@@ -1189,11 +1191,12 @@ export default function Dashboard({ onNav }) {
     if (page === 'campaigns')  return <CampaignsView onCreateCampaign={() => setPage('campaigns-create')} />;
     if (page === 'templates')  return <TemplatesView />;
     if (page === 'contacts')   return <ContactsView />;
-    if (page === 'automation') return <AutomationView />;
-    if (page === 'analytics')  return <AnalyticsView />;
-    if (page === 'setup')      return <NumberSetupView />;
-    if (page === 'api')        return <ApiKeysView />;
-    if (page === 'settings')   return <SettingsView />;
+    if (page === 'automation')      return <AutomationView />;
+    if (page === 'analytics')       return <AnalyticsView />;
+    if (page === 'user-analytics')  return <UserAnalyticsView />;
+    if (page === 'setup')           return <NumberSetupView />;
+    if (page === 'api')             return <ApiKeysView />;
+    if (page === 'settings')        return <SettingsView />;
     const navItem = NAV.find(n => n.id === page);
     return <PlaceholderView title={navItem?.label || 'Section'} icon={navItem?.icon || 'cog'} />;
   };
