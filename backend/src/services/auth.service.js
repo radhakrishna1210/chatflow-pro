@@ -118,14 +118,27 @@ export async function refresh(token) {
 
   const member = await prisma.workspaceMember.findFirst({
     where: { userId: payload.sub },
+    include: { workspace: true },
     orderBy: { joinedAt: 'asc' },
   });
 
+  if (!member) {
+    const err = new Error('No workspace found for user');
+    err.status = 401;
+    throw err;
+  }
+
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-  const role = resolveRole(user?.email ?? '');
+  if (!user) {
+    const err = new Error('User not found');
+    err.status = 401;
+    throw err;
+  }
+
+  const role = resolveRole(user.email);
   const { accessToken, refreshToken: newRefreshToken } = generateTokens(
     payload.sub,
-    member?.workspaceId,
+    member.workspaceId,
     role
   );
   await storeRefreshToken(payload.sub, newRefreshToken);
