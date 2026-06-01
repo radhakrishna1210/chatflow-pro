@@ -1,0 +1,137 @@
+# Render Blueprint — ChatFlow Pro (single-service test deployment)
+#
+# One web service builds the Vite frontend and serves it from the Express
+# backend, so the app, API, Google OAuth callback, and Meta webhook all live
+# on one public URL (https://<service>.onrender.com).
+#
+# Postgres stays on Supabase (set DATABASE_URL below). Redis is provisioned
+# here for BullMQ. Secrets are marked `sync: false` — fill them in the Render
+# dashboard after the first deploy. See DEPLOY.md for the full checklist.
+
+services:
+  - type: web
+    name: chatflow-pro
+    runtime: node
+    plan: free
+    region: singapore
+    # The committed features live on this branch (master is just the initial commit).
+    branch: feature/embedded-signup
+    # --include=dev is required: prisma (backend) and vite (frontend) are devDependencies
+    # but are needed to build, and NODE_ENV=production otherwise skips them.
+    buildCommand: npm ci --include=dev --prefix backend && npm ci --include=dev --prefix frontend && npm run build --prefix frontend
+    startCommand: npm run start:prod --prefix backend
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: JSON_BODY_LIMIT
+        value: 2mb
+
+      # --- Redis (BullMQ) — provisioned by this blueprint ---
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: chatflow-redis
+          property: connectionString
+
+      # --- Database (Supabase session pooler, port 5432) ---
+      - key: DATABASE_URL
+        sync: false
+
+      # --- URLs (set all three to the service URL, e.g. https://chatflow-pro.onrender.com) ---
+      - key: CLIENT_URL
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: CHATFLOW_PRO_URL
+        sync: false
+      # Must match the URI registered in Google Cloud Console exactly:
+      #   https://<service>.onrender.com/api/v1/auth/google/callback
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+
+      # --- Auth / crypto secrets ---
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: BCRYPT_SALT_ROUNDS
+        value: "12"
+      # Must be exactly 32 characters (AES-256 key) — set manually.
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+
+      # --- Meta / WhatsApp Cloud API ---
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_BUSINESS_ID
+        sync: false
+      - key: META_WABA_ID
+        sync: false
+      - key: META_SYSTEM_USER_ID
+        sync: false
+      - key: META_SYSTEM_USER_TOKEN
+        sync: false
+      - key: META_DISPLAY_NAME
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: META_API_VERSION
+        value: v21.0
+      - key: META_TWO_STEP_PIN
+        sync: false
+      - key: META_ES_CONFIG_ID
+        sync: false
+
+      # --- Google OAuth ---
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      # --- Twilio (optional) ---
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+
+      # --- Campaign worker tuning ---
+      - key: CAMPAIGN_BATCH_SIZE
+        value: "50"
+      - key: CAMPAIGN_WORKER_CONCURRENCY
+        value: "2"
+
+      # --- SMTP email notifications ---
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: ChatFlow Pro
+      - key: EMAIL_FROM
+        sync: false
+
+# Redis instance for BullMQ queues (campaign, emails, provisioning).
+# Render calls this "Key Value"; the blueprint type is still `redis`.
+redis:
+  - name: chatflow-redis
+    plan: free
+    region: singapore
+    maxmemoryPolicy: noeviction   # required for BullMQ — never evict job data
+    ipAllowList: []               # internal-only access from the web service
