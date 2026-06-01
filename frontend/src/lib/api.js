@@ -1,6 +1,14 @@
-// Base URL of the backend API. Empty by default (relative paths → same-origin),
-// or set VITE_API_URL at build time to point at a separately deployed backend.
-export const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+// Base URL of the backend API.
+//  1. VITE_API_URL (build-time) wins if set.
+//  2. Otherwise, when served from the deployed *.onrender.com frontend, talk to
+//     the separately deployed backend.
+//  3. Otherwise (local dev), use relative paths → Vite proxy / same-origin.
+const PROD_API = 'https://chatflow-pro-backend.onrender.com';
+const onRender =
+  typeof window !== 'undefined' && window.location.hostname.endsWith('onrender.com');
+export const API_BASE = (
+  import.meta.env.VITE_API_URL || (onRender ? PROD_API : '')
+).replace(/\/$/, '');
 
 let _refreshing = null;
 
