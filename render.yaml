@@ -1,25 +1,33 @@
-# Render Blueprint — ChatFlow Pro (single-service test deployment)
+# Render Blueprint — ChatFlow Pro (SEPARATE frontend + backend deployment)
 #
-# One web service builds the Vite frontend and serves it from the Express
-# backend, so the app, API, Google OAuth callback, and Meta webhook all live
-# on one public URL (https://<service>.onrender.com).
+# Two services:
+#   1. chatflow-pro-api      — Express backend (web service, Node)
+#   2. chatflow-pro-web      — Vite frontend (static site)
+# Plus a Redis (Key Value) instance for BullMQ queues.
 #
-# Postgres stays on Supabase (set DATABASE_URL below). Redis is provisioned
-# here for BullMQ. Secrets are marked `sync: false` — fill them in the Render
-# dashboard after the first deploy. See DEPLOY.md for the full checklist.
+# The frontend calls the backend cross-origin. The backend already sends
+# `Access-Control-Allow-Origin: *`, so no CORS config is needed. The frontend
+# must be built with VITE_API_URL pointing at the backend's public URL
+# (baked in at build time — see the env var below).
+#
+# Postgres stays on Supabase (set DATABASE_URL below). Secrets marked
+# `sync: false` are filled in the Render dashboard. See DEPLOY.md.
 
 services:
+  # ----------------------------------------------------------------------
+  # Backend API (Express)
+  # ----------------------------------------------------------------------
   - type: web
-    name: chatflow-pro
+    name: chatflow-pro-api
     runtime: node
     plan: free
     region: singapore
-    # The committed features live on this branch (master is just the initial commit).
     branch: feature/embedded-signup
-    # --include=dev is required: prisma (backend) and vite (frontend) are devDependencies
-    # but are needed to build, and NODE_ENV=production otherwise skips them.
-    buildCommand: npm ci --include=dev --prefix backend && npm ci --include=dev --prefix frontend && npm run build --prefix frontend
-    startCommand: npm run start:prod --prefix backend
+    rootDir: backend
+    # postinstall runs `prisma generate`; --include=dev pulls in the prisma CLI
+    # (it's a devDependency) which NODE_ENV=production would otherwise skip.
+    buildCommand: npm install --include=dev
+    startCommand: npm run start:prod
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_VERSION
@@ -40,7 +48,8 @@ services:
       - key: DATABASE_URL
         sync: false
 
-      # --- URLs (set all three to the service URL, e.g. https://chatflow-pro.onrender.com) ---
+      # --- URLs ---
+      # CLIENT_URL = the frontend static-site URL (used for OAuth redirects, etc.)
       - key: CLIENT_URL
         sync: false
       - key: APP_URL
@@ -48,7 +57,7 @@ services:
       - key: CHATFLOW_PRO_URL
         sync: false
       # Must match the URI registered in Google Cloud Console exactly:
-      #   https://<service>.onrender.com/api/v1/auth/google/callback
+      #   https://chatflow-pro-api.onrender.com/api/v1/auth/google/callback
       - key: GOOGLE_CALLBACK_URL
         sync: false
 
@@ -126,6 +135,28 @@ services:
         value: ChatFlow Pro
       - key: EMAIL_FROM
         sync: false
+
+  # ----------------------------------------------------------------------
+  # Frontend (Vite static site)
+  # ----------------------------------------------------------------------
+  - type: web
+    name: chatflow-pro-web
+    runtime: static
+    branch: feature/embedded-signup
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      # Baked into the bundle at build time. Must be the backend's public URL,
+      # e.g. https://chatflow-pro-api.onrender.com (no trailing slash).
+      # NOTE: changing this requires a *rebuild* of the frontend, not just a restart.
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      # SPA fallback so client-side routes resolve to index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html
 
 # Redis instance for BullMQ queues (campaign, emails, provisioning).
 # Render calls this "Key Value"; the blueprint type is still `redis`.
