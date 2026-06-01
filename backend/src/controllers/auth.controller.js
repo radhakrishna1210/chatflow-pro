@@ -34,5 +34,7 @@ export function googleCallback(req, res) {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
   });
-  res.redirect(`${process.env.CLIENT_URL}/auth/callback?${params}`);
+  // Redirect to the root path (always served by the static host) with tokens in
+  // the query — the SPA picks them up there. Avoids needing a deep-link rewrite.
+  res.redirect(`${process.env.CLIENT_URL}/?${params}`);
 }

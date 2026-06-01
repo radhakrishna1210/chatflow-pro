@@ -7,7 +7,8 @@ function getInitialPage() {
   const params = new URLSearchParams(window.location.search);
   const accessToken = params.get('accessToken');
 
-  if (window.location.pathname === '/auth/callback' && accessToken) {
+  // OAuth callback: backend redirects here with tokens in the query (any path).
+  if (accessToken) {
     localStorage.setItem('accessToken', accessToken);
     const refreshToken = params.get('refreshToken');
     if (refreshToken) localStorage.setItem('refreshToken', refreshToken);

@@ -17,9 +17,9 @@ router.get('/google/callback', (req, res, next) => {
     if (err) {
       const reason = err.code || err.message || 'oauth_error';
       console.error(`[Google OAuth] ${reason} — expected redirect_uri="${env.GOOGLE_CALLBACK_URL}". Check that this exact URL is in Google Cloud Console → Credentials → Authorized redirect URIs.`);
-      return res.redirect(`${env.CLIENT_URL}/login?oauth_error=${encodeURIComponent(reason)}`);
+      return res.redirect(`${env.CLIENT_URL}/?oauth_error=${encodeURIComponent(reason)}`);
     }
-    if (!user) return res.redirect(`${env.CLIENT_URL}/login?oauth_error=denied`);
+    if (!user) return res.redirect(`${env.CLIENT_URL}/?oauth_error=denied`);
     req.user = user;
     return authController.googleCallback(req, res, next);
   })(req, res, next);
