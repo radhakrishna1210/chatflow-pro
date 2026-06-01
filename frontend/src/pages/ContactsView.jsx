@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch } from '../lib/api.js';
+import { wFetch, API_BASE } from '../lib/api.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -139,7 +139,7 @@ const CsvTab = ({ onSaved }) => {
       fd.append('file', file);
       const { workspaceId } = JSON.parse(localStorage.getItem('user') || '{}');
       const token = localStorage.getItem('accessToken');
-      const res = await fetch(`/api/v1/workspaces/${workspaceId}/contacts/import`, {
+      const res = await fetch(`${API_BASE}/api/v1/workspaces/${workspaceId}/contacts/import`, {
         method:'POST',
         headers: { Authorization: `Bearer ${token}` }, // no Content-Type — browser sets it with boundary
         body: fd,

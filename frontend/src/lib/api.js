@@ -1,3 +1,7 @@
+// Base URL of the backend API. Empty by default (relative paths → same-origin),
+// or set VITE_API_URL at build time to point at a separately deployed backend.
+export const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
 let _refreshing = null;
 
 async function refreshAccessToken() {
@@ -5,7 +9,7 @@ async function refreshAccessToken() {
   _refreshing = (async () => {
     const refreshToken = localStorage.getItem('refreshToken');
     if (!refreshToken) throw new Error('no refresh token');
-    const res = await fetch('/api/v1/auth/refresh', {
+    const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
@@ -51,8 +55,8 @@ async function authedFetch(url, opts = {}) {
 
 export const wFetch = (path, opts = {}) => {
   const { workspaceId } = JSON.parse(localStorage.getItem('user') || '{}');
-  return authedFetch(`/api/v1/workspaces/${workspaceId}${path}`, opts);
+  return authedFetch(`${API_BASE}/api/v1/workspaces/${workspaceId}${path}`, opts);
 };
 
 export const adminFetch = (path, opts = {}) =>
-  authedFetch(`/api/v1/admin${path}`, opts);
+  authedFetch(`${API_BASE}/api/v1/admin${path}`, opts);
