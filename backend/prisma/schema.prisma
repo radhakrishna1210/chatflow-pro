@@ -26,13 +26,17 @@ model Workspace {
   plan                     String   @default("FREE")
   webhookUrl               String?
   webhookVerifyToken       String   @default("")
-  notifyNewConversation    Boolean  @default(true)
-  notifyTemplateApproved   Boolean  @default(true)
-  notifyTemplateRejected   Boolean  @default(true)
-  notifyCampaignCompleted  Boolean  @default(true)
-  notifyHighOptout         Boolean  @default(true)
-  notifyRateLimit          Boolean  @default(true)
-  createdAt                DateTime @default(now())
+  notifyNewConversation         Boolean  @default(true)
+  notifyTemplateApproved        Boolean  @default(true)
+  notifyTemplateRejected        Boolean  @default(true)
+  notifyCampaignCompleted       Boolean  @default(true)
+  notifyHighOptout              Boolean  @default(true)
+  notifyRateLimit               Boolean  @default(true)
+  emailNotifyCampaignCompleted  Boolean  @default(true)
+  emailNotifyTemplateApproved   Boolean  @default(true)
+  emailNotifyTemplateRejected   Boolean  @default(true)
+  emailNotifyMemberInvite       Boolean  @default(true)
+  createdAt                     DateTime @default(now())
 
   members       WorkspaceMember[]
   waNumbers     WaNumber[]

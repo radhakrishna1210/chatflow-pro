@@ -39,6 +39,16 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   GOOGLE_CALLBACK_URL: z.string().url().optional(),
+
+  // SMTP — optional until credentials are configured
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_SECURE: z.string().default('false').transform((v) => v === 'true'),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  EMAIL_FROM_NAME: z.string().default('ChatFlow Pro'),
+  EMAIL_FROM: z.string().optional(),
+  APP_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

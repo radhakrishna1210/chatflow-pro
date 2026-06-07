@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { queueWelcomeEmail } from './email.service.js';
 
 function generateTokens(userId, workspaceId, role) {
   const accessToken = jwt.sign(
@@ -47,6 +48,8 @@ export async function register({ name, email, password }) {
 
   const { accessToken, refreshToken } = generateTokens(user.id, workspace.id, role);
   await storeRefreshToken(user.id, refreshToken);
+
+  queueWelcomeEmail({ email: user.email, name: user.name }).catch(() => {});
 
   return {
     accessToken, refreshToken,

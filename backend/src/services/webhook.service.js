@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { findMatchingTrigger } from './automation.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage } from '../lib/meta.js';
+import { queueTemplateApprovedEmail, queueTemplateRejectedEmail } from './email.service.js';
 
 export async function processWebhook(body) {
   const entries = body?.entry || [];
@@ -68,6 +69,20 @@ async function handleTemplateStatusUpdate(wabaId, value) {
     data: { status: newStatus, ...(metaTemplateId ? {} : { metaTemplateId: undefined }) },
   });
   console.log(`[Template] Updated ${result.count} row(s) to ${newStatus}.`);
+
+  if (result.count > 0 && templateName) {
+    const affectedTemplates = await prisma.template.findMany({ where, select: { workspaceId: true, name: true } });
+    const seen = new Set();
+    for (const t of affectedTemplates) {
+      if (seen.has(t.workspaceId)) continue;
+      seen.add(t.workspaceId);
+      if (newStatus === 'APPROVED') {
+        queueTemplateApprovedEmail(t.workspaceId, t.name).catch(() => {});
+      } else if (newStatus === 'REJECTED') {
+        queueTemplateRejectedEmail(t.workspaceId, t.name).catch(() => {});
+      }
+    }
+  }
 }
 
 async function handleInboundMessage(value, msg) {
