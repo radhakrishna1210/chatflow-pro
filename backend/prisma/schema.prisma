@@ -87,10 +87,14 @@ model WaNumber {
 model NumberPool {
   id                   String            @id @default(cuid())
   phoneNumber          String            @unique
-  phoneNumberId        String
-  wabaId               String
-  encryptedAccessToken String
+  // Null until the number becomes a live WhatsApp sender (Meta phone-number id / WABA / token).
+  // A freshly synced Twilio number has none of these yet — it is still PROVISIONING.
+  phoneNumberId        String?
+  wabaId               String?
+  encryptedAccessToken String?
   displayName          String?
+  provider             String            @default("META")  // META | TWILIO — who owns/hosts the number
+  twilioSid            String?                              // Twilio IncomingPhoneNumber SID, when provider = TWILIO
   status               NumberPoolStatus  @default(AVAILABLE)
   assignedTo           String?
   registeredAt         DateTime?
@@ -99,6 +103,7 @@ model NumberPool {
 
 enum NumberPoolStatus {
   AVAILABLE
+  PROVISIONING
   ASSIGNED
   BANNED
 }

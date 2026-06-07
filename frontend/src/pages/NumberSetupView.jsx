@@ -4,9 +4,10 @@ import { Btn } from '../components/Btn.jsx';
 import { wFetch, adminFetch } from '../lib/api.js';
 
 const statusColor = s => ({
-  AVAILABLE: { bg:'var(--gbg)',              bd:'var(--gbd)',              c:'var(--green)' },
-  ASSIGNED:  { bg:'rgba(14,165,233,.1)',     bd:'rgba(14,165,233,.25)',    c:'#38bdf8' },
-  BANNED:    { bg:'rgba(239,68,68,.08)',     bd:'rgba(239,68,68,.2)',      c:'#f87171' },
+  AVAILABLE:    { bg:'var(--gbg)',              bd:'var(--gbd)',              c:'var(--green)' },
+  PROVISIONING: { bg:'rgba(245,158,11,.08)',    bd:'rgba(245,158,11,.25)',    c:'#fbbf24' },
+  ASSIGNED:     { bg:'rgba(14,165,233,.1)',     bd:'rgba(14,165,233,.25)',    c:'#38bdf8' },
+  BANNED:       { bg:'rgba(239,68,68,.08)',     bd:'rgba(239,68,68,.2)',      c:'#f87171' },
 }[s] || { bg:'rgba(255,255,255,.04)', bd:'var(--bd)', c:'var(--t2)' });
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
@@ -526,12 +527,13 @@ export default function NumberSetupView() {
 
             {/* Summary stats */}
             {adminPool?.summary && (
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:18 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10, marginBottom:18 }}>
                 {[
-                  { label:'Total',     val: adminPool.summary.total,     c:'var(--t1)' },
-                  { label:'Available', val: adminPool.summary.available,  c:'var(--green)' },
-                  { label:'Assigned',  val: adminPool.summary.assigned,   c:'#38bdf8' },
-                  { label:'Banned',    val: adminPool.summary.banned,     c:'#f87171' },
+                  { label:'Total',        val: adminPool.summary.total,                  c:'var(--t1)' },
+                  { label:'Available',    val: adminPool.summary.available,              c:'var(--green)' },
+                  { label:'Provisioning', val: adminPool.summary.provisioning ?? 0,      c:'#fbbf24' },
+                  { label:'Assigned',     val: adminPool.summary.assigned,               c:'#38bdf8' },
+                  { label:'Banned',       val: adminPool.summary.banned,                 c:'#f87171' },
                 ].map(s => (
                   <div key={s.label} style={{ background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:10, padding:'12px 14px', textAlign:'center' }}>
                     <p style={{ fontSize:22, fontWeight:800, fontFamily:"'Syne',sans-serif", color:s.c, marginBottom:3 }}>{s.val}</p>
@@ -574,7 +576,12 @@ export default function NumberSetupView() {
                       const sc = statusColor(e.status);
                       return (
                         <tr key={e.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
-                          <td style={{ padding:'10px 10px', color:'var(--t1)', fontFamily:'monospace', whiteSpace:'nowrap' }}>{e.phoneNumber}</td>
+                          <td style={{ padding:'10px 10px', color:'var(--t1)', fontFamily:'monospace', whiteSpace:'nowrap' }}>
+                            {e.phoneNumber}
+                            {e.provider && e.provider !== 'META' && (
+                              <span style={{ marginLeft:8, padding:'1px 7px', borderRadius:10, fontSize:10, fontWeight:700, fontFamily:"'Plus Jakarta Sans',sans-serif", background:'rgba(124,58,237,.12)', border:'1px solid rgba(124,58,237,.3)', color:'#a78bfa', textTransform:'capitalize' }}>{e.provider.toLowerCase()}</span>
+                            )}
+                          </td>
                           <td style={{ padding:'10px 10px', color:'var(--t2)' }}>{e.displayName || '—'}</td>
                           <td style={{ padding:'10px 10px' }}>
                             <span style={{ padding:'2px 9px', borderRadius:12, fontSize:11, fontWeight:700, background:sc.bg, border:`1px solid ${sc.bd}`, color:sc.c }}>{e.status}</span>
@@ -588,7 +595,10 @@ export default function NumberSetupView() {
                                   Assign
                                 </button>
                               )}
-                              {e.status !== 'AVAILABLE' && (
+                              {e.status === 'PROVISIONING' && (
+                                <span style={{ fontSize:11, color:'var(--t3)', alignSelf:'center' }}>Awaiting WhatsApp activation</span>
+                              )}
+                              {(e.status === 'ASSIGNED' || e.status === 'BANNED') && (
                                 <button onClick={() => resetEntry(e.id)}
                                   style={{ padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', background:'rgba(16,185,129,.1)', border:'1px solid rgba(16,185,129,.25)', color:'var(--green)' }}>
                                   Reset

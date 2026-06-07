@@ -7,7 +7,9 @@ backend/node_modules/
 .env
 .env.local
 .env.*.local
+.env.production
 backend/.env
+backend/.env.production
 
 # Build output
 frontend/dist/
