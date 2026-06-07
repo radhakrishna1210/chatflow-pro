@@ -37,7 +37,7 @@ export default function AnalyticsView() {
   const [agents, setAgents]       = useState([]);
   const [loading, setLoading]     = useState(true);
 
-  useEffect(() => {
+  const loadData = () => {
     Promise.all([
       wFetch('/analytics/overview').then(r=>r.ok&&r.json()).catch(()=>null),
       wFetch('/analytics/delivery').then(r=>r.ok&&r.json()).catch(()=>null),
@@ -50,6 +50,18 @@ export default function AnalyticsView() {
       if (Array.isArray(ag))   setAgents(ag);
       setLoading(false);
     });
+  };
+
+  useEffect(() => {
+    loadData();
+    
+    const onDataUpdated = (e) => {
+      if (e.detail?.campaigns || e.detail?.templates) {
+        loadData();
+      }
+    };
+    window.addEventListener('app:data-updated', onDataUpdated);
+    return () => window.removeEventListener('app:data-updated', onDataUpdated);
   }, []);
 
   const maxBar = delivery.length ? Math.max(...delivery.map(d => d.sent)) : 1;

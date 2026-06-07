@@ -12,6 +12,8 @@ import membersRoutes from './members.routes.js';
 import apiKeysRoutes from './apikeys.routes.js';
 import adminRoutes from './admin.routes.js';
 import webhookRoutes from './webhook.routes.js';
+import onboardingRoutes from './onboarding.routes.js';
+import aiRoutes from './ai.routes.js';
 
 const router = Router();
 
@@ -33,6 +35,8 @@ ws.use('/settings', settingsRoutes);
 ws.use('/members', membersRoutes);
 ws.use('/api-keys', apiKeysRoutes);
 
+router.use('/onboarding', onboardingRoutes);
+router.use('/ai', aiRoutes);
 router.use('/workspaces/:workspaceId', ws);
 
 export default router;

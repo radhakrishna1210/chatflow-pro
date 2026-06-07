@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
+import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
+
 
 const MiniSpark = ({ data, color = '#1EBF5E', w = 56, h = 22 }) => {
   const max = Math.max(...data), min = Math.min(...data), r = (max - min) || 1;
@@ -139,40 +141,134 @@ const Navbar = ({ onNav }) => {
   );
 };
 
-const Hero = ({ onNav }) => (
-  <section style={{ minHeight: '100vh', paddingTop: '62px', display: 'flex', alignItems: 'center', position: 'relative', overflow: 'hidden', backgroundImage: `linear-gradient(rgba(255,255,255,0.028) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.028) 1px,transparent 1px)`, backgroundSize: '72px 72px' }}>
-    <div style={{ position: 'absolute', top: 0, left: '-10%', width: '55%', height: '100%', background: 'radial-gradient(ellipse at 30% 50%,rgba(30,191,94,0.07) 0%,transparent 60%)', pointerEvents: 'none' }} />
-    <div style={{ position: 'absolute', bottom: 0, right: '-5%', width: '45%', height: '70%', background: 'radial-gradient(ellipse at 70% 60%,rgba(14,165,233,0.05) 0%,transparent 60%)', pointerEvents: 'none' }} />
-    <div style={{ maxWidth: '1240px', width: '100%', margin: '0 auto', padding: '72px 32px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '72px', alignItems: 'center' }}>
-      <div>
-        <div className="fu0" style={{ marginBottom: '28px', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 14px', borderRadius: '100px', background: 'var(--gbg)', border: '1px solid var(--gbd)' }}>
-          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s ease infinite' }} />
-          <span style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--green)', letterSpacing: '.02em' }}>Official Meta WhatsApp Business API Partner</span>
+const Hero = ({ onNav }) => {
+  return (
+    <section style={{ minHeight: '100vh', paddingTop: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '600px', background: 'radial-gradient(ellipse at 50% 0%, rgba(30,191,94,0.15) 0%, transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', top: '20%', left: '5%', width: '300px', height: '300px', background: 'var(--green)', filter: 'blur(150px)', opacity: 0.05, pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: '10%', right: '5%', width: '400px', height: '400px', background: '#0EA5E9', filter: 'blur(150px)', opacity: 0.05, pointerEvents: 'none' }} />
+      <div style={{ width: '100%', maxWidth: '1240px', margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '60px', zIndex: 10, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 480px', minWidth: '320px', display: 'flex', flexDirection: 'column', gap: '26px', alignItems: 'flex-start', textAlign: 'left' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '10px 18px', borderRadius: '999px', background: 'rgba(30,191,94,0.08)', border: '1px solid rgba(30,191,94,0.2)', color: 'var(--green)', fontSize: '13px', fontWeight: 700, letterSpacing: '.08em' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)' }} />
+            Official Meta WhatsApp Business API Partner
+          </div>
+          <h1 style={{ fontSize: 'clamp(54px, 5.5vw, 84px)', fontWeight: 800, color: 'var(--t1)', margin: 0, letterSpacing: '-.05em', lineHeight: 1.02 }}>
+            The WhatsApp Platform <br />Built for <span style={{ color: 'var(--green)' }}>Revenue.</span>
+          </h1>
+          <p style={{ fontSize: '18px', color: 'var(--t2)', maxWidth: '540px', lineHeight: 1.7, fontWeight: 500 }}>
+            Send campaigns, automate conversations, and track every rupee of ROI — with zero hidden markup and no per-agent fees.
+          </p>
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>Start for free <I n="arrow" s={14} c="#060A10" /></Btn>
+            <Btn variant="ghost" size="lg" onClick={() => onNav('dashboard')} style={{ background: 'var(--surf)', border: '1px solid var(--bd)' }}>Book a Demo</Btn>
+            <Btn variant="ghost" size="lg" onClick={() => onNav('dashboard')} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>Agent</Btn>
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--t3)', margin: 0 }}>14-day free trial · No credit card required</p>
         </div>
-        <h1 className="fu1" style={{ fontSize: 'clamp(48px,5.2vw,76px)', fontWeight: 800, lineHeight: 1.03, marginBottom: '22px', letterSpacing: '-.035em' }}>
-          The WhatsApp<br />Platform Built<br />
-          for <span style={{ color: 'var(--green)' }}>Revenue.</span>
-        </h1>
-        <p className="fu2" style={{ fontSize: '17px', color: 'var(--t2)', lineHeight: 1.7, marginBottom: '36px', maxWidth: '440px' }}>
-          Send campaigns, automate conversations, and track every rupee of ROI — with zero hidden markup and no per-agent fees.
+        <div style={{ flex: '1 1 520px', minWidth: '320px', display: 'flex', justifyContent: 'center' }}>
+          <HeroPreview />
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const LoginRequiredModal = ({ isOpen, onClose, onNav }) => {
+  if (!isOpen) return null;
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
+      <div style={{ background:'#070B14', border:'1px solid rgba(255,255,255,0.08)', width: 400, borderRadius: 12, padding: 24, display:'flex', flexDirection:'column', alignItems:'center', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
+        <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: '24px' }}>🔒</div>
+        </div>
+        <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight: 700, fontSize: 18, color:'#F0F2F8', marginBottom: 8, margin: 0 }}>Login Required</h3>
+        <p style={{ fontSize: 14, color:'rgba(255,255,255,0.6)', textAlign:'center', marginBottom: 24, lineHeight: 1.5 }}>
+          You need to be logged in to use the AI Agent. Please sign in to your account to continue.
         </p>
-        <div className="fu3" style={{ display: 'flex', gap: '12px', marginBottom: '44px', flexWrap: 'wrap' }}>
-          <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>Start for free <I n="arrow" s={14} c="#060A10" /></Btn>
-          <Btn size="lg" variant="ghost"><I n="play" s={14} c="var(--t2)" /> Watch 2-min demo</Btn>
+        <div style={{ display: 'flex', gap: 12, width: '100%' }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>Cancel</button>
+          <button onClick={() => onNav('login')} style={{ flex: 1, padding: '10px', borderRadius: 8, background: '#1EBF5E', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Log in</button>
         </div>
-        <div className="fu4" style={{ display: 'flex', gap: '0', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--bd)', width: 'fit-content' }}>
-          {[['50K+', 'msgs / day'], ['99.9%', 'uptime'], ['0%', 'hidden markup']].map(([v, l], i) => (
-            <div key={l} style={{ padding: '14px 22px', background: 'var(--surf)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)', borderRight: i < 2 ? '1px solid var(--bd)' : 'none', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-              <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '20px', color: 'var(--t1)', letterSpacing: '-.03em' }}>{v}</span>
-              <span style={{ fontSize: '11px', color: 'var(--t2)', fontWeight: 500 }}>{l}</span>
-            </div>
+      </div>
+    </div>
+  );
+};
+
+const AIPromptSection = ({ onNav }) => {
+  const [prompt, setPrompt] = useState('');
+  const [guided, setGuided] = useState(true);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+
+  const handleSend = () => {
+    if (!prompt.trim()) return;
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setShowLoginModal(true);
+    } else {
+      onNav('dashboard');
+    }
+  };
+
+  return (
+    <section style={{ padding: '40px 32px 80px', display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#070B14' }}>
+      <LoginRequiredModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onNav={onNav} />
+      {/* Big Input Box */}
+      <div style={{ width: '100%', maxWidth: '720px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(30, 191, 94, 0.4)', boxShadow: '0 0 30px rgba(30, 191, 94, 0.15), inset 0 0 20px rgba(30, 191, 94, 0.05)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', transition: 'all 0.3s ease' }}>
+        <textarea 
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Describe your ideal WhatsApp flow or campaign..."
+          style={{ width: '100%', height: '160px', background: 'transparent', border: 'none', padding: '24px', color: '#fff', fontSize: '16px', resize: 'none', outline: 'none', fontFamily: 'inherit' }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: '#1EBF5E', fontWeight: 600 }}>
+            <input type="checkbox" checked={guided} onChange={(e) => setGuided(e.target.checked)} style={{ accentColor: '#1EBF5E', width: '16px', height: '16px', cursor: 'pointer' }} />
+            Guided Flow
+          </label>
+          <button 
+            onClick={handleSend}
+            style={{ background: '#1EBF5E', color: '#000', border: 'none', borderRadius: '8px', padding: '9px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'transform 0.1s' }}
+            onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
+            onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+          >
+            Send
+          </button>
+        </div>
+      </div>
+
+      {/* Use Cases */}
+      <div style={{ marginTop: '32px', width: '100%', maxWidth: '720px' }}>
+        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '12px' }}>Try these examples</div>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {[
+            'Create a template for an abandoned cart',
+            'Delete a template',
+            'Create a campaign for Diwali sale',
+            'Delete a campaign'
+          ].map(uc => (
+            <button 
+              key={uc} 
+              onClick={() => { setPrompt(uc); onNav('dashboard'); }} 
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 16px', color: '#fff', fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left' }} 
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30, 191, 94, 0.1)'; e.currentTarget.style.borderColor = 'rgba(30, 191, 94, 0.3)'; }} 
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+            >
+              "{uc}"
+            </button>
           ))}
         </div>
       </div>
-      <HeroPreview />
-    </div>
-  </section>
-);
+    </section>
+  );
+};
+
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', padding: '28px', boxShadow: 'var(--card-shadow)', transition: 'border-color .2s, transform .2s' };
 
@@ -418,6 +514,7 @@ export default function Landing({ onNav }) {
     <div style={{ minHeight: '100vh' }}>
       <Navbar onNav={onNav} />
       <Hero onNav={onNav} />
+      <AIPromptSection onNav={onNav} />
       <Features />
       <UseCases />
       <Pricing onNav={onNav} />
