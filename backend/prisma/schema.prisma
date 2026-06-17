@@ -35,6 +35,13 @@ model Workspace {
   emailNotifyTemplateApproved  Boolean             @default(true)
   emailNotifyTemplateRejected  Boolean             @default(true)
   emailNotifyMemberInvite      Boolean             @default(true)
+  autoOooEnabled               Boolean             @default(true)
+  autoWelcomeEnabled           Boolean             @default(true)
+  autoDelayedEnabled           Boolean             @default(false)
+  voiceAiEnabled               Boolean             @default(false)
+  voiceAiName                  String              @default("MyCallGenie")
+  voiceAiPrompt                String              @default("Greet the caller and ask for their details.")
+  voiceAiPhone                 String              @default("")
   createdAt                    DateTime            @default(now())
 
   members       WorkspaceMember[]
@@ -44,8 +51,11 @@ model Workspace {
   campaigns     Campaign[]
   conversations Conversation[]
   triggers      AutomationTrigger[]
+  workflows     Workflow[]
   apiKeys       ApiKey[]
   invoices      Invoice[]
+  segments      Segment[]
+  whatsappForms WhatsappForm[]
 }
 
 model WorkspaceMember {
@@ -124,6 +134,7 @@ model Contact {
   campaignRecipients CampaignRecipient[]
   workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations      Conversation[]
+  segments           Segment[]           @relation("ContactSegments")
 }
 
 model Campaign {
@@ -212,6 +223,18 @@ model AutomationTrigger {
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
+model Workflow {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  isActive    Boolean   @default(true)
+  nodes       Json      // List of visual nodes
+  edges       Json      // Connections between nodes
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
 model ApiKey {
   id          String    @id @default(cuid())
   workspaceId String
@@ -295,4 +318,28 @@ model AiSession {
   state       Json     @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model Segment {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  desc        String?
+  color       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts    Contact[] @relation("ContactSegments")
+}
+
+model WhatsappForm {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  submissions Int       @default(0)
+  fields      Int       @default(1)
+  status      String    @default("Draft")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }

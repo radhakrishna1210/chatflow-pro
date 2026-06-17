@@ -13,4 +13,10 @@ router.post('/triggers', authorize('ADMIN'), automationController.create);
 router.patch('/triggers/:id', authorize('ADMIN'), automationController.update);
 router.delete('/triggers/:id', authorize('ADMIN'), automationController.remove);
 
+router.get('/basic', automationController.getBasicAutomations);
+router.patch('/basic', authorize('ADMIN'), automationController.updateBasicAutomations);
+router.get('/voice', automationController.getVoiceSettings);
+router.patch('/voice', authorize('ADMIN'), automationController.updateVoiceSettings);
+
+
 export default router;

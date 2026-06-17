@@ -42,7 +42,7 @@ export async function register({ name, email, password }) {
   const workspace = await prisma.workspace.create({
     data: {
       name: `${name}'s Workspace`,
-      members: { create: { userId: user.id, role } },
+      members: { create: { userId: user.id, role: 'ADMIN' } },
     },
   });
 
@@ -167,7 +167,7 @@ export async function findOrCreateGoogleUser({ googleId, email, name }) {
     await prisma.workspace.create({
       data: {
         name: `${name}'s Workspace`,
-        members: { create: { userId: user.id, role: newRole } },
+        members: { create: { userId: user.id, role: 'ADMIN' } },
       },
     });
   }
