@@ -7,7 +7,7 @@ import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 import ContactsView from './ContactsView.jsx';
 import InboxView from './InboxView.jsx';
 import AutomationView from './AutomationView.jsx';
-import AnalyticsView from './AnalyticsView.jsx';
+import ChatAnalytics from '../components/dashboard/ChatAnalytics.jsx';
 import NumberSetupView from './NumberSetupView.jsx';
 import ApiKeysView from './ApiKeysView.jsx';
 import SettingsView from './SettingsView.jsx';
@@ -1240,9 +1240,9 @@ const ADMIN_NAV = [
   { id: 'campaigns',  label: 'Campaigns',    icon: 'send'  },
   { id: 'contacts',   label: 'Contacts',     icon: 'users' },
   { id: 'inbox',      label: 'Inbox',        icon: 'msg'   },
-  { id: 'automation',    label: 'Automation',   icon: 'zap'  },
+  { id: 'analytics',  label: 'Chat Analysis', icon: 'chart' },
+  { id: 'automation', label: 'Automation',   icon: 'zap'   },
   { id: 'integrations', label: 'Integrations', icon: 'plug' },
-  { id: 'analytics',    label: 'Analytics',    icon: 'chart' },
   { id: 'setup',      label: 'Number Setup', icon: 'phone' },
   { id: 'api',        label: 'API Keys',     icon: 'key'   },
   { id: 'settings',   label: 'Settings',     icon: 'cog'   },
@@ -1309,6 +1309,7 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
 
 export default function Dashboard({ onNav }) {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const token = localStorage.getItem('accessToken');
   const isAdmin = user?.role === 'ADMIN';
   const NAV = isAdmin ? ADMIN_NAV : CLIENT_NAV;
 
@@ -1334,9 +1335,9 @@ export default function Dashboard({ onNav }) {
     if (page === 'campaigns')  return <CampaignsView onCreateCampaign={() => setPage('campaigns-create')} />;
     if (page === 'templates')  return <TemplatesView />;
     if (page === 'contacts')   return <ContactsView />;
-    if (page === 'automation')    return <AutomationView />;
+    if (page === 'automation') return <AutomationView />;
+    if (page === 'analytics')  return <ChatAnalytics workspaceId={user.workspaceId} token={token} />;
     if (page === 'integrations')  return <IntegrationsView />;
-    if (page === 'analytics')     return <AnalyticsView />;
     if (page === 'setup')      return <NumberSetupView />;
     if (page === 'api')        return <ApiKeysView />;
     if (page === 'settings')   return <SettingsView />;
