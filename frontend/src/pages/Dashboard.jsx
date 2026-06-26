@@ -11,6 +11,7 @@ import ChatAnalytics from '../components/dashboard/ChatAnalytics.jsx';
 import NumberSetupView from './NumberSetupView.jsx';
 import ApiKeysView from './ApiKeysView.jsx';
 import SettingsView from './SettingsView.jsx';
+import IntegrationsView from './IntegrationsView.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -1241,6 +1242,7 @@ const ADMIN_NAV = [
   { id: 'inbox',      label: 'Inbox',        icon: 'msg'   },
   { id: 'analytics',  label: 'Chat Analysis', icon: 'chart' },
   { id: 'automation', label: 'Automation',   icon: 'zap'   },
+  { id: 'integrations', label: 'Integrations', icon: 'plug' },
   { id: 'setup',      label: 'Number Setup', icon: 'phone' },
   { id: 'api',        label: 'API Keys',     icon: 'key'   },
   { id: 'settings',   label: 'Settings',     icon: 'cog'   },
@@ -1335,6 +1337,7 @@ export default function Dashboard({ onNav }) {
     if (page === 'contacts')   return <ContactsView />;
     if (page === 'automation') return <AutomationView />;
     if (page === 'analytics')  return <ChatAnalytics workspaceId={user.workspaceId} token={token} />;
+    if (page === 'integrations')  return <IntegrationsView />;
     if (page === 'setup')      return <NumberSetupView />;
     if (page === 'api')        return <ApiKeysView />;
     if (page === 'settings')   return <SettingsView />;
