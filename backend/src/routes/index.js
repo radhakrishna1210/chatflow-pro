@@ -14,6 +14,9 @@ import adminRoutes from './admin.routes.js';
 import webhookRoutes from './webhook.routes.js';
 import onboardingRoutes from './onboarding.routes.js';
 import aiRoutes from './ai.routes.js';
+import workflowRoutes from './workflow.routes.js';
+import segmentsRoutes from './segments.routes.js';
+import whatsappFormsRoutes from './whatsappForms.routes.js';
 
 const router = Router();
 
@@ -34,6 +37,9 @@ ws.use('/automation', automationRoutes);
 ws.use('/settings', settingsRoutes);
 ws.use('/members', membersRoutes);
 ws.use('/api-keys', apiKeysRoutes);
+ws.use('/segments', segmentsRoutes);
+ws.use('/whatsapp-forms', whatsappFormsRoutes);
+ws.use('/workflows', workflowRoutes);
 
 router.use('/onboarding', onboardingRoutes);
 router.use('/ai', aiRoutes);

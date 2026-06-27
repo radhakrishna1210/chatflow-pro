@@ -27,11 +27,12 @@ export default function Login({ onNav }) {
       localStorage.setItem('accessToken', data.accessToken);
       localStorage.setItem('refreshToken', data.refreshToken);
       localStorage.setItem('user', JSON.stringify({
-        name:          data.user.name,
-        email:         data.user.email,
-        role:          data.user.role,
-        workspaceId:   data.workspace.id,
-        workspaceName: data.workspace.name,
+        id:             data.user.id,
+        name:           data.user.name,
+        email:          data.user.email,
+        role:           data.user.role,
+        workspaceId:    data.workspace.id,
+        workspaceName:  data.workspace.name,
       }));
       setStatus('success');
       setTimeout(() => onNav('dashboard'), 700);

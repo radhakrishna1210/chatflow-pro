@@ -8,35 +8,41 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String?
-  googleId     String?  @unique
-  createdAt    DateTime @default(now())
-
-  workspaceMembers WorkspaceMember[]
-  refreshTokens    RefreshToken[]
+  id               String            @id @default(cuid())
+  name             String
+  email            String            @unique
+  passwordHash     String?
+  googleId         String?           @unique
+  createdAt        DateTime          @default(now())
   messages         Message[]
+  refreshTokens    RefreshToken[]
+  workspaceMembers WorkspaceMember[]
 }
 
 model Workspace {
-  id                       String   @id @default(cuid())
-  name                     String
-  plan                     String   @default("FREE")
-  webhookUrl               String?
-  webhookVerifyToken       String   @default("")
-  notifyNewConversation         Boolean  @default(true)
-  notifyTemplateApproved        Boolean  @default(true)
-  notifyTemplateRejected        Boolean  @default(true)
-  notifyCampaignCompleted       Boolean  @default(true)
-  notifyHighOptout              Boolean  @default(true)
-  notifyRateLimit               Boolean  @default(true)
-  emailNotifyCampaignCompleted  Boolean  @default(true)
-  emailNotifyTemplateApproved   Boolean  @default(true)
-  emailNotifyTemplateRejected   Boolean  @default(true)
-  emailNotifyMemberInvite       Boolean  @default(true)
-  createdAt                     DateTime @default(now())
+  id                           String              @id @default(cuid())
+  name                         String
+  plan                         String              @default("FREE")
+  webhookUrl                   String?
+  webhookVerifyToken           String              @default("")
+  notifyNewConversation        Boolean             @default(true)
+  notifyTemplateApproved       Boolean             @default(true)
+  notifyTemplateRejected       Boolean             @default(true)
+  notifyCampaignCompleted      Boolean             @default(true)
+  notifyHighOptout             Boolean             @default(true)
+  notifyRateLimit              Boolean             @default(true)
+  emailNotifyCampaignCompleted Boolean             @default(true)
+  emailNotifyTemplateApproved  Boolean             @default(true)
+  emailNotifyTemplateRejected  Boolean             @default(true)
+  emailNotifyMemberInvite      Boolean             @default(true)
+  autoOooEnabled               Boolean             @default(true)
+  autoWelcomeEnabled           Boolean             @default(true)
+  autoDelayedEnabled           Boolean             @default(false)
+  voiceAiEnabled               Boolean             @default(false)
+  voiceAiName                  String              @default("MyCallGenie")
+  voiceAiPrompt                String              @default("Greet the caller and ask for their details.")
+  voiceAiPhone                 String              @default("")
+  createdAt                    DateTime            @default(now())
 
   members       WorkspaceMember[]
   waNumbers     WaNumber[]
@@ -45,29 +51,26 @@ model Workspace {
   campaigns     Campaign[]
   conversations Conversation[]
   triggers      AutomationTrigger[]
+  workflows     Workflow[]
   apiKeys       ApiKey[]
   invoices      Invoice[]
+  segments      Segment[]
+  whatsappForms WhatsappForm[]
 }
 
 model WorkspaceMember {
   userId      String
   workspaceId String
-  role        Role     @default(CLIENT)
-  joinedAt    DateTime @default(now())
-
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        Role      @default(CLIENT)
+  joinedAt    DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@id([userId, workspaceId])
 }
 
-enum Role {
-  ADMIN
-  CLIENT
-}
-
 model WaNumber {
-  id                   String   @id @default(cuid())
+  id                   String         @id @default(cuid())
   workspaceId          String
   phoneNumber          String
   metaPhoneNumberId    String
@@ -75,32 +78,25 @@ model WaNumber {
   encryptedAccessToken String
   displayName          String?
   quality              String?
-  status               String   @default("ACTIVE")
+  status               String         @default("ACTIVE")
   messagingLimit       String?
-  createdAt            DateTime @default(now())
-
-  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  campaigns     Campaign[]
-  conversations Conversation[]
+  createdAt            DateTime       @default(now())
+  campaigns            Campaign[]
+  conversations        Conversation[]
+  workspace            Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model NumberPool {
-  id                   String            @id @default(cuid())
-  phoneNumber          String            @unique
+  id                   String           @id @default(cuid())
+  phoneNumber          String           @unique
   phoneNumberId        String
   wabaId               String
   encryptedAccessToken String
   displayName          String?
-  status               NumberPoolStatus  @default(AVAILABLE)
+  status               NumberPoolStatus @default(AVAILABLE)
   assignedTo           String?
   registeredAt         DateTime?
-  createdAt            DateTime          @default(now())
-}
-
-enum NumberPoolStatus {
-  AVAILABLE
-  ASSIGNED
-  BANNED
+  createdAt            DateTime         @default(now())
 }
 
 model Template {
@@ -127,32 +123,32 @@ enum TemplateStatus {
 }
 
 model Contact {
-  id          String   @id @default(cuid())
-  workspaceId String
-  name        String
-  phoneNumber String
-  email       String?
-  tags        String[]
-  optedOut    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-
-  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                 String              @id @default(cuid())
+  workspaceId        String
+  name               String
+  phoneNumber        String
+  email              String?
+  tags               String[]
+  optedOut           Boolean             @default(false)
+  createdAt          DateTime            @default(now())
   campaignRecipients CampaignRecipient[]
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations      Conversation[]
+  segments           Segment[]           @relation("ContactSegments")
 }
 
 model Campaign {
-  id            String         @id @default(cuid())
+  id            String              @id @default(cuid())
   workspaceId   String
   name          String
   templateId    String
   waNumberId    String?
-  status        CampaignStatus @default(DRAFT)
-  totalContacts Int            @default(0)
-  sent          Int            @default(0)
-  delivered     Int            @default(0)
-  read          Int            @default(0)
-  failed        Int            @default(0)
+  status        CampaignStatus      @default(DRAFT)
+  totalContacts Int                 @default(0)
+  sent          Int                 @default(0)
+  delivered     Int                 @default(0)
+  read          Int                 @default(0)
+  failed        Int                 @default(0)
   scheduledAt   DateTime?
   launchedAt    DateTime?
   completedAt   DateTime?
@@ -175,26 +171,17 @@ enum CampaignStatus {
 }
 
 model CampaignRecipient {
-  id          String                   @id @default(cuid())
+  id          String                  @id @default(cuid())
   campaignId  String
   contactId   String
-  status      CampaignRecipientStatus  @default(PENDING)
+  status      CampaignRecipientStatus @default(PENDING)
   sentAt      DateTime?
   deliveredAt DateTime?
   readAt      DateTime?
   failedAt    DateTime?
   failReason  String?
-
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-}
-
-enum CampaignRecipientStatus {
-  PENDING
-  SENT
-  DELIVERED
-  READ
-  FAILED
+  campaign    Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact     Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
 }
 
 model Conversation {
@@ -207,47 +194,45 @@ model Conversation {
   label         String?
   lastMessageAt DateTime           @default(now())
   createdAt     DateTime           @default(now())
-
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  waNumber  WaNumber  @relation(fields: [waNumberId], references: [id])
-  messages  Message[]
-}
-
-enum ConversationStatus {
-  OPEN
-  RESOLVED
-  PENDING
+  contact       Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  waNumber      WaNumber           @relation(fields: [waNumberId], references: [id])
+  workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages      Message[]
 }
 
 model Message {
-  id            String           @id @default(cuid())
+  id             String           @id @default(cuid())
   conversationId String
-  body          String
-  direction     MessageDirection
-  metaMessageId String?
-  senderUserId  String?
-  sentAt        DateTime         @default(now())
-  createdAt     DateTime         @default(now())
-
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderUser   User?        @relation(fields: [senderUserId], references: [id])
-}
-
-enum MessageDirection {
-  INBOUND
-  OUTBOUND
+  body           String
+  direction      MessageDirection
+  metaMessageId  String?
+  senderUserId   String?
+  sentAt         DateTime         @default(now())
+  createdAt      DateTime         @default(now())
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser     User?            @relation(fields: [senderUserId], references: [id])
 }
 
 model AutomationTrigger {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   workspaceId      String
   keyword          String
   responseTemplate String
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+model Workflow {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  isActive    Boolean   @default(true)
+  nodes       Json      // List of visual nodes
+  edges       Json      // Connections between nodes
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model ApiKey {
@@ -260,19 +245,17 @@ model ApiKey {
   lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())
   revokedAt   DateTime?
-
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model Invoice {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   invoiceDate DateTime
   amount      Float
-  currency    String   @default("USD")
-  status      String   @default("PAID")
-
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  currency    String    @default("USD")
+  status      String    @default("PAID")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model RefreshToken {
@@ -281,8 +264,51 @@ model RefreshToken {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+enum Role {
+  ADMIN
+  CLIENT
+}
+
+enum NumberPoolStatus {
+  AVAILABLE
+  ASSIGNED
+  BANNED
+}
+
+enum TemplateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum CampaignStatus {
+  DRAFT
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum ConversationStatus {
+  OPEN
+  RESOLVED
+  PENDING
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
 }
 
 model AiSession {
@@ -292,4 +318,28 @@ model AiSession {
   state       Json     @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model Segment {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  desc        String?
+  color       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts    Contact[] @relation("ContactSegments")
+}
+
+model WhatsappForm {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  submissions Int       @default(0)
+  fields      Int       @default(1)
+  status      String    @default("Draft")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }

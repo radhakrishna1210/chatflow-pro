@@ -72,5 +72,12 @@ router.get('/meta/callback', async (req, res) => {
     res.status(500).json({ error: 'OAuth exchange failed' });
   }
 });
+router.get('/instagram/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).json({ error: 'Missing code' });
+  // NOTE: In a real implementation you would exchange the code for a token via Instagram Basic Display API.
+  // For demonstration we simply redirect back to the client with the code.
+  return res.redirect(`${env.CLIENT_URL}/settings/instagram?code=${encodeURIComponent(code)}`);
+});
 
 export default router;
