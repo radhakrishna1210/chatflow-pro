@@ -220,29 +220,348 @@ const CustomAutoReplyTab = () => {
 // ─────────────────────────────────────────────
 // 3. WORKFLOWS
 // ─────────────────────────────────────────────
-const WorkflowsTab = () => (
-  <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-    <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-      <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <I n="wflow" s={18} c="#f59e0b" />
+const WorkflowsTab = () => {
+  const [workflows, setWorkflows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [name, setName] = useState('');
+  const [steps, setSteps] = useState([
+    { id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'ORDER' }
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [simulatingId, setSimulatingId] = useState(null);
+  const [simResult, setSimResult] = useState('');
+
+  const fetchWorkflows = async () => {
+    try {
+      const res = await wFetch('/workflows');
+      if (res.ok) {
+        const data = await res.json();
+        setWorkflows(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchWorkflows();
+  }, []);
+
+  const openCreate = () => {
+    setName('');
+    setSteps([{ id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'ORDER' }]);
+    setEditing(null);
+    setError('');
+    setCreating(true);
+  };
+
+  const openEdit = (w) => {
+    setName(w.name);
+    const wSteps = Array.isArray(w.nodes) ? w.nodes : [];
+    setSteps(wSteps.length ? wSteps : [{ id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'ORDER' }]);
+    setEditing(w);
+    setError('');
+    setCreating(true);
+  };
+
+  const cancel = () => {
+    setCreating(false);
+    setEditing(null);
+    setError('');
+  };
+
+  const addActionStep = () => {
+    setSteps(p => [
+      ...p,
+      { id: `step_${Date.now()}`, type: 'action', subtype: 'message', value: 'Hello, how can I help you today?' }
+    ]);
+  };
+
+  const updateStep = (id, fields) => {
+    setSteps(p => p.map(s => s.id === id ? { ...s, ...fields } : s));
+  };
+
+  const removeStep = (id) => {
+    setSteps(p => p.filter(s => s.id !== id));
+  };
+
+  const save = async () => {
+    if (!name.trim()) {
+      setError('Workflow name is required');
+      return;
+    }
+    setError('');
+    setSaving(true);
+    try {
+      const payload = {
+        name,
+        isActive: editing ? editing.isActive : true,
+        nodes: steps,
+        edges: []
+      };
+
+      if (editing) {
+        const res = await wFetch(`/workflows/${editing.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to update workflow');
+      } else {
+        const res = await wFetch('/workflows', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Failed to create workflow');
+      }
+      await fetchWorkflows();
+      cancel();
+    } catch (err) {
+      setError(err.message || 'Something went wrong');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleActive = async (w) => {
+    const updated = { ...w, isActive: !w.isActive };
+    setWorkflows(p => p.map(x => x.id === w.id ? updated : x));
+    try {
+      await wFetch(`/workflows/${w.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: updated.isActive })
+      });
+    } catch (err) {
+      setWorkflows(p => p.map(x => x.id === w.id ? w : x));
+    }
+  };
+
+  const del = async (id) => {
+    if (!window.confirm('Delete this workflow?')) return;
+    try {
+      await wFetch(`/workflows/${id}`, { method: 'DELETE' });
+      await fetchWorkflows();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const runSimulation = async (w) => {
+    setSimulatingId(w.id);
+    setSimResult('');
+    const token = localStorage.getItem('accessToken');
+    try {
+      const res = await fetch('/api/v1/ai/workflow/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ workflowId: w.id })
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setSimResult(d.message || 'Successfully triggered automation flow via AI');
+      } else {
+        setSimResult('Failed to run simulation');
+      }
+    } catch {
+      setSimResult('Failed to run simulation due to error');
+    } finally {
+      setTimeout(() => {
+        setSimulatingId(null);
+        setSimResult('');
+      }, 4000);
+    }
+  };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <I n="wflow" s={18} c="#f59e0b" />
+          </div>
+          <div>
+            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>Workflows</h2>
+            <p style={{ fontSize:'13px', color:'var(--t2)' }}>Build multi-step automation flows with triggers and actions</p>
+          </div>
+        </div>
+        {!creating && (
+          <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}>
+            <I n="plus" s={14} c="#060A10" /> Create Workflow
+          </Btn>
+        )}
       </div>
-      <div>
-        <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>Workflows</h2>
-        <p style={{ fontSize:'13px', color:'var(--t2)' }}>Build multi-step automation flows with conditions and actions</p>
-      </div>
+
+      {creating && (
+        <div style={{ ...card, padding:'24px', display:'flex', flexDirection:'column', gap:'20px' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <h3 style={{ fontSize:15, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>
+              {editing ? 'Edit Workflow' : 'Create New Workflow'}
+            </h3>
+            <Btn variant="ghost" size="sm" onClick={cancel}>Cancel</Btn>
+          </div>
+
+          {/* Workflow Name */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+            <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Workflow Name</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Inbound Support Flow"
+              style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', width:'100%', maxWidth:'400px', boxSizing:'border-box' }} />
+          </div>
+
+          {/* Steps list */}
+          <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+            <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Steps Configuration</label>
+            
+            {steps.map((step, idx) => (
+              <div key={step.id} style={{ display:'flex', gap:10, alignItems:'center', background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', borderRadius:8, padding:14 }}>
+                <span style={{ fontSize:11, fontWeight:700, color:'var(--t3)', width:55 }}>Step {idx+1}</span>
+                
+                {step.type === 'trigger' ? (
+                  <>
+                    <span style={{ background:'rgba(245,158,11,0.1)', color:'#f59e0b', border:'1px solid rgba(245,158,11,0.2)', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600 }}>TRIGGER</span>
+                    <select value={step.subtype} onChange={e => updateStep(step.id, { subtype: e.target.value })}
+                      style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' }}>
+                      <option value="keyword" style={{ background:'#07090F' }}>Keyword Match</option>
+                      <option value="welcome" style={{ background:'#07090F' }}>New Contact Welcome</option>
+                      <option value="missed" style={{ background:'#07090F' }}>Missed Inbound Call</option>
+                    </select>
+                    {step.subtype === 'keyword' && (
+                      <input value={step.value} onChange={e => updateStep(step.id, { value: e.target.value.toUpperCase() })} placeholder="e.g. HELP"
+                        style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--green)', fontSize:12, fontFamily:'monospace', outline:'none', width:120 }} />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span style={{ background:'rgba(30,191,94,0.1)', color:'var(--green)', border:'1px solid var(--gbd)', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600 }}>ACTION</span>
+                    <select value={step.subtype} onChange={e => updateStep(step.id, { subtype: e.target.value })}
+                      style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' }}>
+                      <option value="message" style={{ background:'#07090F' }}>Send message reply</option>
+                      <option value="delay" style={{ background:'#07090F' }}>Wait / Delay</option>
+                      <option value="tag" style={{ background:'#07090F' }}>Add Customer Tag</option>
+                      <option value="agent" style={{ background:'#07090F' }}>Assign to Agent</option>
+                    </select>
+                    
+                    {step.subtype === 'message' && (
+                      <input value={step.value} onChange={e => updateStep(step.id, { value: e.target.value })} placeholder="Message text..."
+                        style={{ flex:1, padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' }} />
+                    )}
+                    {step.subtype === 'delay' && (
+                      <select value={step.value} onChange={e => updateStep(step.id, { value: e.target.value })}
+                        style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' }}>
+                        <option value="Immediate" style={{ background:'#07090F' }}>Immediate</option>
+                        <option value="5 min" style={{ background:'#07090F' }}>5 Minutes</option>
+                        <option value="1 hour" style={{ background:'#07090F' }}>1 Hour</option>
+                        <option value="1 day" style={{ background:'#07090F' }}>1 Day</option>
+                      </select>
+                    )}
+                    {(step.subtype === 'tag' || step.subtype === 'agent') && (
+                      <input value={step.value} onChange={e => updateStep(step.id, { value: e.target.value })} placeholder={step.subtype === 'tag' ? "e.g. VIP" : "e.g. John Doe"}
+                        style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', width:150 }} />
+                    )}
+                    
+                    <button onClick={() => removeStep(step.id)} style={{ padding:'4px 8px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:6, cursor:'pointer', color:'#f87171', fontSize:11 }}>
+                      Remove
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display:'flex', gap:10 }}>
+            <Btn variant="outline" size="sm" onClick={addActionStep}>
+              <I n="plus" s={12} c="var(--t2)" /> Add Action Step
+            </Btn>
+          </div>
+
+          {error && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {error}</p>}
+
+          <div style={{ display:'flex', gap:8, borderTop:'1px solid var(--bd)', paddingTop:16 }}>
+            <Btn onClick={save} disabled={saving} style={{ boxShadow:'var(--glow)' }}>
+              {saving ? 'Saving...' : editing ? 'Update Workflow' : 'Save Workflow'}
+            </Btn>
+            <Btn variant="ghost" onClick={cancel}>Cancel</Btn>
+          </div>
+        </div>
+      )}
+
+      {!creating && (
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          {workflows.length === 0 ? (
+            <div style={{ ...card, padding:'40px 28px', display:'flex', flexDirection:'column', alignItems:'center', textAlign:'center', gap:16 }}>
+              <div style={{ width:64, height:64, borderRadius:16, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <I n="wflow" s={32} c="#f59e0b" />
+              </div>
+              <div>
+                <h3 style={{ fontSize:16, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>No Workflows Created Yet</h3>
+                <p style={{ fontSize:13, color:'var(--t2)', maxWidth:360, margin:'0 auto' }}>Design powerful multi-step automation flows with custom triggers, delays, and action sequences.</p>
+              </div>
+              <Btn variant="outline" onClick={openCreate}>Create Your First Flow</Btn>
+            </div>
+          ) : (
+            workflows.map(w => (
+              <div key={w.id} style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                  <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+                    <div style={{ width:32, height:32, borderRadius:8, background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <I n="wflow" s={16} c="#f59e0b" />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize:15, fontWeight:600, color:'var(--t1)' }}>{w.name}</h3>
+                      <p style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>
+                        Steps: {Array.isArray(w.nodes) ? w.nodes.length : 0} | Updated {new Date(w.updatedAt || w.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <Toggle on={w.isActive} onToggle={() => toggleActive(w)} />
+                    <button onClick={() => openEdit(w)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <I n="pencil" s={12} c="var(--t2)" />
+                    </button>
+                    <button onClick={() => del(w.id)} style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <I n="trash" s={12} c="#f87171" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Steps summary */}
+                <div style={{ display:'flex', flexWrap:'wrap', gap:6, alignItems:'center', background:'rgba(255,255,255,0.01)', border:'1px solid var(--bd)', borderRadius:8, padding:'10px 14px' }}>
+                  {Array.isArray(w.nodes) && w.nodes.map((step, idx) => (
+                    <div key={step.id} style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      {idx > 0 && <I n="arrow" s={10} c="var(--t3)" />}
+                      <span style={{ fontSize:12, padding:'3px 8px', borderRadius:6, background: step.type === 'trigger' ? 'rgba(245,158,11,0.08)' : 'rgba(30,191,94,0.08)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:600 }}>
+                        {step.subtype === 'keyword' ? `Keyword: ${step.value}` : step.subtype === 'welcome' ? 'Welcome' : step.subtype === 'missed' ? 'Missed Call' : step.subtype === 'message' ? `Send: "${step.value}"` : step.subtype === 'delay' ? `Wait: ${step.value}` : step.subtype === 'tag' ? `Tag: ${step.value}` : `Assign: ${step.value}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Simulation trigger */}
+                <div style={{ display:'flex', justifyContent:'flex-end', borderTop:'1px solid var(--bd)', paddingTop:12 }}>
+                  {simulatingId === w.id ? (
+                    <span style={{ fontSize:12, color: simResult.includes('Failed') ? '#f87171' : 'var(--green)', fontWeight:600, display:'flex', alignItems:'center', gap:6 }}>
+                      {simResult ? <><I n="check" s={12} c="var(--green)" /> {simResult}</> : 'Running Simulation...'}
+                    </span>
+                  ) : (
+                    <button onClick={() => runSimulation(w)} style={{ background:'transparent', border:'none', cursor:'pointer', fontSize:12, color:'var(--green)', fontWeight:600, display:'flex', alignItems:'center', gap:6, padding:0 }}>
+                      <I n="play" s={12} c="var(--green)" /> Run AI Test Simulation
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
-    <div style={{ ...card, padding:'40px 28px', display:'flex', flexDirection:'column', alignItems:'center', textAlign:'center', gap:16 }}>
-      <div style={{ width:64, height:64, borderRadius:16, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <I n="wflow" s={32} c="#f59e0b" />
-      </div>
-      <div>
-        <h3 style={{ fontSize:16, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>Visual Flow Builder Coming Soon</h3>
-        <p style={{ fontSize:13, color:'var(--t2)', maxWidth:360, margin:'0 auto' }}>Design powerful multi-step automation flows with drag-and-drop triggers, conditions, delays, and actions.</p>
-      </div>
-      <Btn variant="outline">Notify Me</Btn>
-    </div>
-  </div>
-);
+  );
+};
 
 // ─────────────────────────────────────────────
 // 4. AI INTENT MATCHING

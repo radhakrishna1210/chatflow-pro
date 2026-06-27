@@ -14,6 +14,7 @@ import NumberSetupView from './NumberSetupView.jsx';
 import ApiKeysView from './ApiKeysView.jsx';
 import SettingsView from './SettingsView.jsx';
 import IntegrationsView from './IntegrationsView.jsx';
+import PaymentsView from './PaymentsView.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -1242,12 +1243,13 @@ const ADMIN_NAV = [
   { id: 'campaigns',      label: 'Campaigns',      icon: 'send'  },
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
+  { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
   { id: 'automation',     label: 'Automation',     icon: 'zap'   },
   { id: 'analytics',      label: 'Analytics',      icon: 'chart' },
   { id: 'chat-analysis',  label: 'Chat Analysis',  icon: 'chart' },
   { id: 'user-analytics', label: 'User Analytics', icon: 'user'  },
-  { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
   { id: 'setup',          label: 'Number Setup',   icon: 'phone' },
+  { id: 'payments',       label: 'Payments',       icon: 'credit' },
   { id: 'api',            label: 'API Keys',       icon: 'key'   },
   { id: 'settings',       label: 'Settings',       icon: 'cog'   },
 ];
@@ -1259,6 +1261,18 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
   const isAdmin = user?.role === 'ADMIN';
   const NAV = ADMIN_NAV;
   const planLabel = isAdmin ? 'Admin' : 'Member';
+  const [balance, setBalance] = useState(2462.11);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('chatflow_wallet_balance');
+    if (saved !== null) setBalance(parseFloat(saved));
+
+    const onBalanceUpdated = (e) => {
+      setBalance(e.detail);
+    };
+    window.addEventListener('wallet:balance-updated', onBalanceUpdated);
+    return () => window.removeEventListener('wallet:balance-updated', onBalanceUpdated);
+  }, []);
 
   return (
     <div style={{ width: col ? '60px' : '232px', background: '#060913', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', transition: 'width .22s ease', flexShrink: 0, overflow: 'hidden' }}>
@@ -1291,6 +1305,18 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
           );
         })}
       </div>
+      {!col && (
+        <div onClick={() => setPage('payments')} style={{ margin: '8px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(30,191,94,0.04)', border: '1px solid rgba(30,191,94,0.15)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px', transition: 'all 0.15s', marginBottom: '4px' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.08)'; e.currentTarget.style.borderColor = 'rgba(30,191,94,0.3)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.04)'; e.currentTarget.style.borderColor = 'rgba(30,191,94,0.15)'; }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+            <I n="credit" s={12} c="var(--green)" /> Wallet Balance
+          </div>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--t1)' }}>
+            ₹ {balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+        </div>
+      )}
       <div style={{ padding: '10px 8px', borderTop: '1px solid var(--bd)' }}>
         {!col && <div style={{ padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '9px' }}>
           <Avatar name={user?.name || 'User'} size={28} showRing />
@@ -1345,6 +1371,7 @@ export default function Dashboard({ onNav }) {
     if (page === 'user-analytics') return <UserAnalyticsView />;
     if (page === 'integrations')   return <IntegrationsView />;
     if (page === 'setup')          return <NumberSetupView />;
+    if (page === 'payments')       return <PaymentsView />;
     if (page === 'api')            return <ApiKeysView />;
     if (page === 'settings')       return <SettingsView />;
     const navItem = NAV.find(n => n.id === page);
