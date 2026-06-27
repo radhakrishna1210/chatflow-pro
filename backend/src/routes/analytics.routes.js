@@ -11,5 +11,6 @@ router.get('/overview', analyticsController.overview);
 router.get('/delivery', analyticsController.delivery);
 router.get('/campaigns', analyticsController.campaigns);
 router.get('/agents', analyticsController.agents);
+router.get('/chat', analyticsController.getChatAnalytics);
 
 export default router;
