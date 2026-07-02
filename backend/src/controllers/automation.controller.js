@@ -80,3 +80,12 @@ export async function updateBasicAutomations(req, res) {
   }
 }
 
+export async function generateWorkflowPreview(req, res) {
+  try {
+    const preview = await automationService.generateWorkflowPreview(req.params.workspaceId, req.body.prompt);
+    res.json(preview);
+  } catch (err) {
+    console.error('[Automation] generateWorkflowPreview error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to generate workflow preview' });
+  }
+}

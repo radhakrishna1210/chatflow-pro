@@ -12,6 +12,7 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@google/genai": "^2.10.0",
     "@prisma/client": "^5.14.0",
     "axios": "^1.7.2",
     "bcryptjs": "^2.4.3",

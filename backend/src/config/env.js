@@ -40,6 +40,7 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   GOOGLE_CALLBACK_URL: z.string().url().optional(),
+  GEMINI_API_KEY: z.string().optional(),
 
   // SMTP — optional until credentials are configured
   SMTP_HOST: z.string().optional(),

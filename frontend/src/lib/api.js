@@ -69,7 +69,7 @@ async function authedFetch(url, opts = {}) {
         ...opts,
         headers,
       });
-      if (retry.status === 401 || retry.status === 403) {
+      if (retry.status === 401) {
         logout();
         throw new Error('Session expired');
       }
@@ -81,7 +81,6 @@ async function authedFetch(url, opts = {}) {
   }
 
   if (res.status === 403) {
-    logout();
     throw new Error('Access denied');
   }
 
@@ -91,7 +90,6 @@ async function authedFetch(url, opts = {}) {
 export const wFetch = (path, opts = {}) => {
   const user = getStoredUser();
   if (!user?.workspaceId) {
-    logout();
     throw new Error('Workspace not found');
   }
   return authedFetch(`/api/v1/workspaces/${user.workspaceId}${path}`, opts);

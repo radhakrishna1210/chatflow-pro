@@ -278,20 +278,6 @@ enum NumberPoolStatus {
   BANNED
 }
 
-enum TemplateStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-enum CampaignStatus {
-  DRAFT
-  RUNNING
-  COMPLETED
-  FAILED
-  CANCELLED
-}
-
 enum CampaignRecipientStatus {
   PENDING
   SENT

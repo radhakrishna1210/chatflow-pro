@@ -233,6 +233,13 @@ const WorkflowsTab = () => {
   const [error, setError] = useState('');
   const [simulatingId, setSimulatingId] = useState(null);
   const [simResult, setSimResult] = useState('');
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiPreview, setAiPreview] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiGuided, setAiGuided] = useState(true);
 
   const fetchWorkflows = async () => {
     try {
@@ -258,6 +265,22 @@ const WorkflowsTab = () => {
     setEditing(null);
     setError('');
     setCreating(true);
+  };
+
+  const openAiCreate = () => {
+    setAiPrompt('');
+    setAiPreview(null);
+    setAiError('');
+    setAiGuided(true);
+    setAiOpen(true);
+  };
+
+  const closeAiCreate = (force = false) => {
+    if (!force && (aiLoading || aiSaving)) return;
+    setAiOpen(false);
+    setAiPrompt('');
+    setAiPreview(null);
+    setAiError('');
   };
 
   const openEdit = (w) => {
@@ -379,6 +402,117 @@ const WorkflowsTab = () => {
     }
   };
 
+  const generateAiPreview = async () => {
+    if (!aiPrompt.trim()) {
+      setAiError('Describe the workflow you want AI to create.');
+      return;
+    }
+    setAiLoading(true);
+    setAiError('');
+    setAiPreview(null);
+    try {
+      const res = await wFetch('/automation/workflows/ai-preview', {
+        method: 'POST',
+        body: JSON.stringify({ prompt: aiPrompt })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to generate workflow preview');
+      setAiPreview(data);
+    } catch (err) {
+      setAiError(err.message || 'Failed to generate workflow preview');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const saveAiPreview = async () => {
+    if (!aiPreview?.name || !Array.isArray(aiPreview.nodes)) {
+      setAiError('Generate a workflow preview before saving.');
+      return;
+    }
+    setAiSaving(true);
+    setAiError('');
+    try {
+      const res = await wFetch('/workflows', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: aiPreview.name,
+          isActive: true,
+          nodes: aiPreview.nodes,
+          edges: aiPreview.edges || []
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to save workflow');
+      await fetchWorkflows();
+      closeAiCreate(true);
+    } catch (err) {
+      setAiError(err.message || 'Failed to save workflow');
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const useAiPreviewInBuilder = () => {
+    if (!aiPreview) return;
+    setName(aiPreview.name || 'AI Generated Workflow');
+    setSteps(Array.isArray(aiPreview.nodes) && aiPreview.nodes.length ? aiPreview.nodes : [{ id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'HELP' }]);
+    setEditing(null);
+    setError('');
+    setCreating(true);
+    closeAiCreate(true);
+  };
+
+  const updateAiPreview = (fields) => {
+    setAiPreview(p => p ? { ...p, ...fields } : p);
+  };
+
+  const updateAiPreviewStep = (id, fields) => {
+    setAiPreview(p => {
+      if (!p) return p;
+      const nodes = Array.isArray(p.nodes) ? p.nodes : [];
+      return {
+        ...p,
+        nodes: nodes.map(step => {
+          if (step.id !== id) return step;
+          const next = { ...step, ...fields };
+          if (fields.type === 'trigger' && step.type !== 'trigger') {
+            next.subtype = 'keyword';
+            next.value = 'HELP';
+          }
+          if (fields.type === 'action' && step.type !== 'action') {
+            next.subtype = 'message';
+            next.value = 'Thanks for reaching out. Our team will help you shortly.';
+          }
+          return next;
+        })
+      };
+    });
+  };
+
+  const addAiPreviewAction = () => {
+    setAiPreview(p => {
+      if (!p) return p;
+      const nodes = Array.isArray(p.nodes) ? p.nodes : [];
+      return {
+        ...p,
+        nodes: [
+          ...nodes,
+          { id: `step_${Date.now()}`, type: 'action', subtype: 'message', value: 'Thanks for reaching out. Our team will help you shortly.' }
+        ]
+      };
+    });
+  };
+
+  const removeAiPreviewStep = (id) => {
+    setAiPreview(p => {
+      if (!p) return p;
+      const nodes = Array.isArray(p.nodes) ? p.nodes : [];
+      if (nodes.length <= 1) return p;
+      return { ...p, nodes: nodes.filter(step => step.id !== id) };
+    });
+  };
+
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -391,12 +525,151 @@ const WorkflowsTab = () => {
             <p style={{ fontSize:'13px', color:'var(--t2)' }}>Build multi-step automation flows with triggers and actions</p>
           </div>
         </div>
-        {!creating && (
-          <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}>
-            <I n="plus" s={14} c="#060A10" /> Create Workflow
-          </Btn>
+        {!creating && !aiOpen && (
+          <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end' }}>
+            <Btn variant="outline" onClick={openAiCreate}>
+              <I n="spark" s={14} c="var(--green)" /> Create with AI
+            </Btn>
+            <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}>
+              <I n="plus" s={14} c="#060A10" /> Create Workflow
+            </Btn>
+          </div>
         )}
       </div>
+
+      {aiOpen && !creating && (
+        <div style={{
+            width:'100%', minHeight:0, overflow:'hidden', display:'flex', flexDirection:'column',
+            background:'linear-gradient(180deg,#080d18 0%,#070b13 100%)', border:'1px solid rgba(30,191,94,0.34)',
+            borderRadius:14, boxShadow:'0 0 0 1px rgba(30,191,94,0.08), 0 22px 80px rgba(0,0,0,0.52)'
+          }}>
+            <div style={{ padding:'28px 32px 18px', display:'flex', justifyContent:'space-between', gap:18 }}>
+              <div>
+                <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:21, fontWeight:800, color:'var(--t1)', marginBottom:8, letterSpacing:'-.02em' }}>Create Workflow with AI</h3>
+                <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.45 }}>Describe your business flow or automation logic below to build a ready-to-save workflow.</p>
+              </div>
+              <button onClick={() => closeAiCreate()} style={{ width:34, height:34, borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <I n="x" s={13} c="var(--t2)" />
+              </button>
+            </div>
+
+            <div style={{ padding:'0 32px 22px', display:'flex', flexDirection:'column', gap:18 }}>
+              <div style={{ minHeight:130, display:'flex', position:'relative', flexShrink:0 }}>
+                <textarea
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  placeholder="Describe your ideal WhatsApp workflow or onboarding flow..."
+                  style={{ width:'100%', minHeight:130, padding:0, background:'transparent', border:'none', color:'var(--t1)', fontSize:17, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', resize:'vertical', boxSizing:'border-box', lineHeight:1.55 }}
+                />
+                <button aria-label="Previous suggestion" style={{ position:'absolute', left:8, bottom:12, width:28, height:28, borderRadius:8, background:'transparent', border:'none', color:'var(--t1)', cursor:'pointer', fontSize:24, lineHeight:1 }}>‹</button>
+                <button aria-label="Next suggestion" style={{ position:'absolute', right:8, bottom:12, width:28, height:28, borderRadius:8, background:'transparent', border:'none', color:'var(--t2)', cursor:'pointer', fontSize:24, lineHeight:1 }}>›</button>
+              </div>
+
+              <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+                {[
+                  ['Refund support flow', 'When someone asks about refund, reply asking for order ID, wait 5 minutes, then assign to support team.'],
+                  ['Abandoned cart follow-up', 'When a customer says cart or checkout, send a helpful checkout reminder and tag them as cart lead.'],
+                  ['Demo booking workflow', 'When someone asks for a demo, ask for their preferred time and assign the lead to sales.'],
+                  ['Order tracking flow', 'When someone asks about order status, ask for order ID and assign to support team.'],
+                ].map(([label, prompt]) => (
+                  <button key={label} onClick={() => setAiPrompt(prompt)}
+                    style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+                    {label}
+                  </button>
+                ))}
+                {aiPreview?.provider === 'fallback' && (
+                  <span style={{ fontSize:11, color:'#fbbf24', padding:'4px 8px', borderRadius:6, border:'1px solid rgba(245,158,11,0.24)', background:'rgba(245,158,11,0.08)' }}>
+                    Gemini key not configured, using local preview
+                  </span>
+                )}
+              </div>
+
+              {aiError && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>{aiError}</p>}
+
+              {aiPreview && (
+                <div style={{ border:'1px solid var(--bd)', borderRadius:10, background:'rgba(255,255,255,0.025)', overflow:'hidden' }}>
+                  <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+                    <div style={{ flex:1, minWidth:220 }}>
+                      <p style={{ fontSize:11, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', fontWeight:700, marginBottom:4 }}>Preview</p>
+                      <input value={aiPreview.name || ''} onChange={e => updateAiPreview({ name: e.target.value })}
+                        style={{ width:'100%', maxWidth:420, padding:'8px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:14, fontWeight:700, outline:'none', boxSizing:'border-box' }} />
+                    </div>
+                    <span style={{ fontSize:11, color:'var(--t2)' }}>{Array.isArray(aiPreview.nodes) ? aiPreview.nodes.length : 0} steps</span>
+                  </div>
+
+                  <div style={{ padding:16, display:'flex', flexDirection:'column', gap:10 }}>
+                    {(aiPreview.nodes || []).map((step, idx) => (
+                      <div key={step.id || idx} style={{ display:'flex', gap:10, alignItems:'center', padding:'10px 12px', borderRadius:8, background:'rgba(255,255,255,0.025)', border:'1px solid var(--bd)', flexWrap:'wrap' }}>
+                        <span style={{ width:54, fontSize:11, color:'var(--t3)', fontWeight:700 }}>Step {idx + 1}</span>
+                        <select value={step.type} onChange={e => updateAiPreviewStep(step.id, { type: e.target.value })}
+                          style={{ padding:'7px 10px', borderRadius:7, background: step.type === 'trigger' ? 'rgba(245,158,11,0.1)' : 'rgba(30,191,94,0.1)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.22)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontSize:11, fontWeight:700, outline:'none', textTransform:'uppercase' }}>
+                          <option value="trigger" style={{ background:'#07090F' }}>Trigger</option>
+                          <option value="action" style={{ background:'#07090F' }}>Action</option>
+                        </select>
+                        <select value={step.subtype} onChange={e => updateAiPreviewStep(step.id, { subtype: e.target.value })}
+                          style={{ padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', minWidth:145 }}>
+                          {step.type === 'trigger' ? (
+                            <>
+                              <option value="keyword" style={{ background:'#07090F' }}>Keyword Match</option>
+                              <option value="welcome" style={{ background:'#07090F' }}>New Contact Welcome</option>
+                              <option value="missed" style={{ background:'#07090F' }}>Missed Inbound Call</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="message" style={{ background:'#07090F' }}>Send message</option>
+                              <option value="delay" style={{ background:'#07090F' }}>Wait / Delay</option>
+                              <option value="tag" style={{ background:'#07090F' }}>Add tag</option>
+                              <option value="agent" style={{ background:'#07090F' }}>Assign agent</option>
+                            </>
+                          )}
+                        </select>
+                        {step.subtype === 'delay' ? (
+                          <select value={step.value} onChange={e => updateAiPreviewStep(step.id, { value: e.target.value })}
+                            style={{ padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', minWidth:130 }}>
+                            <option value="Immediate" style={{ background:'#07090F' }}>Immediate</option>
+                            <option value="5 min" style={{ background:'#07090F' }}>5 Minutes</option>
+                            <option value="1 hour" style={{ background:'#07090F' }}>1 Hour</option>
+                            <option value="1 day" style={{ background:'#07090F' }}>1 Day</option>
+                          </select>
+                        ) : (
+                          <input value={step.value || ''} onChange={e => updateAiPreviewStep(step.id, { value: step.type === 'trigger' && step.subtype === 'keyword' ? e.target.value.toUpperCase() : e.target.value })}
+                            placeholder={step.type === 'trigger' ? 'e.g. HELP' : 'Step value...'}
+                            style={{ flex:1, minWidth:220, padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color: step.type === 'trigger' && step.subtype === 'keyword' ? 'var(--green)' : 'var(--t1)', fontSize:12, outline:'none', boxSizing:'border-box' }} />
+                        )}
+                        <button onClick={() => removeAiPreviewStep(step.id)} disabled={(aiPreview.nodes || []).length <= 1}
+                          style={{ padding:'7px 10px', borderRadius:7, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:(aiPreview.nodes || []).length <= 1 ? 'not-allowed' : 'pointer', fontSize:11, opacity:(aiPreview.nodes || []).length <= 1 ? 0.45 : 1 }}>
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    <button onClick={addAiPreviewAction}
+                      style={{ alignSelf:'flex-start', padding:'8px 12px', borderRadius:8, background:'transparent', border:'1px solid var(--bd)', color:'var(--green)', cursor:'pointer', fontSize:12, fontWeight:700 }}>
+                      + Add action step
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding:'14px 32px', borderTop:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap', background:'rgba(255,255,255,0.015)' }}>
+              <label style={{ display:'flex', alignItems:'center', gap:9, color:'var(--green)', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                <input type="checkbox" checked={aiGuided} onChange={e => setAiGuided(e.target.checked)}
+                  style={{ width:16, height:16, accentColor:'var(--green)', cursor:'pointer' }} />
+                Guided Flow
+              </label>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
+                {aiPreview && <Btn variant="ghost" onClick={() => closeAiCreate()} disabled={aiLoading || aiSaving}>Cancel</Btn>}
+                {aiPreview && <Btn onClick={useAiPreviewInBuilder} disabled={aiLoading || aiSaving} style={{ boxShadow:'var(--glow)' }}>Edit Preview</Btn>}
+                {aiPreview && <Btn onClick={saveAiPreview} disabled={aiLoading || aiSaving} style={{ boxShadow:'var(--glow)' }}>
+                {aiSaving ? 'Saving...' : 'Save Workflow'}
+                </Btn>}
+                <Btn onClick={generateAiPreview} disabled={aiLoading || aiSaving} style={{ minWidth:90, justifyContent:'center', boxShadow:'var(--glow)' }}>
+                  {aiLoading ? 'Sending...' : aiPreview ? 'Send Again' : 'Send'}
+                </Btn>
+              </div>
+            </div>
+        </div>
+      )}
 
       {creating && (
         <div style={{ ...card, padding:'24px', display:'flex', flexDirection:'column', gap:'20px' }}>
@@ -491,7 +764,7 @@ const WorkflowsTab = () => {
         </div>
       )}
 
-      {!creating && (
+      {!creating && !aiOpen && (
         <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
           {workflows.length === 0 ? (
             <div style={{ ...card, padding:'40px 28px', display:'flex', flexDirection:'column', alignItems:'center', textAlign:'center', gap:16 }}>
@@ -502,7 +775,10 @@ const WorkflowsTab = () => {
                 <h3 style={{ fontSize:16, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>No Workflows Created Yet</h3>
                 <p style={{ fontSize:13, color:'var(--t2)', maxWidth:360, margin:'0 auto' }}>Design powerful multi-step automation flows with custom triggers, delays, and action sequences.</p>
               </div>
-              <Btn variant="outline" onClick={openCreate}>Create Your First Flow</Btn>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
+                <Btn onClick={openAiCreate} style={{ boxShadow:'var(--glow)' }}><I n="spark" s={14} c="#060A10" /> Create with AI</Btn>
+                <Btn variant="outline" onClick={openCreate}>Create Your First Flow</Btn>
+              </div>
             </div>
           ) : (
             workflows.map(w => (
