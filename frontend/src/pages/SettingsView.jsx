@@ -6,12 +6,20 @@ import { wFetch } from '../lib/api.js';
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
 const NOTIF_OPTS = [
-  { id:'newConv',         label:'New Conversation',    default:true  },
-  { id:'tplApproved',    label:'Template Approved',    default:true  },
-  { id:'tplRejected',    label:'Template Rejected',    default:true  },
-  { id:'campaignDone',   label:'Campaign Completed',   default:false },
-  { id:'highOptout',     label:'High Opt-out Alert',   default:true  },
-  { id:'rateLimitWarn',  label:'Rate Limit Warning',   default:true  },
+  { id:'newConv',         label:'New Conversation',    default:true,  field:'notifyNewConversation'   },
+  { id:'tplApproved',    label:'Template Approved',    default:true,  field:'notifyTemplateApproved'  },
+  { id:'tplRejected',    label:'Template Rejected',    default:true,  field:'notifyTemplateRejected'  },
+  { id:'campaignDone',   label:'Campaign Completed',   default:false, field:'notifyCampaignCompleted' },
+  { id:'highOptout',     label:'High Opt-out Alert',   default:true,  field:'notifyHighOptout'        },
+  { id:'rateLimitWarn',  label:'Rate Limit Warning',   default:true,  field:'notifyRateLimit'         },
+];
+
+// Email notifications map directly to backend Workspace.emailNotify* columns.
+const EMAIL_NOTIF_OPTS = [
+  { id:'emailNotifyCampaignCompleted', label:'Campaign Completed', hint:'Summary email when a campaign finishes sending',   default:true },
+  { id:'emailNotifyTemplateApproved',  label:'Template Approved',  hint:'When Meta approves one of your message templates',  default:true },
+  { id:'emailNotifyTemplateRejected',  label:'Template Rejected',  hint:'When Meta rejects a template, with common reasons', default:true },
+  { id:'emailNotifyMemberInvite',      label:'Member Invited',     hint:'Email a teammate when they are added to this workspace', default:true },
 ];
 
 const SectionCard = ({ icon, title, children }) => (
@@ -61,19 +69,34 @@ export default function SettingsView() {
   const [webhookUrl, setWebhookUrl] = useState('');
   const [showToken, setShowToken]   = useState(false);
   const [notifs, setNotifs]    = useState(() => Object.fromEntries(NOTIF_OPTS.map(o=>[o.id,o.default])));
+  const [emailNotifs, setEmailNotifs] = useState(() => Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id,o.default])));
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [prefsSaved, setPrefsSaved]   = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [showInvite, setShowInvite]   = useState(false);
   const [memberRoles, setMemberRoles] = useState({});
   const [usagePerc]  = useState(34);
 
   useEffect(() => {
-    wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{ if(d) { setSettings(d); if(d.webhookUrl) setWebhookUrl(d.webhookUrl); if(d.notifyNewConversation!=null) setNotifs({newConv:d.notifyNewConversation,tplApproved:d.notifyTemplateApproved,tplRejected:d.notifyTemplateRejected,campaignDone:d.notifyCampaignCompleted,highOptout:d.notifyHighOptout,rateLimitWarn:d.notifyRateLimit}); }}).catch(()=>{});
+    wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{ if(d) { setSettings(d); if(d.webhookUrl) setWebhookUrl(d.webhookUrl); if(d.notifyNewConversation!=null) setNotifs({newConv:d.notifyNewConversation,tplApproved:d.notifyTemplateApproved,tplRejected:d.notifyTemplateRejected,campaignDone:d.notifyCampaignCompleted,highOptout:d.notifyHighOptout,rateLimitWarn:d.notifyRateLimit}); setEmailNotifs(Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id, d[o.id]!=null ? d[o.id] : o.default]))); }}).catch(()=>{});
     wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
     wFetch('/settings/invoices').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvoices(d); }).catch(()=>{});
   }, []);
 
   const saveWebhook = async () => {
     await wFetch('/settings', { method:'PATCH', body:JSON.stringify({ webhookUrl }) }).catch(()=>{});
+  };
+
+  const savePreferences = async () => {
+    setSavingPrefs(true); setPrefsSaved(false);
+    const body = {
+      ...Object.fromEntries(NOTIF_OPTS.map(o => [o.field, !!notifs[o.id]])),
+      ...Object.fromEntries(EMAIL_NOTIF_OPTS.map(o => [o.id, !!emailNotifs[o.id]])),
+    };
+    try {
+      const r = await wFetch('/settings', { method:'PATCH', body:JSON.stringify(body) });
+      if (r.ok) { setPrefsSaved(true); setTimeout(()=>setPrefsSaved(false), 2500); }
+    } catch {} finally { setSavingPrefs(false); }
   };
 
   const delMember = id => setMembers(p=>p.filter(m=>m.userId!==id));
@@ -216,7 +239,7 @@ export default function SettingsView() {
         </SectionCard>
 
         {/* ── Notifications ── */}
-        <SectionCard icon="bell" title="Notifications">
+        <SectionCard icon="bell" title="In-App Notifications">
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             {NOTIF_OPTS.map(opt => (
               <div key={opt.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 14px', borderRadius:9, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
@@ -225,8 +248,27 @@ export default function SettingsView() {
               </div>
             ))}
           </div>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16 }}>
-            <Btn>Save Preferences</Btn>
+        </SectionCard>
+
+        {/* ── Email Notifications ── */}
+        <SectionCard icon="mail" title="Email Notifications">
+          <p style={{ fontSize:12, color:'var(--t2)', marginBottom:16, marginTop:-4, lineHeight:1.5 }}>
+            Send emails to all workspace members for these events. Member invites are emailed to the invited person.
+          </p>
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            {EMAIL_NOTIF_OPTS.map(opt => (
+              <div key={opt.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:14, padding:'12px 14px', borderRadius:9, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
+                <div style={{ minWidth:0 }}>
+                  <span style={{ fontSize:13, fontWeight:500, color:'var(--t1)', display:'block' }}>{opt.label}</span>
+                  {opt.hint && <span style={{ fontSize:11, color:'var(--t3)' }}>{opt.hint}</span>}
+                </div>
+                <Toggle on={emailNotifs[opt.id]} onToggle={()=>setEmailNotifs(p=>({...p,[opt.id]:!p[opt.id]}))} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:12, marginTop:16 }}>
+            {prefsSaved && <span style={{ fontSize:12, color:'var(--green)', fontWeight:600 }}>Saved ✓</span>}
+            <Btn onClick={savePreferences} disabled={savingPrefs}>{savingPrefs ? 'Saving…' : 'Save Preferences'}</Btn>
           </div>
         </SectionCard>
       </div>

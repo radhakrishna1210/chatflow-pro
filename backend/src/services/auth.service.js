@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { queueWelcomeEmail } from './email.service.js';
 
 function generateTokens(userId, workspaceId, role) {
   const accessToken = jwt.sign(
@@ -41,12 +42,14 @@ export async function register({ name, email, password }) {
   const workspace = await prisma.workspace.create({
     data: {
       name: `${name}'s Workspace`,
-      members: { create: { userId: user.id, role } },
+      members: { create: { userId: user.id, role: 'ADMIN' } },
     },
   });
 
   const { accessToken, refreshToken } = generateTokens(user.id, workspace.id, role);
   await storeRefreshToken(user.id, refreshToken);
+
+  queueWelcomeEmail({ email: user.email, name: user.name }).catch(() => {});
 
   return {
     accessToken, refreshToken,
@@ -164,7 +167,7 @@ export async function findOrCreateGoogleUser({ googleId, email, name }) {
     await prisma.workspace.create({
       data: {
         name: `${name}'s Workspace`,
-        members: { create: { userId: user.id, role: newRole } },
+        members: { create: { userId: user.id, role: 'ADMIN' } },
       },
     });
   }

@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
 import { env } from '../config/env.js';
+import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
 
 const RATE_DELAY_MS = 60;
 
@@ -105,10 +106,11 @@ async function processCampaign(job) {
     await new Promise((r) => setTimeout(r, RATE_DELAY_MS));
   }
 
-  await prisma.campaign.update({
+  const completed = await prisma.campaign.update({
     where: { id: campaignId },
     data: { status: 'COMPLETED', completedAt: new Date() },
   });
+  queueCampaignCompletedEmail(completed).catch(() => {});
 }
 
 export function startCampaignWorker() {
@@ -121,10 +123,11 @@ export function startCampaignWorker() {
   worker.on('failed', async (job, err) => {
     console.error(`[CampaignWorker] Job ${job?.id} failed:`, err.message);
     if (job?.data?.campaignId) {
-      await prisma.campaign.update({
+      const failed = await prisma.campaign.update({
         where: { id: job.data.campaignId },
         data: { status: 'FAILED' },
-      }).catch(() => {});
+      }).catch(() => null);
+      if (failed) queueCampaignFailedEmail(failed).catch(() => {});
     }
   });
 

@@ -6,7 +6,7 @@ export async function list(req, res) {
 }
 
 export async function invite(req, res) {
-  const member = await membersService.inviteMember(req.params.workspaceId, req.body);
+  const member = await membersService.inviteMember(req.params.workspaceId, req.body, req.user?.name);
   res.status(201).json(member);
 }
 
