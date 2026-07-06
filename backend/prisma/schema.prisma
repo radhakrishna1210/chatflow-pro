@@ -32,9 +32,9 @@ model Workspace {
   notifyHighOptout             Boolean             @default(true)
   notifyRateLimit              Boolean             @default(true)
   emailNotifyCampaignCompleted Boolean             @default(true)
+  emailNotifyMemberInvite      Boolean             @default(true)
   emailNotifyTemplateApproved  Boolean             @default(true)
   emailNotifyTemplateRejected  Boolean             @default(true)
-  emailNotifyMemberInvite      Boolean             @default(true)
   autoOooEnabled               Boolean             @default(true)
   autoWelcomeEnabled           Boolean             @default(true)
   autoDelayedEnabled           Boolean             @default(false)
@@ -43,19 +43,18 @@ model Workspace {
   voiceAiPrompt                String              @default("Greet the caller and ask for their details.")
   voiceAiPhone                 String              @default("")
   createdAt                    DateTime            @default(now())
-
-  members       WorkspaceMember[]
-  waNumbers     WaNumber[]
-  templates     Template[]
-  contacts      Contact[]
-  campaigns     Campaign[]
-  conversations Conversation[]
-  triggers      AutomationTrigger[]
-  workflows     Workflow[]
-  apiKeys       ApiKey[]
-  invoices      Invoice[]
-  segments      Segment[]
-  whatsappForms WhatsappForm[]
+  apiKeys                      ApiKey[]
+  triggers                     AutomationTrigger[]
+  campaigns                    Campaign[]
+  contacts                     Contact[]
+  conversations                Conversation[]
+  invoices                     Invoice[]
+  templates                    Template[]
+  waNumbers                    WaNumber[]
+  members                      WorkspaceMember[]
+  workflows                    Workflow[]
+  segments                     Segment[]
+  whatsappForms                WhatsappForm[]
 }
 
 model WorkspaceMember {
@@ -111,15 +110,8 @@ model Template {
   aiGenerated    Boolean        @default(false)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @default(now()) @updatedAt
-
-  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  campaigns Campaign[]
-}
-
-enum TemplateStatus {
-  PENDING
-  APPROVED
-  REJECTED
+  campaigns      Campaign[]
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model Contact {
@@ -152,22 +144,13 @@ model Campaign {
   scheduledAt   DateTime?
   launchedAt    DateTime?
   completedAt   DateTime?
-  aiGenerated   Boolean        @default(false)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @default(now()) @updatedAt
-
-  workspace  Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  template   Template            @relation(fields: [templateId], references: [id])
-  waNumber   WaNumber?           @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
-  recipients CampaignRecipient[]
-}
-
-enum CampaignStatus {
-  DRAFT
-  RUNNING
-  COMPLETED
-  FAILED
-  CANCELLED
+  aiGenerated   Boolean             @default(false)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @default(now()) @updatedAt
+  template      Template            @relation(fields: [templateId], references: [id])
+  waNumber      WaNumber?           @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
+  workspace     Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipients    CampaignRecipient[]
 }
 
 model CampaignRecipient {
@@ -228,8 +211,8 @@ model Workflow {
   workspaceId String
   name        String
   isActive    Boolean   @default(true)
-  nodes       Json      // List of visual nodes
-  edges       Json      // Connections between nodes
+  nodes       Json
+  edges       Json
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
