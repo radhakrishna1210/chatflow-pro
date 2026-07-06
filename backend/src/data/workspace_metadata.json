@@ -1,0 +1,13 @@
+{
+  "cmr05phvt0005v420bymvv0zn": {
+    "walletBalance": 2462.11,
+    "gstNum": "",
+    "addons": {
+      "crm": false,
+      "events": false,
+      "tags": false,
+      "fields": false
+    },
+    "twoFactorEnabled": false
+  }
+}

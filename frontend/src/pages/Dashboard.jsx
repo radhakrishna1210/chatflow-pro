@@ -15,6 +15,21 @@ import ApiKeysView from './ApiKeysView.jsx';
 import SettingsView from './SettingsView.jsx';
 import IntegrationsView from './IntegrationsView.jsx';
 import PaymentsView from './PaymentsView.jsx';
+import ProfileView from './ProfileView.jsx';
+import AccountHub from '../components/AccountHub.jsx';
+import WalletPage from './WalletPage.jsx';
+import SubscriptionPage from './SubscriptionPage.jsx';
+import AccountDetailsPage from './AccountDetailsPage.jsx';
+import SecurityPage from './SecurityPage.jsx';
+import NotificationsPage from './NotificationsPage.jsx';
+import TeamPage from './TeamPage.jsx';
+import RolesPage from './RolesPage.jsx';
+import QuickRepliesPage from './QuickRepliesPage.jsx';
+import MarketingApiPage from './MarketingApiPage.jsx';
+import InvoicesPage from './InvoicesPage.jsx';
+import GeneralSettingsPage from './GeneralSettingsPage.jsx';
+import WidgetSettingsPage from './WidgetSettingsPage.jsx';
+import AutomationSettingsPage from './AutomationSettingsPage.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -1256,7 +1271,7 @@ const ADMIN_NAV = [
 
 const CLIENT_NAV = ADMIN_NAV;
 
-const Sidebar = ({ page, setPage, onNav, user }) => {
+const Sidebar = ({ page, setPage, onNav, user, onOpenAccountHub }) => {
   const [col, setCol] = useState(false);
   const isAdmin = user?.role === 'ADMIN';
   const NAV = ADMIN_NAV;
@@ -1318,12 +1333,15 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
         </div>
       )}
       <div style={{ padding: '10px 8px', borderTop: '1px solid var(--bd)' }}>
-        {!col && <div style={{ padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '9px' }}>
+        {!col && <div onClick={onOpenAccountHub} style={{ padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', transition: 'all .15s' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.06)'; e.currentTarget.style.borderColor = 'rgba(30,191,94,0.2)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
           <Avatar name={user?.name || 'User'} size={28} showRing />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--t1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.name || 'User'}</p>
             <p style={{ fontSize: '10px', color: isAdmin ? 'var(--green)' : 'var(--t2)' }}>{planLabel}</p>
           </div>
+          <I n="grid" s={14} c="var(--t3)" />
         </div>}
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', justifyContent: col ? 'center' : 'flex-start' }}
           onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
@@ -1344,6 +1362,7 @@ export default function Dashboard({ onNav }) {
   const NAV = isAdmin ? ADMIN_NAV : CLIENT_NAV;
 
   const [page, setPage] = useState('home');
+  const [showAccountHub, setShowAccountHub] = useState(false);
   const isInbox = page === 'inbox';
 
   // Listen for nav events from ProfileMenu (so we don't need to thread setPage as a prop)
@@ -1351,7 +1370,7 @@ export default function Dashboard({ onNav }) {
     const onAppNav = (e) => {
       const action = e.detail;
       if (action === 'signout') return onNav('landing');
-      if (action === 'profile') return setPage('settings'); // profile lives inside Settings
+      if (action === 'profile') return setPage('profile');
       if (action) setPage(action);
     };
     window.addEventListener('app:nav', onAppNav);
@@ -1373,17 +1392,38 @@ export default function Dashboard({ onNav }) {
     if (page === 'setup')          return <NumberSetupView />;
     if (page === 'payments')       return <PaymentsView />;
     if (page === 'api')            return <ApiKeysView />;
+    if (page === 'profile')        return <ProfileView />;
     if (page === 'settings')       return <SettingsView />;
+    if (page === 'wallet')          return <WalletPage />;
+    if (page === 'subscription')    return <SubscriptionPage />;
+    if (page === 'account-details') return <AccountDetailsPage />;
+    if (page === 'security')        return <SecurityPage />;
+    if (page === 'notifications')   return <NotificationsPage />;
+    if (page === 'team')            return <TeamPage />;
+    if (page === 'roles')           return <RolesPage />;
+    if (page === 'quick-replies')   return <QuickRepliesPage />;
+    if (page === 'marketing-api')   return <MarketingApiPage />;
+    if (page === 'invoices')        return <InvoicesPage />;
+    if (page === 'general-settings')    return <GeneralSettingsPage />;
+    if (page === 'widget-settings')     return <WidgetSettingsPage />;
+    if (page === 'automation-settings') return <AutomationSettingsPage />;
     const navItem = NAV.find(n => n.id === page);
     return <PlaceholderView title={navItem?.label || 'Section'} icon={navItem?.icon || 'cog'} />;
   };
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#060B18' }}>
-      <Sidebar page={page} setPage={setPage} onNav={onNav} user={user} />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0 }}>
+      <Sidebar page={page} setPage={setPage} onNav={onNav} user={user} onOpenAccountHub={() => setShowAccountHub(true)} />
+      <div className={`main-content-container${isInbox ? ' inbox-active' : ''}${page === 'campaigns-create' ? ' campaign-create-active' : ''}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0 }}>
         {renderView()}
       </div>
+      {showAccountHub && (
+        <AccountHub
+          onClose={() => setShowAccountHub(false)}
+          setPage={(p) => { setPage(p); setShowAccountHub(false); }}
+          onNav={onNav}
+        />
+      )}
     </div>
   );
 }

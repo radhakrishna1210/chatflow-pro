@@ -45,26 +45,35 @@ export default function PaymentsView() {
   // Load state from localStorage / Backend
   useEffect(() => {
     // 1. Balance
-    const savedBal = localStorage.getItem('chatflow_wallet_balance');
-    if (savedBal !== null) setBalance(parseFloat(savedBal));
+    wFetch('/settings/wallet')
+      .then(r => r.ok ? r.json() : { balance: 2462.11 })
+      .then(data => {
+        setBalance(data.balance);
+      })
+      .catch(() => {});
 
     // 2. Billing details
-    const savedBilling = localStorage.getItem('chatflow_billing_details');
-    if (savedBilling) {
-      try {
-        const parsed = JSON.parse(savedBilling);
-        setBizName(parsed.bizName || '');
-        setBizEmail(parsed.bizEmail || '');
-        setBizAddress(parsed.bizAddress || '');
-        setGstNum(parsed.gstNum || '');
-      } catch {}
-    }
+    wFetch('/settings/billing')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setBizName(data.bizName || '');
+          setBizEmail(data.bizEmail || '');
+          setBizAddress(data.bizAddress || '');
+          setGstNum(data.gstNum || '');
+        }
+      })
+      .catch(() => {});
 
-    // 3. Addons
-    const savedAddons = localStorage.getItem('chatflow_subscribed_addons');
-    if (savedAddons) {
-      try { setAddons(JSON.parse(savedAddons)); } catch {}
-    }
+    // 3. Addons / Subscription
+    wFetch('/settings/subscription')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setAddons(data.addons || { crm: false, events: false, tags: false, fields: false });
+        }
+      })
+      .catch(() => {});
 
     // 4. Load invoices from backend
     wFetch('/settings/invoices')
@@ -79,49 +88,76 @@ export default function PaymentsView() {
   // Sync wallet balance to layout header & wallet balance
   const updateBalance = (newBal) => {
     setBalance(newBal);
-    localStorage.setItem('chatflow_wallet_balance', newBal.toFixed(2));
     
     // Dispatch custom event to notify other layout components (e.g. Header Wallet display)
     const event = new CustomEvent('wallet:balance-updated', { detail: newBal });
     window.dispatchEvent(event);
   };
 
-  const handleRecharge = () => {
+  const handleRecharge = async () => {
     const amt = parseFloat(rechargeAmt);
     if (isNaN(amt) || amt <= 0) return;
 
     setRechargeStatus('processing');
-    setTimeout(() => {
-      const newBal = balance + amt;
-      updateBalance(newBal);
+    try {
+      const res = await wFetch('/settings/recharge', {
+        method: 'POST',
+        body: JSON.stringify({ amount: amt })
+      });
+      if (!res.ok) throw new Error('Recharge failed');
+      const data = await res.json();
+      
+      // Update balance using response
+      updateBalance(data.balance);
 
-      // Prepend local invoice entry
-      const newInvoice = {
-        id: `local_inv_${Date.now()}`,
-        invoiceDate: new Date().toISOString(),
-        amount: amt,
-        currency: 'INR',
-        status: 'PAID',
-        description: 'Wallet Recharge'
-      };
-      setInvoices(prev => [newInvoice, ...prev]);
+      // Prepend local invoice entry from response
+      if (data.invoice) {
+        setInvoices(prev => [data.invoice, ...prev]);
+      }
 
       setRechargeStatus('success');
       setTimeout(() => setRechargeStatus(''), 2000);
-    }, 1200);
+    } catch {
+      setRechargeStatus('error');
+      setTimeout(() => setRechargeStatus(''), 2500);
+    }
   };
 
-  const handleSaveBilling = () => {
-    const data = { bizName, bizEmail, bizAddress, gstNum };
-    localStorage.setItem('chatflow_billing_details', JSON.stringify(data));
-    setSaveStatus('success');
+  const handleSaveBilling = async () => {
+    setSaveStatus('saving');
+    try {
+      const res = await wFetch('/settings/billing', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          bizName,
+          bizEmail,
+          bizAddress,
+          gstNum
+        })
+      });
+      if (res.ok) {
+        setSaveStatus('success');
+      } else {
+        setSaveStatus('error');
+      }
+    } catch {
+      setSaveStatus('error');
+    }
     setTimeout(() => setSaveStatus(''), 2000);
   };
 
-  const toggleAddon = (key) => {
+  const toggleAddon = async (key) => {
     const updated = { ...addons, [key]: !addons[key] };
     setAddons(updated);
-    localStorage.setItem('chatflow_subscribed_addons', JSON.stringify(updated));
+    try {
+      await wFetch('/settings/subscription/addons', {
+        method: 'POST',
+        body: JSON.stringify({ addons: updated })
+      });
+    } catch {
+      // Revert if error
+      setAddons(addons);
+    }
   };
 
   // Render Inner Tabs
@@ -277,7 +313,7 @@ export default function PaymentsView() {
 
       <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--bd)', paddingTop: 16 }}>
         <Btn onClick={handleSaveBilling} style={{ boxShadow: 'var(--glow)' }}>
-          {saveStatus === 'success' ? 'Details Saved!' : 'Save Details'}
+          {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'success' ? 'Details Saved!' : 'Save Details'}
         </Btn>
       </div>
     </div>

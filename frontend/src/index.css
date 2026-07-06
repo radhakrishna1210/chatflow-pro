@@ -49,6 +49,9 @@ h1,h2,h3,h4,h5 { font-family:'Syne',sans-serif; letter-spacing:-0.025em; line-he
 @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:.3} }
 @keyframes floatY { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
 @keyframes spin   { to{transform:rotate(360deg)} }
+@keyframes fadeIn  { from{opacity:0} to{opacity:1} }
+@keyframes scaleIn { from{opacity:0;transform:scale(.92) translateY(12px)} to{opacity:1;transform:scale(1) translateY(0)} }
+@keyframes hubCardIn { from{opacity:0;transform:translateY(8px) scale(.97)} to{opacity:1;transform:translateY(0) scale(1)} }
 
 .fu0{animation:fadeUp .5s ease both}
 .fu1{animation:fadeUp .5s .07s ease both}
@@ -64,3 +67,62 @@ h1,h2,h3,h4,h5 { font-family:'Syne',sans-serif; letter-spacing:-0.025em; line-he
   border-radius:var(--rl);
   box-shadow:var(--card-shadow);
 }
+
+/* Main Layout Centering & Constraints */
+@media (min-width: 992px) {
+  .main-content-container:not(.inbox-active):not(.campaign-create-active) {
+    max-width: 1400px;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
+
+/* Center page-level content containers that specify max-width constraints */
+.main-content-container > div > div[style*="max-width"],
+.main-content-container > div > div > div[style*="max-width"] {
+  margin-left: auto !important;
+  margin-right: auto !important;
+  width: 100%;
+}
+
+/* Premium Card Styles & Design System Unification */
+.card,
+div[style*="var(--card-shadow)"] {
+  background: linear-gradient(135deg, rgba(30, 191, 94, 0.03), rgba(14, 165, 233, 0.01)), rgba(13, 21, 38, 0.6) !important;
+  border: 1px solid rgba(30, 191, 94, 0.25) !important;
+  border-radius: var(--rl) !important;
+  box-shadow: 0 0 24px rgba(30, 191, 94, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease !important;
+}
+
+/* Smooth premium hover state for cards */
+.card:hover,
+div[style*="var(--card-shadow)"]:hover {
+  border-color: rgba(30, 191, 94, 0.45) !important;
+  box-shadow: 0 0 32px rgba(30, 191, 94, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  transform: translateY(-1px);
+}
+
+/* Sub-card header divider style alignment */
+.card > div:first-child,
+div[style*="var(--card-shadow)"] > div:first-child {
+  border-bottom: 1px solid rgba(30, 191, 94, 0.15) !important;
+}
+
+/* Form input, textarea and select premium focus styling */
+.main-content-container input,
+.main-content-container textarea,
+.main-content-container select {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+.main-content-container input:focus,
+.main-content-container textarea:focus,
+.main-content-container select:focus {
+  border-color: var(--green) !important;
+  box-shadow: 0 0 12px rgba(30, 191, 94, 0.15) !important;
+}
+
+

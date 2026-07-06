@@ -17,6 +17,7 @@ import aiRoutes from './ai.routes.js';
 import workflowRoutes from './workflow.routes.js';
 import segmentsRoutes from './segments.routes.js';
 import whatsappFormsRoutes from './whatsappForms.routes.js';
+import securityRoutes from './security.routes.js';
 
 const router = Router();
 
@@ -40,6 +41,7 @@ ws.use('/api-keys', apiKeysRoutes);
 ws.use('/segments', segmentsRoutes);
 ws.use('/whatsapp-forms', whatsappFormsRoutes);
 ws.use('/workflows', workflowRoutes);
+ws.use('/security', securityRoutes);
 
 router.use('/onboarding', onboardingRoutes);
 router.use('/ai', aiRoutes);
