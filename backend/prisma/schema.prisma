@@ -88,14 +88,16 @@ model WaNumber {
 model NumberPool {
   id                   String           @id @default(cuid())
   phoneNumber          String           @unique
-  phoneNumberId        String
-  wabaId               String
-  encryptedAccessToken String
+  phoneNumberId        String?
+  wabaId               String?
+  encryptedAccessToken String?
   displayName          String?
   status               NumberPoolStatus @default(AVAILABLE)
   assignedTo           String?
   registeredAt         DateTime?
   createdAt            DateTime         @default(now())
+  provider             String           @default("META")
+  twilioSid            String?
 }
 
 model Template {
@@ -259,6 +261,21 @@ enum NumberPoolStatus {
   AVAILABLE
   ASSIGNED
   BANNED
+  PROVISIONING
+}
+
+enum TemplateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum CampaignStatus {
+  DRAFT
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
 }
 
 enum CampaignRecipientStatus {
