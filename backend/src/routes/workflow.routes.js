@@ -9,8 +9,8 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/', workflowController.list);
-router.post('/', authorize('ADMIN'), workflowController.create);
-router.patch('/:id', authorize('ADMIN'), workflowController.update);
-router.delete('/:id', authorize('ADMIN'), workflowController.remove);
+router.post('/', authorize('ADMIN', 'CLIENT'), workflowController.create);
+router.patch('/:id', authorize('ADMIN', 'CLIENT'), workflowController.update);
+router.delete('/:id', authorize('ADMIN', 'CLIENT'), workflowController.remove);
 
 export default router;

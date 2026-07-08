@@ -15,6 +15,7 @@ router.delete('/triggers/:id', authorize('ADMIN'), automationController.remove);
 
 router.get('/basic', automationController.getBasicAutomations);
 router.patch('/basic', authorize('ADMIN'), automationController.updateBasicAutomations);
+router.post('/workflows/ai-preview', authorize('ADMIN', 'CLIENT'), automationController.generateWorkflowPreview);
 router.get('/voice', automationController.getVoiceSettings);
 router.patch('/voice', authorize('ADMIN'), automationController.updateVoiceSettings);
 

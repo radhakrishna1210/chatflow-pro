@@ -39,6 +39,13 @@ See `.env.example` for all required variables. Key ones:
 | `ENCRYPTION_KEY` | 64-char hex string (32 bytes) for AES-256 token encryption |
 | `META_APP_SECRET` | Facebook app secret for webhook HMAC verification |
 | `META_SYSTEM_USER_TOKEN` | Long-lived Meta system user token for admin operations |
+| `GEMINI_API_KEY` | Optional Gemini API key for AI workflow generation |
+
+AI workflow generation is available from the Automation > Workflows tab. Add this to your backend `.env` when you are ready to use Gemini:
+
+```bash
+GEMINI_API_KEY=your_gemini_api_key_here
+```
 
 ## API Base URL
 
