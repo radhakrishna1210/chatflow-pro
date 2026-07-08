@@ -8,6 +8,7 @@ backend/node_modules/
 .env.local
 .env.*.local
 backend/.env
+backend/.env.production
 
 # Build output
 frontend/dist/
@@ -36,3 +37,6 @@ frontend/node_modules/.vite/
 
 # Claude internal
 .claude/
+
+# Local notes
+INTERAKT_COMPARISON.md
