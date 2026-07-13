@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.production
+
+# Build output
+frontend/dist/
+frontend/build/
+
+# Prisma
+backend/prisma/migrations/
+*.db
+*.db-journal
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Vite cache
+frontend/node_modules/.vite/
+
+# Claude internal
+.claude/
+
+# Local notes
+INTERAKT_COMPARISON.md
