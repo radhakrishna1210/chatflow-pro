@@ -44,6 +44,14 @@ model Workspace {
   voiceAiName                  String              @default("MyCallGenie")
   voiceAiPrompt                String              @default("Greet the caller and ask for their details.")
   voiceAiPhone                 String              @default("")
+  aiAgentEnabled               Boolean             @default(false)
+  aiAgentName                  String              @default("Assistant")
+  aiAgentPrompt                String              @default("You are a helpful customer support agent. Answer briefly and politely.")
+  aiAgentKnowledge             String              @default("")
+  aiAgentModel                 String              @default("gemini-1.5-flash")
+  aiAgentDeployedAt            DateTime?
+  intentMatchingEnabled        Boolean             @default(false)
+  intentMatchThreshold         Float               @default(0.6)
   suspended                    Boolean             @default(false)
   suspendedReason              String?
   walletBalance                Decimal             @default(0) @db.Decimal(12, 2)
@@ -165,6 +173,7 @@ model Campaign {
   replyRules    Json?
   retryConfig   Json?
   trackingConfig Json?
+  fallbackConfig Json?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @default(now()) @updatedAt
   template      Template            @relation(fields: [templateId], references: [id])

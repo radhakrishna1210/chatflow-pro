@@ -30,3 +30,8 @@ export async function cancel(req, res) {
   const campaign = await campaignsService.cancelCampaign(req.params.workspaceId, req.params.id);
   res.json(campaign);
 }
+
+export async function fallbackCapabilities(req, res) {
+  const { fallbackCapabilities } = await import('../services/fallback.service.js');
+  res.json(fallbackCapabilities());
+}

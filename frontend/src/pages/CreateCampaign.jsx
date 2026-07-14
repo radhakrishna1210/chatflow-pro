@@ -678,150 +678,142 @@ const Step7 = ({ onSaved }) => {
 };
 
 // ─── Step 8 ───────────────────────────────────────────────────
-const Step8 = ({ retriesActive }) => {
-  const [enabled, setEnabled]       = useState(false);
-  const [delay, setDelay]           = useState(24);
-  const [msgOpt, setMsgOpt]         = useState('same');
-  const [customMsg, setCustomMsg]   = useState('');
+const Step8 = ({ retriesActive, onSaved }) => {
+  const [caps, setCaps]       = useState({ sms: false, email: false });
+  const [smsEnabled, setSmsEnabled]     = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [smsFrom, setSmsFrom]     = useState('');
+  const [smsText, setSmsText]     = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailText, setEmailText] = useState('');
+  const [saved, setSaved] = useState(false);
   const canEnable = !retriesActive;
 
-  const channels = [
-    { id: 'sms',   label: 'SMS',        icon: 'msg'   },
-    { id: 'email', label: 'Email',       icon: 'send'  },
-    { id: 'voice', label: 'Voice Call',  icon: 'phone' },
-  ];
+  useEffect(() => {
+    wFetch('/campaigns/fallback-capabilities').then(r => r.ok ? r.json() : null).then(d => { if (d) setCaps(d); }).catch(() => {});
+  }, []);
+
+  const commit = () => {
+    onSaved?.({
+      smsEnabled: smsEnabled && caps.sms, smsFrom, smsText,
+      emailEnabled: emailEnabled && caps.email, emailSubject, emailText,
+    });
+    setSaved(true); setTimeout(() => setSaved(false), 1800);
+  };
+
+  const fieldStyle = { width: '100%', padding: '9px 12px', borderRadius: 7, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none', boxSizing: 'border-box' };
+
+  const ChannelCard = ({ id, label, icon, enabled, setEnabled, supported, children }) => (
+    <div style={{ padding: '14px 16px', borderRadius: '10px', border: `1px solid ${enabled ? 'var(--green)' : 'var(--bd)'}`, background: 'rgba(255,255,255,0.01)', opacity: supported ? 1 : 0.45 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: enabled ? '14px' : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <I n={icon} s={16} c={enabled ? 'var(--green)' : 'var(--t2)'} />
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)' }}>{label}</span>
+          {!supported && <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>Not Configured</span>}
+        </div>
+        {supported && <Toggle on={enabled} onToggle={() => setEnabled(!enabled)} />}
+      </div>
+      {enabled && children}
+    </div>
+  );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {retriesActive && (
-        <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(245,158,11,.07)', border: '1px solid rgba(245,158,11,.2)', color: '#fbbf24', fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center', lineHeight: 1.5 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-          Fallback channels cannot be enabled while Retries are active. Disable retries in Step 6 first.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {!canEnable && (
+        <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', color: '#f87171', fontSize: '12.5px', lineHeight: 1.5 }}>
+          Fallback channels cannot be enabled when Retries are active. Disable Retries in Step 6 to configure Fallbacks.
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', opacity: canEnable ? 1 : 0.5 }}>
-        <div style={{ paddingTop: '2px' }}>
-          <Toggle on={enabled && canEnable} onToggle={() => canEnable && setEnabled(!enabled)} />
-        </div>
-        <div>
-          <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--t1)', marginBottom: '3px' }}>Enable Fallback Channels</p>
-          <p style={{ fontSize: '12px', color: 'var(--t2)' }}>Send via alternative channel if WhatsApp delivery fails</p>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', opacity: canEnable ? 1 : 0.5, pointerEvents: canEnable ? 'auto' : 'none' }}>
+        <ChannelCard id="sms" label="SMS Fallback" icon="phone" enabled={smsEnabled} setEnabled={setSmsEnabled} supported={caps.sms}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>Sender Number</label>
+              <input value={smsFrom} onChange={e => setSmsFrom(e.target.value)} placeholder="e.g. +14155552671" style={fieldStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>SMS Message Text</label>
+              <textarea value={smsText} onChange={e => setSmsText(e.target.value)} placeholder="Hello {{1}}..." style={{ ...fieldStyle, minHeight: '60px', resize: 'vertical' }} />
+            </div>
+          </div>
+        </ChannelCard>
+
+        <ChannelCard id="email" label="Email Fallback" icon="globe" enabled={emailEnabled} setEnabled={setEmailEnabled} supported={caps.email}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>Email Subject</label>
+              <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="Important Update" style={fieldStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>Email Body</label>
+              <textarea value={emailText} onChange={e => setEmailText(e.target.value)} placeholder="Hi {{1}}..." style={{ ...fieldStyle, minHeight: '60px', resize: 'vertical' }} />
+            </div>
+          </div>
+        </ChannelCard>
       </div>
-      {enabled && canEnable && (
-        <>
-          <div>
-            <SLabel>Fallback Channel</SLabel>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              {channels.map(ch => (
-                <div key={ch.id} style={{ flex: 1, padding: '16px', borderRadius: '10px', border: '1px solid var(--bd)', background: 'rgba(255,255,255,0.02)', opacity: 0.45, cursor: 'not-allowed', textAlign: 'center' }}>
-                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}><I n={ch.icon} s={20} c="var(--t2)" /></div>
-                  <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t2)', marginBottom: '5px' }}>{ch.label}</p>
-                  <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: 'var(--t3)' }}>Coming Soon</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <SLabel>Delay Before Fallback</SLabel>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <input type="number" value={delay} min={1} max={168}
-                onChange={e => setDelay(Math.min(168, Math.max(1, +e.target.value)))}
-                style={{ width: '80px', padding: '8px 10px', borderRadius: '7px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: '13px', fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none', textAlign: 'center' }} />
-              <span style={{ fontSize: '13px', color: 'var(--t2)' }}>hours <span style={{ color: 'var(--t3)' }}>(1–168)</span></span>
-            </div>
-          </div>
-          <div>
-            <SLabel>Fallback Message</SLabel>
-            {[{ id: 'same', label: 'Use same template' }, { id: 'custom', label: 'Custom message' }].map(opt => (
-              <div key={opt.id} onClick={() => setMsgOpt(opt.id)} style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '10px', cursor: 'pointer' }}>
-                <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: `1.5px solid ${msgOpt === opt.id ? 'var(--green)' : 'var(--bd)'}`, background: msgOpt === opt.id ? 'var(--green)' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s' }}>
-                  {msgOpt === opt.id && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#060913' }} />}
-                </div>
-                <span style={{ fontSize: '13px', fontWeight: 500, color: msgOpt === opt.id ? 'var(--t1)' : 'var(--t2)' }}>{opt.label}</span>
-              </div>
-            ))}
-            {msgOpt === 'custom' && (
-              <textarea value={customMsg} onChange={e => setCustomMsg(e.target.value)} placeholder="Enter fallback message…"
-                style={{ width: '100%', minHeight: '80px', padding: '10px 13px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: '13px', fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.55 }} />
-            )}
-          </div>
-        </>
-      )}
-      <InfoAlert>When WhatsApp delivery fails after the specified delay, the message will be sent through the selected fallback channel to ensure your contacts receive the communication.</InfoAlert>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <Btn>Save Fallback Config</Btn>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+        <Btn onClick={commit} disabled={!canEnable}>{saved ? 'Saved ✓' : 'Save Fallback Config'}</Btn>
       </div>
     </div>
   );
 };
 
 // ─── Phone Preview ─────────────────────────────────────────────
-const PhonePreview = ({ templateBody, businessName = 'ChatFlow Pro' }) => {
-  const [platform, setPlatform] = useState('android');
+const PhonePreview = ({ templateBody }) => {
+  const [businessName, setBusinessName] = useState('ChatFlow Pro');
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <Btn style={{ width: '100%', justifyContent: 'center' }}>
-        <I n="send" s={13} c="#060A10" />
-        Send Test Message
-      </Btn>
-      <div style={{ display: 'flex', gap: '4px', padding: '3px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
-        {[{ id: 'android', label: 'Android' }, { id: 'ios', label: 'iOS', soon: true }].map(p => (
-          <div key={p.id} onClick={() => !p.soon && setPlatform(p.id)}
-            style={{ flex: 1, padding: '6px 0', borderRadius: '6px', textAlign: 'center', fontSize: '12px', fontWeight: 600, cursor: p.soon ? 'not-allowed' : 'pointer', background: platform === p.id ? 'rgba(255,255,255,0.09)' : 'transparent', color: platform === p.id ? 'var(--t1)' : 'var(--t3)', transition: 'all .15s', opacity: p.soon ? 0.45 : 1 }}>
-            {p.label}{p.soon ? ' (soon)' : ''}
-          </div>
-        ))}
-      </div>
+  useEffect(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || '{}');
+      if (u.workspaceName) setBusinessName(u.workspaceName);
+    } catch {}
+  }, []);
 
-      {/* Phone frame */}
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <div style={{ width: '232px', background: '#1c1c1c', borderRadius: '30px', padding: '8px', boxShadow: '0 24px 64px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.07)', border: '6px solid #282828', position: 'relative' }}>
-          {/* Notch */}
-          <div style={{ position: 'absolute', top: '14px', left: '50%', transform: 'translateX(-50%)', width: '60px', height: '10px', borderRadius: '8px', background: '#111', zIndex: 2 }} />
-          {/* Status bar */}
-          <div style={{ background: '#075E54', borderRadius: '22px 22px 0 0', padding: '14px 12px 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.88)', fontWeight: 600 }}>9:41</span>
-            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-              <svg width="11" height="8" viewBox="0 0 16 12" fill="none"><rect x="0" y="0" width="12" height="10" rx="2" ry="2" stroke="white" strokeWidth="1.2" fill="none" opacity="0.8"/><rect x="1" y="1" width="8" height="8" rx="1" ry="1" fill="white" opacity="0.9"/><rect x="13" y="3" width="2" height="5" rx="1" fill="white" opacity="0.5"/></svg>
-            </div>
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: '250px', borderRadius: '28px', border: '8px solid #2d3748', background: '#e2e8f0', overflow: 'hidden', boxShadow: '0 8px 30px rgba(0,0,0,0.5)', position: 'relative' }}>
+        {/* Notch */}
+        <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '100px', height: '14px', background: '#2d3748', borderRadius: '0 0 10px 10px', zIndex: 5 }} />
+        {/* Status Bar */}
+        <div style={{ height: '22px', background: '#075E54', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', fontSize: '9px', fontWeight: 700, color: 'white', paddingTop: '4px' }}>
+          <span>9:41</span>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <span>5G</span>
+            <span>100%</span>
           </div>
-          {/* WA Header */}
-          <div style={{ background: '#075E54', padding: '6px 12px 10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="white" /></svg>
-            </div>
-            <div>
-              <p style={{ fontSize: '12px', fontWeight: 700, color: 'white', lineHeight: 1.1 }}>{businessName}</p>
-              <p style={{ fontSize: '9px', color: 'rgba(255,255,255,0.65)' }}>Business Account</p>
-            </div>
+        </div>
+        {/* WA Header */}
+        <div style={{ background: '#075E54', padding: '6px 12px 10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="white" /></svg>
           </div>
-          {/* Chat area */}
-          <div style={{ background: '#ECE5DD', minHeight: '220px', padding: '10px 8px', borderRadius: '0 0 22px 22px', backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' opacity='0.04'%3E%3Cpath d='M0 0L40 0L40 40L0 40Z' fill='%23000'/%3E%3C/svg%3E\")" }}>
-            {templateBody ? (
-              <div style={{ background: 'white', borderRadius: '0 8px 8px 8px', padding: '8px 10px', maxWidth: '88%', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'inline-block' }}>
-                <p style={{ fontSize: '11px', color: '#111', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'system-ui, -apple-system, sans-serif', margin: 0 }}>{templateBody}</p>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '3px', marginTop: '4px' }}>
-                  <span style={{ fontSize: '9px', color: '#9CA3AF' }}>{now}</span>
-                  <svg width="13" height="9" viewBox="0 0 18 12" fill="none">
-                    <path d="M1 6l4 4L17 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M6 6l4 4L17 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
+          <div>
+            <p style={{ fontSize: '12px', fontWeight: 700, color: 'white', lineHeight: 1.1 }}>{businessName}</p>
+            <p style={{ fontSize: '9px', color: 'rgba(255,255,255,0.65)' }}>Business Account</p>
+          </div>
+        </div>
+        {/* Chat area */}
+        <div style={{ background: '#ECE5DD', minHeight: '220px', padding: '10px 8px', borderRadius: '0 0 22px 22px', backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' opacity='0.04'%3E%3Cpath d='M0 0L40 0L40 40L0 40Z' fill='%23000'/%3E%3C/svg%3E\")" }}>
+          {templateBody ? (
+            <div style={{ background: 'white', borderRadius: '0 8px 8px 8px', padding: '8px 10px', maxWidth: '88%', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'inline-block' }}>
+              <p style={{ fontSize: '11px', color: '#111', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'system-ui, -apple-system, sans-serif', margin: 0 }}>{templateBody}</p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '3px', marginTop: '4px' }}>
+                <span style={{ fontSize: '9px', color: '#9CA3AF' }}>{now}</span>
+                <svg width="13" height="9" viewBox="0 0 18 12" fill="none">
+                  <path d="M1 6l4 4L17 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M6 6l4 4L17 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '180px' }}>
-                <div style={{ textAlign: 'center', background: 'rgba(0,0,0,0.05)', borderRadius: '12px', padding: '14px 18px' }}>
-                  <p style={{ fontSize: '11px', color: '#777', fontFamily: 'system-ui, sans-serif', lineHeight: 1.4 }}>Select a template<br/>to preview</p>
-                </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '180px' }}>
+              <div style={{ textAlign: 'center', background: 'rgba(0,0,0,0.05)', borderRadius: '12px', padding: '14px 18px' }}>
+                <p style={{ fontSize: '11px', color: '#777', fontFamily: 'system-ui, sans-serif', lineHeight: 1.4 }}>Select a template<br/>to preview</p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -883,6 +875,7 @@ export default function CreateCampaign({ onBack }) {
   const [replyRules, setReplyRules]           = useState(null);
   const [retryConfig, setRetryConfig]         = useState(null);
   const [trackingConfig, setTrackingConfig]   = useState(null);
+  const [fallbackConfig, setFallbackConfig]   = useState(null);
 
   const [numbers, setNumbers]     = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -941,7 +934,7 @@ export default function CreateCampaign({ onBack }) {
 
       const res = await wFetch('/campaigns', {
         method: 'POST',
-        body: JSON.stringify({ name: campaignName, type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig }),
+        body: JSON.stringify({ name: campaignName, type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig, fallbackConfig }),
       });
       if (!res.ok) throw new Error(await parseError(res, `Could not create campaign (${res.status})`));
       const campaign = await res.json();
@@ -972,7 +965,7 @@ export default function CreateCampaign({ onBack }) {
     try {
       const res = await wFetch('/campaigns', {
         method: 'POST',
-        body: JSON.stringify({ name: campaignName || 'Untitled Draft', type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig }),
+        body: JSON.stringify({ name: campaignName || 'Untitled Draft', type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig, fallbackConfig }),
       });
       if (!res.ok) throw new Error(await parseError(res, `Could not save draft (${res.status})`));
       const campaign = await res.json();
@@ -1059,7 +1052,7 @@ export default function CreateCampaign({ onBack }) {
               {s.n === 5 && <Step5 initial={replyRules} onSaved={setReplyRules} />}
               {s.n === 6 && <Step6 onRetryToggle={setRetriesActive} onSaved={setRetryConfig} />}
               {s.n === 7 && <Step7 onSaved={setTrackingConfig} />}
-              {s.n === 8 && <Step8 retriesActive={retriesActive} />}
+              {s.n === 8 && <Step8 retriesActive={retriesActive} onSaved={setFallbackConfig} />}
             </StepWrap>
           ))}
           <div style={{ height: '48px' }} />

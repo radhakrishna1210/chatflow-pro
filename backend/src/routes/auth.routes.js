@@ -53,7 +53,7 @@ function verifyState(state, maxAgeMs = 10 * 60_000) {
 
 router.get('/google', (req, res, next) => {
   const state = signState({ n: randomBytes(8).toString('hex'), ts: Date.now() });
-  passport.authenticate('google', { scope: ['profile', 'email'], prompt: 'select_account', state })(req, res, next);
+  passport.authenticate('google', { scope: ['profile', 'email'], prompt: 'select_account', state, session: false })(req, res, next);
 });
 
 router.get('/google/callback', (req, res, next) => {

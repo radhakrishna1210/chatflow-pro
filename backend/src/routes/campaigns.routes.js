@@ -10,6 +10,7 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/', campaignsController.list);
+router.get('/fallback-capabilities', campaignsController.fallbackCapabilities);
 router.post('/', authorize('ADMIN'), validate({ body: campaignSchemas.create }), campaignsController.create);
 router.get('/:id', campaignsController.getOne);
 router.post('/:id/recipients', authorize('ADMIN'), validate({ body: campaignSchemas.addRecipients }), campaignsController.addRecipients);

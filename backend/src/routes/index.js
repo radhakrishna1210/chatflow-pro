@@ -18,8 +18,9 @@ import workflowRoutes from './workflow.routes.js';
 import segmentsRoutes from './segments.routes.js';
 import whatsappFormsRoutes from './whatsappForms.routes.js';
 import walletRoutes from './wallet.routes.js';
-import integrationsRoutes from './integrations.routes.js';
+import integrationsRoutes, { oauthCallbackRouter } from './integrations.routes.js';
 import supportRoutes from './support.routes.js';
+import aiAgentRoutes from './aiAgent.routes.js';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ router.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toIS
 router.use('/auth', authRoutes);
 router.use('/webhook', webhookRoutes);
 router.use('/admin', adminRoutes);
+router.use('/integrations/oauth', oauthCallbackRouter);
 
 const ws = Router({ mergeParams: true });
 ws.use('/whatsapp', whatsappRoutes);
@@ -46,6 +48,7 @@ ws.use('/workflows', workflowRoutes);
 ws.use('/wallet', walletRoutes);
 ws.use('/integrations', integrationsRoutes);
 ws.use('/support', supportRoutes);
+ws.use('/ai-agent', aiAgentRoutes);
 
 router.use('/onboarding', onboardingRoutes);
 router.use('/ai', aiRoutes);

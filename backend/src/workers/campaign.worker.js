@@ -5,6 +5,7 @@ import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
 import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
+import { runFallbackForRecipient } from '../services/fallback.service.js';
 
 // Meta Cloud API Tier-1 numbers are limited to ~250 msgs/min. The old 60ms
 // delay (~1000/min) triggered rate-limit errors (code 131042). 250ms ≈ 240/min.
@@ -134,6 +135,13 @@ async function processCampaign(job) {
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { failed: { increment: 1 } },
+      });
+
+      // Fallback channels (wizard step 8): route the failed recipient through
+      // SMS/email if the campaign configured them. Outcome is appended to the
+      // recipient's failReason — real attempts, honestly recorded.
+      await runFallbackForRecipient(campaign, recipient, recipient.contact).catch((fbErr) => {
+        console.error(`[CampaignWorker] fallback error for ${recipient.contact.phoneNumber}:`, fbErr.message);
       });
     }
 

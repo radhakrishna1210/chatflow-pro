@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { findMatchingTrigger } from './automation.service.js';
+import { matchIntent, generateAgentReply } from './aiAgent.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage } from '../lib/meta.js';
 import { queueTemplateApprovedEmail, queueTemplateRejectedEmail } from './email.service.js';
@@ -168,8 +169,16 @@ async function handleInboundMessage(value, msg) {
 
   let autoReplyText = null;
   if (messageBody) {
+    // 1. Exact / contains keyword trigger (highest priority, deterministic).
     const trigger = await findMatchingTrigger(waNumber.workspaceId, messageBody);
     if (trigger) autoReplyText = trigger.responseTemplate;
+
+    // 2. AI Intent Matching — fuzzy-route to the best trigger when no exact
+    //    match was found. Real feature, gated by intentMatchingEnabled.
+    if (!autoReplyText) {
+      const intent = await matchIntent(waNumber.workspaceId, messageBody).catch(() => null);
+      if (intent?.trigger) autoReplyText = intent.trigger.responseTemplate;
+    }
   }
 
   if (!autoReplyText) {
@@ -185,6 +194,14 @@ async function handleInboundMessage(value, msg) {
     } else if (workspace?.autoOooEnabled && wasClosed) {
       autoReplyText = DEFAULT_OOO_MESSAGE;
     }
+  }
+
+  // 3. AI Agent fallback — a deployed LLM agent answers free-form questions when
+  //    nothing above matched. Only fires if explicitly deployed.
+  if (!autoReplyText && messageBody) {
+    autoReplyText = await generateAgentReply(waNumber.workspaceId, messageBody, {
+      contactName: contact?.name,
+    }).catch(() => null);
   }
 
   if (autoReplyText) {

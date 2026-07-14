@@ -45,20 +45,19 @@ function isPlatformAdmin(email) {
   return email.toLowerCase() === env.ADMIN_EMAIL.toLowerCase();
 }
 
-export async function register({ name, email, password }) {
-  const existing = await prisma.user.findUnique({ where: { email } });
+export async function register({ name, email, password, role = 'CLIENT' }) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) {
     const err = new Error('Email already in use');
     err.status = 409;
     throw err;
   }
 
-  const superAdmin = isPlatformAdmin(email);
+  const superAdmin = isPlatformAdmin(normalizedEmail);
   const passwordHash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
-  const user = await prisma.user.create({ data: { name, email, passwordHash } });
+  const user = await prisma.user.create({ data: { name, email: normalizedEmail, passwordHash } });
 
-  // The creator is always the ADMIN of their own workspace.
-  const role = 'ADMIN';
   const workspace = await prisma.workspace.create({
     data: {
       name: `${name}'s Workspace`,
@@ -79,7 +78,8 @@ export async function register({ name, email, password }) {
 }
 
 export async function login({ email, password }) {
-  const user = await prisma.user.findUnique({ where: { email } });
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (!user || !user.passwordHash) {
     const err = new Error('Invalid credentials');
     err.status = 401;
@@ -177,8 +177,14 @@ export async function logout(token) {
 }
 
 export async function findOrCreateGoogleUser({ googleId, email, name }) {
+  const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
   let user = await prisma.user.findFirst({
-    where: { OR: [{ googleId }, { email }] },
+    where: {
+      OR: [
+        { googleId },
+        ...(normalizedEmail ? [{ email: normalizedEmail }] : []),
+      ],
+    },
   });
 
   if (user) {
@@ -186,11 +192,11 @@ export async function findOrCreateGoogleUser({ googleId, email, name }) {
       user = await prisma.user.update({ where: { id: user.id }, data: { googleId } });
     }
   } else {
-    user = await prisma.user.create({ data: { name, email, googleId } });
+    user = await prisma.user.create({ data: { name, email: normalizedEmail, googleId } });
     await prisma.workspace.create({
       data: {
         name: `${name}'s Workspace`,
-        members: { create: { userId: user.id, role: 'ADMIN' } },
+        members: { create: { userId: user.id, role: 'CLIENT' } },
       },
     });
   }
@@ -207,7 +213,7 @@ export async function findOrCreateGoogleUser({ googleId, email, name }) {
     await prisma.workspace.create({
       data: {
         name: `${user.name}'s Workspace`,
-        members: { create: { userId: user.id, role: 'ADMIN' } },
+        members: { create: { userId: user.id, role: 'CLIENT' } },
       },
     });
     member = await prisma.workspaceMember.findFirst({
@@ -296,40 +302,54 @@ export async function resendSignupOtp({ email }) {
   return { email: normalizedEmail, message: 'Verification code re-sent' };
 }
 
-export async function verifySignup({ email, code }) {
+export async function verifySignup({ email, code, role = 'CLIENT' }) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const otp = await prisma.emailOtp.findFirst({
     where: { email: normalizedEmail, purpose: 'SIGNUP', consumed: false },
     orderBy: { createdAt: 'desc' },
   });
-  if (!otp) { const e = new Error('No pending verification. Please start signup again.'); e.status = 400; throw e; }
-  if (otp.expiresAt < new Date()) { const e = new Error('Code expired. Please request a new one.'); e.status = 400; throw e; }
-  if (otp.attempts >= MAX_OTP_ATTEMPTS) { const e = new Error('Too many incorrect attempts. Please start signup again.'); e.status = 429; throw e; }
 
-  if (otp.codeHash !== hashCode(code)) {
-    await prisma.emailOtp.update({ where: { id: otp.id }, data: { attempts: { increment: 1 } } });
-    const e = new Error('Incorrect code'); e.status = 400; throw e;
+  if (!otp) {
+    const err = new Error('No verification code found');
+    err.status = 404;
+    throw err;
   }
 
-  // Double-check email still free (race).
+  if (otp.expiresAt < new Date()) {
+    const err = new Error('Verification code expired');
+    err.status = 400;
+    throw err;
+  }
+
+  if (otp.codeHash !== hashCode(code)) {
+    const err = new Error('Incorrect code');
+    err.status = 400;
+    throw err;
+  }
+
+  // Consume the code
+  await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed: true } });
+
+  // Check if a user registered with this email while they were waiting to verify
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existing) { const e = new Error('Email already in use'); e.status = 409; throw e; }
+  if (existing) {
+    const err = new Error('Email already in use');
+    err.status = 409;
+    throw err;
+  }
 
   const superAdmin = isPlatformAdmin(normalizedEmail);
-  const role = 'ADMIN';
+
   const user = await prisma.user.create({ data: { name: otp.name, email: normalizedEmail, passwordHash: otp.passwordHash } });
   const workspace = await prisma.workspace.create({
     data: { name: `${otp.name}'s Workspace`, members: { create: { userId: user.id, role } } },
   });
-  await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed: true } });
 
   const { accessToken, refreshToken } = generateTokens(user.id, workspace.id, role, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
-  queueWelcomeEmail({ email: user.email, name: user.name }).catch(() => {});
 
-  return {
-    accessToken, refreshToken,
-    user: { id: user.id, name: user.name, email: user.email, role, superAdmin },
-    workspace: { id: workspace.id, name: workspace.name },
-  };
+  // Send welcome email in background
+  queueWelcomeEmail({ email: normalizedEmail, name: otp.name }).catch(() => {});
+
+  return { accessToken, refreshToken, user: { id: user.id, name: otp.name, email: normalizedEmail, role, superAdmin }, workspace };
 }

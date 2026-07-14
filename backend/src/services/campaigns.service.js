@@ -19,7 +19,7 @@ export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) 
   return { data, total };
 }
 
-export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig }) {
+export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig }) {
   if (!name || !String(name).trim()) { const e = new Error('Campaign name is required'); e.status = 400; throw e; }
   const resolvedNumberId = numberId ?? whatsappNumberId;
   const [template, waNumber] = await Promise.all([
@@ -43,6 +43,7 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
       replyRules: replyRules ?? undefined,
       retryConfig: retryConfig ?? undefined,
       trackingConfig: trackingConfig ?? undefined,
+      fallbackConfig: fallbackConfig ?? undefined,
     },
   });
 }
