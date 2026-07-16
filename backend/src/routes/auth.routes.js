@@ -64,7 +64,9 @@ router.get('/google/callback', (req, res, next) => {
   passport.authenticate('google', { session: false }, (err, user) => {
     if (err) {
       const reason = err.code || err.message || 'oauth_error';
+      const detail = err.oauthError?.data || err.oauthError?.message || err.oauthError;
       console.error(`[Google OAuth] ${reason} — expected redirect_uri="${env.GOOGLE_CALLBACK_URL}". Check that this exact URL is in Google Cloud Console → Credentials → Authorized redirect URIs.`);
+      console.error('[Google OAuth] underlying error:', detail);
       return res.redirect(`${env.CLIENT_URL}/login?oauth_error=${encodeURIComponent(reason)}`);
     }
     if (!user) return res.redirect(`${env.CLIENT_URL}/login?oauth_error=denied`);
