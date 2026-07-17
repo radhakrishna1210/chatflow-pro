@@ -45,6 +45,11 @@ export default function PaymentsView() {
   const [invoices, setInvoices] = useState([]);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
 
+  // Insights state
+  const [insights, setInsights] = useState(null);
+  const [loadingInsights, setLoadingInsights] = useState(false);
+  const [insightsError, setInsightsError] = useState('');
+
   // Load state from backend
   useEffect(() => {
     // 1. Wallet balance + transaction ledger (server-authoritative)
@@ -87,6 +92,23 @@ export default function PaymentsView() {
       })
       .catch(() => setLoadingInvoices(false));
   }, []);
+
+  // Lazy load insights when user switches to the Insights sub-tab
+  useEffect(() => {
+    if (activeSubTab === 'insights' && !insights && !loadingInsights) {
+      setLoadingInsights(true);
+      wFetch('/analytics/paid-messages')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) setInsights(data);
+          setLoadingInsights(false);
+        })
+        .catch(err => {
+          setInsightsError(err.message);
+          setLoadingInsights(false);
+        });
+    }
+  }, [activeSubTab, insights, loadingInsights]);
 
   const handleRecharge = async () => {
     const amt = parseFloat(rechargeAmt);
@@ -204,52 +226,58 @@ export default function PaymentsView() {
     </div>
   );
 
-  const renderInsights = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Metric Cards Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-        {[
-          { label: 'Total Paid Messages', val: 707, color: 'var(--green)' },
-          { label: 'Utility', val: 0, color: '#a78bfa' },
-          { label: 'Marketing', val: 0, color: '#f59e0b' },
-          { label: 'Marketing Lite', val: 707, color: '#0ea5e9' },
-          { label: 'Auth Messages', val: 0, color: '#f43f5e' }
-        ].map((m, idx) => (
-          <div key={idx} style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600 }}>{m.label}</span>
-            <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 24, fontWeight: 800, color: m.val > 0 ? m.color : 'var(--t1)' }}>{m.val}</span>
-          </div>
-        ))}
-      </div>
+  const renderInsights = () => {
+    if (loadingInsights) {
+      return <div style={{ color: 'var(--t2)', padding: 24, display: 'flex', justifyContent: 'center' }}>Loading insights...</div>;
+    }
+    if (insightsError) {
+      return <div style={{ color: '#f87171', padding: 24, display: 'flex', justifyContent: 'center' }}>Error loading insights: {insightsError}</div>;
+    }
 
-      {/* Chart Card */}
-      <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>Paid Message Analytics</h3>
-        
-        {/* Custom SVG Bar Chart */}
-        <div style={{ width: '100%', height: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', paddingBottom: 20, borderBottom: '1px solid var(--bd)' }}>
+    const { totals = {}, chartData = [] } = insights || {};
+    
+    // Find the max value for the chart to scale properly
+    const maxChartVal = chartData.reduce((max, bar) => Math.max(max, bar.val), 10) || 100;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Metric Cards Row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
           {[
-            { date: 'Jun 19', val: 210 },
-            { date: 'Jun 20', val: 170 },
-            { date: 'Jun 21', val: 90 },
-            { date: 'Jun 22', val: 85 },
-            { date: 'Jun 23', val: 100 },
-            { date: 'Jun 24', val: 92 },
-            { date: 'Jun 25', val: 0 }
-          ].map((bar, idx) => {
-            const pctHeight = (bar.val / 220) * 100;
-            return (
-              <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: 10 }}>
-                {bar.val > 0 && <span style={{ fontSize: 10, color: 'var(--t2)', fontWeight: 600 }}>{bar.val}</span>}
-                <div style={{ width: 36, height: `${pctHeight || 4}px`, background: bar.val > 0 ? 'var(--green)' : 'rgba(255,255,255,0.03)', borderRadius: '4px 4px 0 0', transition: 'height 0.3s ease' }} />
-                <span style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>{bar.date}</span>
-              </div>
-            );
-          })}
+            { label: 'Total Paid Messages', val: totals.totalPaidMessages || 0, color: 'var(--green)' },
+            { label: 'Utility', val: totals.utility || 0, color: '#a78bfa' },
+            { label: 'Marketing', val: totals.marketing || 0, color: '#f59e0b' },
+            { label: 'Marketing Lite', val: totals.marketingLite || 0, color: '#0ea5e9' },
+            { label: 'Auth Messages', val: totals.authMessages || 0, color: '#f43f5e' }
+          ].map((m, idx) => (
+            <div key={idx} style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600 }}>{m.label}</span>
+              <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 24, fontWeight: 800, color: m.val > 0 ? m.color : 'var(--t1)' }}>{m.val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Chart Card */}
+        <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>Paid Message Analytics</h3>
+          
+          {/* Custom SVG Bar Chart */}
+          <div style={{ width: '100%', height: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', paddingBottom: 20, borderBottom: '1px solid var(--bd)' }}>
+            {(chartData.length ? chartData : [{ date: '-', val: 0 }]).map((bar, idx) => {
+              const pctHeight = (bar.val / maxChartVal) * 100;
+              return (
+                <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: 10 }}>
+                  {bar.val > 0 && <span style={{ fontSize: 10, color: 'var(--t2)', fontWeight: 600 }}>{bar.val}</span>}
+                  <div style={{ width: 36, height: `${pctHeight || 4}px`, background: bar.val > 0 ? 'var(--green)' : 'rgba(255,255,255,0.03)', borderRadius: '4px 4px 0 0', transition: 'height 0.3s ease' }} />
+                  <span style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>{bar.date}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderBilling = () => (
     <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>

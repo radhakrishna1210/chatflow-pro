@@ -133,9 +133,11 @@ export async function getAgentStats(workspaceId) {
 // query because Prisma has no portable DATE() grouping helper.
 export async function getChatAnalytics(workspaceId, daysParam = 30) {
   const days = clampDays(daysParam);
-  const startDate = new Date();
-  startDate.setUTCHours(0, 0, 0, 0);
-  startDate.setUTCDate(startDate.getUTCDate() - (days - 1));
+  const nowIst = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const startDateIst = new Date(nowIst);
+  startDateIst.setUTCHours(0, 0, 0, 0);
+  startDateIst.setUTCDate(startDateIst.getUTCDate() - (days - 1));
+  const startDate = new Date(startDateIst.getTime() - 5.5 * 60 * 60 * 1000);
 
   // Messages in this workspace within the date window. All message-based
   // counts below reuse this filter.
@@ -210,17 +212,19 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
     }),
     prisma.$queryRaw`
       SELECT
-        DATE(m."sentAt")::text AS date,
+        DATE(m."sentAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::text AS date,
         COUNT(*) FILTER (WHERE m."direction" = 'OUTBOUND')::int AS sent,
         COUNT(*) FILTER (WHERE m."direction" = 'INBOUND')::int AS received
       FROM "Message" m
       INNER JOIN "Conversation" c ON c."id" = m."conversationId"
       WHERE c."workspaceId" = ${workspaceId}
         AND m."sentAt" >= ${startDate}
-      GROUP BY DATE(m."sentAt")
-      ORDER BY DATE(m."sentAt") ASC
+      GROUP BY DATE(m."sentAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+      ORDER BY DATE(m."sentAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') ASC
     `,
   ]);
+
+  console.log('Raw SQL aggregation result (before mapping):', JSON.stringify(dailyRows, null, 2));
 
   const statusCount = (status) =>
     conversationStatuses.find((row) => row.status === status)?._count._all ?? 0;
@@ -248,8 +252,8 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
   );
   const dailyVolume = [];
   for (let i = 0; i < days; i += 1) {
-    const date = new Date(startDate);
-    date.setUTCDate(startDate.getUTCDate() + i);
+    const date = new Date(startDateIst);
+    date.setUTCDate(startDateIst.getUTCDate() + i);
     const iso = toIsoDay(date);
     dailyVolume.push(dailyByDate.get(iso) ?? { date: iso, sent: 0, received: 0 });
   }
@@ -264,9 +268,11 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
     return acc;
   }, {});
 
+ 
+
   return {
     days,
-    range: { from: toIsoDay(startDate), to: toIsoDay(new Date()) },
+    range: { from: toIsoDay(startDateIst), to: toIsoDay(nowIst) },
     messages: {
       sent: directionCounts.OUTBOUND ?? 0,
       received: directionCounts.INBOUND ?? 0,
@@ -308,4 +314,61 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
     })),
     dailyVolume,
   };
+}
+
+export async function getPaidMessagesInsights(workspaceId, daysParam = 7) {
+  const days = clampDays(daysParam);
+  const startDate = new Date();
+  startDate.setUTCHours(0, 0, 0, 0);
+  startDate.setUTCDate(startDate.getUTCDate() - (days - 1));
+
+  const recipients = await prisma.campaignRecipient.findMany({
+    where: {
+      campaign: { workspaceId },
+      sentAt: { gte: startDate },
+    },
+    include: {
+      campaign: {
+        include: {
+          template: { select: { category: true } },
+        },
+      },
+    },
+  });
+
+  const totals = {
+    totalPaidMessages: recipients.length,
+    utility: 0,
+    marketing: 0,
+    marketingLite: 0, // Mock category, kept for UI compatibility
+    authMessages: 0,
+  };
+
+  const buckets = new Map();
+  const chartData = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(startDate);
+    date.setUTCDate(startDate.getUTCDate() + (days - 1 - i));
+    // Formatting date to 'MMM DD' like 'Jun 19' to match UI
+    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const key = toIsoDay(date);
+    const entry = { date: dateStr, val: 0 };
+    buckets.set(key, entry);
+    chartData.push(entry);
+  }
+
+  for (const r of recipients) {
+    if (!r.sentAt) continue;
+    const cat = r.campaign?.template?.category;
+    if (cat === 'UTILITY') totals.utility++;
+    else if (cat === 'MARKETING') totals.marketing++;
+    else if (cat === 'AUTHENTICATION') totals.authMessages++;
+
+    const key = toIsoDay(r.sentAt);
+    if (buckets.has(key)) {
+      buckets.get(key).val++;
+    }
+  }
+
+  return { totals, chartData };
 }
