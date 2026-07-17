@@ -54,6 +54,10 @@ const envSchema = z.object({
   OLLAMA_URL: z.string().url().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('phi3'),
 
+  // Razorpay test/live keys — optional until subscription checkout is configured.
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_KEY_SECRET: z.string().optional(),
+
   // SMTP — optional until credentials are configured
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().default(587),

@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { queueMemberInvitedEmail } from './email.service.js';
+import { assertWithinLimit } from './subscription.service.js';
 
 export async function listMembers(workspaceId) {
   return prisma.workspaceMember.findMany({
@@ -17,6 +18,8 @@ export async function inviteMember(workspaceId, { email, role }, inviterName) {
     where: { userId_workspaceId: { userId: user.id, workspaceId } },
   });
   if (existing) { const e = new Error('User already a member'); e.status = 409; throw e; }
+
+  await assertWithinLimit(workspaceId, 'member');
 
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } });
 

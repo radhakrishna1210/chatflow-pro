@@ -58,22 +58,17 @@ export async function register({ name, email, password, role = 'CLIENT' }) {
   const passwordHash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
   const user = await prisma.user.create({ data: { name, email: normalizedEmail, passwordHash } });
 
-  const workspace = await prisma.workspace.create({
-    data: {
-      name: `${name}'s Workspace`,
-      members: { create: { userId: user.id, role } },
-    },
-  });
-
-  const { accessToken, refreshToken } = generateTokens(user.id, workspace.id, role, superAdmin);
+  // No workspace yet: the user becomes ADMIN only when they explicitly create
+  // one (createWorkspace), or CLIENT when an admin invites them.
+  const { accessToken, refreshToken } = generateTokens(user.id, null, null, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
 
   queueWelcomeEmail({ email: user.email, name: user.name }).catch(() => {});
 
   return {
     accessToken, refreshToken,
-    user: { id: user.id, name: user.name, email: user.email, role, superAdmin },
-    workspace: { id: workspace.id, name: workspace.name },
+    user: { id: user.id, name: user.name, email: user.email, role: null, superAdmin },
+    workspace: null,
   };
 }
 
@@ -93,28 +88,24 @@ export async function login({ email, password }) {
     throw err;
   }
 
+  // A user without a workspace is still allowed to log in — the client sends
+  // them to workspace setup (create one, or wait for an invite).
   const member = await prisma.workspaceMember.findFirst({
     where: { userId: user.id },
     include: { workspace: true },
     orderBy: { joinedAt: 'asc' },
   });
 
-  if (!member) {
-    const err = new Error('No workspace found');
-    err.status = 404;
-    throw err;
-  }
-
   const superAdmin = isPlatformAdmin(user.email);
-  const role = member.role;
-  const { accessToken, refreshToken } = generateTokens(user.id, member.workspaceId, role, superAdmin);
+  const role = member?.role ?? null;
+  const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, role, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
 
   return {
     accessToken,
     refreshToken,
     user: { id: user.id, name: user.name, email: user.email, role, superAdmin },
-    workspace: { id: member.workspaceId, name: member.workspace.name },
+    workspace: member ? { id: member.workspaceId, name: member.workspace.name } : null,
   };
 }
 
@@ -144,12 +135,6 @@ export async function refresh(token) {
     orderBy: { joinedAt: 'asc' },
   });
 
-  if (!member) {
-    const err = new Error('No workspace found for user');
-    err.status = 401;
-    throw err;
-  }
-
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
   if (!user) {
     const err = new Error('User not found');
@@ -158,10 +143,10 @@ export async function refresh(token) {
   }
 
   const superAdmin = isPlatformAdmin(user.email);
-  const role = member.role;
+  const role = member?.role ?? null;
   const { accessToken, refreshToken: newRefreshToken } = generateTokens(
     payload.sub,
-    member.workspaceId,
+    member?.workspaceId ?? null,
     role,
     superAdmin
   );
@@ -192,54 +177,34 @@ export async function findOrCreateGoogleUser({ googleId, email, name }) {
       user = await prisma.user.update({ where: { id: user.id }, data: { googleId } });
     }
   } else {
-    user = await prisma.user.create({ data: { name, email: normalizedEmail, googleId } });
-    await prisma.workspace.create({
-      data: {
-        name: `${name}'s Workspace`,
-        members: { create: { userId: user.id, role: 'CLIENT' } },
-      },
-    });
+    // New Google users get no workspace: they become ADMIN only by explicitly
+    // creating one (createWorkspace), or CLIENT when an admin invites them.
+    user = await prisma.user.create({ data: { name, email, googleId } });
   }
 
-  let member = await prisma.workspaceMember.findFirst({
+  const member = await prisma.workspaceMember.findFirst({
     where: { userId: user.id },
     include: { workspace: true },
     orderBy: { joinedAt: 'asc' },
   });
 
-  // Self-heal: a user can exist without a workspace if a previous signup was
-  // interrupted between user creation and workspace creation.
-  if (!member) {
-    await prisma.workspace.create({
-      data: {
-        name: `${user.name}'s Workspace`,
-        members: { create: { userId: user.id, role: 'CLIENT' } },
-      },
-    });
-    member = await prisma.workspaceMember.findFirst({
-      where: { userId: user.id },
-      include: { workspace: true },
-      orderBy: { joinedAt: 'asc' },
-    });
-  }
-
   const superAdmin = isPlatformAdmin(user.email);
-  const role = member.role;
-  const { accessToken, refreshToken } = generateTokens(user.id, member.workspaceId, role, superAdmin);
+  const role = member?.role ?? null;
+  const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, role, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
 
   return {
     accessToken,
     refreshToken,
     user: { id: user.id, name: user.name, email: user.email, role, superAdmin },
-    workspace: { id: member.workspaceId, name: member.workspace.name },
+    workspace: member ? { id: member.workspaceId, name: member.workspace.name } : null,
   };
 }
 
 // ─── OTP-verified email signup ────────────────────────────────────────────────
 // User creation is gated behind email verification: startSignup emails a code
 // and stashes the pending name+passwordHash on the EmailOtp row; the real User
-// + Workspace are only created once verifySignup confirms the code.
+// is only created once verifySignup confirms the code.
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
@@ -339,17 +304,60 @@ export async function verifySignup({ email, code, role = 'CLIENT' }) {
   }
 
   const superAdmin = isPlatformAdmin(normalizedEmail);
-
+  // No workspace yet: the user becomes ADMIN only when they explicitly create
+  // one (createWorkspace), or CLIENT when an admin invites them.
   const user = await prisma.user.create({ data: { name: otp.name, email: normalizedEmail, passwordHash: otp.passwordHash } });
+  await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed: true } });
+
+  const { accessToken, refreshToken } = generateTokens(user.id, null, null, superAdmin);
+  await storeRefreshToken(user.id, refreshToken);
+
+  return {
+    accessToken, refreshToken,
+    user: { id: user.id, name: user.name, email: user.email, role: null, superAdmin },
+    workspace: null,
+  };
+}
+
+// ─── Workspace creation ───────────────────────────────────────────────────────
+// The ONLY place a user gains the ADMIN role: explicitly creating a workspace.
+export async function createWorkspace(userId, { name } = {}) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
+
+  const existing = await prisma.workspaceMember.findFirst({ where: { userId } });
+  if (existing) { const e = new Error('You already belong to a workspace'); e.status = 409; throw e; }
+
+  const role = 'ADMIN';
+
+  // Every workspace needs a Subscription from the moment it exists — plan
+  // limit/feature enforcement (README §12.4) requires one, and there's no
+  // other point where it gets bootstrapped for workspaces created after the
+  // initial backfill-subscriptions.js migration. Defaults to FREE.
+  const freePlan = await prisma.plan.findUnique({ where: { key: 'FREE' } });
+  const periodStart = new Date();
+  const periodEnd = new Date(periodStart.getTime() + 30 * 24 * 60 * 60 * 1000);
+
   const workspace = await prisma.workspace.create({
-    data: { name: `${otp.name}'s Workspace`, members: { create: { userId: user.id, role } } },
+    data: {
+      name: (name || '').trim() || `${user.name}'s Workspace`,
+      members: { create: { userId, role } },
+      ...(freePlan ? {
+        subscription: { create: { planId: freePlan.id, status: 'ACTIVE', currentPeriodStart: periodStart, currentPeriodEnd: periodEnd } },
+        usageCounters: { create: { periodStart, periodEnd, messagesUsed: 0 } },
+      } : {}),
+    },
   });
 
+  // Issue fresh tokens carrying the new workspace context so the client can
+  // swap its session in place.
+  const superAdmin = isPlatformAdmin(user.email);
   const { accessToken, refreshToken } = generateTokens(user.id, workspace.id, role, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
 
-  // Send welcome email in background
-  queueWelcomeEmail({ email: normalizedEmail, name: otp.name }).catch(() => {});
-
-  return { accessToken, refreshToken, user: { id: user.id, name: otp.name, email: normalizedEmail, role, superAdmin }, workspace };
+  return {
+    accessToken, refreshToken,
+    user: { id: user.id, name: user.name, email: user.email, role, superAdmin },
+    workspace: { id: workspace.id, name: workspace.name },
+  };
 }

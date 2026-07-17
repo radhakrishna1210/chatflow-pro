@@ -30,10 +30,11 @@ export default function AuthCallback() {
           email:         data.user.email,
           role:          data.user.role,
           superAdmin:    data.user.superAdmin === true,
-          workspaceId:   data.workspace.id,
-          workspaceName: data.workspace.name,
+          workspaceId:   data.workspace?.id ?? null,
+          workspaceName: data.workspace?.name ?? null,
         }));
-        navigate('/dashboard', { replace: true });
+        // Users without a workspace go to setup to create or join one.
+        navigate(data.workspace ? '/dashboard' : '/setup', { replace: true });
       } catch (err) {
         setError(err.message);
       }

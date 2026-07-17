@@ -71,6 +71,8 @@ model Workspace {
   walletTransactions           WalletTransaction[]
   integrations                 WorkspaceIntegration[]
   supportTickets               SupportTicket[]
+  subscription                 Subscription?
+  usageCounters                UsageCounter[]
 }
 
 model WorkspaceMember {
@@ -271,9 +273,11 @@ model Invoice {
   id          String    @id @default(cuid())
   workspaceId String
   invoiceDate DateTime
+  description String?
   amount      Float
   currency    String    @default("USD")
   status      String    @default("PAID")
+  reference   String?   // gateway payment id, for reconciliation
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
@@ -408,6 +412,54 @@ model EmailOtp {
   createdAt      DateTime @default(now())
 
   @@index([email, purpose])
+}
+
+model Plan {
+  id                String         @id @default(cuid())
+  key               String         @unique // "FREE" | "STARTER" | "PRO" | "ENTERPRISE" | ...
+  name              String
+  priceMonthly      Decimal        @db.Decimal(10, 2)
+  currency          String         @default("USD")
+  messageQuota      Int            // included messages per billing cycle; 0 = none, -1 = unlimited
+  contactLimit      Int?           // null = unlimited
+  memberLimit       Int?
+  campaignLimit     Int?
+  apiKeyLimit       Int?
+  overageRatePerMsg Decimal        @db.Decimal(10, 4)
+  features          Json           @default("{}")
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  subscriptions     Subscription[] @relation("SubscriptionPlan")
+  pendingFor        Subscription[] @relation("SubscriptionPendingPlan")
+}
+
+model Subscription {
+  id                 String    @id @default(cuid())
+  workspaceId        String    @unique
+  planId             String
+  pendingPlanId      String?   // scheduled upgrade/downgrade — applied at the next cycle rollover (§12.6/§12.8: no proration)
+  status             String    @default("ACTIVE") // ACTIVE | PAST_DUE | CANCELLED | EXPIRED
+  currentPeriodStart DateTime  @default(now())
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  plan               Plan      @relation("SubscriptionPlan", fields: [planId], references: [id])
+  pendingPlan        Plan?     @relation("SubscriptionPendingPlan", fields: [pendingPlanId], references: [id])
+}
+
+model UsageCounter {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  periodStart  DateTime
+  periodEnd    DateTime
+  messagesUsed Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, periodStart])
 }
 
 model SupportTicket {

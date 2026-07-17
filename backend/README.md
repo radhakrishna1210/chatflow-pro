@@ -25,7 +25,7 @@ npm run dev
 
 - Node.js 20+
 - PostgreSQL 14+
-- Redis 6+
+- Redis 6+ (see [docs/local-redis-setup.md](docs/local-redis-setup.md) for running Redis locally via WSL)
 
 ## Environment Variables
 

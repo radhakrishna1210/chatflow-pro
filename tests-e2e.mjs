@@ -55,8 +55,12 @@ console.log('\n■ Auth & session');
 let admin, adminWs, client;
 
 {
-  let r = await req('POST', '/auth/register', { body: { name: 'Alice Admin', email: 'alice@test.dev', password: 'password123', role: 'ADMIN' } });
-  check('register creates account + workspace', r.status === 201 && r.data.accessToken && r.data.workspace?.id, JSON.stringify(r.data).slice(0,120));
+  let r = await req('POST', '/auth/register', { body: { name: 'Alice Admin', email: 'alice@test.dev', password: 'password123' } });
+  check('register creates account without a workspace', r.status === 201 && r.data.accessToken && r.data.workspace === null && r.data.user.role === null, JSON.stringify(r.data).slice(0,120));
+  admin = r.data;
+
+  r = await req('POST', '/workspaces', { token: admin.accessToken, body: { name: "Alice's Workspace" } });
+  check('creating a workspace grants ADMIN', r.status === 201 && r.data.user.role === 'ADMIN' && r.data.workspace?.id, JSON.stringify(r.data).slice(0,120));
   admin = r.data; adminWs = r.data.workspace.id;
 
   r = await req('POST', '/auth/register', { body: { name: 'Alice Admin', email: 'alice@test.dev', password: 'password123', role: 'ADMIN' } });

@@ -20,6 +20,8 @@ import whatsappFormsRoutes from './whatsappForms.routes.js';
 import walletRoutes from './wallet.routes.js';
 import integrationsRoutes, { oauthCallbackRouter } from './integrations.routes.js';
 import supportRoutes from './support.routes.js';
+import workspacesRoutes from './workspaces.routes.js';
+import subscriptionRoutes from './subscription.routes.js';
 import aiAgentRoutes from './aiAgent.routes.js';
 
 const router = Router();
@@ -46,12 +48,14 @@ ws.use('/segments', segmentsRoutes);
 ws.use('/whatsapp-forms', whatsappFormsRoutes);
 ws.use('/workflows', workflowRoutes);
 ws.use('/wallet', walletRoutes);
+ws.use('/subscription', subscriptionRoutes);
 ws.use('/integrations', integrationsRoutes);
 ws.use('/support', supportRoutes);
 ws.use('/ai-agent', aiAgentRoutes);
 
 router.use('/onboarding', onboardingRoutes);
 router.use('/ai', aiRoutes);
+router.use('/workspaces', workspacesRoutes); // POST /workspaces (create) — must not shadow the :workspaceId routes below
 router.use('/workspaces/:workspaceId', ws);
 
 export default router;

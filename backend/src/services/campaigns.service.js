@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
+import { getPlanLimits } from './subscription.service.js';
 
 export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
@@ -91,6 +92,20 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt) {
     const e = new Error('Add at least one recipient before launching'); e.status = 400; throw e;
   }
 
+  // Pre-flight estimate (README §12.4): warn, don't block, if this launch would
+  // likely run out of quota + affordable wallet overage partway through.
+  let warning = null;
+  const { plan, remainingQuota } = await getPlanLimits(workspaceId);
+  if (remainingQuota !== Infinity) {
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { walletBalance: true } });
+    const rate = Number(plan.overageRatePerMsg);
+    const affordableOverage = rate > 0 ? Math.floor(Number(ws.walletBalance) / rate) : Infinity;
+    const capacity = remainingQuota + affordableOverage;
+    if (recipientCount > capacity) {
+      warning = `This campaign has ${recipientCount} recipients but only ${capacity} can be sent with the current quota + wallet balance — some sends may fail partway through unless you recharge or upgrade first.`;
+    }
+  }
+
   if (scheduledAt) {
     const scheduledDate = new Date(scheduledAt);
     if (Number.isNaN(scheduledDate.getTime())) {
@@ -119,7 +134,8 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt) {
     });
   }
 
-  return prisma.campaign.findUnique({ where: { id: campaignId } });
+  const launched = await prisma.campaign.findUnique({ where: { id: campaignId } });
+  return warning ? { ...launched, warning } : launched;
 }
 
 export async function getCampaign(workspaceId, campaignId) {
