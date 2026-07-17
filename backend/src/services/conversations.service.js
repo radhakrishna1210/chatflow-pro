@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage } from '../lib/meta.js';
+import { consumeMessageCredit } from './subscription.service.js';
 
 export async function listConversations(workspaceId, { page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
@@ -41,6 +42,13 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     include: { contact: true, waNumber: true },
   });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+
+  const credit = await consumeMessageCredit(workspaceId, { reason: 'Message overage' });
+  if (!credit.ok) {
+    const e = new Error('Message quota and wallet balance exhausted — recharge your wallet or upgrade your plan');
+    e.status = 403;
+    throw e;
+  }
 
   const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
   const result = await sendTextMessage(

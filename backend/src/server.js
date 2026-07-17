@@ -4,14 +4,18 @@ import app from './app.js';
 import { env } from './config/env.js';
 import { startCampaignWorker } from './workers/campaign.worker.js';
 import { startEmailWorker } from './workers/email.worker.js';
+import { startBillingWorker } from './workers/billing.worker.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
+import { runBillingCycleSweep } from './services/subscription.service.js';
 import { campaignQueue } from './queues/campaign.queue.js';
 import { emailQueue } from './queues/email.queue.js';
+import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
 import { prisma } from './lib/prisma.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
 
 let campaignWorker = null;
 let emailWorker = null;
+let billingWorker = null;
 let httpServer = null;
 
 async function main() {
@@ -36,6 +40,8 @@ async function main() {
   console.log('[Worker] Campaign worker started');
   emailWorker = startEmailWorker();
   console.log('[Worker] Email worker started');
+  billingWorker = startBillingWorker();
+  console.log('[Worker] Billing worker started');
 
   // Re-queue SCHEDULED campaigns whose jobs were lost (server/Redis restart).
   try {
@@ -43,6 +49,25 @@ async function main() {
     if (recovered > 0) console.log(`[Recovery] Re-queued ${recovered} scheduled campaign(s)`);
   } catch (err) {
     console.error('[Recovery] Scheduled-campaign recovery failed:', err.message);
+  }
+
+  // Register the daily repeatable billing-cycle job (no-op if already registered).
+  try {
+    await scheduleBillingCycleJob();
+  } catch (err) {
+    console.error('[Billing] Failed to schedule the daily cycle-reset job:', err.message);
+  }
+
+  // Run the overdue-subscription sweep once immediately on boot, so cycles
+  // missed while the server was down are caught up without waiting for the
+  // next 02:00 tick — mirrors recoverScheduledCampaigns() above.
+  try {
+    const result = await runBillingCycleSweep();
+    if (result.processed > 0) {
+      console.log(`[Recovery] Billing cycle sweep: processed=${result.processed} renewed=${result.renewed} cancelled=${result.cancelled} failed=${result.failed}`);
+    }
+  } catch (err) {
+    console.error('[Recovery] Billing cycle sweep failed:', err.message);
   }
 
   httpServer = app.listen(env.PORT, () => {
@@ -74,8 +99,9 @@ async function shutdown(signal) {
     await Promise.allSettled([
       campaignWorker?.close(),
       emailWorker?.close(),
+      billingWorker?.close(),
     ]);
-    await Promise.allSettled([campaignQueue.close(), emailQueue.close()]);
+    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close()]);
     await Promise.allSettled([redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);

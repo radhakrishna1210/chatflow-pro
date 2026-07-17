@@ -4,6 +4,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import AuthCallback from './pages/AuthCallback.jsx';
+import WorkspaceSetup from './pages/WorkspaceSetup.jsx';
 
 // ─── Tiny history-based router ────────────────────────────────────────────────
 // Real URLs (/login, /register, /dashboard/campaigns, …) so browser
@@ -15,6 +16,7 @@ const LEGACY_PATHS = {
   login: '/login',
   register: '/register',
   dashboard: '/dashboard',
+  setup: '/setup',
 };
 
 export function navigate(path, { replace = false } = {}) {
@@ -26,6 +28,16 @@ export function navigate(path, { replace = false } = {}) {
 
 function isAuthed() {
   return !!(localStorage.getItem('accessToken') && localStorage.getItem('user'));
+}
+
+// Users without a workspace (fresh signups) must create or join one before
+// they can use the dashboard.
+function hasWorkspace() {
+  try {
+    return !!JSON.parse(localStorage.getItem('user') || 'null')?.workspaceId;
+  } catch {
+    return false;
+  }
 }
 
 function clearSession() {
@@ -56,21 +68,31 @@ export default function App() {
   useEffect(() => {
     if (path.startsWith('/dashboard') && !isAuthed()) {
       navigate('/login', { replace: true });
-    } else if ((path === '/login' || path === '/register') && isAuthed()) {
+    } else if (path.startsWith('/dashboard') && !hasWorkspace()) {
+      navigate('/setup', { replace: true });
+    } else if (path === '/setup' && !isAuthed()) {
+      navigate('/login', { replace: true });
+    } else if (path === '/setup' && hasWorkspace()) {
       navigate('/dashboard', { replace: true });
+    } else if ((path === '/login' || path === '/register') && isAuthed()) {
+      navigate(hasWorkspace() ? '/dashboard' : '/setup', { replace: true });
     }
   }, [path]);
 
   if (path === '/auth/callback') return <AuthCallback />;
   if (path === '/login')         return <Login onNav={nav} mode="login" />;
   if (path === '/register')      return <Register onNav={nav} />;
+  if (path === '/setup') {
+    if (!isAuthed() || hasWorkspace()) return null; // guard effect redirects
+    return <WorkspaceSetup onNav={nav} />;
+  }
   if (path.startsWith('/dashboard')) {
-    if (!isAuthed()) return null; // guard effect redirects
+    if (!isAuthed() || !hasWorkspace()) return null; // guard effect redirects
     return <Dashboard onNav={nav} routePath={path} />;
   }
   if (path === '/' && isAuthed()) {
     // Logged-in users land on the dashboard, matching the pre-router behaviour.
-    navigate('/dashboard', { replace: true });
+    navigate(hasWorkspace() ? '/dashboard' : '/setup', { replace: true });
     return null;
   }
   return <Landing onNav={nav} />;

@@ -45,6 +45,12 @@ export const authSchemas = {
   refresh: z.object({ refreshToken: z.string().min(1) }),
 };
 
+export const workspaceSchemas = {
+  create: z.object({
+    name: z.string().trim().min(1, 'Workspace name is required').max(100).optional(),
+  }),
+};
+
 export const campaignSchemas = {
   create: z.object({
     name: z.string().trim().min(1).max(120),

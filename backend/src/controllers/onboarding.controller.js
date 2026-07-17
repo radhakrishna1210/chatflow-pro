@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { llmText, llmJson } from '../lib/llm.js';
 import { createWorkflow } from '../services/workflow.service.js';
+import { hasFeature } from '../services/subscription.service.js';
 
 // ─── Intent detection ─────────────────────────────────────────────────────────
 async function detectIntent(message) {
@@ -101,6 +102,15 @@ export const chatWithAi = async (req, res) => {
       workspaceId = requestedWorkspaceId;
     }
     if (!workspaceId) return res.status(400).json({ content: 'No workspace selected.' });
+
+    if (!(await hasFeature(workspaceId, 'aiOnboarding'))) {
+      return res.status(403).json({
+        content: 'AI onboarding isn\'t included in your current plan. Upgrade to unlock it.',
+        error: 'AI onboarding isn\'t included in your current plan. Upgrade to unlock it.',
+        code: 'PLAN_FEATURE_LOCKED',
+        feature: 'aiOnboarding',
+      });
+    }
 
     let session = await prisma.aiSession.findFirst({ where: { userId, workspaceId }, orderBy: { updatedAt: 'desc' } });
     if (!session) session = await prisma.aiSession.create({ data: { userId, workspaceId, state: { step: 'IDLE' } } });

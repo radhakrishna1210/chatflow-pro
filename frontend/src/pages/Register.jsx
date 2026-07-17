@@ -4,8 +4,9 @@ import { Btn } from '../components/Btn.jsx';
 
 // Two-step, OTP-verified email signup. Step 1 collects name/email/password and
 // asks the backend to email a 6-digit code (no account is created yet). Step 2
-// verifies the code; only then does the backend create the User + Workspace and
-// return a session.
+// verifies the code; only then does the backend create the User and return a
+// session. The user then creates a workspace (becoming its admin) or waits to
+// be invited to one.
 export default function Register({ onNav }) {
   const [step, setStep] = useState('details'); // 'details' | 'otp'
   const [form, setForm] = useState({ name: '', email: '', password: '' });
@@ -65,10 +66,12 @@ export default function Register({ onNav }) {
       localStorage.setItem('refreshToken', data.refreshToken);
       localStorage.setItem('user', JSON.stringify({
         id: data.user.id, name: data.user.name, email: data.user.email, role: data.user.role,
-        superAdmin: data.user.superAdmin === true, workspaceId: data.workspace.id, workspaceName: data.workspace.name,
+        superAdmin: data.user.superAdmin === true, workspaceId: data.workspace?.id ?? null, workspaceName: data.workspace?.name ?? null,
       }));
       setStatus('success');
-      setTimeout(() => onNav('dashboard'), 700);
+      // Fresh accounts have no workspace yet — they create one (becoming its
+      // admin) or get invited to an existing one.
+      setTimeout(() => onNav(data.workspace ? 'dashboard' : 'setup'), 700);
     } catch (err) { setErrMsg(err.message); setStatus('error'); }
   };
 

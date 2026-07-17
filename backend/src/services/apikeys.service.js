@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { randomBytes, createHash } from 'crypto';
 import { queueApiKeyCreatedEmail } from './email.service.js';
+import { assertWithinLimit } from './subscription.service.js';
 
 function generateKey() {
   const raw = 'cfp_' + randomBytes(32).toString('hex');
@@ -18,6 +19,7 @@ export async function listApiKeys(workspaceId) {
 }
 
 export async function createApiKey(workspaceId, { name, environment = 'production' }, user) {
+  await assertWithinLimit(workspaceId, 'apiKey');
   const { raw, hash, prefix } = generateKey();
   await prisma.apiKey.create({ data: { workspaceId, name, keyHash: hash, keyPrefix: prefix, environment } });
 

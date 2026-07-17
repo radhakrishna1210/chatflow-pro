@@ -5,6 +5,7 @@ import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
 import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
+import { consumeMessageCredit } from '../services/subscription.service.js';
 import { runFallbackForRecipient } from '../services/fallback.service.js';
 
 // Meta Cloud API Tier-1 numbers are limited to ~250 msgs/min. The old 60ms
@@ -16,6 +17,29 @@ const normalizePhone = (raw) => String(raw || '').replace(/[^\d]/g, '');
 const templateHasVariables = (components) => {
   if (!Array.isArray(components)) return false;
   return components.some((c) => /\{\{\d+\}\}/.test(c?.text || ''));
+};
+
+const countVariables = (text) => {
+  const nums = [...String(text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
+  return nums.length ? Math.max(...nums) : 0;
+};
+
+// Builds the `components` array Meta expects for a template send, with a
+// `parameters` entry for every {{n}} placeholder in each component's text.
+// Contacts only carry name/phone/email — {{1}} is filled with the contact's
+// name (the convention used everywhere else templates are authored, e.g.
+// data/templateLibrary.js); any further placeholders reuse it since there's
+// no per-recipient custom-field data to draw from. Sending the right *count*
+// of parameters is what matters to Meta — an empty/short components array
+// caused error 132000 (param count mismatch).
+const buildTemplateComponents = (components, contact) => {
+  const name = (contact?.name || '').trim() || 'there';
+  return (components || [])
+    .filter((c) => /\{\{\d+\}\}/.test(c?.text || ''))
+    .map((c) => ({
+      type: String(c.type || 'body').toLowerCase(),
+      parameters: Array.from({ length: countVariables(c.text) }, () => ({ type: 'text', text: name })),
+    }));
 };
 
 async function processCampaign(job) {
@@ -64,6 +88,21 @@ async function processCampaign(job) {
     if (refreshed?.status === 'CANCELLED') { cancelled = true; break; }
 
     try {
+      const credit = await consumeMessageCredit(campaign.workspaceId, { reason: 'Campaign overage' });
+      if (!credit.ok) {
+        console.warn(`[CampaignWorker] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
+        await prisma.campaignRecipient.update({
+          where: { id: recipient.id },
+          data: { status: 'FAILED', failedAt: new Date(), failReason: 'Quota and wallet balance exhausted' },
+        });
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { failed: { increment: 1 } },
+        });
+        await new Promise((r) => setTimeout(r, RATE_DELAY_MS));
+        continue;
+      }
+
       const templatePayload = {
         name: campaign.template.name,
         language: { code: campaign.template.language },
@@ -71,7 +110,7 @@ async function processCampaign(job) {
       // Only include `components` if the template has variables to substitute.
       // Sending the template's own definition (type:BODY/text:...) causes Meta to reject.
       if (templateHasVariables(campaign.template.components)) {
-        templatePayload.components = [];
+        templatePayload.components = buildTemplateComponents(campaign.template.components, recipient.contact);
       }
 
       const result = await sendWhatsAppMessage(

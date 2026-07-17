@@ -19,3 +19,14 @@ export async function recharge(req, res) {
   });
   res.json({ ...result, demo: true });
 }
+
+// Real Razorpay top-up flow (test mode) — the primary path the frontend uses now.
+export async function createCheckout(req, res) {
+  const order = await walletService.createTopupOrder(req.params.workspaceId, req.body?.amount);
+  res.json(order);
+}
+
+export async function verifyCheckout(req, res) {
+  const result = await walletService.verifyTopupPayment(req.params.workspaceId, req.body);
+  res.json(result);
+}

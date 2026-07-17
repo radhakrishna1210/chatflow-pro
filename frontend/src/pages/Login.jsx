@@ -47,11 +47,12 @@ export default function Login({ onNav, mode = 'login' }) {
         email:          data.user.email,
         role:           data.user.role,
         superAdmin:     data.user.superAdmin === true,
-        workspaceId:    data.workspace.id,
-        workspaceName:  data.workspace.name,
+        workspaceId:    data.workspace?.id ?? null,
+        workspaceName:  data.workspace?.name ?? null,
       }));
       setStatus('success');
-      setTimeout(() => onNav('dashboard'), 700);
+      // Users without a workspace go to setup to create or join one.
+      setTimeout(() => onNav(data.workspace ? 'dashboard' : 'setup'), 700);
     } catch (err) {
       setErrMsg(err.message);
       setStatus('error');

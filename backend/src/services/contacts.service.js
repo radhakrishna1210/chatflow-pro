@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { parse } from 'csv-parse/sync';
+import { assertWithinLimit } from './subscription.service.js';
 
 // Normalize to E.164-ish: strip everything but digits, keep a leading '+'.
 export function normalizePhone(raw) {
@@ -41,6 +42,7 @@ export async function createContact(workspaceId, { name, phoneNumber, email, tag
   const normalized = normalizePhone(phoneNumber);
   const existing = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber: normalized } });
   if (existing) { const e = new Error('A contact with this phone number already exists'); e.status = 409; throw e; }
+  await assertWithinLimit(workspaceId, 'contact');
   return prisma.contact.create({ data: { workspaceId, name: name || normalized, phoneNumber: normalized, email: email || null, tags } });
 }
 
@@ -72,6 +74,25 @@ export async function importContacts(workspaceId, csvBuffer) {
 
   if (data.length === 0) {
     return { imported: 0, duplicates: 0, invalid, totalRows: records.length };
+  }
+
+  // Plan limit check (README §12.4): reject the whole import rather than
+  // partially importing up to the limit, so the user gets one clear,
+  // predictable outcome instead of having to figure out which rows landed.
+  // Only phone numbers not already in this workspace actually count against
+  // the limit — re-importing existing contacts (skipDuplicates below) is a
+  // no-op either way.
+  const existingPhones = await prisma.contact.findMany({
+    where: { workspaceId, phoneNumber: { in: data.map((d) => d.phoneNumber) } },
+    select: { phoneNumber: true },
+  });
+  const existingSet = new Set(existingPhones.map((c) => c.phoneNumber));
+  const newCount = data.filter((d) => !existingSet.has(d.phoneNumber)).length;
+  if (newCount > 0) {
+    await assertWithinLimit(workspaceId, 'contact', {
+      additional: newCount,
+      message: `This import would add ${newCount} new contact(s), which exceeds your plan's contact limit. Upgrade your plan or reduce the import size.`,
+    });
   }
 
   // createMany reports rows actually inserted; skipDuplicates relies on the
