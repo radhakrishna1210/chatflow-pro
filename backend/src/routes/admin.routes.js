@@ -41,4 +41,10 @@ router.patch('/platform/workspaces/:id/suspend', adminController.suspendWorkspac
 router.get('/platform/tickets',                  adminController.listTickets);
 router.patch('/platform/tickets/:id',            adminController.updateTicket);
 
+// Plan / billing configuration (prices, quotas, rate limits, features)
+router.get('/platform/plans',                    adminController.listPlans);
+router.post('/platform/plans',                   adminController.createPlan);
+router.patch('/platform/plans/:id',              adminController.updatePlan);
+router.delete('/platform/plans/:id',             adminController.deletePlan);
+
 export default router;

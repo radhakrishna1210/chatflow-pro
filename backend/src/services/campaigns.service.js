@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
-import { getPlanLimits } from './subscription.service.js';
+import { getPlanLimits, assertWithinLimit } from './subscription.service.js';
 
 export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
@@ -22,6 +22,9 @@ export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) 
 
 export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig }) {
   if (!name || !String(name).trim()) { const e = new Error('Campaign name is required'); e.status = 400; throw e; }
+  // Plan's campaign cap (null = unlimited); reads the plan live so admin edits
+  // in the Plans tab apply immediately.
+  await assertWithinLimit(workspaceId, 'campaign');
   const resolvedNumberId = numberId ?? whatsappNumberId;
   const [template, waNumber] = await Promise.all([
     prisma.template.findFirst({ where: { id: templateId, workspaceId } }),

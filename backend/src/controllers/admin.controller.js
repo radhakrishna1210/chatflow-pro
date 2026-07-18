@@ -90,3 +90,20 @@ export async function listTickets(req, res) {
 export async function updateTicket(req, res) {
   res.json(await adminService.updateTicket(req.params.id, req.body || {}));
 }
+
+// ─── Plan management ──────────────────────────────────────────
+export async function listPlans(req, res) {
+  res.json({ plans: await adminService.listAllPlans(), knownFeatures: adminService.KNOWN_FEATURE_FLAGS });
+}
+
+export async function createPlan(req, res) {
+  res.status(201).json(await adminService.createPlan(req.body || {}));
+}
+
+export async function updatePlan(req, res) {
+  res.json(await adminService.updatePlan(req.params.id, req.body || {}));
+}
+
+export async function deletePlan(req, res) {
+  res.json(await adminService.deletePlan(req.params.id));
+}

@@ -3,10 +3,15 @@ import * as automationController from '../controllers/automation.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { authorize } from '../middleware/authorize.js';
+import { requireFeature } from '../middleware/requireFeature.js';
 
 const router = Router({ mergeParams: true });
 
-router.use(authenticate, workspaceContext);
+// Automation (triggers, basic auto-replies, voice) is a paid feature — gated
+// by the plan's `automation` flag, mirroring how workflows/integrations gate
+// their whole route surface. Editing the flag in the admin Plans tab takes
+// effect immediately (hasFeature reads the plan live, no caching).
+router.use(authenticate, workspaceContext, requireFeature('automation'));
 
 router.get('/triggers', automationController.list);
 router.post('/triggers', authorize('CLIENT'), automationController.create);
