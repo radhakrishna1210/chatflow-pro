@@ -79,6 +79,7 @@ const LIMIT_KINDS = {
   contact: { field: 'contactLimit', label: 'contacts', count: (workspaceId) => prisma.contact.count({ where: { workspaceId } }) },
   member: { field: 'memberLimit', label: 'members', count: (workspaceId) => prisma.workspaceMember.count({ where: { workspaceId } }) },
   apiKey: { field: 'apiKeyLimit', label: 'API keys', count: (workspaceId) => prisma.apiKey.count({ where: { workspaceId, revokedAt: null } }) },
+  campaign: { field: 'campaignLimit', label: 'campaigns', count: (workspaceId) => prisma.campaign.count({ where: { workspaceId } }) },
 };
 
 // README §12.4 plan-limit checks (contacts, members, API keys). `additional`

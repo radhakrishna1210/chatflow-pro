@@ -382,3 +382,122 @@ export async function updateTicket(ticketId, { status, adminNote }) {
   if (adminNote !== undefined) data.adminNote = adminNote;
   return prisma.supportTicket.update({ where: { id: ticketId }, data });
 }
+
+// ─── Plan management (super-admin billing config) ─────────────────────────────
+// Prices, quotas/rate-limits and feature flags for every subscription plan.
+// These are the values subscription.service.js reads to enforce quota, plan
+// limits and overage billing, so validation here keeps those callers safe.
+
+// Feature flags enforced elsewhere (requireFeature / hasFeature). Surfaced to
+// the admin UI as known toggles; arbitrary extra flags are still accepted.
+export const KNOWN_FEATURE_FLAGS = ['automation', 'workflows', 'aiOnboarding', 'integrations'];
+
+const badRequest = (message) => { const e = new Error(message); e.status = 400; throw e; };
+
+// A limit field: non-negative integer, or null = unlimited.
+function normLimit(value, label) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) badRequest(`${label} must be a non-negative whole number, or blank for unlimited`);
+  return n;
+}
+
+// A money field (price / overage rate): non-negative number.
+function normMoney(value, label) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) badRequest(`${label} must be a non-negative number`);
+  return n;
+}
+
+function normFeatures(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) badRequest('features must be an object of flag → boolean');
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (v) out[k] = true; // store only enabled flags; a false flag is simply absent
+  }
+  return out;
+}
+
+// Builds the Prisma data object. On create every field has a sensible default;
+// on update (partial=true) only the keys present in `body` are touched.
+function buildPlanData(body, { partial } = {}) {
+  const data = {};
+  const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+
+  if (!partial || has('name')) {
+    const name = String(body.name ?? '').trim();
+    if (!name) badRequest('Plan name is required');
+    data.name = name;
+  }
+  if (!partial || has('priceMonthly')) data.priceMonthly = normMoney(body.priceMonthly ?? 0, 'Monthly price');
+  if (!partial || has('currency')) data.currency = String(body.currency || 'USD').trim().toUpperCase().slice(0, 8) || 'USD';
+  if (!partial || has('overageRatePerMsg')) data.overageRatePerMsg = normMoney(body.overageRatePerMsg ?? 0, 'Overage rate per message');
+
+  if (!partial || has('messageQuota')) {
+    const q = Number(body.messageQuota ?? 0);
+    if (!Number.isInteger(q) || q < -1) badRequest('Message quota must be a whole number (use -1 for unlimited)');
+    data.messageQuota = q;
+  }
+  if (!partial || has('contactLimit')) data.contactLimit = normLimit(body.contactLimit, 'Contact limit');
+  if (!partial || has('memberLimit')) data.memberLimit = normLimit(body.memberLimit, 'Member limit');
+  if (!partial || has('campaignLimit')) data.campaignLimit = normLimit(body.campaignLimit, 'Campaign limit');
+  if (!partial || has('apiKeyLimit')) data.apiKeyLimit = normLimit(body.apiKeyLimit, 'API key limit');
+
+  if (has('features')) { const f = normFeatures(body.features); if (f !== undefined) data.features = f; }
+  else if (!partial) data.features = {};
+
+  if (has('isActive')) data.isActive = !!body.isActive;
+  else if (!partial) data.isActive = true;
+
+  return data;
+}
+
+// All plans (active and inactive) with how many workspaces are on each, so the
+// admin can see the blast radius before editing/retiring a plan.
+export async function listAllPlans() {
+  const plans = await prisma.plan.findMany({
+    orderBy: { priceMonthly: 'asc' },
+    include: { _count: { select: { subscriptions: true } } },
+  });
+  return plans.map((p) => ({ ...p, subscriberCount: p._count.subscriptions }));
+}
+
+export async function createPlan(body = {}) {
+  const key = String(body.key ?? '').trim().toUpperCase();
+  if (!/^[A-Z0-9_]{2,32}$/.test(key)) {
+    badRequest('Plan key must be 2–32 characters: uppercase letters, numbers or underscores (e.g. STARTER)');
+  }
+  const existing = await prisma.plan.findUnique({ where: { key } });
+  if (existing) { const e = new Error(`A plan with key "${key}" already exists`); e.status = 409; throw e; }
+
+  const data = buildPlanData(body, { partial: false });
+  return prisma.plan.create({ data: { key, ...data } });
+}
+
+export async function updatePlan(id, body = {}) {
+  const plan = await prisma.plan.findUnique({ where: { id } });
+  if (!plan) { const e = new Error('Plan not found'); e.status = 404; throw e; }
+  // Key is the stable identifier the rest of the system (and Workspace.plan)
+  // keys off — renaming it would orphan live subscriptions, so it's immutable.
+  const data = buildPlanData(body, { partial: true });
+  return prisma.plan.update({ where: { id }, data });
+}
+
+export async function deletePlan(id) {
+  const plan = await prisma.plan.findUnique({
+    where: { id },
+    include: { _count: { select: { subscriptions: true, pendingFor: true } } },
+  });
+  if (!plan) { const e = new Error('Plan not found'); e.status = 404; throw e; }
+  const inUse = plan._count.subscriptions + plan._count.pendingFor;
+  if (inUse > 0) {
+    // Don't break FK-linked subscriptions; deactivate instead so it's hidden
+    // from checkout but existing subscribers keep working.
+    const e = new Error(`This plan has ${inUse} active or pending subscription(s). Deactivate it instead of deleting.`);
+    e.status = 409; throw e;
+  }
+  await prisma.plan.delete({ where: { id } });
+  return { ok: true };
+}
