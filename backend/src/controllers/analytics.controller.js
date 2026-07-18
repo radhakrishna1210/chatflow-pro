@@ -22,10 +22,25 @@ export async function agents(req, res) {
 
 export async function getChatAnalytics(req, res) {
   try {
+    
+    
     const data = await analyticsService.getChatAnalytics(req.params.workspaceId, req.query.days);
+    
+    
+    
     res.json(data);
   } catch (err) {
     console.error('Chat analytics error:', err);
     res.status(500).json({ error: 'Unable to load chat analytics' });
+  }
+}
+
+export async function paidMessages(req, res) {
+  try {
+    const data = await analyticsService.getPaidMessagesInsights(req.params.workspaceId, req.query.days);
+    res.json(data);
+  } catch (err) {
+    console.error('Paid messages insights error:', err);
+    res.status(500).json({ error: 'Unable to load paid messages insights' });
   }
 }

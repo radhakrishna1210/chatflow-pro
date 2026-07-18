@@ -75,12 +75,20 @@ export default function SettingsView() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [showInvite, setShowInvite]   = useState(false);
   const [memberRoles, setMemberRoles] = useState({});
-  const [usagePerc]  = useState(34);
+  const [usagePerc, setUsagePerc] = useState(0);
 
   useEffect(() => {
     wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{ if(d) { setSettings(d); if(d.webhookUrl) setWebhookUrl(d.webhookUrl); if(d.notifyNewConversation!=null) setNotifs({newConv:d.notifyNewConversation,tplApproved:d.notifyTemplateApproved,tplRejected:d.notifyTemplateRejected,campaignDone:d.notifyCampaignCompleted,highOptout:d.notifyHighOptout,rateLimitWarn:d.notifyRateLimit}); setEmailNotifs(Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id, d[o.id]!=null ? d[o.id] : o.default]))); }}).catch(()=>{});
     wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
     wFetch('/settings/invoices').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvoices(d); }).catch(()=>{});
+    wFetch('/analytics/chat?days=7').then(r=>r.ok&&r.json()).then(d=>{
+      if (d && Array.isArray(d.dailyVolume)) {
+        const todayIso = new Date().toISOString().split('T')[0];
+        const todayData = d.dailyVolume.find(v => v.date === todayIso) || d.dailyVolume[d.dailyVolume.length - 1];
+        const sentToday = todayData?.sent || 0;
+        setUsagePerc(Math.min((sentToday / 10000) * 100, 100));
+      }
+    }).catch(()=>{});
   }, []);
 
   const saveWebhook = async () => {
