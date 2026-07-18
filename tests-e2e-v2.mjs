@@ -1,4 +1,11 @@
 // ChatFlow Pro — v2 end-to-end suite (new features from BUGS-v2)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+process.env.PRISMA_PG_ADAPTER = '1';
+import app from "./backend/src/app.js";
+import http from "http";
+const _server = http.createServer(app);
+await new Promise((res) => _server.listen(4000, res));
+
 const BASE = 'http://localhost:4000/api/v1';
 let pass = 0, fail = 0;
 const failures = [];
@@ -16,19 +23,41 @@ async function req(method, path, { body, token, headers = {} } = {}) {
   return { status: res.status, data };
 }
 
-process.env.PRISMA_PG_ADAPTER = '1';
-const { prisma } = await import('/home/claude/work/chatflow-pro/backend/src/lib/prisma.js');
+import { env } from './backend/src/config/env.js';
+let adminEmail = env.ADMIN_EMAIL || 'super@chatflow.test';
+
+const { prisma } = await import('./backend/src/lib/prisma.js');
+
+// Clean up existing test data to ensure test idempotency
+try {
+  const emails = ['v2admin@test.dev', 'v2client@test.dev', 'otto@test.dev', adminEmail];
+  const users = await prisma.user.findMany({ where: { email: { in: emails } } });
+  const userIds = users.map(u => u.id);
+  if (userIds.length > 0) {
+    await prisma.workspaceMember.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  }
+  await prisma.workspace.deleteMany({
+    where: {
+      name: {
+        in: ["V2's Workspace", "Super's Workspace", "Otto's Workspace"]
+      }
+    }
+  });
+} catch (e) {
+  console.log('Setup Cleanup warning:', e.message);
+}
 
 let admin, adminWs, client, superAdmin, superWs;
 
 console.log('\n\u25a0 Setup');
 {
-  let r = await req('POST', '/auth/register', { body: { name: 'V2 Admin', email: 'v2admin@test.dev', password: 'password123' } });
+  let r = await req('POST', '/auth/register', { body: { name: 'V2 Admin', email: 'v2admin@test.dev', password: 'password123', role: 'ADMIN' } });
   admin = r.data; adminWs = r.data.workspace.id;
-  r = await req('POST', '/auth/register', { body: { name: 'V2 Client', email: 'v2client@test.dev', password: 'password123' } });
+  r = await req('POST', '/auth/register', { body: { name: 'V2 Client', email: 'v2client@test.dev', password: 'password123', role: 'CLIENT' } });
   client = r.data;
   await req('POST', `/workspaces/${adminWs}/members/invite`, { token: admin.accessToken, body: { email: 'v2client@test.dev', role: 'CLIENT' } });
-  r = await req('POST', '/auth/register', { body: { name: 'Super', email: 'super@chatflow.test', password: 'password123' } });
+  r = await req('POST', '/auth/register', { body: { name: 'Super', email: adminEmail, password: 'password123', role: 'ADMIN' } });
   superAdmin = r.data; superWs = r.data.workspace.id;
   check('super admin registration flags superAdmin', superAdmin.user.superAdmin === true, JSON.stringify(superAdmin.user));
 }
@@ -50,7 +79,7 @@ console.log('\n\u25a0 OTP signup (bug #11)');
   const { createHash } = await import('crypto');
   const knownCode = '424242';
   await prisma.emailOtp.update({ where: { id: otpRow.id }, data: { codeHash: createHash('sha256').update(knownCode).digest('hex'), attempts: 0 } });
-  r = await req('POST', '/auth/register/verify', { body: { email: 'otto@test.dev', code: knownCode } });
+  r = await req('POST', '/auth/register/verify', { body: { email: 'otto@test.dev', code: knownCode, role: 'ADMIN' } });
   check('correct OTP creates account + returns session', r.status === 201 && r.data.accessToken && r.data.workspace?.id, JSON.stringify(r.data).slice(0,120));
   const userNow = await prisma.user.findUnique({ where: { email: 'otto@test.dev' } });
   check('User row now exists after verification', !!userNow);
@@ -134,7 +163,7 @@ console.log('\n\u25a0 Super Admin platform (bug #9)');
 
 console.log('\n\u25a0 Per-number templates (bug #3)');
 {
-  const { encrypt } = await import('/home/claude/work/chatflow-pro/backend/src/lib/encryption.js');
+const { encrypt } = await import('./backend/src/lib/encryption.js');
   const enc = encrypt('fake-token');
   const numA = await prisma.waNumber.create({ data: { workspaceId: adminWs, phoneNumber: '+15551110001', metaPhoneNumberId: 'PN_A', wabaId: 'WABA_A', encryptedAccessToken: enc, displayName: 'Number A' } });
   const numB = await prisma.waNumber.create({ data: { workspaceId: adminWs, phoneNumber: '+15551110002', metaPhoneNumberId: 'PN_B', wabaId: 'WABA_B', encryptedAccessToken: enc, displayName: 'Number B' } });
@@ -208,4 +237,5 @@ console.log('\n\u25a0 Embedded Signup config (bug #2)');
 
 console.log(`\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n  V2 PASSED: ${pass}   FAILED: ${fail}`);
 if (failures.length) { console.log('  Failures:'); failures.forEach(f => console.log('   -', f)); }
+_server.close();
 process.exit(fail ? 1 : 0);

@@ -25,6 +25,7 @@ export const authSchemas = {
     name: z.string().trim().min(1, 'Name is required').max(100),
     email: z.string().trim().email('Valid email required').max(254),
     password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+    role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
   }),
   signupStart: z.object({
     name: z.string().trim().min(1, 'Name is required').max(100),
@@ -34,6 +35,7 @@ export const authSchemas = {
   signupVerify: z.object({
     email: z.string().trim().email('Valid email required'),
     code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+    role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
   }),
   signupResend: z.object({ email: z.string().trim().email('Valid email required') }),
   login: z.object({
@@ -52,6 +54,7 @@ export const campaignSchemas = {
     replyRules: z.any().optional(),
     retryConfig: z.any().optional(),
     trackingConfig: z.any().optional(),
+    fallbackConfig: z.any().optional(),
   }).passthrough().refine((v) => v.numberId || v.whatsappNumberId, { message: 'numberId is required' }),
   addRecipients: z.object({ contactIds: z.array(id).min(1, 'At least one contact is required').max(10_000) }),
   launch: z.object({ scheduledAt: z.union([z.string(), z.date(), z.null()]).optional() }),

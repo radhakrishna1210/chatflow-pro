@@ -217,9 +217,7 @@ const CustomAutoReplyTab = () => {
   );
 };
 
-// ─────────────────────────────────────────────
-// 3. WORKFLOWS
-// ─────────────────────────────────────────────
+// ─── Workflows ───
 const WorkflowsTab = () => {
   const [workflows, setWorkflows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -388,8 +386,6 @@ const WorkflowsTab = () => {
       });
       if (res.ok) {
         const d = await res.json();
-        // Honest result from the real simulation engine — reflects whether the
-        // workflow would actually fire and what it would do.
         if (d.ran) {
           const actions = (d.trace || []).filter(t => t.step === 'action').length;
           setSimResult(`Triggered — ${actions} action${actions === 1 ? '' : 's'} would run. ${d.note || ''}`);
@@ -569,8 +565,6 @@ const WorkflowsTab = () => {
                   placeholder="Describe your ideal WhatsApp workflow or onboarding flow..."
                   style={{ width:'100%', minHeight:130, padding:0, background:'transparent', border:'none', color:'var(--t1)', fontSize:17, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', resize:'vertical', boxSizing:'border-box', lineHeight:1.55 }}
                 />
-                <button aria-label="Previous suggestion" style={{ position:'absolute', left:8, bottom:12, width:28, height:28, borderRadius:8, background:'transparent', border:'none', color:'var(--t1)', cursor:'pointer', fontSize:24, lineHeight:1 }}>‹</button>
-                <button aria-label="Next suggestion" style={{ position:'absolute', right:8, bottom:12, width:28, height:28, borderRadius:8, background:'transparent', border:'none', color:'var(--t2)', cursor:'pointer', fontSize:24, lineHeight:1 }}>›</button>
               </div>
 
               <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
@@ -847,10 +841,37 @@ const WorkflowsTab = () => {
   );
 };
 
-// ─────────────────────────────────────────────
-// 4. AI INTENT MATCHING
-// ─────────────────────────────────────────────
+// ─── AI Intent Matching ───
 const AIIntentMatchingTab = () => {
+  const [enabled, setEnabled] = useState(false);
+  const [threshold, setThreshold] = useState(0.6);
+  const [llmAvailable, setLlmAvailable] = useState(true);
+  const [triggerCount, setTriggerCount] = useState(null);
+  const [banner, setBanner] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    wFetch('/ai-agent/config').then(r => r.ok ? r.json() : null).then(d => {
+      if (!d) return;
+      setEnabled(d.intentMatchingEnabled === true);
+      setThreshold(typeof d.intentMatchThreshold === 'number' ? d.intentMatchThreshold : 0.6);
+      setLlmAvailable(d.llmAvailable !== false);
+    }).catch(() => {});
+    wFetch('/automation/triggers').then(r => r.ok ? r.json() : []).then(d => setTriggerCount(Array.isArray(d) ? d.length : 0)).catch(() => {});
+  }, []);
+
+  const persist = async (next, nextThreshold) => {
+    setSaving(true); setBanner(null);
+    try {
+      const res = await wFetch('/ai-agent/intent-matching', { method: 'PATCH', body: JSON.stringify({ enabled: next, threshold: nextThreshold }) });
+      const d = await res.json();
+      if (!res.ok) { setBanner({ error: d.error || 'Save failed' }); return; }
+      setEnabled(d.intentMatchingEnabled); setThreshold(d.intentMatchThreshold);
+      setBanner({ ok: d.intentMatchingEnabled ? 'Intent matching is ON — inbound messages will be fuzzy-routed to your keyword triggers.' : 'Intent matching is off.' });
+    } catch (e) { setBanner({ error: e.message }); }
+    finally { setSaving(false); }
+  };
+
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -861,93 +882,189 @@ const AIIntentMatchingTab = () => {
           <div>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
               <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>AI Intent Matching</h2>
-              <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'rgba(245,158,11,0.12)', border:'1px solid rgba(245,158,11,0.3)', color:'#fbbf24', textTransform:'uppercase', letterSpacing:'.05em' }}>Coming Soon</span>
+              {enabled && <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)', textTransform:'uppercase', letterSpacing:'.05em' }}>On</span>}
             </div>
-            <p style={{ fontSize:'13px', color:'var(--t2)', marginTop:2 }}>Let AI intelligently route messages to the right automation</p>
+            <p style={{ fontSize:'13px', color:'var(--t2)', marginTop:2 }}>Route messages to the best keyword trigger — even without an exact match</p>
           </div>
         </div>
-        <Toggle on={false} onToggle={() => {}} disabled />
+        <Toggle on={enabled} onToggle={() => persist(!enabled, threshold)} disabled={saving} />
       </div>
-      <div style={{ ...card, padding:'24px' }}>
-        <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.6 }}>AI Intent Matching will use machine learning to understand what your customers are asking, and automatically route messages to the best matching keyword trigger or workflow. This capability is on our roadmap and not yet available.</p>
-        <div style={{ marginTop:16, padding:'12px 16px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:12, color:'var(--t2)', display:'flex', alignItems:'center', gap:8 }}>
+
+      {banner && (
+        <div style={{ ...card, padding:'11px 15px', border:`1px solid ${banner.error ? 'rgba(239,68,68,.25)' : 'var(--gbd)'}`, background: banner.error ? 'rgba(239,68,68,.06)' : 'var(--gbg)' }}>
+          <span style={{ fontSize:12.5, color: banner.error ? '#f87171' : 'var(--green)' }}>{banner.error || banner.ok}</span>
+        </div>
+      )}
+
+      <div style={{ ...card, padding:'22px 24px', display:'flex', flexDirection:'column', gap:16 }}>
+        <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.6 }}>
+          When someone writes "my package hasn't arrived" and you have a trigger for the keyword <em>shipping</em>, intent matching connects them —
+          {llmAvailable
+            ? ' using the server\u2019s AI model to understand the message, with a keyword-similarity fallback.'
+            : ' currently using keyword similarity only (set GEMINI_API_KEY on the server for full AI understanding).'}
+        </p>
+
+        <div>
+          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+            <label style={{ fontSize:12, fontWeight:600, color:'var(--t1)' }}>Match sensitivity</label>
+            <span style={{ fontSize:12, color:'var(--t2)' }}>{Math.round(threshold * 100)}% — {threshold >= 0.75 ? 'strict (fewer, safer matches)' : threshold >= 0.5 ? 'balanced' : 'loose (more matches, more risk)'}</span>
+          </div>
+          <input type="range" min="0.3" max="0.9" step="0.05" value={threshold}
+            onChange={e => setThreshold(parseFloat(e.target.value))}
+            onMouseUp={() => enabled && persist(true, threshold)}
+            onTouchEnd={() => enabled && persist(true, threshold)}
+            style={{ width:'100%', accentColor:'var(--green)' }} />
+        </div>
+
+        <div style={{ padding:'12px 16px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:12, color:'var(--t2)', display:'flex', alignItems:'center', gap:8 }}>
           <I n="alertc" s={14} c="var(--t3)" />
-          In the meantime, use Custom Auto Reply for keyword-based routing, which is fully functional today.
+          {triggerCount === null ? 'Checking your keyword triggers…'
+            : triggerCount === 0 ? 'You have no keyword triggers yet — add some in Custom Auto Reply first; intent matching routes messages to them.'
+            : `Intent matching routes to your ${triggerCount} keyword trigger${triggerCount === 1 ? '' : 's'} from Custom Auto Reply. Exact matches always win; intent matching only handles the fuzzy cases.`}
         </div>
       </div>
     </div>
   );
 };
 
-// ─────────────────────────────────────────────
-// 5. WHATSAPP AI AGENT
-// ─────────────────────────────────────────────
+// ─── WhatsApp AI Agent ───
 const WhatsAppAIAgentTab = () => {
-  const [kbEnabled, setKbEnabled] = useState(true);
+  const [cfg, setCfg] = useState(null);
+  const [name, setName] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [knowledge, setKnowledge] = useState('');
+  const [saving, setSaving] = useState(false);
   const [deploying, setDeploying] = useState(false);
-  const [deployed,  setDeployed]  = useState(false);
+  const [testMsg, setTestMsg] = useState('What are your business hours?');
+  const [testReply, setTestReply] = useState(null);
+  const [testing, setTesting] = useState(false);
+  const [banner, setBanner] = useState(null);
 
-  const handleDeploy = () => {
-    if (deploying || deployed) return;
-    setDeploying(true);
-    setTimeout(() => { setDeploying(false); setDeployed(true); setTimeout(() => setDeployed(false), 2000); }, 1500);
+  const load = () => wFetch('/ai-agent/config').then(r => r.ok ? r.json() : null).then(d => {
+    if (!d) return;
+    setCfg(d); setName(d.aiAgentName || ''); setSystemPrompt(d.aiAgentPrompt || ''); setKnowledge(d.aiAgentKnowledge || '');
+  }).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setSaving(true); setBanner(null);
+    try {
+      const res = await wFetch('/ai-agent/config', { method: 'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
+      const d = await res.json();
+      if (!res.ok) { setBanner({ error: d.error || 'Save failed' }); return; }
+      setBanner({ ok: 'Configuration saved.' });
+      load();
+    } catch (e) { setBanner({ error: e.message }); }
+    finally { setSaving(false); }
   };
+
+  const deploy = async () => {
+    setDeploying(true); setBanner(null);
+    try {
+      await wFetch('/ai-agent/config', { method: 'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
+      const res = await wFetch(cfg?.aiAgentEnabled ? '/ai-agent/undeploy' : '/ai-agent/deploy', { method: 'POST' });
+      const d = await res.json();
+      if (!res.ok) { setBanner({ error: d.error || 'Deploy failed' }); return; }
+      setBanner({ ok: d.aiAgentEnabled ? 'Agent deployed — it now answers inbound messages when no automation rule matches.' : 'Agent undeployed.' });
+      load();
+    } catch (e) { setBanner({ error: e.message }); }
+    finally { setDeploying(false); }
+  };
+
+  const runTest = async () => {
+    if (!testMsg.trim()) return;
+    setTesting(true); setTestReply(null);
+    try {
+      const res = await wFetch('/ai-agent/test', { method: 'POST', body: JSON.stringify({ message: testMsg }) });
+      const d = await res.json();
+      setTestReply(d.ok ? { ok: d.reply } : { error: d.reason || d.error || 'Test failed' });
+    } catch (e) { setTestReply({ error: e.message }); }
+    finally { setTesting(false); }
+  };
+
+  const deployed = cfg?.aiAgentEnabled === true;
+  const llmMissing = cfg && cfg.llmAvailable === false;
+  const inputStyle = { width: '100%', padding: '10px 13px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif" };
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(30,191,94,0.1)', border:'1px solid var(--gbd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="bot" s={18} c="var(--green)" />
+          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(56,189,248,0.1)', border:'1px solid rgba(56,189,248,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <I n="bot" s={18} c="#38bdf8" />
           </div>
           <div>
             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
               <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>WhatsApp AI Agent</h2>
-              <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'rgba(245,158,11,0.12)', border:'1px solid rgba(245,158,11,0.3)', color:'#fbbf24', textTransform:'uppercase', letterSpacing:'.05em' }}>Coming Soon</span>
+              {deployed && <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)', textTransform:'uppercase', letterSpacing:'.05em' }}>Live</span>}
             </div>
-            <p style={{ fontSize:'13px', color:'var(--t2)', marginTop:2 }}>Configure your automated AI assistant</p>
+            <p style={{ fontSize:'13px', color:'var(--t2)', marginTop:2 }}>Answers inbound messages when no automation rule matches</p>
           </div>
         </div>
-        <Btn disabled style={{ opacity:0.55, cursor:'not-allowed' }}>
-          <I n="play" s={14} c="#060913"/> Deploy Agent
+        <Btn onClick={deploy} disabled={deploying || llmMissing}
+          style={deployed ? { background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', boxShadow:'none' } : { boxShadow:'var(--glow)' }}>
+          {deploying ? 'Working…' : deployed ? 'Undeploy Agent' : <><I n="play" s={14} c="#060913"/> Deploy Agent</>}
         </Btn>
       </div>
-      <div style={{ ...card, padding:'24px', display:'flex', flexDirection:'column', gap:'20px' }}>
-        <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
-          <label style={{ fontSize:'12px', fontWeight:600, color:'var(--t1)' }}>System Prompt</label>
-          <textarea placeholder="You are a helpful customer support agent for ChatFlow Pro..." style={{ width:'100%', minHeight:'120px', padding:'12px 16px', borderRadius:'8px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:'13px', fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', resize:'vertical' }} />
-          <span style={{ fontSize:'11px', color:'var(--t3)' }}>Instruct the AI on how to behave and respond to customers.</span>
+
+      {llmMissing && (
+        <div style={{ ...card, padding:'12px 16px', border:'1px solid rgba(245,158,11,0.3)', background:'rgba(245,158,11,0.06)', display:'flex', alignItems:'center', gap:8 }}>
+          <I n="alertc" s={14} c="#fbbf24" />
+          <span style={{ fontSize:12.5, color:'#fbbf24' }}>No LLM provider is configured on the server. Set <code>GEMINI_API_KEY</code> in the backend environment to enable deployment and live testing.</span>
         </div>
-        <div style={{ display:'flex', gap:'24px' }}>
-          <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'8px' }}>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--t1)' }}>AI Model</label>
-            <select style={{ width:'100%', padding:'10px 16px', borderRadius:'8px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:'13px', outline:'none' }}>
-              <option value="gpt-4o" style={{ background:'#07090F' }}>GPT-4o (Recommended)</option>
-              <option value="gpt-4-turbo" style={{ background:'#07090F' }}>GPT-4 Turbo</option>
-              <option value="claude-3-5" style={{ background:'#07090F' }}>Claude 3.5 Sonnet</option>
-            </select>
-          </div>
-          <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'8px' }}>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--t1)' }}>Creativity (Temperature)</label>
-            <input type="range" min="0" max="1" step="0.1" defaultValue="0.7" style={{ width:'100%', marginTop:'8px' }} />
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:'11px', color:'var(--t3)' }}><span>Precise</span><span>Creative</span></div>
-          </div>
+      )}
+      {banner && (
+        <div style={{ ...card, padding:'11px 15px', border:`1px solid ${banner.error ? 'rgba(239,68,68,.25)' : 'var(--gbd)'}`, background: banner.error ? 'rgba(239,68,68,.06)' : 'var(--gbg)' }}>
+          <span style={{ fontSize:12.5, color: banner.error ? '#f87171' : 'var(--green)' }}>{banner.error || banner.ok}</span>
         </div>
-        <div style={{ borderTop:'1px solid var(--bd)', paddingTop:'20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+      )}
+
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+        <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+          <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, color:'var(--t1)' }}>Configuration</h3>
           <div>
-            <h4 style={{ fontSize:'14px', fontWeight:600, color:'var(--t1)', marginBottom:'4px' }}>Knowledge Base Integration</h4>
-            <p style={{ fontSize:'12px', color:'var(--t2)' }}>Allow AI to read your documents and answer questions accurately.</p>
+            <label style={{ display:'block', fontSize:11.5, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Agent name</label>
+            <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} maxLength={80} />
           </div>
-          <Toggle on={kbEnabled} onToggle={() => setKbEnabled(!kbEnabled)} />
+          <div>
+            <label style={{ display:'block', fontSize:11.5, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>System prompt (personality + rules)</label>
+            <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4} style={{ ...inputStyle, resize:'vertical' }} maxLength={4000} />
+          </div>
+          <div>
+            <label style={{ display:'block', fontSize:11.5, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Knowledge base (FAQs, hours, policies — the agent only answers from this)</label>
+            <textarea value={knowledge} onChange={e => setKnowledge(e.target.value)} rows={6} style={{ ...inputStyle, resize:'vertical' }} maxLength={12000} placeholder={"Business hours: Mon-Sat 9am-7pm IST\nReturns: within 7 days with receipt\nShipping: 2-4 business days across India"} />
+          </div>
+          <div style={{ display:'flex', justifyContent:'flex-end' }}>
+            <Btn variant="outline" size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Config'}</Btn>
+          </div>
+        </div>
+
+        <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+          <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, color:'var(--t1)' }}>Test the agent</h3>
+          <p style={{ fontSize:12, color:'var(--t2)' }}>Runs your current prompt + knowledge against the model — exactly what a customer would get.</p>
+          <textarea value={testMsg} onChange={e => setTestMsg(e.target.value)} rows={3} style={{ ...inputStyle, resize:'vertical' }} />
+          <Btn variant="outline" size="sm" onClick={runTest} disabled={testing || llmMissing} style={{ alignSelf:'flex-start' }}>
+            {testing ? 'Asking…' : 'Run Test'}
+          </Btn>
+          {testReply && (
+            <div style={{ background: testReply.error ? 'rgba(239,68,68,.06)' : '#ECE5DD', borderRadius:10, padding:12 }}>
+              {testReply.error
+                ? <span style={{ fontSize:12.5, color:'#f87171' }}>{testReply.error}</span>
+                : <div style={{ background:'#fff', borderRadius:'0 8px 8px 8px', padding:'9px 12px', display:'inline-block', maxWidth:'92%' }}>
+                    <p style={{ fontSize:12.5, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', margin:0, fontFamily:'system-ui,sans-serif' }}>{testReply.ok}</p>
+                  </div>}
+            </div>
+          )}
+          <div style={{ marginTop:'auto', padding:'10px 14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:11.5, color:'var(--t3)', lineHeight:1.5 }}>
+            Reply order on inbound messages: exact keyword trigger → AI intent match → welcome/out-of-office → <strong style={{ color:'var(--t2)' }}>this agent</strong> (only when deployed).
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-// ─────────────────────────────────────────────
-// 6. INSTAGRAM QUICKFLOWS
-// ─────────────────────────────────────────────
+// ─── Instagram Quickflows ───
 const InstagramQuickflowsTab = () => {
   const handleConnect = () => {
     const clientId = '1483504773159594';
@@ -984,9 +1101,7 @@ const InstagramQuickflowsTab = () => {
   );
 };
 
-// ─────────────────────────────────────────────
-// 7. VOICE AI
-// ─────────────────────────────────────────────
+// ─── Voice AI ───
 const VoiceAITab = () => {
   const [enabled, setEnabled] = useState(false);
   const [name,   setName]   = useState('MyCallGenie');
@@ -1127,9 +1242,7 @@ const VoiceAITab = () => {
   );
 };
 
-// ─────────────────────────────────────────────
-// 8. WHATSAPP FORMS
-// ─────────────────────────────────────────────
+// ─── WhatsApp Forms ───
 const WhatsAppFormsTab = () => {
   const [forms,      setForms]      = useState([]);
   const [editing,    setEditing]    = useState(null);
@@ -1281,9 +1394,7 @@ const WhatsAppFormsTab = () => {
   );
 };
 
-// ─────────────────────────────────────────────
-// 9. SMART LISTS
-// ─────────────────────────────────────────────
+// ─── Smart Lists ───
 const SmartListsTab = () => {
   const [segments, setSegments] = useState([]);
   const [loading, setLoading]   = useState(true);
@@ -1388,47 +1499,44 @@ const SmartListsTab = () => {
   const deleteContact = async contactId => {
     if (!window.confirm('Remove this contact from the segment?')) return;
     try {
-      await wFetch(`/segments/${viewingSegmentId}/contacts/${contactId}`, { method:'DELETE' });
-      await fetchSegments();
+      const res = await wFetch(`/segments/${viewingSegmentId}/contacts/${contactId}`, { method:'DELETE' });
+      if (res.ok) await fetchSegments();
     } catch (err) { console.error(err); }
   };
 
-  if (loading) return <div style={{ color:'var(--t2)', fontSize:13, padding:20 }}>Loading...</div>;
-
-  // ── Segment detail view ──
   if (viewingSegment) {
-    const contacts = viewingSegment.contacts || [];
+    const list = viewingSegment.contacts || [];
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-            <button onClick={() => setViewingSegmentId(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', fontSize:13, display:'flex', alignItems:'center', gap:6 }}>
-              <I n="arrow" s={14} c="var(--t2)" style={{ transform:'rotate(180deg)' }} /> Back to Segments
-            </button>
-            <span style={{ color:'var(--t3)' }}>/</span>
-            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>{viewingSegment.name}</h2>
+            <button onClick={() => setViewingSegmentId(null)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)' }}><I n="arrow" s={12}/></button>
+            <div>
+              <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>{viewingSegment.name}</h2>
+              <p style={{ fontSize:'13px', color:'var(--t2)' }}>{viewingSegment.description || viewingSegment.desc || 'No description'}</p>
+            </div>
           </div>
-          <Btn onClick={openAddContact} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Add Contact</Btn>
+          <Btn onClick={openAddContact} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10"/> Add Customer</Btn>
         </div>
 
         {contactFormOpen && (
           <div style={{ ...card, padding:'20px', display:'flex', flexDirection:'column', gap:'12px' }}>
             <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editingContact ? 'Edit Contact' : 'Add Contact'}</p>
-            <div style={{ display:'flex', gap:'16px', flexWrap:'wrap' }}>
-              <div style={{ flex:1, minWidth:'200px', display:'flex', flexDirection:'column', gap:'6px' }}>
-                <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Name</label>
+            <div style={{ display:'flex', gap:'12px', flexWrap:'wrap' }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:'6px', flex:1, minWidth:'200px' }}>
+                <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)' }}>Name</label>
                 <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="e.g. Alice Smith"
-                  style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', width:'100%', boxSizing:'border-box' }} />
+                  style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none' }} />
               </div>
-              <div style={{ flex:1, minWidth:'200px', display:'flex', flexDirection:'column', gap:'6px' }}>
-                <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Phone Number</label>
-                <input value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="e.g. +919999988888"
-                  style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', width:'100%', boxSizing:'border-box' }} />
+              <div style={{ display:'flex', flexDirection:'column', gap:'6px', flex:1, minWidth:'200px' }}>
+                <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)' }}>Phone Number</label>
+                <input value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="e.g. +14155552671"
+                  style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none' }} />
               </div>
             </div>
             {contactError && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {contactError}</p>}
-            <div style={{ display:'flex', gap:8 }}>
-              <Btn onClick={saveContact} style={{ boxShadow:'var(--glow)' }}>{editingContact ? 'Update Contact' : 'Add Contact'}</Btn>
+            <div style={{ display:'flex', gap:8, marginTop:'4px' }}>
+              <Btn onClick={saveContact} style={{ boxShadow:'var(--glow)' }}>{editingContact ? 'Update' : 'Add'}</Btn>
               <Btn variant="ghost" onClick={cancelContactForm}>Cancel</Btn>
             </div>
           </div>
@@ -1438,21 +1546,21 @@ const SmartListsTab = () => {
           <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left' }}>
             <thead>
               <tr style={{ borderBottom:'1px solid var(--bd)' }}>
-                {['Name','Phone',''].map(h => (
-                  <th key={h} style={{ padding:'12px 20px', fontSize:'11px', fontWeight:600, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.05em' }}>{h}</th>
+                {['Name','Phone Number','Actions'].map(h => (
+                  <th key={h} style={{ padding:'12px 20px', fontSize:'11px', fontWeight:600, color:'var(--t3)', textTransform:'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {contacts.length === 0 && (
-                <tr><td colSpan="3" style={{ padding:'32px', textAlign:'center', color:'var(--t2)', fontSize:'13px' }}>No contacts yet. Add one above.</td></tr>
+              {list.length === 0 && (
+                <tr><td colSpan="3" style={{ padding:'32px', textAlign:'center', color:'var(--t2)', fontSize:'13px' }}>No contacts in this segment yet. Add some above.</td></tr>
               )}
-              {contacts.map((c, i) => (
-                <tr key={c.id} style={{ borderBottom: i < contacts.length-1 ? '1px solid var(--bd)' : 'none' }}>
+              {list.map(c => (
+                <tr key={c.id} style={{ borderBottom:'1px solid var(--bd)' }}>
                   <td style={{ padding:'14px 20px', fontSize:'13px', fontWeight:600, color:'var(--t1)' }}>{c.name}</td>
-                  <td style={{ padding:'14px 20px', fontSize:'13px', color:'var(--t2)' }}>{c.phone || c.phoneNumber || '—'}</td>
-                  <td style={{ padding:'14px 20px', textAlign:'right' }}>
-                    <button onClick={() => openEditContact(c)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', marginRight:'12px' }}><I n="pencil" s={14}/></button>
+                  <td style={{ padding:'14px 20px', fontSize:'13px', color:'var(--t2)' }}>{c.phone || c.phoneNumber}</td>
+                  <td style={{ padding:'14px 20px' }}>
+                    <button onClick={() => openEditContact(c)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t3)', marginRight:12 }}><I n="pencil" s={14}/></button>
                     <button onClick={() => deleteContact(c.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#f87171' }}><I n="trash" s={14}/></button>
                   </td>
                 </tr>
@@ -1545,9 +1653,7 @@ const SmartListsTab = () => {
   );
 };
 
-// ─────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────
+// ─── Main Component ───
 export default function AutomationView() {
   const [activeTab, setActiveTab] = useState('basic');
 

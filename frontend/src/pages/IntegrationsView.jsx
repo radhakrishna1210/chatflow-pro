@@ -234,6 +234,16 @@ const CONNECT_CONFIG = {
 
 const CATEGORIES = ['All', ...Array.from(new Set(INTEGRATIONS.map(i => i.category)))];
 
+// Maps this catalog's integration ids to the backend OAuth provider registry
+// (src/lib/oauthProviders.js). Only ids listed here run the real OAuth flow;
+// providers not yet wired record their connection intent instead.
+const OAUTH_PROVIDER_MAP = {
+  'google-sheets': 'google',
+  'hubspot': 'hubspot',
+  'shopify-sales': 'shopify',
+  'shopify-marketing': 'shopify',
+};
+
 const CATEGORY_ICONS = {
   'Payment Provider':        'credit',
   'Connector Platform':      'zap',
@@ -318,14 +328,36 @@ function ConnectModal({ intg, onClose, onSave }) {
 
   const handleSave = async () => {
     setSaving(true);
-    // Persist to the real backend. API-key credentials are sent once and stored
-    // encrypted server-side — never in the browser.
-    const payload = cfg.type === 'webhook'
-      ? { type: 'webhook', config: { webhook_url: wUrl } }
-      : cfg.type === 'oauth'
-      ? { type: 'oauth', config: { oauth: true } }
-      : { type: 'apikey', credentials: values };
     try {
+      // OAuth providers: start the real authorization-code flow. OAUTH_PROVIDER_MAP
+      // maps this catalog's integration ids to the backend's OAuth provider ids;
+      // supported ones redirect to the provider's consent screen.
+      if (cfg.type === 'oauth') {
+        const backendProvider = OAUTH_PROVIDER_MAP[intg.id];
+        if (backendProvider) {
+          const body = {};
+          if (backendProvider === 'shopify') {
+            const shop = window.prompt('Enter your shop domain (e.g. mystore.myshopify.com):', '');
+            if (!shop) { setSaving(false); return; }
+            body.shop = shop.trim();
+          }
+          const res = await onSave.startOAuth(backendProvider, body);
+          // startOAuth handles redirect or surfaces an error; nothing else to do.
+          if (res === 'redirecting') return;
+          setSaving(false);
+          return;
+        }
+        // No live OAuth wired for this provider yet — record the intent honestly.
+        await onSave(intg.id, { type: 'oauth', config: { oauth: true, pending: true } });
+        setSaving(false);
+        return;
+      }
+
+      // Persist API-key / webhook connections to the backend. API-key
+      // credentials are sent once and stored encrypted server-side.
+      const payload = cfg.type === 'webhook'
+        ? { type: 'webhook', config: { webhook_url: wUrl } }
+        : { type: 'apikey', credentials: values };
       await onSave(intg.id, payload);
     } finally {
       setSaving(false);
@@ -595,8 +627,10 @@ export default function IntegrationsView() {
   const [connectModal, setConnectModal] = useState(null);
   const [infoModal, setInfoModal] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [oauthBanner, setOauthBanner] = useState(null);
 
-  // Load real, workspace-scoped connections from the backend on mount.
+  // Load real, workspace-scoped connections from the backend on mount, and
+  // surface any OAuth callback result passed back as query params.
   useEffect(() => {
     wFetch('/integrations')
       .then(r => r.ok ? r.json() : [])
@@ -606,6 +640,22 @@ export default function IntegrationsView() {
         setConnected(map);
       })
       .catch(() => {});
+
+    // Parse ?oauth_connected= / ?oauth_error=&provider= from the callback redirect.
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('oauth_connected')) {
+      setOauthBanner({ ok: `Connected ${q.get('oauth_connected')} successfully.` });
+    } else if (q.get('oauth_error')) {
+      const map = { missing_code: 'The provider did not return an authorization code.', invalid_state: 'This connection request expired — please try again.', exchange_failed: 'Token exchange with the provider failed. Check the app credentials.' };
+      setOauthBanner({ error: `${map[q.get('oauth_error')] || q.get('oauth_error')}${q.get('provider') ? ` (${q.get('provider')})` : ''}` });
+    }
+    if (q.get('oauth_connected') || q.get('oauth_error')) {
+      // Clean the URL and reload the connection list.
+      window.history.replaceState({}, '', window.location.pathname);
+      wFetch('/integrations').then(r => r.ok ? r.json() : []).then(rows => {
+        const m = {}; (Array.isArray(rows) ? rows : []).forEach(r => { m[r.provider] = r; }); setConnected(m);
+      }).catch(() => {});
+    }
   }, []);
 
   const filtered = INTEGRATIONS.filter(intg => {
@@ -638,6 +688,23 @@ export default function IntegrationsView() {
       setSaveError(e.message);
     }
   }
+
+  // Start the real OAuth flow for a backend provider id. Returns 'redirecting'
+  // when it navigates away, otherwise surfaces the server's error (e.g. the
+  // provider isn't configured on this server).
+  handleSave.startOAuth = async (backendProvider, body) => {
+    setSaveError(null);
+    try {
+      const res = await wFetch(`/integrations/oauth/${encodeURIComponent(backendProvider)}/start`, { method: 'POST', body: JSON.stringify(body || {}) });
+      const data = await res.json();
+      if (!res.ok || !data.url) { setSaveError(data.error || `Could not start OAuth (${res.status})`); return 'error'; }
+      window.location.href = data.url;
+      return 'redirecting';
+    } catch (e) {
+      setSaveError(e.message);
+      return 'error';
+    }
+  };
 
   async function handleDisconnect(id) {
     try {
@@ -684,6 +751,19 @@ export default function IntegrationsView() {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {oauthBanner && (
+          <div style={{ padding: '11px 15px', borderRadius: 8, border: `1px solid ${oauthBanner.error ? 'rgba(239,68,68,.25)' : 'var(--gbd)'}`, background: oauthBanner.error ? 'rgba(239,68,68,.06)' : 'var(--gbg)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12.5, color: oauthBanner.error ? '#f87171' : 'var(--green)' }}>{oauthBanner.error || oauthBanner.ok}</span>
+            <span onClick={() => setOauthBanner(null)} style={{ cursor: 'pointer', color: 'var(--t3)', fontSize: 16, lineHeight: 1 }}>×</span>
+          </div>
+        )}
+        {saveError && (
+          <div style={{ padding: '11px 15px', borderRadius: 8, border: '1px solid rgba(239,68,68,.25)', background: 'rgba(239,68,68,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12.5, color: '#f87171' }}>{saveError}</span>
+            <span onClick={() => setSaveError(null)} style={{ cursor: 'pointer', color: 'var(--t3)', fontSize: 16, lineHeight: 1 }}>×</span>
+          </div>
+        )}
 
         {/* Category chips */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
