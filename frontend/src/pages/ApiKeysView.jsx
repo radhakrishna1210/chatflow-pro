@@ -105,7 +105,7 @@ export default function ApiKeysView() {
         <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Manage API access, webhooks &amp; testing</p>
       </div>
 
-      <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18, maxWidth:860 }}>
+      <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
 
         {/* ── API Keys card ── */}
         <div style={{ ...card, overflow:'hidden' }}>

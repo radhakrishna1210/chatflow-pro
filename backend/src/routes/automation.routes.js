@@ -9,15 +9,15 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/triggers', automationController.list);
-router.post('/triggers', authorize('ADMIN'), automationController.create);
-router.patch('/triggers/:id', authorize('ADMIN'), automationController.update);
-router.delete('/triggers/:id', authorize('ADMIN'), automationController.remove);
+router.post('/triggers', authorize('CLIENT'), automationController.create);
+router.patch('/triggers/:id', authorize('CLIENT'), automationController.update);
+router.delete('/triggers/:id', authorize('CLIENT'), automationController.remove);
 
 router.get('/basic', automationController.getBasicAutomations);
-router.patch('/basic', authorize('ADMIN'), automationController.updateBasicAutomations);
-router.post('/workflows/ai-preview', authorize('ADMIN', 'CLIENT'), automationController.generateWorkflowPreview);
+router.patch('/basic', authorize('CLIENT'), automationController.updateBasicAutomations);
+router.post('/workflows/ai-preview', authorize('CLIENT'), automationController.generateWorkflowPreview);
 router.get('/voice', automationController.getVoiceSettings);
-router.patch('/voice', authorize('ADMIN'), automationController.updateVoiceSettings);
+router.patch('/voice', authorize('CLIENT'), automationController.updateVoiceSettings);
 
 
 export default router;

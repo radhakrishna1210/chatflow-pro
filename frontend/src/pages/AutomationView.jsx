@@ -1021,12 +1021,24 @@ const VoiceAITab = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await wFetch('/automation/voice', {
+      const res = await wFetch('/automation/voice', {
         method: 'PATCH',
         body: JSON.stringify({ voiceAiName: name, voiceAiPrompt: prompt, voiceAiPhone: phone })
       });
+      if (!res.ok) throw new Error('Failed to save voice settings');
+      // Re-fetch to confirm persisted state
+      const refetch = await wFetch('/automation/voice');
+      if (refetch.ok) {
+        const d = await refetch.json();
+        if (d) {
+          setName(d.voiceAiName || 'MyCallGenie');
+          setPrompt(d.voiceAiPrompt || 'Greet the caller and ask for their details.');
+          setPhone(d.voiceAiPhone || '');
+        }
+      }
     } catch (err) {
       console.error(err);
+      alert('Failed to save voice settings. Please try again.');
     } finally {
       setSaving(false);
     }
