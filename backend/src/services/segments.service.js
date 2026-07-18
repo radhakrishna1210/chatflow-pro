@@ -16,8 +16,19 @@ export async function listSegments(workspaceId) {
   return segments.map((s) => ({ ...s, contactCount: s._count.contacts }));
 }
 
-// Create a new segment
+// Create a new segment (rejects duplicates by name within the workspace)
 export async function createSegment(workspaceId, { name, desc, color }) {
+  const existing = await prisma.segment.findFirst({
+    where: {
+      workspaceId,
+      name: { equals: name, mode: 'insensitive' },
+    },
+  });
+  if (existing) {
+    const e = new Error('A Smart List with this name already exists');
+    e.status = 409;
+    throw e;
+  }
   return prisma.segment.create({ data: { workspaceId, name, desc, color } });
 }
 

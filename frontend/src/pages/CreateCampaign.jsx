@@ -119,7 +119,7 @@ const StepHeader = ({ n, title, done, open, locked, onToggle }) => (
 );
 
 const StepWrap = ({ n, title, done, open, locked, onToggle, children }) => (
-  <div style={{ ...card, overflow: 'hidden', flexShrink: 0, transition: 'border-color .2s', borderColor: open ? 'var(--bdm)' : 'var(--bd)' }}>
+  <div style={{ ...card, overflow: 'visible', flexShrink: 0, transition: 'border-color .2s', borderColor: open ? 'var(--bdm)' : 'var(--bd)' }}>
     <StepHeader n={n} title={title} done={done} open={open} locked={locked} onToggle={onToggle} />
     {open && <div style={{ borderTop: '1px solid var(--bd)', padding: '20px' }}>{children}</div>}
   </div>

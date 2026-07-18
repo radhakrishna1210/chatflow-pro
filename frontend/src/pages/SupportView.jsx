@@ -41,7 +41,7 @@ export default function SupportView() {
         <p style={{ fontSize: 11.5, color: 'var(--t2)', marginLeft: 10 }}>Report an issue or contact our team</p>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', maxWidth: 720 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', maxWidth: 720, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         <div style={{ ...card, padding: 24, marginBottom: 20 }}>
           <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)', marginBottom: 16 }}>Submit a request</h3>
           {err && <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 13, marginBottom: 14 }}>{err}</div>}
