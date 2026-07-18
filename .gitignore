@@ -15,7 +15,8 @@ frontend/dist/
 frontend/build/
 
 # Prisma
-backend/prisma/migrations/
+# NOTE: migrations/ is intentionally committed — it's the reproducible source
+# of truth for the DB schema (needed to recreate tables on a fresh/restored DB).
 *.db
 *.db-journal
 
