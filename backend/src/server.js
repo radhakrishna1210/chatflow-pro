@@ -18,10 +18,130 @@ let emailWorker = null;
 let billingWorker = null;
 let httpServer = null;
 
+async function initializeSubscriptions() {
+  const PLANS = [
+    {
+      key: 'FREE',
+      name: 'Free',
+      priceMonthly: 0,
+      messageQuota: 100,
+      contactLimit: 100,
+      memberLimit: 1,
+      campaignLimit: null,
+      apiKeyLimit: 1,
+      overageRatePerMsg: 0.02,
+      features: {},
+    },
+    {
+      key: 'STARTER',
+      name: 'Starter',
+      priceMonthly: 29,
+      messageQuota: 2000,
+      contactLimit: 2000,
+      memberLimit: 3,
+      campaignLimit: null,
+      apiKeyLimit: 3,
+      overageRatePerMsg: 0.015,
+      features: { automation: true },
+    },
+    {
+      key: 'PRO',
+      name: 'Pro',
+      priceMonthly: 99,
+      messageQuota: 10000,
+      contactLimit: null,
+      memberLimit: 10,
+      campaignLimit: null,
+      apiKeyLimit: 10,
+      overageRatePerMsg: 0.01,
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
+    },
+    {
+      key: 'ENTERPRISE',
+      name: 'Enterprise',
+      priceMonthly: 299,
+      messageQuota: -1,
+      contactLimit: null,
+      memberLimit: null,
+      campaignLimit: null,
+      apiKeyLimit: null,
+      overageRatePerMsg: 0.008,
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
+    },
+  ];
+
+  try {
+    const planByKey = new Map();
+    for (const plan of PLANS) {
+      const { key, ...data } = plan;
+      const result = await prisma.plan.upsert({
+        where: { key },
+        update: data,
+        create: { key, ...data },
+      });
+      planByKey.set(result.key, result);
+      console.log(`[Init] Upserted plan: ${result.key}`);
+    }
+
+    const freePlan = planByKey.get('FREE');
+    if (!freePlan) {
+      console.error('[Init] FREE plan not found.');
+      return;
+    }
+
+    const workspaces = await prisma.workspace.findMany({
+      include: { subscription: true }
+    });
+
+    let created = 0;
+    const CYCLE_DAYS = 30;
+    for (const ws of workspaces) {
+      if (ws.subscription) continue;
+
+      const plan = planByKey.get(ws.plan) || freePlan;
+      const currentPeriodStart = new Date();
+      const currentPeriodEnd = new Date(currentPeriodStart.getTime() + CYCLE_DAYS * 24 * 60 * 60 * 1000);
+
+      await prisma.subscription.create({
+        data: {
+          workspaceId: ws.id,
+          planId: plan.id,
+          status: 'ACTIVE',
+          currentPeriodStart,
+          currentPeriodEnd,
+        },
+      });
+
+      await prisma.usageCounter.upsert({
+        where: { workspaceId_periodStart: { workspaceId: ws.id, periodStart: currentPeriodStart } },
+        update: {},
+        create: {
+          workspaceId: ws.id,
+          periodStart: currentPeriodStart,
+          periodEnd: currentPeriodEnd,
+          messagesUsed: 0,
+        },
+      });
+
+      created += 1;
+      console.log(`[Init] Backfilled subscription for workspace ${ws.id} -> plan ${plan.key}`);
+    }
+
+    console.log(`[Init] Subscription initialization done. Created ${created} subscription(s).`);
+    const fs = await import('fs');
+    fs.writeFileSync('c:/Users/Dell/Downloads/Projects/chatflow-pro/init_status.txt', `Success: created ${created} subscriptions.`);
+  } catch (err) {
+    console.error('[Init] Subscription initialization failed:', err);
+    const fs = await import('fs');
+    fs.writeFileSync('c:/Users/Dell/Downloads/Projects/chatflow-pro/init_status.txt', `Failed: ${err.message}`);
+  }
+}
+
 async function main() {
   try {
     await prisma.$connect();
     console.log('[DB] Connected to PostgreSQL');
+    await initializeSubscriptions();
   } catch (err) {
     console.error('[DB] Connection failed:', err.message);
     process.exit(1);

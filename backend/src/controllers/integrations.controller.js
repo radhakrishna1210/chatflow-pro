@@ -3,9 +3,25 @@ import * as service from '../services/integrations.service.js';
 import { prisma } from '../lib/prisma.js';
 import { encrypt } from '../lib/encryption.js';
 import { env } from '../config/env.js';
+import { hasFeature } from '../services/subscription.service.js';
+import { pricingForCatalogId, pricingForOAuthProvider } from '../config/integrationCatalog.js';
 import {
   isOAuthProvider, providerConfigured, buildAuthUrl, exchangeCode, listProviders,
 } from '../lib/oauthProviders.js';
+
+// Free integrations are usable on every plan; paid ones require the plan's
+// `integrations` feature flag (PRO/ENTERPRISE in the seed data).
+async function assertIntegrationAccess(workspaceId, pricing) {
+  if (pricing !== 'paid') return;
+  const allowed = await hasFeature(workspaceId, 'integrations');
+  if (!allowed) {
+    const e = new Error('This integration requires a paid plan. Upgrade to Pro to connect it.');
+    e.status = 403;
+    e.code = 'PLAN_FEATURE_LOCKED';
+    e.feature = 'integrations';
+    throw e;
+  }
+}
 
 export async function list(req, res) {
   res.json(await service.listIntegrations(req.params.workspaceId));
@@ -13,6 +29,7 @@ export async function list(req, res) {
 
 export async function connect(req, res) {
   const { provider } = req.params;
+  await assertIntegrationAccess(req.params.workspaceId, pricingForCatalogId(provider));
   const row = await service.connectIntegration(req.params.workspaceId, provider, req.body || {});
   res.status(201).json(row);
 }
@@ -58,6 +75,7 @@ export async function oauthStart(req, res) {
   if (!isOAuthProvider(provider)) {
     return res.status(404).json({ error: `"${provider}" does not support OAuth. Use an API-key connection instead.` });
   }
+  await assertIntegrationAccess(workspaceId, pricingForOAuthProvider(provider));
   if (!providerConfigured(provider)) {
     return res.status(400).json({
       error: `OAuth for this provider is not configured on this server. Set ${provider.toUpperCase()}_CLIENT_ID and ${provider.toUpperCase()}_CLIENT_SECRET, then retry.`,

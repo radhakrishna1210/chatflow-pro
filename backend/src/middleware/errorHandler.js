@@ -1,5 +1,10 @@
+import fs from 'fs';
+
 export function errorHandler(err, req, res, next) {
   console.error('[Error]', err);
+  try {
+    fs.writeFileSync('c:/Users/Dell/Downloads/Projects/chatflow-pro/server_errors.txt', `URL: ${req.url}\nError: ${err.stack || err.message || err}`);
+  } catch (e) {}
 
   if (err.name === 'ZodError') {
     return res.status(400).json({ error: 'Validation error', details: err.flatten().fieldErrors });

@@ -18,6 +18,18 @@ export function llmAvailable() {
   return !!env.GEMINI_API_KEY || !!env.OLLAMA_URL;
 }
 
+// A degraded/slow Gemini response previously had no ceiling and could hold
+// a request (e.g. onboarding chat) open indefinitely.
+const GEMINI_TIMEOUT_MS = 20000;
+
+// Ollama is only reached when Gemini isn't configured or errors, so it's
+// already the fallback path — a local model taking 20-30s+ to generate on
+// modest hardware made that fallback worse than just skipping it. 8s is
+// enough for a warmed-up local model to respond; anything slower means the
+// caller's own deterministic (non-LLM) fallback kicks in sooner instead of
+// the request stalling.
+const OLLAMA_TIMEOUT_MS = 8000;
+
 async function callGemini(prompt, system, { json = false } = {}) {
   const ai = gemini();
   if (!ai) return null;
@@ -26,7 +38,10 @@ async function callGemini(prompt, system, { json = false } = {}) {
     const res = await ai.models.generateContent({
       model: 'gemini-1.5-flash',
       contents,
-      ...(json ? { config: { responseMimeType: 'application/json' } } : {}),
+      config: {
+        httpOptions: { timeout: GEMINI_TIMEOUT_MS },
+        ...(json ? { responseMimeType: 'application/json' } : {}),
+      },
     });
     return (res.text || '').trim() || null;
   } catch (err) {
@@ -39,7 +54,7 @@ async function callOllama(prompt, system) {
   if (!env.OLLAMA_URL) return null;
   try {
     const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 20000);
+    const t = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
     const res = await fetch(`${env.OLLAMA_URL}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

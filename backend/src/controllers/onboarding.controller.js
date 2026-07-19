@@ -91,19 +91,25 @@ export const chatWithAi = async (req, res) => {
   try {
     const { message, guided = true } = req.body;
     const userId = req.user.id;
-    const requestedWorkspaceId = req.body.workspaceId || req.user.workspaceId;
-
-    let workspaceId = null;
-    if (requestedWorkspaceId) {
-      const member = await prisma.workspaceMember.findUnique({
-        where: { userId_workspaceId: { userId, workspaceId: requestedWorkspaceId } },
-      });
-      if (!member) return res.status(403).json({ content: 'You are not a member of that workspace.' });
-      workspaceId = requestedWorkspaceId;
-    }
+    const workspaceId = req.body.workspaceId || req.user.workspaceId;
     if (!workspaceId) return res.status(400).json({ content: 'No workspace selected.' });
 
-    if (!(await hasFeature(workspaceId, 'aiOnboarding'))) {
+    // This handler runs on every turn of the guided template/campaign/workflow
+    // flow, and these four reads don't depend on each other — batching them
+    // avoids four sequential round trips per message (membership, plan
+    // feature flag, session lookup, and number count were previously each
+    // awaited one at a time). Results are only used after the membership
+    // check below, so a non-member never sees any of this data.
+    const [member, aiOnboardingAllowed, existingSession, numberCount] = await Promise.all([
+      prisma.workspaceMember.findUnique({ where: { userId_workspaceId: { userId, workspaceId } } }),
+      hasFeature(workspaceId, 'aiOnboarding'),
+      prisma.aiSession.findFirst({ where: { userId, workspaceId }, orderBy: { updatedAt: 'desc' } }),
+      prisma.waNumber.count({ where: { workspaceId } }),
+    ]);
+
+    if (!member) return res.status(403).json({ content: 'You are not a member of that workspace.' });
+
+    if (!aiOnboardingAllowed) {
       return res.status(403).json({
         content: 'AI onboarding isn\'t included in your current plan. Upgrade to unlock it.',
         error: 'AI onboarding isn\'t included in your current plan. Upgrade to unlock it.',
@@ -112,7 +118,7 @@ export const chatWithAi = async (req, res) => {
       });
     }
 
-    let session = await prisma.aiSession.findFirst({ where: { userId, workspaceId }, orderBy: { updatedAt: 'desc' } });
+    let session = existingSession;
     if (!session) session = await prisma.aiSession.create({ data: { userId, workspaceId, state: { step: 'IDLE' } } });
 
     let state = session.state || { step: 'IDLE' };
@@ -126,9 +132,6 @@ export const chatWithAi = async (req, res) => {
     if (guided === false || ['cancel', 'reset', 'abort'].includes(low)) {
       state = { step: 'IDLE' };
     }
-
-    // Whether this workspace can actually create/submit templates (has a number).
-    const numberCount = await prisma.waNumber.count({ where: { workspaceId } });
 
     if (state.step === 'IDLE') {
       const intent = await detectIntent(text);

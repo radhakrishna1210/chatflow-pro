@@ -3,11 +3,13 @@ import * as controller from '../controllers/integrations.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { authorize } from '../middleware/authorize.js';
-import { requireFeature } from '../middleware/requireFeature.js';
 
-// Workspace-scoped integration routes (mounted at /workspaces/:workspaceId/integrations)
+// Workspace-scoped integration routes (mounted at /workspaces/:workspaceId/integrations).
+// No blanket requireFeature() gate here — free integrations must stay usable
+// on every plan, so pricing is enforced per-integration inside the
+// connect/oauthStart controllers instead (see integrationCatalog.js).
 const router = Router({ mergeParams: true });
-router.use(authenticate, workspaceContext, requireFeature('integrations'));
+router.use(authenticate, workspaceContext);
 
 router.get('/', controller.list);
 router.get('/oauth/providers', controller.oauthProviders);
