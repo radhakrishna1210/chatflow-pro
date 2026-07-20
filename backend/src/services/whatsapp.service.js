@@ -246,3 +246,32 @@ export async function getDecryptedNumber(workspaceId, numberId) {
   if (!n) return null;
   return { ...n, accessToken: decrypt(n.encryptedAccessToken) };
 }
+
+export async function sendPublicMessage(workspaceId, { to, template, type, body, waNumberId }) {
+  // Find the WhatsApp number to send from
+  const waNumber = await prisma.waNumber.findFirst({
+    where: {
+      workspaceId,
+      ...(waNumberId ? { id: waNumberId } : {})
+    }
+  });
+
+  if (!waNumber) {
+    const e = new Error('No WhatsApp number found for this workspace');
+    e.status = 404;
+    throw e;
+  }
+
+  const accessToken = decrypt(waNumber.encryptedAccessToken);
+  const { sendWhatsAppMessage, sendTextMessage } = await import('../lib/meta.js');
+
+  if (type === 'template') {
+    return sendWhatsAppMessage(waNumber.metaPhoneNumberId, accessToken, to, template);
+  } else if (type === 'text') {
+    return sendTextMessage(waNumber.metaPhoneNumberId, accessToken, to, body);
+  } else {
+    const e = new Error('Invalid message type. Supported: template, text');
+    e.status = 400;
+    throw e;
+  }
+}
