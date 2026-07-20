@@ -1,0 +1,4 @@
+URL: /api/v1/workspaces/cmrqq2aly000dziuuu8oybntp/invitations/cmrsb156y000hnlhu9j41dtau
+Error: Error: Invitation is no longer pending
+    at Module.revokeInvitation (file:///C:/Users/Dell/Downloads/Projects/chatflow-pro/backend/src/services/invitations.service.js:109:52)
+    at async revoke (file:///C:/Users/Dell/Downloads/Projects/chatflow-pro/backend/src/controllers/invitations.controller.js:19:3)

@@ -4,6 +4,7 @@ import { randomUUID, randomInt, createHash } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { queueWelcomeEmail, queueSignupOtpEmail } from './email.service.js';
+import { consumeInvitationAtomically } from './invitations.service.js';
 
 function generateTokens(userId, workspaceId, role, superAdmin = false) {
   const accessToken = jwt.sign(
@@ -45,7 +46,21 @@ function isPlatformAdmin(email) {
   return email.toLowerCase() === env.ADMIN_EMAIL.toLowerCase();
 }
 
-export async function register({ name, email, password, role = 'CLIENT' }) {
+// The pre-check (`findUnique` before creating) always leaves a window for two
+// duplicate requests (double form submit, retried network request) to both
+// pass it and race on the DB's unique email constraint. Without this, the
+// loser gets a raw Prisma P2002 surfaced as a generic 500 instead of the same
+// friendly "Email already in use" the pre-check gives everyone else.
+function rethrowAsDuplicateEmail(err) {
+  if (err.code === 'P2002' && err.meta?.target?.includes?.('email')) {
+    const e = new Error('Email already in use');
+    e.status = 409;
+    throw e;
+  }
+  throw err;
+}
+
+export async function register({ name, email, password, role = 'CLIENT', inviteToken }) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) {
@@ -56,19 +71,31 @@ export async function register({ name, email, password, role = 'CLIENT' }) {
 
   const superAdmin = isPlatformAdmin(normalizedEmail);
   const passwordHash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
-  const user = await prisma.user.create({ data: { name, email: normalizedEmail, passwordHash } });
 
-  // No workspace yet: the user becomes ADMIN only when they explicitly create
-  // one (createWorkspace), or CLIENT when an admin invites them.
-  const { accessToken, refreshToken } = generateTokens(user.id, null, null, superAdmin);
+  let joined = null;
+  let user;
+  try {
+    user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({ data: { name, email: normalizedEmail, passwordHash } });
+      if (inviteToken) joined = await consumeInvitationAtomically(tx, inviteToken, normalizedEmail, created.id);
+      return created;
+    });
+  } catch (err) {
+    rethrowAsDuplicateEmail(err);
+  }
+
+  // No workspace yet unless an invite was consumed above: the user becomes
+  // ADMIN only when they explicitly create one (createWorkspace), or CLIENT
+  // when an invite joins them to an existing workspace.
+  const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
 
   queueWelcomeEmail({ email: user.email, name: user.name }).catch(() => {});
 
   return {
     accessToken, refreshToken,
-    user: { id: user.id, name: user.name, email: user.email, role: null, superAdmin },
-    workspace: null,
+    user: { id: user.id, name: user.name, email: user.email, role: joined?.role ?? null, superAdmin },
+    workspace: joined?.workspace ?? null,
   };
 }
 
@@ -161,7 +188,7 @@ export async function logout(token) {
   }
 }
 
-export async function findOrCreateGoogleUser({ googleId, email, name }) {
+export async function findOrCreateGoogleUser({ googleId, email, name, inviteToken }) {
   const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
   let user = await prisma.user.findFirst({
     where: {
@@ -172,32 +199,65 @@ export async function findOrCreateGoogleUser({ googleId, email, name }) {
     },
   });
 
+  const isNewUser = !user;
+  let joined = null;
+
   if (user) {
     if (!user.googleId) {
       user = await prisma.user.update({ where: { id: user.id }, data: { googleId } });
     }
   } else {
-    // New Google users get no workspace: they become ADMIN only by explicitly
-    // creating one (createWorkspace), or CLIENT when an admin invites them.
-    user = await prisma.user.create({ data: { name, email, googleId } });
+    // New Google users get no workspace unless an invite is consumed below:
+    // they become ADMIN only by explicitly creating one (createWorkspace),
+    // or CLIENT when an admin invites them.
+    try {
+      if (inviteToken) {
+        user = await prisma.$transaction(async (tx) => {
+          const created = await tx.user.create({ data: { name, email, googleId } });
+          joined = await consumeInvitationAtomically(tx, inviteToken, normalizedEmail, created.id);
+          return created;
+        });
+      } else {
+        user = await prisma.user.create({ data: { name, email, googleId } });
+      }
+    } catch (err) {
+      // A concurrent callback (double-click, browser retry, two OAuth popups)
+      // for the same brand-new googleId/email can race here — the loser
+      // hits a unique violation instead of a real error. Converge onto
+      // whichever row won instead of surfacing a 500.
+      if (err.code !== 'P2002') throw err;
+      user = await prisma.user.findFirst({ where: { OR: [{ googleId }, ...(normalizedEmail ? [{ email: normalizedEmail }] : [])] } });
+      if (!user) throw err;
+      joined = null;
+    }
   }
 
-  const member = await prisma.workspaceMember.findFirst({
-    where: { userId: user.id },
-    include: { workspace: true },
-    orderBy: { joinedAt: 'asc' },
-  });
+  const member = joined
+    ? null
+    : await prisma.workspaceMember.findFirst({
+        where: { userId: user.id },
+        include: { workspace: true },
+        orderBy: { joinedAt: 'asc' },
+      });
 
   const superAdmin = isPlatformAdmin(user.email);
-  const role = member?.role ?? null;
-  const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, role, superAdmin);
+  const role = joined?.role ?? member?.role ?? null;
+  const workspaceId = joined?.workspaceId ?? member?.workspaceId ?? null;
+  const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
+
+  // Existing users are never auto-joined to an invited workspace here (that
+  // still requires the explicit accept-invite step, same as the
+  // password-login path) — surface the token so the SPA can route them to
+  // /invite/accept instead of silently dropping it.
+  const pendingInviteToken = inviteToken && !isNewUser && !joined ? inviteToken : null;
 
   return {
     accessToken,
     refreshToken,
     user: { id: user.id, name: user.name, email: user.email, role, superAdmin },
-    workspace: member ? { id: member.workspaceId, name: member.workspace.name } : null,
+    workspace: joined?.workspace ?? (member ? { id: member.workspaceId, name: member.workspace.name } : null),
+    ...(pendingInviteToken ? { pendingInviteToken } : {}),
   };
 }
 
@@ -267,7 +327,7 @@ export async function resendSignupOtp({ email }) {
   return { email: normalizedEmail, message: 'Verification code re-sent' };
 }
 
-export async function verifySignup({ email, code, role = 'CLIENT' }) {
+export async function verifySignup({ email, code, role = 'CLIENT', inviteToken }) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const otp = await prisma.emailOtp.findFirst({
     where: { email: normalizedEmail, purpose: 'SIGNUP', consumed: false },
@@ -287,7 +347,18 @@ export async function verifySignup({ email, code, role = 'CLIENT' }) {
   }
 
   if (otp.codeHash !== hashCode(code)) {
-    const err = new Error('Incorrect code');
+    // Brute-force guard: lock this code out after MAX_OTP_ATTEMPTS wrong
+    // guesses instead of leaving it accepting attempts until it expires.
+    const attempts = otp.attempts + 1;
+    await prisma.emailOtp.update({
+      where: { id: otp.id },
+      data: attempts >= MAX_OTP_ATTEMPTS ? { attempts, consumed: true } : { attempts },
+    });
+    const err = new Error(
+      attempts >= MAX_OTP_ATTEMPTS
+        ? 'Too many incorrect attempts — request a new code.'
+        : 'Incorrect code'
+    );
     err.status = 400;
     throw err;
   }
@@ -304,18 +375,28 @@ export async function verifySignup({ email, code, role = 'CLIENT' }) {
   }
 
   const superAdmin = isPlatformAdmin(normalizedEmail);
-  // No workspace yet: the user becomes ADMIN only when they explicitly create
-  // one (createWorkspace), or CLIENT when an admin invites them.
-  const user = await prisma.user.create({ data: { name: otp.name, email: normalizedEmail, passwordHash: otp.passwordHash } });
-  await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed: true } });
+  // No workspace yet unless an invite is consumed below: the user becomes
+  // ADMIN only when they explicitly create one (createWorkspace), or CLIENT
+  // when an invite joins them to an existing workspace.
+  let joined = null;
+  let user;
+  try {
+    user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({ data: { name: otp.name, email: normalizedEmail, passwordHash: otp.passwordHash } });
+      if (inviteToken) joined = await consumeInvitationAtomically(tx, inviteToken, normalizedEmail, created.id);
+      return created;
+    });
+  } catch (err) {
+    rethrowAsDuplicateEmail(err);
+  }
 
-  const { accessToken, refreshToken } = generateTokens(user.id, null, null, superAdmin);
+  const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
 
   return {
     accessToken, refreshToken,
-    user: { id: user.id, name: user.name, email: user.email, role: null, superAdmin },
-    workspace: null,
+    user: { id: user.id, name: user.name, email: user.email, role: joined?.role ?? null, superAdmin },
+    workspace: joined?.workspace ?? null,
   };
 }
 
@@ -360,4 +441,47 @@ export async function createWorkspace(userId, { name } = {}) {
     user: { id: user.id, name: user.name, email: user.email, role, superAdmin },
     workspace: { id: workspace.id, name: workspace.name },
   };
+}
+
+// ─── Multi-workspace sessions ──────────────────────────────────────────────────
+// A user can belong to more than one workspace (accepted invites), but a
+// session's JWT is still scoped to exactly one at a time. These let the
+// client re-scope its session to any workspace the user is actually a
+// member of, without a full re-login.
+
+// Shared tail of createWorkspace — mint tokens scoped to a given workspace.
+// Used by both switchWorkspace and the invitations controller's accept flow.
+export async function mintSessionForWorkspace(userId, workspaceId, role) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
+
+  const superAdmin = isPlatformAdmin(user.email);
+  const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
+  await storeRefreshToken(user.id, refreshToken);
+
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, name: true } });
+
+  return {
+    accessToken, refreshToken,
+    user: { id: user.id, name: user.name, email: user.email, role, superAdmin },
+    workspace,
+  };
+}
+
+export async function switchWorkspace(userId, targetWorkspaceId) {
+  const member = await prisma.workspaceMember.findUnique({
+    where: { userId_workspaceId: { userId, workspaceId: targetWorkspaceId } },
+  });
+  if (!member) { const e = new Error('Not a member of this workspace'); e.status = 403; throw e; }
+
+  return mintSessionForWorkspace(userId, targetWorkspaceId, member.role);
+}
+
+export async function listMyWorkspaces(userId) {
+  const members = await prisma.workspaceMember.findMany({
+    where: { userId },
+    include: { workspace: { select: { id: true, name: true } } },
+    orderBy: { joinedAt: 'asc' },
+  });
+  return members.map((m) => ({ id: m.workspace.id, name: m.workspace.name, role: m.role, joinedAt: m.joinedAt }));
 }

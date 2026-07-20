@@ -128,12 +128,8 @@ async function initializeSubscriptions() {
     }
 
     console.log(`[Init] Subscription initialization done. Created ${created} subscription(s).`);
-    const fs = await import('fs');
-    fs.writeFileSync('c:/Users/Dell/Downloads/Projects/chatflow-pro/init_status.txt', `Success: created ${created} subscriptions.`);
   } catch (err) {
     console.error('[Init] Subscription initialization failed:', err);
-    const fs = await import('fs');
-    fs.writeFileSync('c:/Users/Dell/Downloads/Projects/chatflow-pro/init_status.txt', `Failed: ${err.message}`);
   }
 }
 

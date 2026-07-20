@@ -12,4 +12,11 @@ router.post('/', authenticate, validate({ body: workspaceSchemas.create }), asyn
   res.status(201).json(result);
 });
 
+// All workspaces the caller belongs to (for the workspace switcher) — global,
+// not workspace-scoped, so it must be registered before the
+// /workspaces/:workspaceId sub-router mount in routes/index.js (it already is).
+router.get('/mine', authenticate, async (req, res) => {
+  res.json(await authService.listMyWorkspaces(req.user.id));
+});
+
 export default router;

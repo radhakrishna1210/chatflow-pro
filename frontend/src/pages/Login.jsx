@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
+import { navigate } from '../App.jsx';
 
 const OAUTH_ERROR_MESSAGES = {
   denied: 'Google sign-in was cancelled.',
@@ -21,6 +22,7 @@ export default function Login({ onNav, mode = 'login' }) {
   const [focusName, setFocusName] = useState(false);
   const [focusEmail, setFocusEmail] = useState(false);
   const [focusPass, setFocusPass] = useState(false);
+  const [inviteToken] = useState(() => new URLSearchParams(window.location.search).get('invite') || null);
 
   const change = e => setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -51,8 +53,14 @@ export default function Login({ onNav, mode = 'login' }) {
         workspaceName:  data.workspace?.name ?? null,
       }));
       setStatus('success');
-      // Users without a workspace go to setup to create or join one.
-      setTimeout(() => onNav(data.workspace ? 'dashboard' : 'setup'), 700);
+      if (inviteToken) {
+        // Let the accept-invite page perform the actual accept call now
+        // that a session exists (it also handles an email mismatch).
+        setTimeout(() => navigate(`/invite/accept?token=${encodeURIComponent(inviteToken)}`, { replace: true }), 700);
+      } else {
+        // Users without a workspace go to setup to create or join one.
+        setTimeout(() => onNav(data.workspace ? 'dashboard' : 'setup'), 700);
+      }
     } catch (err) {
       setErrMsg(err.message);
       setStatus('error');
@@ -68,8 +76,14 @@ export default function Login({ onNav, mode = 'login' }) {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)' }}>
+      <style>{`
+        @media (max-width: 860px) {
+          .auth-brand-panel { display: none !important; }
+          .auth-form-panel { padding: 28px 20px !important; }
+        }
+      `}</style>
       {/* Left panel */}
-      <div style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#07090F 0%,#0a0f1e 60%,#07090F 100%)', borderRight: '1px solid var(--bd)' }}>
+      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#07090F 0%,#0a0f1e 60%,#07090F 100%)', borderRight: '1px solid var(--bd)' }}>
         <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '380px', height: '380px', background: 'radial-gradient(circle,rgba(32,201,103,0.07) 0%,transparent 65%)', pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', bottom: '-60px', right: '-40px', width: '320px', height: '320px', background: 'radial-gradient(circle,rgba(14,165,233,0.05) 0%,transparent 65%)', pointerEvents: 'none' }} />
 
@@ -122,7 +136,7 @@ export default function Login({ onNav, mode = 'login' }) {
       </div>
 
       {/* Right panel */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px' }}>
+      <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px' }}>
         <div style={{ width: '100%', maxWidth: '400px' }}>
           <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>
             {isRegister ? 'Create your account' : 'Sign in to your account'}
@@ -138,7 +152,7 @@ export default function Login({ onNav, mode = 'login' }) {
             style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '11px 16px', borderRadius: '9px', background: 'rgba(255,255,255,0.035)', border: '1px solid var(--bd)', color: 'var(--t1)', fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: '14px', fontWeight: 600, cursor: 'pointer', transition: 'background .18s, border .18s', marginBottom: '22px' }}
             onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = 'var(--bdm)'; }}
             onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.035)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}
-            onClick={() => window.location.href = '/api/v1/auth/google'}
+            onClick={() => window.location.href = inviteToken ? `/api/v1/auth/google?invite=${encodeURIComponent(inviteToken)}` : '/api/v1/auth/google'}
           >
             <svg width="18" height="18" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />

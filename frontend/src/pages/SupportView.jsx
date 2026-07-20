@@ -49,12 +49,12 @@ export default function SupportView() {
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
               <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" style={inputStyle} maxLength={200} />
-              <select value={category} onChange={e => setCategory(e.target.value)} style={inputStyle}>
-                <option value="GENERAL">General</option>
-                <option value="BILLING">Billing</option>
-                <option value="TECHNICAL">Technical</option>
-                <option value="BUG">Bug report</option>
-                <option value="FEATURE">Feature request</option>
+              <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inputStyle, colorScheme: 'dark' }}>
+                <option value="GENERAL" style={{ background: '#07090F' }}>General</option>
+                <option value="BILLING" style={{ background: '#07090F' }}>Billing</option>
+                <option value="TECHNICAL" style={{ background: '#07090F' }}>Technical</option>
+                <option value="BUG" style={{ background: '#07090F' }}>Bug report</option>
+                <option value="FEATURE" style={{ background: '#07090F' }}>Feature request</option>
               </select>
             </div>
             <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Describe your issue…" rows={5} maxLength={4000}
