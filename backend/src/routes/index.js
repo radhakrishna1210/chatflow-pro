@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import authRoutes from './auth.routes.js';
+import publicRoutes from './public.routes.js';
 import whatsappRoutes from './whatsapp.routes.js';
 import templatesRoutes from './templates.routes.js';
 import campaignsRoutes from './campaigns.routes.js';
@@ -31,6 +32,7 @@ const router = Router();
 router.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
 router.use('/auth', authRoutes);
+router.use('/public', publicRoutes);
 router.use('/webhook', webhookRoutes);
 router.use('/admin', adminRoutes);
 router.use('/integrations/oauth', oauthCallbackRouter);
