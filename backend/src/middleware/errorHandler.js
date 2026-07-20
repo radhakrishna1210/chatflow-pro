@@ -1,12 +1,5 @@
-import fs from 'fs';
-import path from 'path';
-
 export function errorHandler(err, req, res, next) {
-  console.error('[Error]', err);
-  try {
-    const logPath = path.join(process.cwd(), 'server_errors.txt');
-    fs.writeFileSync(logPath, `URL: ${req.url}\nError: ${err.stack || err.message || err}`);
-  } catch (e) {}
+  console.error('[Error]', req.method, req.url, err);
 
   if (err.name === 'ZodError') {
     return res.status(400).json({ error: 'Validation error', details: err.flatten().fieldErrors });

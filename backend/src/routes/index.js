@@ -24,6 +24,8 @@ import supportRoutes from './support.routes.js';
 import workspacesRoutes from './workspaces.routes.js';
 import subscriptionRoutes from './subscription.routes.js';
 import aiAgentRoutes from './aiAgent.routes.js';
+import invitationsRoutes, { publicInvitationsRouter } from './invitations.routes.js';
+import workspaceSwitchRoutes from './workspaceSwitch.routes.js';
 
 const router = Router();
 
@@ -34,6 +36,7 @@ router.use('/public', publicRoutes);
 router.use('/webhook', webhookRoutes);
 router.use('/admin', adminRoutes);
 router.use('/integrations/oauth', oauthCallbackRouter);
+router.use('/invitations', publicInvitationsRouter);
 
 const ws = Router({ mergeParams: true });
 ws.use('/whatsapp', whatsappRoutes);
@@ -54,6 +57,8 @@ ws.use('/subscription', subscriptionRoutes);
 ws.use('/integrations', integrationsRoutes);
 ws.use('/support', supportRoutes);
 ws.use('/ai-agent', aiAgentRoutes);
+ws.use('/invitations', invitationsRoutes);
+ws.use('/switch', workspaceSwitchRoutes);
 
 router.use('/onboarding', onboardingRoutes);
 router.use('/ai', aiRoutes);

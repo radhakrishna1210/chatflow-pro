@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import CreateCampaign from './CreateCampaign.jsx';
-import { wFetch } from '../lib/api.js';
+import { wFetch, apiFetch } from '../lib/api.js';
 import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 import ContactsView from './ContactsView.jsx';
 import InboxView from './InboxView.jsx';
@@ -60,6 +60,8 @@ const ProfileMenu = () => {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
   });
+  const [workspaces, setWorkspaces] = useState([]);
+  const [switching, setSwitching] = useState(false);
   const wrapRef = useRef(null);
 
   useEffect(() => {
@@ -71,16 +73,43 @@ const ProfileMenu = () => {
     return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onEsc); };
   }, [open]);
 
-  // Re-read user info when menu opens (in case anything changed)
+  // Re-read user info when menu opens (in case anything changed), and load
+  // the full list of workspaces this account belongs to for the switcher.
   useEffect(() => {
     if (open) {
       try { setUser(JSON.parse(localStorage.getItem('user') || '{}')); } catch {}
+      apiFetch('/api/v1/workspaces/mine').then(r => r.ok ? r.json() : []).then(d => { if (Array.isArray(d)) setWorkspaces(d); }).catch(() => {});
     }
   }, [open]);
 
   const fire = (action) => {
     setOpen(false);
     window.dispatchEvent(new CustomEvent('app:nav', { detail: action }));
+  };
+
+  const switchTo = async (targetId) => {
+    if (switching || targetId === user?.workspaceId) return;
+    setSwitching(true);
+    try {
+      const res = await apiFetch(`/api/v1/workspaces/${targetId}/switch`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) return;
+      localStorage.setItem('accessToken', data.accessToken);
+      localStorage.setItem('refreshToken', data.refreshToken);
+      localStorage.setItem('user', JSON.stringify({
+        id: data.user.id, name: data.user.name, email: data.user.email, role: data.user.role,
+        superAdmin: data.user.superAdmin === true, workspaceId: data.workspace.id, workspaceName: data.workspace.name,
+      }));
+      setOpen(false);
+      // A full reload, not an SPA navigate — the target path is the same
+      // /dashboard we're already on (a same-path navigate() is a no-op),
+      // and even a real path change wouldn't remount already-mounted
+      // sibling views that fetched their data once on mount under the old
+      // workspace scope. Every view needs to re-fetch under the new one.
+      window.location.href = '/dashboard';
+    } finally {
+      setSwitching(false);
+    }
   };
 
   const isAdmin = user?.role === 'ADMIN';
@@ -126,6 +155,31 @@ const ProfileMenu = () => {
               {wsName}
             </span>
           </div>
+
+          {/* Workspace switcher — only shown once the account belongs to more than one */}
+          {workspaces.length > 1 && (
+            <div style={{ padding:'8px 6px', borderBottom:'1px solid var(--bd)' }}>
+              <p style={{ padding:'2px 12px 6px', fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.07em' }}>My Workspaces</p>
+              {workspaces.map(w => {
+                const current = w.id === user?.workspaceId;
+                return (
+                  <button key={w.id} onClick={() => switchTo(w.id)} disabled={switching}
+                    style={{
+                      width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8,
+                      padding:'8px 12px', borderRadius:8, cursor: current ? 'default' : 'pointer',
+                      background: current ? 'rgba(30,191,94,0.06)' : 'transparent', border:'none', textAlign:'left',
+                      fontFamily:"'Plus Jakarta Sans',sans-serif", fontSize:12.5, fontWeight:600, color:'var(--t1)',
+                      transition:'background .12s', opacity: switching ? 0.6 : 1,
+                    }}
+                    onMouseEnter={e => { if (!current) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+                    onMouseLeave={e => { if (!current) e.currentTarget.style.background = 'transparent'; }}>
+                    <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{w.name}</span>
+                    {current && <I n="checkc" s={13} c="var(--green)" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Menu items */}
           <div style={{ padding:6 }}>
@@ -1068,6 +1122,12 @@ const TemplatesView = () => {
   const [newOpen, setNewOpen]     = useState(false);
   const [tab, setTab]             = useState('my');         // 'my' | 'library'
   const [hasNumber, setHasNumber] = useState(null);          // null = unknown, true/false
+  // Library installs and Meta syncs are per-number — when a workspace has
+  // more than one, resolveWaNumber() on the backend can't guess which one,
+  // so the UI must collect it (same requirement TemplateModal already has
+  // for manual template creation).
+  const [numbers, setNumbers]     = useState([]);
+  const [waNumberId, setWaNumberId] = useState('');
   const [library, setLibrary]     = useState([]);
   const [libLoading, setLibLoading] = useState(false);
   const [libFilter, setLibFilter] = useState('ALL');
@@ -1102,7 +1162,12 @@ const TemplatesView = () => {
     wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d); }).catch(()=>{});
 
   const loadHasNumber = () =>
-    wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{ setHasNumber(Array.isArray(d) && d.length > 0); }).catch(()=>setHasNumber(false));
+    wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{
+      const list = Array.isArray(d) ? d : [];
+      setNumbers(list);
+      setHasNumber(list.length > 0);
+      if (list.length === 1) setWaNumberId(list[0].id);
+    }).catch(()=>setHasNumber(false));
 
   const loadLibrary = async () => {
     setLibLoading(true);
@@ -1120,9 +1185,16 @@ const TemplatesView = () => {
       setToast({ error: 'You must purchase a WhatsApp number before getting templates from the library.' });
       return;
     }
+    if (numbers.length > 1 && !waNumberId) {
+      setToast({ error: 'Select which WhatsApp number to install this template on first.' });
+      return;
+    }
     setInstalling(item.id);
     try {
-      const res  = await wFetch(`/templates/library/${item.id}/install`, { method: 'POST' });
+      const res  = await wFetch(`/templates/library/${item.id}/install`, {
+        method: 'POST',
+        body: JSON.stringify({ ...(waNumberId ? { waNumberId } : {}) }),
+      });
       const data = await res.json();
       if (!res.ok) { setToast({ error: data.error || 'Install failed' }); return; }
       setToast({ ok: `"${item.title}" submitted to Meta — status: PENDING.` });
@@ -1135,9 +1207,16 @@ const TemplatesView = () => {
   };
 
   const syncFromMeta = async () => {
+    if (numbers.length > 1 && !waNumberId) {
+      setSyncMsg({ error: 'Select which WhatsApp number to sync templates for first.' });
+      return;
+    }
     setSyncing(true); setSyncMsg(null);
     try {
-      const res  = await wFetch('/templates/sync-from-meta', { method:'POST' });
+      const res  = await wFetch('/templates/sync-from-meta', {
+        method:'POST',
+        body: JSON.stringify({ ...(waNumberId ? { waNumberId } : {}) }),
+      });
       const data = await res.json();
       if (!res.ok) { setSyncMsg({ error: data.error || 'Sync failed' }); return; }
       setSyncMsg({ ok: true, created: data.created, updated: data.updated, total: data.total });
@@ -1215,6 +1294,20 @@ const TemplatesView = () => {
             );
           })}
         </div>
+
+        {/* WhatsApp number — templates are private per number, so a workspace
+            with more than one must pick which number Library installs and
+            Meta syncs apply to. */}
+        {numbers.length > 1 && (
+          <div style={{ marginBottom:16, display:'flex', alignItems:'center', gap:10 }}>
+            <label style={{ fontSize:12, fontWeight:700, color:'var(--t2)', whiteSpace:'nowrap' }}>WhatsApp Number</label>
+            <select value={waNumberId} onChange={e => setWaNumberId(e.target.value)}
+              style={{ maxWidth:280, padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', boxSizing:'border-box', appearance:'auto', colorScheme:'dark' }}>
+              <option value="">Select a number…</option>
+              {numbers.map(n => <option key={n.id} value={n.id}>{n.phoneNumber}{n.displayName ? ` · ${n.displayName}` : ''}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* Toast — global for both tabs */}
         {toast && (
@@ -1677,12 +1770,13 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
 
 const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), 'platform', 'campaigns-create']);
 
-function sectionFromPath(path) {
+function sectionFromPath(path, user) {
+  const defaultSection = (user?.superAdmin === true && !user?.workspaceId) ? 'platform' : 'home';
   const rest = String(path || '').replace(/^\/dashboard\/?/, '');
-  if (!rest) return 'home';
+  if (!rest) return defaultSection;
   if (rest === 'campaigns/create') return 'campaigns-create';
   const section = rest.split('/')[0];
-  return VALID_SECTIONS.has(section) ? section : 'home';
+  return VALID_SECTIONS.has(section) ? section : defaultSection;
 }
 
 function pathFromSection(section) {
@@ -1697,7 +1791,7 @@ export default function Dashboard({ onNav, routePath }) {
   const isAdmin = user?.role === 'ADMIN';
   const NAV = navForUser(user);
 
-  const page = sectionFromPath(routePath ?? window.location.pathname);
+  const page = sectionFromPath(routePath ?? window.location.pathname, user);
   const setPage = (p) => {
     if (!p) return;
     const target = pathFromSection(p);

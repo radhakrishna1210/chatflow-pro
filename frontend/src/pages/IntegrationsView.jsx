@@ -244,6 +244,16 @@ const OAUTH_PROVIDER_MAP = {
   'shopify-marketing': 'shopify',
 };
 
+// The backend stores real OAuth connections keyed by its own provider id
+// (e.g. 'google'), not this catalogue's id (e.g. 'google-sheets') — the
+// two only coincide by chance for hubspot. Route every connected-state
+// lookup and disconnect call through this so they hit the row that
+// actually exists (also means shopify-sales/shopify-marketing correctly
+// show as connected together, since one Shopify OAuth grant covers both).
+function connectionKey(intg) {
+  return OAUTH_PROVIDER_MAP[intg.id] || intg.id;
+}
+
 const CATEGORY_ICONS = {
   'Payment Provider':        'credit',
   'Connector Platform':      'zap',
@@ -480,8 +490,46 @@ function ConnectModal({ intg, onClose, onSave }) {
   );
 }
 
+// ─── Upgrade Modal (paid integration, plan doesn't include it) ────────────────
+function UpgradeModal({ intg, onClose }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <LogoBadge name={intg.name} size={36} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Upgrade to connect {intg.name}</p>
+            <p style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 2 }}>{intg.category}</p>
+          </div>
+          <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <I n="x" s={12} c="var(--t2)" />
+          </button>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.3)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <I n="sparkl" s={16} c="#fbbf24" />
+            <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.65 }}>
+              {intg.name} is a paid integration and isn't included in your current plan. Upgrade to Pro to unlock it and every other paid integration.
+            </p>
+          </div>
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--bd)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            Not now
+          </button>
+          <button onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'payments' }))}
+            style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--green)', border: '1px solid var(--gbd)', color: '#060A10', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: 'var(--glow)' }}>
+            <I n="sparkl" s={13} c="#060A10" />
+            View Plans
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Info / Detail Modal ──────────────────────────────────────────────────────
-function InfoModal({ intg, isConnected, onClose, onConnectClick }) {
+function InfoModal({ intg, isConnected, locked, onClose, onConnectClick, onUpgradeClick }) {
   const catIcon = CATEGORY_ICONS[intg.category] || 'plug';
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -533,7 +581,9 @@ function InfoModal({ intg, isConnected, onClose, onConnectClick }) {
             <I n="alertc" s={15} c="var(--t3)" />
             <p style={{ fontSize: 12, color: 'var(--t3)', lineHeight: 1.6 }}>
               {intg.pricing === 'paid'
-                ? 'This integration requires a paid plan. Contact your workspace admin to upgrade.'
+                ? locked
+                  ? 'This integration requires a paid plan. Upgrade to Pro to connect it.'
+                  : 'This integration is included in your current plan.'
                 : 'This integration is available on all plans including free.'}
             </p>
           </div>
@@ -544,7 +594,14 @@ function InfoModal({ intg, isConnected, onClose, onConnectClick }) {
           <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             Close
           </button>
-          {!isConnected && (
+          {!isConnected && locked && (
+            <button onClick={onUpgradeClick}
+              style={{ padding: '8px 20px', borderRadius: 8, background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }}>
+              <I n="sparkl" s={13} c="#fbbf24" />
+              Upgrade to Connect
+            </button>
+          )}
+          {!isConnected && !locked && (
             <button onClick={onConnectClick}
               style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--green)', border: '1px solid var(--gbd)', color: '#060A10', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: 'var(--glow)' }}>
               <I n="plug" s={13} c="#060A10" />
@@ -558,7 +615,7 @@ function InfoModal({ intg, isConnected, onClose, onConnectClick }) {
 }
 
 // ─── Integration Card ─────────────────────────────────────────────────────────
-function IntegrationCard({ intg, isConnected, onAction, onDisconnect }) {
+function IntegrationCard({ intg, isConnected, locked, onAction, onDisconnect }) {
   const catIcon = CATEGORY_ICONS[intg.category] || 'plug';
   return (
     <div style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', gap: 13, transition: 'border-color .15s', position: 'relative' }}
@@ -590,23 +647,25 @@ function IntegrationCard({ intg, isConnected, onAction, onDisconnect }) {
       <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.6, flex: 1 }}>{intg.description}</p>
 
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
-        {intg.actions.map(a => {
+        {intg.actions.filter(a => a !== 'Connect' || !isConnected).map(a => {
           const isPrimary = a === 'Connect';
+          const isLockedConnect = isPrimary && locked;
           return (
             <button key={a} onClick={() => onAction(a, intg)}
-              style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, transition: 'opacity .15s, background .15s', background: isPrimary ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: isPrimary ? '#060A10' : 'var(--t2)', border: isPrimary ? '1px solid var(--gbd)' : '1px solid var(--bd)', boxShadow: isPrimary ? 'var(--glow)' : 'none' }}
+              style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, transition: 'opacity .15s, background .15s', background: isLockedConnect ? 'rgba(245,158,11,0.12)' : isPrimary ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: isLockedConnect ? '#fbbf24' : isPrimary ? '#060A10' : 'var(--t2)', border: isLockedConnect ? '1px solid rgba(245,158,11,0.3)' : isPrimary ? '1px solid var(--gbd)' : '1px solid var(--bd)', boxShadow: isPrimary && !isLockedConnect ? 'var(--glow)' : 'none' }}
               onMouseEnter={e => e.currentTarget.style.opacity = '0.82'}
               onMouseLeave={e => e.currentTarget.style.opacity = '1'}
             >
               {a === 'Watch Video' && <I n="play" s={11} c="var(--t2)" />}
-              {isPrimary && <I n="plug" s={11} c="#060A10" />}
-              {a}
+              {isLockedConnect && <I n="sparkl" s={11} c="#fbbf24" />}
+              {isPrimary && !isLockedConnect && <I n="plug" s={11} c="#060A10" />}
+              {isLockedConnect ? 'Upgrade' : a}
             </button>
           );
         })}
         {isConnected && (
-          <button onClick={() => onDisconnect(intg.id)}
-            style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, transition: 'opacity .15s' }}
+          <button onClick={() => onDisconnect(connectionKey(intg))}
+            style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', display: 'flex', alignItems: 'center', gap: 5, transition: 'opacity .15s' }}
             onMouseEnter={e => e.currentTarget.style.opacity = '0.82'}
             onMouseLeave={e => e.currentTarget.style.opacity = '1'}
           >
@@ -626,20 +685,51 @@ export default function IntegrationsView() {
   const [search, setSearch] = useState('');
   const [connectModal, setConnectModal] = useState(null);
   const [infoModal, setInfoModal] = useState(null);
+  const [upgradeModal, setUpgradeModal] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [oauthBanner, setOauthBanner] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  // Free integrations connect on every plan; paid ones need the plan's
+  // `integrations` feature flag (PRO/ENTERPRISE) — mirrors the backend gate
+  // in integrations.controller.js so the UI never promises what the API
+  // will then 403 on.
+  const [paidUnlocked, setPaidUnlocked] = useState(true);
+  const isLocked = (intg) => intg.pricing === 'paid' && !paidUnlocked;
+
+  // Both throw on failure (network error, expired/invalid session, non-2xx
+  // response) instead of quietly falling back to an empty/default value —
+  // a silent fallback here previously rendered as "nothing is connected and
+  // everything paid is unlocked", which looks like real state instead of a
+  // failed request.
+  async function loadIntegrations() {
+    const res = await wFetch('/integrations');
+    if (!res.ok) throw new Error(`Could not load your connected integrations (${res.status}). Try signing out and back in.`);
+    const rows = await res.json();
+    const map = {};
+    (Array.isArray(rows) ? rows : []).forEach(r => { map[r.provider] = r; });
+    setConnected(map);
+  }
+
+  async function loadSubscription() {
+    const res = await wFetch('/subscription');
+    if (!res.ok) throw new Error(`Could not load your plan (${res.status}). Try signing out and back in.`);
+    const data = await res.json();
+    setPaidUnlocked(!!data?.plan?.features?.integrations);
+  }
+
+  async function loadAll() {
+    setLoadError(null);
+    try {
+      await Promise.all([loadIntegrations(), loadSubscription()]);
+    } catch (e) {
+      setLoadError(e.message || 'Could not load your integrations. Please try again.');
+    }
+  }
 
   // Load real, workspace-scoped connections from the backend on mount, and
   // surface any OAuth callback result passed back as query params.
   useEffect(() => {
-    wFetch('/integrations')
-      .then(r => r.ok ? r.json() : [])
-      .then(rows => {
-        const map = {};
-        (Array.isArray(rows) ? rows : []).forEach(r => { map[r.provider] = r; });
-        setConnected(map);
-      })
-      .catch(() => {});
+    loadAll();
 
     // Parse ?oauth_connected= / ?oauth_error=&provider= from the callback redirect.
     const q = new URLSearchParams(window.location.search);
@@ -652,9 +742,7 @@ export default function IntegrationsView() {
     if (q.get('oauth_connected') || q.get('oauth_error')) {
       // Clean the URL and reload the connection list.
       window.history.replaceState({}, '', window.location.pathname);
-      wFetch('/integrations').then(r => r.ok ? r.json() : []).then(rows => {
-        const m = {}; (Array.isArray(rows) ? rows : []).forEach(r => { m[r.provider] = r; }); setConnected(m);
-      }).catch(() => {});
+      loadIntegrations().catch(e => setLoadError(e.message));
     }
   }, []);
 
@@ -670,7 +758,8 @@ export default function IntegrationsView() {
       const q = encodeURIComponent(intg.videoQuery || `${intg.name} WhatsApp integration`);
       window.open(`https://www.youtube.com/results?search_query=${q}`, '_blank', 'noopener,noreferrer');
     } else if (action === 'Connect') {
-      setConnectModal(intg);
+      if (isLocked(intg)) setUpgradeModal(intg);
+      else setConnectModal(intg);
     } else {
       setInfoModal(intg);
     }
@@ -681,7 +770,17 @@ export default function IntegrationsView() {
     try {
       const res = await wFetch(`/integrations/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify(payload) });
       const data = await res.json();
-      if (!res.ok) { setSaveError(data.error || `Could not connect (${res.status})`); return; }
+      if (!res.ok) {
+        // The plan may have changed server-side since this page loaded — fall
+        // back to the same upgrade prompt the client-side gate would have shown.
+        if (data.code === 'PLAN_FEATURE_LOCKED') {
+          setConnectModal(null);
+          setUpgradeModal(INTEGRATIONS.find(i => i.id === id) || { id, name: id, category: '' });
+          return;
+        }
+        setSaveError(data.error || `Could not connect (${res.status})`);
+        return;
+      }
       setConnected(prev => ({ ...prev, [id]: data }));
       setConnectModal(null);
     } catch (e) {
@@ -697,7 +796,15 @@ export default function IntegrationsView() {
     try {
       const res = await wFetch(`/integrations/oauth/${encodeURIComponent(backendProvider)}/start`, { method: 'POST', body: JSON.stringify(body || {}) });
       const data = await res.json();
-      if (!res.ok || !data.url) { setSaveError(data.error || `Could not start OAuth (${res.status})`); return 'error'; }
+      if (!res.ok || !data.url) {
+        if (data.code === 'PLAN_FEATURE_LOCKED') {
+          setConnectModal(null);
+          setUpgradeModal(connectModal || { id: backendProvider, name: backendProvider, category: '' });
+          return 'error';
+        }
+        setSaveError(data.error || `Could not start OAuth (${res.status})`);
+        return 'error';
+      }
       window.location.href = data.url;
       return 'redirecting';
     } catch (e) {
@@ -717,7 +824,8 @@ export default function IntegrationsView() {
 
   function openConnectFromInfo(intg) {
     setInfoModal(null);
-    setConnectModal(intg);
+    if (isLocked(intg)) setUpgradeModal(intg);
+    else setConnectModal(intg);
   }
 
   const connectedCount = Object.keys(connected).length;
@@ -752,6 +860,14 @@ export default function IntegrationsView() {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
+        {loadError && (
+          <div style={{ padding: '11px 15px', borderRadius: 8, border: '1px solid rgba(239,68,68,.25)', background: 'rgba(239,68,68,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span style={{ fontSize: 12.5, color: '#f87171' }}>{loadError}</span>
+            <button onClick={loadAll} style={{ padding: '5px 12px', borderRadius: 7, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+              Retry
+            </button>
+          </div>
+        )}
         {oauthBanner && (
           <div style={{ padding: '11px 15px', borderRadius: 8, border: `1px solid ${oauthBanner.error ? 'rgba(239,68,68,.25)' : 'var(--gbd)'}`, background: oauthBanner.error ? 'rgba(239,68,68,.06)' : 'var(--gbg)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 12.5, color: oauthBanner.error ? '#f87171' : 'var(--green)' }}>{oauthBanner.error || oauthBanner.ok}</span>
@@ -810,7 +926,8 @@ export default function IntegrationsView() {
               <IntegrationCard
                 key={intg.id}
                 intg={intg}
-                isConnected={!!connected[intg.id]}
+                isConnected={!!connected[connectionKey(intg)]}
+                locked={isLocked(intg)}
                 onAction={handleAction}
                 onDisconnect={handleDisconnect}
               />
@@ -830,9 +947,17 @@ export default function IntegrationsView() {
       {infoModal && (
         <InfoModal
           intg={infoModal}
-          isConnected={!!connected[infoModal.id]}
+          isConnected={!!connected[connectionKey(infoModal)]}
+          locked={isLocked(infoModal)}
           onClose={() => setInfoModal(null)}
           onConnectClick={() => openConnectFromInfo(infoModal)}
+          onUpgradeClick={() => openConnectFromInfo(infoModal)}
+        />
+      )}
+      {upgradeModal && (
+        <UpgradeModal
+          intg={upgradeModal}
+          onClose={() => setUpgradeModal(null)}
         />
       )}
     </div>

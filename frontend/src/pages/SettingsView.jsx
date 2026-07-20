@@ -73,13 +73,20 @@ export default function SettingsView() {
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [prefsSaved, setPrefsSaved]   = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole]   = useState('CLIENT');
   const [showInvite, setShowInvite]   = useState(false);
+  const [inviteError, setInviteError] = useState(null);
+  const [sendingInvite, setSendingInvite] = useState(false);
+  const [invitations, setInvitations] = useState([]);
+  const [resendingId, setResendingId] = useState(null);
+  const [resentId, setResentId] = useState(null);
   const [memberRoles, setMemberRoles] = useState({});
   const [usagePerc, setUsagePerc] = useState(0);
 
   useEffect(() => {
     wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{ if(d) { setSettings(d); if(d.webhookUrl) setWebhookUrl(d.webhookUrl); if(d.notifyNewConversation!=null) setNotifs({newConv:d.notifyNewConversation,tplApproved:d.notifyTemplateApproved,tplRejected:d.notifyTemplateRejected,campaignDone:d.notifyCampaignCompleted,highOptout:d.notifyHighOptout,rateLimitWarn:d.notifyRateLimit}); setEmailNotifs(Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id, d[o.id]!=null ? d[o.id] : o.default]))); }}).catch(()=>{});
     wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
+    wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(()=>{});
     wFetch('/settings/invoices').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvoices(d); }).catch(()=>{});
     wFetch('/analytics/chat?days=7').then(r=>r.ok&&r.json()).then(d=>{
       if (d && Array.isArray(d.dailyVolume)) {
@@ -107,8 +114,56 @@ export default function SettingsView() {
     } catch {} finally { setSavingPrefs(false); }
   };
 
-  const delMember = id => setMembers(p=>p.filter(m=>m.userId!==id));
-  const setRole = (id, role) => setMemberRoles(p=>({...p,[id]:role}));
+  const delMember = async id => {
+    const prev = members;
+    setMembers(p=>p.filter(m=>m.userId!==id));
+    const r = await wFetch(`/members/${id}`, { method:'DELETE' }).catch(()=>null);
+    if (!r || !r.ok) setMembers(prev); // roll back on failure
+  };
+
+  const setRole = async (id, role) => {
+    const prev = memberRoles[id];
+    setMemberRoles(p=>({...p,[id]:role}));
+    const r = await wFetch(`/members/${id}`, { method:'PATCH', body:JSON.stringify({ role }) }).catch(()=>null);
+    if (!r || !r.ok) setMemberRoles(p=>({...p,[id]:prev})); // roll back on failure
+  };
+
+  const sendInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    setInviteError(null); setSendingInvite(true);
+    try {
+      const r = await wFetch('/invitations', { method:'POST', body:JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }) });
+      const data = await r.json();
+      if (!r.ok) { setInviteError(data.error || 'Could not send invite'); return; }
+      setInvitations(p => [data, ...p]);
+      setInviteEmail(''); setInviteRole('CLIENT'); setShowInvite(false);
+    } catch (e) {
+      setInviteError(e.message);
+    } finally {
+      setSendingInvite(false);
+    }
+  };
+
+  const revokeInvite = async id => {
+    const prev = invitations;
+    setInvitations(p=>p.filter(i=>i.id!==id));
+    const r = await wFetch(`/invitations/${id}`, { method:'DELETE' }).catch(()=>null);
+    if (!r || !r.ok) setInvitations(prev); // roll back on failure
+  };
+
+  const resendInvite = async id => {
+    setResendingId(id);
+    try {
+      const r = await wFetch(`/invitations/${id}/resend`, { method:'POST' });
+      const data = await r.json();
+      if (!r.ok) return;
+      setInvitations(p => p.map(i => i.id === id ? data : i));
+      setResentId(id);
+      setTimeout(() => setResentId(prev => prev === id ? null : prev), 2500);
+    } catch {} finally {
+      setResendingId(null);
+    }
+  };
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
@@ -167,9 +222,40 @@ export default function SettingsView() {
             </Btn>
           </div>
           {showInvite && (
-            <div style={{ display:'flex', gap:8, marginBottom:14, padding:14, borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
-              <FInput value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="colleague@company.com" style={{ flex:1 }} />
-              <Btn size="sm">Send Invite</Btn>
+            <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:14, padding:14, borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
+              <div style={{ display:'flex', gap:8 }}>
+                <FInput value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="colleague@company.com" style={{ flex:1 }} />
+                <select value={inviteRole} onChange={e=>setInviteRole(e.target.value)}
+                  style={{ padding:'9px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none' }}>
+                  <option value="CLIENT">Member</option>
+                  <option value="ADMIN">Admin</option>
+                </select>
+                <Btn size="sm" onClick={sendInvite} disabled={sendingInvite}>{sendingInvite ? 'Sending…' : 'Send Invite'}</Btn>
+              </div>
+              {inviteError && <p style={{ fontSize:12, color:'#f87171' }}>{inviteError}</p>}
+            </div>
+          )}
+          {invitations.length > 0 && (
+            <div style={{ marginBottom:14, borderRadius:10, border:'1px solid var(--bd)', overflow:'hidden' }}>
+              <div style={{ padding:'8px 12px', background:'rgba(255,255,255,0.02)', borderBottom:'1px solid var(--bd)' }}>
+                <span style={{ fontSize:11, fontWeight:700, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.07em' }}>Pending Invitations</span>
+              </div>
+              {invitations.map((inv,i) => (
+                <div key={inv.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'9px 12px', borderBottom: i < invitations.length-1 ? '1px solid var(--bd)' : 'none' }}>
+                  <div style={{ minWidth:0, flex:1 }}>
+                    <span style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)' }}>{inv.email}</span>
+                    <span style={{ fontSize:11, color:'var(--t3)', marginLeft:8 }}>{inv.role === 'ADMIN' ? 'Admin' : 'Member'} · expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
+                  </div>
+                  <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                    <button onClick={()=>resendInvite(inv.id)} disabled={resendingId===inv.id} style={{ padding:'4px 10px', borderRadius:6, background: resentId===inv.id ? 'var(--gbg)' : 'rgba(255,255,255,0.04)', border: `1px solid ${resentId===inv.id ? 'var(--gbd)' : 'var(--bd)'}`, cursor: resendingId===inv.id ? 'not-allowed' : 'pointer', fontSize:11.5, fontWeight:600, color: resentId===inv.id ? 'var(--green)' : 'var(--t2)', opacity: resendingId===inv.id ? 0.6 : 1 }}>
+                      {resendingId===inv.id ? 'Sending…' : resentId===inv.id ? 'Sent ✓' : 'Resend'}
+                    </button>
+                    <button onClick={()=>revokeInvite(inv.id)} style={{ padding:'4px 10px', borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.18)', cursor:'pointer', fontSize:11.5, fontWeight:600, color:'#f87171' }}>
+                      Revoke
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
           {members.length === 0 ? (

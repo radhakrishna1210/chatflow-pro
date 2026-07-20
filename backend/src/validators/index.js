@@ -26,6 +26,7 @@ export const authSchemas = {
     email: z.string().trim().email('Valid email required').max(254),
     password: z.string().min(8, 'Password must be at least 8 characters').max(128),
     role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+    inviteToken: z.string().trim().min(1).optional(),
   }),
   signupStart: z.object({
     name: z.string().trim().min(1, 'Name is required').max(100),
@@ -36,6 +37,7 @@ export const authSchemas = {
     email: z.string().trim().email('Valid email required'),
     code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code'),
     role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+    inviteToken: z.string().trim().min(1).optional(),
   }),
   signupResend: z.object({ email: z.string().trim().email('Valid email required') }),
   login: z.object({
@@ -133,4 +135,11 @@ export const memberSchemas = {
     role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
   }),
   updateRole: z.object({ role: z.enum(['ADMIN', 'CLIENT']) }),
+};
+
+export const invitationSchemas = {
+  create: z.object({
+    email: z.string().trim().email(),
+    role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+  }),
 };

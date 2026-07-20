@@ -35,13 +35,15 @@ passport.use(
       clientID: env.GOOGLE_CLIENT_ID,
       clientSecret: env.GOOGLE_CLIENT_SECRET,
       callbackURL: env.GOOGLE_CALLBACK_URL,
+      passReqToCallback: true, // needed to read req.inviteToken (set by the /google/callback route after verifying state)
     },
-    async (accessToken, refreshToken, profile, done) => {
+    async (req, accessToken, refreshToken, profile, done) => {
       try {
         const result = await findOrCreateGoogleUser({
           googleId: profile.id,
           email: profile.emails?.[0]?.value,
           name: profile.displayName,
+          inviteToken: req.inviteToken || null,
         });
         done(null, result);
       } catch (err) {

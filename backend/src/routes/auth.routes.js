@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import passport from 'passport';
-import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { randomBytes } from 'crypto';
 import * as authController from '../controllers/auth.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
@@ -8,6 +8,7 @@ import { rateLimit } from '../middleware/rateLimit.js';
 import { validate, authSchemas } from '../validators/index.js';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
+import { signState, verifyState } from '../lib/oauthState.js';
 
 const router = Router();
 
@@ -29,38 +30,25 @@ router.post('/exchange', refreshLimiter, authController.exchangeOneTimeCode);
 
 // ─── Google OAuth ────────────────────────────────────────────────────────────
 // A signed `state` value binds the callback to the browser that initiated the
-// flow (CSRF protection) without requiring server-side sessions.
-function signState(payload) {
-  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = createHmac('sha256', env.JWT_ACCESS_SECRET).update(data).digest('base64url');
-  return `${data}.${sig}`;
-}
-
-function verifyState(state, maxAgeMs = 10 * 60_000) {
-  try {
-    const [data, sig] = String(state || '').split('.');
-    if (!data || !sig) return null;
-    const expected = createHmac('sha256', env.JWT_ACCESS_SECRET).update(data).digest('base64url');
-    const a = Buffer.from(sig), b = Buffer.from(expected);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-    const payload = JSON.parse(Buffer.from(data, 'base64url').toString());
-    if (!payload.ts || Date.now() - payload.ts > maxAgeMs) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
+// flow (CSRF protection) without requiring server-side sessions. It also
+// carries an in-flight invite token (see ?invite= below) through the round
+// trip to Google and back, so "Continue with Google" from an invite link
+// doesn't silently drop the invite.
 router.get('/google', (req, res, next) => {
-  const state = signState({ n: randomBytes(8).toString('hex'), ts: Date.now() });
+  const inviteToken = typeof req.query.invite === 'string' ? req.query.invite : null;
+  const state = signState({ n: randomBytes(8).toString('hex'), ts: Date.now(), inviteToken });
   passport.authenticate('google', { scope: ['profile', 'email'], prompt: 'select_account', state, session: false })(req, res, next);
 });
 
 router.get('/google/callback', (req, res, next) => {
-  if (!verifyState(req.query.state)) {
+  const statePayload = verifyState(req.query.state);
+  if (!statePayload) {
     console.warn('[Google OAuth] Rejected callback with missing/invalid state (possible CSRF)');
     return res.redirect(`${env.CLIENT_URL}/login?oauth_error=invalid_state`);
   }
+  // Read by the passport strategy (passReqToCallback: true) so a pending
+  // invite survives the round trip to Google and back.
+  req.inviteToken = statePayload.inviteToken || null;
   passport.authenticate('google', { session: false }, (err, user) => {
     if (err) {
       const reason = err.code || err.message || 'oauth_error';

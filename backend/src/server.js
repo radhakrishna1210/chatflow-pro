@@ -128,16 +128,8 @@ async function initializeSubscriptions() {
     }
 
     console.log(`[Init] Subscription initialization done. Created ${created} subscription(s).`);
-    const fs = await import('fs');
-    const path = await import('path');
-    const logPath = path.join(process.cwd(), 'init_status.txt');
-    fs.writeFileSync(logPath, `Success: created ${created} subscriptions.`);
   } catch (err) {
     console.error('[Init] Subscription initialization failed:', err);
-    const fs = await import('fs');
-    const path = await import('path');
-    const logPath = path.join(process.cwd(), 'init_status.txt');
-    fs.writeFileSync(logPath, `Failed: ${err.message}`);
   }
 }
 

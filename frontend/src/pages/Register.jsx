@@ -16,9 +16,38 @@ export default function Register({ onNav }) {
   const [showPass, setShowPass] = useState(false);
   const [focus, setFocus] = useState('');
   const [resendIn, setResendIn] = useState(0);
+  const [inviteToken] = useState(() => new URLSearchParams(window.location.search).get('invite') || null);
+  const [inviteInfo, setInviteInfo] = useState(null);
+  const [inviteWarning, setInviteWarning] = useState('');
 
   const timerRef = useRef(null);
   useEffect(() => () => clearInterval(timerRef.current), []);
+
+  const INVITE_STATUS_MESSAGES = {
+    EXPIRED: 'This invite link has expired — you can still create an account, but you\'ll need a new invite to join that workspace.',
+    ACCEPTED: 'This invite has already been used — you can still create an account, but you\'ll need a new invite to join that workspace.',
+    REVOKED: 'This invite has been revoked — you can still create an account, but you\'ll need a new invite to join that workspace.',
+  };
+
+  // Signing up via an invite link: prefill + lock the email to the invited
+  // address so the account created here actually matches the invite. If the
+  // link is no longer valid, say so up front instead of silently falling
+  // back to a plain signup with no explanation for why no workspace shows up.
+  useEffect(() => {
+    if (!inviteToken) return;
+    fetch(`/api/v1/invitations/${encodeURIComponent(inviteToken)}`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) { setInviteWarning('This invite link could not be found — you can still create an account.'); return; }
+        if (data.status === 'PENDING') {
+          setInviteInfo(data);
+          setForm((f) => ({ ...f, email: data.email }));
+        } else {
+          setInviteWarning(INVITE_STATUS_MESSAGES[data.status] || 'This invite link is no longer valid.');
+        }
+      })
+      .catch(() => { setInviteWarning('Could not verify this invite link — you can still create an account.'); });
+  }, [inviteToken]);
 
   const startResendTimer = () => {
     setResendIn(60);
@@ -58,7 +87,8 @@ export default function Register({ onNav }) {
     setStatus('loading'); setErrMsg('');
     try {
       const res = await fetch('/api/v1/auth/register/verify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: form.email, code }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, code, ...(inviteToken ? { inviteToken } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Verification failed');
@@ -90,8 +120,14 @@ export default function Register({ onNav }) {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)' }}>
+      <style>{`
+        @media (max-width: 860px) {
+          .auth-brand-panel { display: none !important; }
+          .auth-form-panel { padding: 28px 20px !important; }
+        }
+      `}</style>
       {/* Left brand panel */}
-      <div style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#07090F 0%,#0a0f1e 60%,#07090F 100%)', borderRight: '1px solid var(--bd)' }}>
+      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#07090F 0%,#0a0f1e 60%,#07090F 100%)', borderRight: '1px solid var(--bd)' }}>
         <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '380px', height: '380px', background: 'radial-gradient(circle,rgba(32,201,103,0.07) 0%,transparent 65%)', pointerEvents: 'none' }} />
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', position: 'relative', zIndex: 1 }}>
           <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -116,7 +152,7 @@ export default function Register({ onNav }) {
       </div>
 
       {/* Right form panel */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
+      <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
         <div style={{ width: '100%', maxWidth: '380px' }}>
           {step === 'details' ? (
             <>
@@ -126,6 +162,16 @@ export default function Register({ onNav }) {
                 <span onClick={() => onNav('login')} style={{ color: 'var(--green)', fontWeight: 600, cursor: 'pointer' }}>Sign in</span>
               </p>
 
+              {inviteInfo && (
+                <div style={{ padding: '10px 13px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 13, marginBottom: 16 }}>
+                  You're joining <strong>{inviteInfo.workspaceName}</strong> as {inviteInfo.role === 'ADMIN' ? 'an Admin' : 'a Member'}.
+                </div>
+              )}
+              {inviteWarning && (
+                <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.25)', color: '#fbbf24', fontSize: 13, marginBottom: 16 }}>
+                  {inviteWarning}
+                </div>
+              )}
               {errMsg && <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 13, marginBottom: 16 }}>{errMsg}</div>}
 
               <form onSubmit={submitDetails} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -135,7 +181,7 @@ export default function Register({ onNav }) {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--t1)', marginBottom: '7px' }}>Email address</label>
-                  <input type="email" name="email" placeholder="you@company.com" value={form.email} onChange={change} style={inp('email')} onFocus={() => setFocus('email')} onBlur={() => setFocus('')} required />
+                  <input type="email" name="email" placeholder="you@company.com" value={form.email} onChange={change} style={{ ...inp('email'), ...(inviteInfo ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }} onFocus={() => setFocus('email')} onBlur={() => setFocus('')} readOnly={!!inviteInfo} required />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--t1)', marginBottom: '7px' }}>Password</label>

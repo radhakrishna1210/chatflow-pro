@@ -19,6 +19,7 @@ model User {
   messages         Message[]
   refreshTokens    RefreshToken[]
   workspaceMembers WorkspaceMember[]
+  sentInvitations  Invitation[]
 }
 
 model Workspace {
@@ -73,6 +74,7 @@ model Workspace {
   supportTickets               SupportTicket[]
   subscription                 Subscription?
   usageCounters                UsageCounter[]
+  invitations                  Invitation[]
 }
 
 model WorkspaceMember {
@@ -84,6 +86,32 @@ model WorkspaceMember {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@id([userId, workspaceId])
+}
+
+model Invitation {
+  id              String           @id @default(cuid())
+  workspaceId     String
+  email           String
+  role            Role             @default(CLIENT)
+  tokenHash       String           @unique
+  status          InvitationStatus @default(PENDING)
+  invitedByUserId String
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime         @default(now())
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy       User             @relation(fields: [invitedByUserId], references: [id])
+
+  @@index([workspaceId, email])
+  @@index([workspaceId, status])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
 }
 
 model WaNumber {
