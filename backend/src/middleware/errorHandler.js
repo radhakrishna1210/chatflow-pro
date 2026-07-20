@@ -1,9 +1,11 @@
 import fs from 'fs';
+import path from 'path';
 
 export function errorHandler(err, req, res, next) {
   console.error('[Error]', err);
   try {
-    fs.writeFileSync('c:/Users/Dell/Downloads/Projects/chatflow-pro/server_errors.txt', `URL: ${req.url}\nError: ${err.stack || err.message || err}`);
+    const logPath = path.join(process.cwd(), 'server_errors.txt');
+    fs.writeFileSync(logPath, `URL: ${req.url}\nError: ${err.stack || err.message || err}`);
   } catch (e) {}
 
   if (err.name === 'ZodError') {

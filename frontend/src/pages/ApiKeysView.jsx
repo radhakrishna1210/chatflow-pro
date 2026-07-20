@@ -27,23 +27,18 @@ const CopyBtn = ({ text }) => {
   );
 };
 
-const SecretInput = ({ value, id, showKeys, onToggle }) => {
-  const show = showKeys[id];
-  const display = show ? value : `${value.slice(0,12)}••••••••`;
+const SecretInput = ({ prefix }) => {
+  const display = `${prefix}${'•'.repeat(24)}`;
   return (
     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
       <span style={{ fontSize:13, fontFamily:'monospace', color:'var(--t1)', background:'rgba(255,255,255,0.04)', padding:'5px 10px', borderRadius:6, border:'1px solid var(--bd)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{display}</span>
-      <button onClick={() => onToggle(id)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)' }}>
-        <I n={show ? 'eyeoff' : 'eye'} s={12} c="var(--t2)" />
-      </button>
-      <CopyBtn text={value} />
     </div>
   );
 };
 
 export default function ApiKeysView() {
   const [keys, setKeys]         = useState([]);
-  const [showKeys, setShowKeys] = useState({});
+  const [newKey, setNewKey]     = useState(null);
   const [newName, setNewName]   = useState('');
   const [webhookUrl, setWebhookUrl] = useState('');
   const [events, setEvents]     = useState(() => Object.fromEntries(EVENTS.map(e=>[e.id,e.default])));
@@ -57,14 +52,12 @@ export default function ApiKeysView() {
     wFetch('/api-keys').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setKeys(d)}).catch(()=>{});
   }, []);
 
-  const toggleShow = id => setShowKeys(p=>({...p,[id]:!p[id]}));
-
   const generate = async () => {
     const res = await wFetch('/api-keys', { method:'POST', body:JSON.stringify({ name:newName||'New Key', environment:'live' }) }).catch(()=>null);
     if (res?.ok) {
       const k = await res.json();
       setKeys(p=>[...p,k]);
-      if (k.rawKey) setShowKeys(s=>({...s,[k.id]:true}));
+      if (k.rawKey) setNewKey(k);
     }
     setNewName('');
   };
@@ -132,7 +125,7 @@ export default function ApiKeysView() {
                     </button>
                   </div>
                 </div>
-                <SecretInput value={k.rawKey || `${k.keyPrefix}${'x'.repeat(24)}`} id={k.id} showKeys={showKeys} onToggle={toggleShow} />
+                <SecretInput prefix={k.keyPrefix} />
                 {k.lastUsedAt && <p style={{ fontSize:11, color:'var(--t3)', marginTop:5 }}>Last used: {k.lastUsedAt}</p>}
               </div>
             );
@@ -214,6 +207,28 @@ export default function ApiKeysView() {
           </Btn>
         </div>
       </div>
+
+      {newKey && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100, backdropFilter:'blur(4px)' }}>
+          <div style={{ background:'var(--surf)', padding:28, borderRadius:16, border:'1px solid var(--bd)', width:'100%', maxWidth:460, boxShadow:'0 24px 48px rgba(0,0,0,0.3)' }}>
+            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)', marginBottom:12 }}>Save your API key</h2>
+            <p style={{ fontSize:13, color:'var(--t2)', marginBottom:20, lineHeight:1.5 }}>
+              Please copy this API key now. For your security, <strong style={{ color:'#f87171' }}>it won't be shown again</strong>.
+            </p>
+            
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:24 }}>
+              <span style={{ fontSize:13, fontFamily:'monospace', color:'var(--t1)', background:'rgba(255,255,255,0.04)', padding:'9px 12px', borderRadius:6, border:'1px solid var(--bd)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                {newKey.rawKey}
+              </span>
+              <CopyBtn text={newKey.rawKey} />
+            </div>
+
+            <div style={{ display:'flex', justifyContent:'flex-end' }}>
+              <Btn onClick={() => setNewKey(null)}>Done</Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,12 @@
+URL: /api/v1/auth/refresh
+Error: PrismaClientUnknownRequestError: 
+Invalid `prisma.refreshToken.findUnique()` invocation:
+
+
+Error in connector: Error querying the database: FATAL: (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15
+    at $n.handleRequestError (C:\Users\54642\Downloads\chatflow-pro\backend\node_modules\@prisma\client\runtime\library.js:121:7505)
+    at $n.handleAndLogRequestError (C:\Users\54642\Downloads\chatflow-pro\backend\node_modules\@prisma\client\runtime\library.js:121:6623)
+    at $n.request (C:\Users\54642\Downloads\chatflow-pro\backend\node_modules\@prisma\client\runtime\library.js:121:6307)
+    at async l (C:\Users\54642\Downloads\chatflow-pro\backend\node_modules\@prisma\client\runtime\library.js:130:9633)
+    at async Module.refresh (file:///C:/Users/54642/Downloads/chatflow-pro/backend/src/services/auth.service.js:122:18)
+    at async refresh (file:///C:/Users/54642/Downloads/chatflow-pro/backend/src/controllers/auth.controller.js:33:18)
