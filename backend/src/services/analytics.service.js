@@ -224,8 +224,6 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
     `,
   ]);
 
-  console.log('Raw SQL aggregation result (before mapping):', JSON.stringify(dailyRows, null, 2));
-
   const statusCount = (status) =>
     conversationStatuses.find((row) => row.status === status)?._count._all ?? 0;
 

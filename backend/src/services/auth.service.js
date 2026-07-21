@@ -477,6 +477,34 @@ export async function switchWorkspace(userId, targetWorkspaceId) {
   return mintSessionForWorkspace(userId, targetWorkspaceId, member.role);
 }
 
+// Platform-admin impersonation: mint a session for the target user's default
+// (earliest-joined) workspace, exactly as if they'd logged in themselves.
+// Impersonating the platform admin account is blocked — no legitimate use,
+// and it would silently hand out a super-admin session from a user-id lookup.
+export async function impersonateUser(targetUserId) {
+  const user = await prisma.user.findUnique({ where: { id: targetUserId } });
+  if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
+  if (isPlatformAdmin(user.email)) { const e = new Error('Cannot impersonate the platform admin'); e.status = 400; throw e; }
+
+  const member = await prisma.workspaceMember.findFirst({
+    where: { userId: targetUserId },
+    orderBy: { joinedAt: 'asc' },
+  });
+
+  const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, member?.role ?? null, false);
+  await storeRefreshToken(user.id, refreshToken);
+
+  const workspace = member
+    ? await prisma.workspace.findUnique({ where: { id: member.workspaceId }, select: { id: true, name: true } })
+    : null;
+
+  return {
+    accessToken, refreshToken,
+    user: { id: user.id, name: user.name, email: user.email, role: member?.role ?? null, superAdmin: false },
+    workspace,
+  };
+}
+
 export async function listMyWorkspaces(userId) {
   const members = await prisma.workspaceMember.findMany({
     where: { userId },

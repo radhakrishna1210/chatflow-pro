@@ -32,6 +32,7 @@ const SUB_TABS = [
 ];
 
 export default function PaymentsView() {
+  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
   const [activeSubTab, setActiveSubTab] = useState('wallet');
   
   // Wallet state — server-authoritative. Balance and transactions come from the
@@ -278,37 +279,44 @@ export default function PaymentsView() {
       </div>
 
       {/* Quick Recharge Box */}
-      <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Recharge Wallet</h3>
-        
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
-            <span style={{ position: 'absolute', left: 14, top: 11, fontSize: 14, fontWeight: 600, color: 'var(--t2)' }}>₹</span>
-            <input type="number" value={rechargeAmt} onChange={e => setRechargeAmt(e.target.value)}
-              style={{ width: '100%', padding: '10px 14px 10px 28px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-          </div>
-          
-          <Btn onClick={handleRecharge} disabled={rechargeStatus === 'processing'} style={{ padding: '11px 24px', boxShadow: 'var(--glow)' }}>
-            {rechargeStatus === 'processing' ? 'Processing...' : rechargeStatus === 'success' ? 'Recharge Successful!' : 'Recharge Now'}
-          </Btn>
-        </div>
+      {isAdmin ? (
+        <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Recharge Wallet</h3>
 
-        {/* Quick Select Buttons */}
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[1000, 2000, 5000].map(val => (
-            <button key={val} onClick={() => setRechargeAmt(val.toString())}
-              style={{ padding: '8px 16px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--t1)'; e.currentTarget.style.borderColor = 'var(--t3)'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--t2)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
-              + ₹{val.toLocaleString()}
-            </button>
-          ))}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
+              <span style={{ position: 'absolute', left: 14, top: 11, fontSize: 14, fontWeight: 600, color: 'var(--t2)' }}>₹</span>
+              <input type="number" value={rechargeAmt} onChange={e => setRechargeAmt(e.target.value)}
+                style={{ width: '100%', padding: '10px 14px 10px 28px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+
+            <Btn onClick={handleRecharge} disabled={rechargeStatus === 'processing'} style={{ padding: '11px 24px', boxShadow: 'var(--glow)' }}>
+              {rechargeStatus === 'processing' ? 'Processing...' : rechargeStatus === 'success' ? 'Recharge Successful!' : 'Recharge Now'}
+            </Btn>
+          </div>
+
+          {/* Quick Select Buttons */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[1000, 2000, 5000].map(val => (
+              <button key={val} onClick={() => setRechargeAmt(val.toString())}
+                style={{ padding: '8px 16px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--t1)'; e.currentTarget.style.borderColor = 'var(--t3)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--t2)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
+                + ₹{val.toLocaleString()}
+              </button>
+            ))}
+          </div>
+          {rechargeError && <p style={{ fontSize: 12, color: '#f87171', marginTop: 4 }}>{rechargeError}</p>}
+          <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
+            Demo mode: recharges credit your wallet through the server ledger without a live payment gateway. Connect a payment provider to enable real charges.
+          </p>
         </div>
-        {rechargeError && <p style={{ fontSize: 12, color: '#f87171', marginTop: 4 }}>{rechargeError}</p>}
-        <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
-          Demo mode: recharges credit your wallet through the server ledger without a live payment gateway. Connect a payment provider to enable real charges.
-        </p>
-      </div>
+      ) : (
+        <div style={{ ...card, padding: '16px 20px', display: 'flex', gap: 10, alignItems: 'center' }}>
+          <I n="alertt" s={16} c="var(--t3)" />
+          <p style={{ fontSize: 12.5, color: 'var(--t2)' }}>Recharging the wallet requires a workspace admin.</p>
+        </div>
+      )}
     </div>
   );
 
@@ -402,35 +410,35 @@ export default function PaymentsView() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Legal Business Name</label>
-          <input value={bizName} onChange={e => setBizName(e.target.value)} placeholder="e.g. Acme Corp"
-            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none' }} />
+          <input value={bizName} onChange={e => setBizName(e.target.value)} placeholder="e.g. Acme Corp" disabled={!isAdmin}
+            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Business Email</label>
-          <input value={bizEmail} onChange={e => setBizEmail(e.target.value)} placeholder="e.g. billing@acme.com"
-            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none' }} />
+          <input value={bizEmail} onChange={e => setBizEmail(e.target.value)} placeholder="e.g. billing@acme.com" disabled={!isAdmin}
+            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Business Address</label>
-        <textarea value={bizAddress} onChange={e => setBizAddress(e.target.value)} placeholder="Full business address..." rows={3}
-          style={{ width: '100%', padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', resize: 'vertical' }} />
+        <textarea value={bizAddress} onChange={e => setBizAddress(e.target.value)} placeholder="Full business address..." rows={3} disabled={!isAdmin}
+          style={{ width: '100%', padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', resize: 'vertical', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>GST / Tax Details</label>
-          <input value={gstNum} onChange={e => setGstNum(e.target.value)} placeholder="e.g. 29AAAAA0000A1Z5"
-            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none' }} />
+          <input value={gstNum} onChange={e => setGstNum(e.target.value)} placeholder="e.g. 29AAAAA0000A1Z5" disabled={!isAdmin}
+            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--bd)', paddingTop: 16 }}>
+      {isAdmin && <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--bd)', paddingTop: 16 }}>
         <Btn onClick={handleSaveBilling} style={{ boxShadow: 'var(--glow)' }}>
           {saveStatus === 'success' ? 'Details Saved!' : 'Save Details'}
         </Btn>
-      </div>
+      </div>}
     </div>
   );
 
@@ -536,14 +544,22 @@ export default function PaymentsView() {
                     <li>{plan.memberLimit == null ? 'Unlimited' : plan.memberLimit} team members</li>
                     <li>{plan.apiKeyLimit == null ? 'Unlimited' : plan.apiKeyLimit} API keys</li>
                   </ul>
-                  <Btn
-                    variant={isCurrent ? 'outline' : 'primary'}
-                    disabled={isCurrent || isPending || busy || (isFree && !isCurrent)}
-                    onClick={() => handleBuyPlan(plan)}
-                    style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}
-                  >
-                    {isCurrent ? 'Current Plan' : isPending ? 'Scheduled' : busy ? 'Processing…' : isFree ? 'Contact support to downgrade' : 'Buy Now'}
-                  </Btn>
+                  {isAdmin ? (
+                    <Btn
+                      variant={isCurrent ? 'outline' : 'primary'}
+                      disabled={isCurrent || isPending || busy || (isFree && !isCurrent)}
+                      onClick={() => handleBuyPlan(plan)}
+                      style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}
+                    >
+                      {isCurrent ? 'Current Plan' : isPending ? 'Scheduled' : busy ? 'Processing…' : isFree ? 'Contact support to downgrade' : 'Buy Now'}
+                    </Btn>
+                  ) : isCurrent ? (
+                    <div style={{ width: '100%', textAlign: 'center', marginTop: 4, padding: '9px 0', borderRadius: 8, border: '1px solid var(--gbd)', background: 'var(--gbg)', color: 'var(--green)', fontSize: 13, fontWeight: 600 }}>
+                      Current Plan
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: 11, color: 'var(--t3)', textAlign: 'center', marginTop: 4 }}>Ask a workspace admin to change plans</p>
+                  )}
                 </div>
               );
             })}
@@ -574,9 +590,15 @@ export default function PaymentsView() {
                     </div>
                     <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.desc}</p>
                   </div>
-                  <Btn variant={hasAddon ? 'outline' : 'primary'} onClick={() => toggleAddon(addon.id)} style={{ width: '100%', borderColor: hasAddon ? '#f8717144' : 'var(--bd)', color: hasAddon ? '#f87171' : '#07090F' }}>
-                    {hasAddon ? 'Remove Add-on' : 'Add to Plan'}
-                  </Btn>
+                  {isAdmin ? (
+                    <Btn variant={hasAddon ? 'outline' : 'primary'} onClick={() => toggleAddon(addon.id)} style={{ width: '100%', borderColor: hasAddon ? '#f8717144' : 'var(--bd)', color: hasAddon ? '#f87171' : '#07090F' }}>
+                      {hasAddon ? 'Remove Add-on' : 'Add to Plan'}
+                    </Btn>
+                  ) : (
+                    <div style={{ width: '100%', textAlign: 'center', padding: '9px 0', borderRadius: 8, border: '1px solid var(--bd)', color: 'var(--t3)', fontSize: 12 }}>
+                      {hasAddon ? 'Included' : 'Not included'}
+                    </div>
+                  )}
                 </div>
               );
             })}

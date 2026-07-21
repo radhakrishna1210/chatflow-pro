@@ -314,7 +314,7 @@ const BarVis = () => {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '5px', height: '72px', marginBottom: '6px' }}>
         {d.map((v, i) => <div key={i} style={{ flex: 1, height: `${v}%`, borderRadius: '4px 4px 0 0', background: `linear-gradient(to top,rgba(30,191,94,0.25),rgba(30,191,94,${i === 4 ? '0.8' : '0.55'}))` }} />)}
       </div>
-      <div style={{ display: 'flex', gap: '5px' }}>{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(d => <div key={d} style={{ flex: 1, fontSize: '9px', color: 'var(--t3)', textAlign: 'center' }}>{d}</div>)}</div>
+      <div style={{ display: 'flex', gap: '5px' }}>{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i} style={{ flex: 1, fontSize: '9px', color: 'var(--t3)', textAlign: 'center' }}>{d}</div>)}</div>
       <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
         <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--green)' }} />
         <span style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 600 }}>↑ 32% revenue this week</span>

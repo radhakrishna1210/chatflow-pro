@@ -37,6 +37,7 @@ const SecretInput = ({ prefix }) => {
 };
 
 export default function ApiKeysView() {
+  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
   const [keys, setKeys]         = useState([]);
   const [newKey, setNewKey]     = useState(null);
   const [newName, setNewName]   = useState('');
@@ -116,14 +117,16 @@ export default function ApiKeysView() {
                     <span style={{ fontSize:14, fontWeight:600, color:'var(--t1)' }}>{k.name}</span>
                     <span style={{ padding:'2px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:badge.bg, border:`1px solid ${badge.bd}`, color:badge.c }}>{k.environment}</span>
                   </div>
-                  <div style={{ display:'flex', gap:6 }}>
-                    <button onClick={()=>rotate(k.id)} title="Rotate" style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)' }}>
-                      <I n="rotate" s={12} c="var(--t2)" />
-                    </button>
-                    <button onClick={()=>revoke(k.id)} title="Revoke" style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      <I n="trash" s={12} c="#f87171" />
-                    </button>
-                  </div>
+                  {isAdmin && (
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button onClick={()=>rotate(k.id)} title="Rotate" style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)' }}>
+                        <I n="rotate" s={12} c="var(--t2)" />
+                      </button>
+                      <button onClick={()=>revoke(k.id)} title="Revoke" style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <I n="trash" s={12} c="#f87171" />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <SecretInput prefix={k.keyPrefix} />
                 {k.lastUsedAt && <p style={{ fontSize:11, color:'var(--t3)', marginTop:5 }}>Last used: {k.lastUsedAt}</p>}
@@ -131,15 +134,17 @@ export default function ApiKeysView() {
             );
           })}
 
-          <div style={{ padding:'14px 20px', background:'rgba(255,255,255,0.015)', display:'flex', gap:8, alignItems:'center' }}>
-            <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Key name (optional)"
-              style={{ flex:1, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none' }}
-              onKeyDown={e=>e.key==='Enter'&&generate()} />
-            <Btn size="sm" style={{ background:'rgba(30,191,94,0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={generate}>
-              <I n="plus" s={13} c="var(--green)" />
-              Generate New
-            </Btn>
-          </div>
+          {isAdmin && (
+            <div style={{ padding:'14px 20px', background:'rgba(255,255,255,0.015)', display:'flex', gap:8, alignItems:'center' }}>
+              <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Key name (optional)"
+                style={{ flex:1, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none' }}
+                onKeyDown={e=>e.key==='Enter'&&generate()} />
+              <Btn size="sm" style={{ background:'rgba(30,191,94,0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={generate}>
+                <I n="plus" s={13} c="var(--green)" />
+                Generate New
+              </Btn>
+            </div>
+          )}
         </div>
 
         {/* ── Webhook card ── */}

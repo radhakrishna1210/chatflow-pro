@@ -307,12 +307,6 @@ export default function ContactsView() {
           <h1 style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Contacts</h1>
           <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:1 }}>{total} total contacts</p>
         </div>
-        {selCount > 0 && (
-          <Btn variant="outline">
-            <I n="send" s={14} c="var(--t2)" />
-            Send Notification ({selCount})
-          </Btn>
-        )}
         <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
           <I n="plus" s={14} c="#060A10" />
           Add Contact
