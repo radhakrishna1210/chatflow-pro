@@ -1,4 +1,5 @@
 import * as adminService from '../services/admin.service.js';
+import * as authService from '../services/auth.service.js';
 
 export async function getPool(req, res) {
   const result = await adminService.getPoolSummary();
@@ -89,6 +90,42 @@ export async function listTickets(req, res) {
 
 export async function updateTicket(req, res) {
   res.json(await adminService.updateTicket(req.params.id, req.body || {}));
+}
+
+export async function transactionAnalysis(req, res) {
+  const { workspaceId, from, to, type } = req.query;
+  res.json(await adminService.getTransactionAnalysis({ workspaceId, from, to, type }));
+}
+
+export async function listAllCampaigns(req, res) {
+  const { workspaceId, status } = req.query;
+  res.json(await adminService.listAllCampaigns({ workspaceId, status }));
+}
+
+export async function revenueOverview(req, res) {
+  res.json(await adminService.getRevenueOverview());
+}
+
+export async function workspaceAnalytics(req, res) {
+  res.json(await adminService.getWorkspaceAnalytics());
+}
+
+export async function paymentsAnalysis(req, res) {
+  const { workspaceId, from, to } = req.query;
+  res.json(await adminService.getPaymentsAnalysis({ workspaceId, from, to }));
+}
+
+export async function workspaceMembers(req, res) {
+  res.json(await adminService.getWorkspaceMembers(req.params.id));
+}
+
+export async function listUsers(req, res) {
+  const { search, page, limit } = req.query;
+  res.json(await adminService.listUsers({ search, page, limit }));
+}
+
+export async function impersonateUser(req, res) {
+  res.json(await authService.impersonateUser(req.params.id));
 }
 
 // ─── Plan management ──────────────────────────────────────────

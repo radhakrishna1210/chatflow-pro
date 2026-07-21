@@ -67,6 +67,7 @@ export default function NumberSetupView() {
 
   // Admin pool management state
   const isSuperAdmin = JSON.parse(localStorage.getItem('user') || '{}').superAdmin === true;
+  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
   const [adminPool, setAdminPool]         = useState(null);   // { summary, pool[] }
   const [adminPoolLoading, setAplLoading] = useState(false);
   const [adminPoolError, setAplError]     = useState(null);
@@ -343,7 +344,7 @@ export default function NumberSetupView() {
         <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Manage your WhatsApp Business numbers</p>
       </div>
 
-      <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:16, maxWidth:860 }}>
+      <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:16, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
 
         {/* Active number */}
         <div style={{ ...card, padding:'22px 24px' }}>
@@ -366,40 +367,42 @@ export default function NumberSetupView() {
               </div>
               {number?.displayName && <p style={{ fontSize:11, color:'var(--t3)', marginTop:5 }}>{number.displayName}</p>}
             </div>
-            <div style={{ display:'flex', gap:8, flexShrink:0 }}>
-              <Btn variant="outline" onClick={async () => {
-                setRefreshing(true);
-                wFetch('/whatsapp/numbers/refresh', { method:'POST' })
-                  .then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)&&d[0]) setNumber(d[0]); })
-                  .catch(()=>{}).finally(()=>setRefreshing(false));
-              }}>
-                <I n="refresh" s={13} c="var(--t2)" />
-                {refreshing ? 'Refreshing…' : 'Refresh Status'}
-              </Btn>
-              {number && (
-                <button
-                  onClick={disconnectNumber}
-                  disabled={disconnecting}
-                  style={{
-                    padding:'8px 14px',
-                    borderRadius:8,
-                    fontSize:13,
-                    fontWeight:600,
-                    cursor: disconnecting ? 'not-allowed' : 'pointer',
-                    background:'rgba(239,68,68,0.08)',
-                    border:'1px solid rgba(239,68,68,0.25)',
-                    color:'#f87171',
-                    fontFamily:"'Plus Jakarta Sans',sans-serif",
-                    display:'inline-flex',
-                    alignItems:'center',
-                    gap:6,
-                    opacity: disconnecting ? 0.6 : 1,
-                  }}
-                  title="Disconnect this number and return it to the pool">
-                  {disconnecting ? 'Disconnecting…' : 'Disconnect'}
-                </button>
-              )}
-            </div>
+            {isAdmin && (
+              <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+                <Btn variant="outline" onClick={async () => {
+                  setRefreshing(true);
+                  wFetch('/whatsapp/numbers/refresh', { method:'POST' })
+                    .then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)&&d[0]) setNumber(d[0]); })
+                    .catch(()=>{}).finally(()=>setRefreshing(false));
+                }}>
+                  <I n="refresh" s={13} c="var(--t2)" />
+                  {refreshing ? 'Refreshing…' : 'Refresh Status'}
+                </Btn>
+                {number && (
+                  <button
+                    onClick={disconnectNumber}
+                    disabled={disconnecting}
+                    style={{
+                      padding:'8px 14px',
+                      borderRadius:8,
+                      fontSize:13,
+                      fontWeight:600,
+                      cursor: disconnecting ? 'not-allowed' : 'pointer',
+                      background:'rgba(239,68,68,0.08)',
+                      border:'1px solid rgba(239,68,68,0.25)',
+                      color:'#f87171',
+                      fontFamily:"'Plus Jakarta Sans',sans-serif",
+                      display:'inline-flex',
+                      alignItems:'center',
+                      gap:6,
+                      opacity: disconnecting ? 0.6 : 1,
+                    }}
+                    title="Disconnect this number and return it to the pool">
+                    {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -413,8 +416,15 @@ export default function NumberSetupView() {
           </div>
         )}
 
+        {!isAdmin && (
+          <div style={{ ...card, padding:'14px 18px', display:'flex', gap:10, alignItems:'center' }}>
+            <I n="alertt" s={16} c="var(--t3)" />
+            <p style={{ fontSize:12.5, color:'var(--t2)' }}>Connecting, refreshing or disconnecting a WhatsApp number requires a workspace admin.</p>
+          </div>
+        )}
+
         {/* Connect via Meta */}
-        <div style={{ ...card, border:'2px solid var(--gbd)', padding:'22px 24px', position:'relative' }}>
+        {isAdmin && <div style={{ ...card, border:'2px solid var(--gbd)', padding:'22px 24px', position:'relative' }}>
           <span style={{ position:'absolute', top:-11, left:20, padding:'2px 10px', borderRadius:10, fontSize:11, fontWeight:700, background:'var(--green)', color:'#060913' }}>Recommended</span>
           <div style={{ display:'flex', alignItems:'flex-start', gap:18 }}>
             <div style={{ flex:1 }}>
@@ -433,10 +443,10 @@ export default function NumberSetupView() {
               {metaConnecting ? 'Redirecting…' : 'Connect with Meta'}
             </Btn>
           </div>
-        </div>
+        </div>}
 
         {/* Two-option grid */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+        {isAdmin && <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
           {/* Get a Number */}
           <div style={{ ...card, padding:'20px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
@@ -468,7 +478,7 @@ export default function NumberSetupView() {
             </div>
             <Btn variant="outline" onClick={() => setConnOpen(true)} style={{ width:'100%', justifyContent:'center' }}>Connect My Number</Btn>
           </div>
-        </div>
+        </div>}
 
         {/* Quality warning */}
         <div style={{ ...card, borderLeft:'3px solid #fbbf24', padding:'16px 20px', background:'rgba(245,158,11,.04)' }}>

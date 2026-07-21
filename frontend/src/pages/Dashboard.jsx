@@ -181,12 +181,13 @@ const ProfileMenu = () => {
             </div>
           )}
 
-          {/* Menu items */}
+          {/* Menu items — super admins only manage their own profile/settings here;
+              workspace-scoped items (Number Setup, API Keys) don't apply to them. */}
           <div style={{ padding:6 }}>
             <MenuItem icon="user"  label="Profile"      onClick={() => fire('profile')} />
             <MenuItem icon="cog"   label="Settings"     onClick={() => fire('settings')} />
-            <MenuItem icon="phone" label="Number Setup" onClick={() => fire('setup')} />
-            <MenuItem icon="key"   label="API Keys"     onClick={() => fire('api')} />
+            {!isSuperAdmin && <MenuItem icon="phone" label="Number Setup" onClick={() => fire('setup')} />}
+            {!isSuperAdmin && <MenuItem icon="key"   label="API Keys"     onClick={() => fire('api')} />}
           </div>
 
           {/* Sign out */}
@@ -676,7 +677,8 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
     finally { setCancelling(false); }
   };
 
-  const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING'].includes(c.status);
+  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
+  const cancellable = isAdmin && c && ['DRAFT', 'SCHEDULED', 'RUNNING'].includes(c.status);
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
@@ -760,6 +762,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
 };
 
 const CampaignsView = ({ onCreateCampaign }) => {
+  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [detailId, setDetailId]   = useState(null);
@@ -801,9 +804,11 @@ const CampaignsView = ({ onCreateCampaign }) => {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <DashHeader title="Campaigns" subtitle="Manage and monitor your broadcasts" />
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-          <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#060A10" /> New Campaign</Btn>
-        </div>
+        {isAdmin && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+            <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#060A10" /> New Campaign</Btn>
+          </div>
+        )}
         {loading ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading campaigns…</div>
         ) : campaigns.length === 0 ? (
@@ -1115,6 +1120,7 @@ const CATEGORY_FILTERS = [
 ];
 
 const TemplatesView = () => {
+  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [syncing, setSyncing]     = useState(false);
@@ -1335,15 +1341,17 @@ const TemplatesView = () => {
           />
         ) : (
         <>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <Btn variant="outline" onClick={syncFromMeta} disabled={syncing}>
-            <I n="refresh" s={13} c={syncing ? 'var(--t3)' : 'var(--green)'} />
-            {syncing ? 'Syncing from Meta…' : 'Sync from Meta'}
-          </Btn>
-          <Btn onClick={() => setNewOpen(true)} style={{ boxShadow: 'var(--glow)' }}>
-            <I n="file" s={14} c="#060A10" /> New Template
-          </Btn>
-        </div>
+        {isAdmin && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <Btn variant="outline" onClick={syncFromMeta} disabled={syncing}>
+              <I n="refresh" s={13} c={syncing ? 'var(--t3)' : 'var(--green)'} />
+              {syncing ? 'Syncing from Meta…' : 'Sync from Meta'}
+            </Btn>
+            <Btn onClick={() => setNewOpen(true)} style={{ boxShadow: 'var(--glow)' }}>
+              <I n="file" s={14} c="#060A10" /> New Template
+            </Btn>
+          </div>
+        )}
 
         {syncMsg && (
           <div style={{ marginBottom:16, padding:'10px 14px', borderRadius:8,
@@ -1369,10 +1377,12 @@ const TemplatesView = () => {
           <div style={{ textAlign:'center', padding:'48px' }}>
             <I n="file" s={40} c="var(--t3)" />
             <p style={{ fontSize:13, color:'var(--t2)', marginTop:12, marginBottom:16 }}>No templates yet.</p>
-            <Btn variant="outline" onClick={syncFromMeta} disabled={syncing}>
-              <I n="refresh" s={13} c="var(--green)" />
-              {syncing ? 'Syncing…' : 'Sync from Meta'}
-            </Btn>
+            {isAdmin && (
+              <Btn variant="outline" onClick={syncFromMeta} disabled={syncing}>
+                <I n="refresh" s={13} c="var(--green)" />
+                {syncing ? 'Syncing…' : 'Sync from Meta'}
+              </Btn>
+            )}
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' }}>
@@ -1398,12 +1408,12 @@ const TemplatesView = () => {
                     </p>
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <Btn variant="ghost" size="sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setEditTpl(t)}>Edit</Btn>
+                    {isAdmin && <Btn variant="ghost" size="sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setEditTpl(t)}>Edit</Btn>}
                     <Btn variant="outline" size="sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setPreviewTpl(t)}>Preview</Btn>
-                    <Btn variant="ghost" size="sm" onClick={() => deleteTemplate(t)} disabled={deletingId === t.id}
+                    {isAdmin && <Btn variant="ghost" size="sm" onClick={() => deleteTemplate(t)} disabled={deletingId === t.id}
                       style={{ justifyContent: 'center', color: '#f87171' }} title="Delete template">
                       {deletingId === t.id ? '…' : <I n="trash" s={13} c="#f87171" />}
-                    </Btn>
+                    </Btn>}
                   </div>
                 </div>
               );
@@ -1680,12 +1690,29 @@ const ADMIN_NAV = [
   { id: 'settings',       label: 'Settings',       icon: 'cog'   },
 ];
 
-// Super admins get a dedicated Platform item at the top for platform-wide
-// administration, kept separate from their own workspace views.
-const SUPERADMIN_EXTRA = { id: 'platform', label: 'Platform Admin', icon: 'chart' };
+// Super admins are platform operators, not workspace users — they only get
+// the Platform Admin sections and their own account Settings, not the full
+// per-workspace nav (Campaigns, Contacts, Inbox, etc.) that regular members
+// see. Each section is its own top-level sidebar item (ids prefixed 'admin-'
+// so they never collide with the workspace-scoped ids above, e.g. 'payments'
+// / 'campaigns' / 'analytics' both exist under different meanings per role).
+const ADMIN_TABS = [
+  { id: 'admin-overview',     label: 'Overview',     icon: 'columns' },
+  { id: 'admin-analytics',    label: 'Analytics',    icon: 'chart'   },
+  { id: 'admin-revenue',      label: 'Revenue',      icon: 'credit'  },
+  { id: 'admin-transactions', label: 'Transactions', icon: 'note'    },
+  { id: 'admin-payments',     label: 'Payments',     icon: 'checkc'  },
+  { id: 'admin-campaigns',    label: 'Campaigns',    icon: 'send'    },
+  { id: 'admin-workspaces',   label: 'Workspaces',   icon: 'users'   },
+  { id: 'admin-users',        label: 'Users',        icon: 'user'    },
+  { id: 'admin-numbers',      label: 'Numbers',      icon: 'phone'   },
+  { id: 'admin-plans',        label: 'Plans',        icon: 'file'    },
+  { id: 'admin-support',      label: 'Support',      icon: 'msg'     },
+];
+const SUPERADMIN_NAV = [...ADMIN_TABS, { id: 'settings', label: 'Settings', icon: 'cog' }];
 
 function navForUser(user) {
-  return user?.superAdmin === true ? [SUPERADMIN_EXTRA, ...ADMIN_NAV] : ADMIN_NAV;
+  return user?.superAdmin === true ? SUPERADMIN_NAV : ADMIN_NAV;
 }
 
 const Sidebar = ({ page, setPage, onNav, user }) => {
@@ -1736,7 +1763,7 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
           );
         })}
       </div>
-      {!col && (
+      {!col && !isSuperAdmin && (
         <div onClick={() => setPage('payments')} style={{ margin: '8px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(30,191,94,0.04)', border: '1px solid rgba(30,191,94,0.15)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px', transition: 'all 0.15s', marginBottom: '4px' }}
           onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.08)'; e.currentTarget.style.borderColor = 'rgba(30,191,94,0.3)'; }}
           onMouseLeave={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.04)'; e.currentTarget.style.borderColor = 'rgba(30,191,94,0.15)'; }}>
@@ -1768,13 +1795,14 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
   );
 };
 
-const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), 'platform', 'campaigns-create']);
+const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), ...ADMIN_TABS.map(n => n.id), 'campaigns-create']);
 
 function sectionFromPath(path, user) {
-  const defaultSection = (user?.superAdmin === true && !user?.workspaceId) ? 'platform' : 'home';
+  const defaultSection = user?.superAdmin === true ? 'admin-overview' : 'home';
   const rest = String(path || '').replace(/^\/dashboard\/?/, '');
   if (!rest) return defaultSection;
   if (rest === 'campaigns/create') return 'campaigns-create';
+  if (rest === 'platform') return 'admin-overview'; // pre-restructure bookmark
   const section = rest.split('/')[0];
   return VALID_SECTIONS.has(section) ? section : defaultSection;
 }
@@ -1816,9 +1844,9 @@ export default function Dashboard({ onNav, routePath }) {
 
   const renderView = () => {
     if (page === 'campaigns-create') return <CreateCampaign onBack={() => setPage('campaigns')} />;
-    if (page === 'platform') {
-      // Platform admin is only for the super admin; regular users fall through.
-      if (user?.superAdmin === true) return <SuperAdminView />;
+    if (page.startsWith('admin-')) {
+      // Each Platform Admin section is its own sidebar item now; regular users fall through.
+      if (user?.superAdmin === true) return <SuperAdminView tab={page.slice('admin-'.length)} />;
       return <PlaceholderView title="Platform Admin" icon="chart" />;
     }
     if (page === 'home')       return <HomeView />;
@@ -1840,11 +1868,36 @@ export default function Dashboard({ onNav, routePath }) {
     return <PlaceholderView title={navItem?.label || 'Section'} icon={navItem?.icon || 'cog'} />;
   };
 
+  // Set only while a super admin is impersonating another user (see UsersTab
+  // in SuperAdminView) — holds the admin's own tokens so they can be restored.
+  let impersonator = null;
+  try { impersonator = JSON.parse(sessionStorage.getItem('impersonatorSession') || 'null'); } catch { /* ignore */ }
+
+  const returnToAdmin = () => {
+    if (!impersonator) return;
+    localStorage.setItem('accessToken', impersonator.accessToken);
+    if (impersonator.refreshToken) localStorage.setItem('refreshToken', impersonator.refreshToken);
+    localStorage.setItem('user', impersonator.user);
+    sessionStorage.removeItem('impersonatorSession');
+    window.location.href = '/dashboard';
+  };
+
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#060B18' }}>
-      <Sidebar page={page} setPage={setPage} onNav={onNav} user={user} />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0 }}>
-        {renderView()}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#060B18' }}>
+      {impersonator && (
+        <div style={{ flexShrink: 0, height: 38, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(245,158,11,.06))', borderBottom: '1px solid rgba(245,158,11,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 12.5, color: '#fbbf24', fontWeight: 600 }}>
+          <I n="eye" s={13} c="#fbbf24" />
+          Impersonating {user?.name} ({user?.email})
+          <button onClick={returnToAdmin} style={{ padding: '3px 10px', borderRadius: 6, background: 'rgba(245,158,11,.15)', border: '1px solid rgba(245,158,11,.4)', color: '#fbbf24', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
+            Return to admin
+          </button>
+        </div>
+      )}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+        <Sidebar page={page} setPage={setPage} onNav={onNav} user={user} />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0 }}>
+          {renderView()}
+        </div>
       </div>
     </div>
   );

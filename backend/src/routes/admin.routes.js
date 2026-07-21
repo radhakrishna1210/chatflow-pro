@@ -41,6 +41,18 @@ router.patch('/platform/workspaces/:id/suspend', adminController.suspendWorkspac
 router.get('/platform/tickets',                  adminController.listTickets);
 router.patch('/platform/tickets/:id',            adminController.updateTicket);
 
+// Cross-workspace transaction analysis, campaign usage and revenue overview
+router.get('/platform/transactions',             adminController.transactionAnalysis);
+router.get('/platform/campaigns',                adminController.listAllCampaigns);
+router.get('/platform/revenue',                  adminController.revenueOverview);
+router.get('/platform/workspaces/analytics',     adminController.workspaceAnalytics);
+router.get('/platform/workspaces/:id/members',   adminController.workspaceMembers);
+router.get('/platform/payments',                 adminController.paymentsAnalysis);
+
+// User management — search across every workspace, plus impersonation
+router.get('/platform/users',                    adminController.listUsers);
+router.post('/platform/users/:id/impersonate',   adminController.impersonateUser);
+
 // Plan / billing configuration (prices, quotas, rate limits, features)
 router.get('/platform/plans',                    adminController.listPlans);
 router.post('/platform/plans',                   adminController.createPlan);

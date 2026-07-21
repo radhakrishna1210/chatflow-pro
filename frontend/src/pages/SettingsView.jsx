@@ -32,15 +32,15 @@ const SectionCard = ({ icon, title, children }) => (
   </div>
 );
 
-const Toggle = ({ on, onToggle }) => (
-  <div onClick={onToggle} style={{ width:38, height:21, borderRadius:20, background: on ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor:'pointer', transition:'background .2s', position:'relative', border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`, flexShrink:0 }}>
+const Toggle = ({ on, onToggle, disabled=false }) => (
+  <div onClick={disabled ? undefined : onToggle} style={{ width:38, height:21, borderRadius:20, background: on ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, transition:'background .2s', position:'relative', border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`, flexShrink:0 }}>
     <div style={{ position:'absolute', top:2, left: on ? 19 : 2, width:15, height:15, borderRadius:'50%', background:'white', transition:'left .2s', boxShadow:'0 1px 3px rgba(0,0,0,0.4)' }} />
   </div>
 );
 
-const FInput = ({ value, onChange, placeholder, style:ex={} }) => (
-  <input value={value} onChange={onChange} placeholder={placeholder}
-    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', boxSizing:'border-box', ...ex }}
+const FInput = ({ value, onChange, placeholder, disabled=false, style:ex={} }) => (
+  <input value={value} onChange={onChange} placeholder={placeholder} disabled={disabled}
+    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', boxSizing:'border-box', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'text', ...ex }}
     onFocus={e=>e.target.style.borderColor='var(--gbd)'}
     onBlur={e=>e.target.style.borderColor='var(--bd)'} />
 );
@@ -63,10 +63,12 @@ const statusBadge = s => {
 };
 
 export default function SettingsView() {
+  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
   const [settings, setSettings] = useState({});
   const [members, setMembers]   = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [webhookUrl, setWebhookUrl] = useState('');
+  const [webhookError, setWebhookError] = useState(null);
   const [showToken, setShowToken]   = useState(false);
   const [notifs, setNotifs]    = useState(() => Object.fromEntries(NOTIF_OPTS.map(o=>[o.id,o.default])));
   const [emailNotifs, setEmailNotifs] = useState(() => Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id,o.default])));
@@ -86,7 +88,7 @@ export default function SettingsView() {
   useEffect(() => {
     wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{ if(d) { setSettings(d); if(d.webhookUrl) setWebhookUrl(d.webhookUrl); if(d.notifyNewConversation!=null) setNotifs({newConv:d.notifyNewConversation,tplApproved:d.notifyTemplateApproved,tplRejected:d.notifyTemplateRejected,campaignDone:d.notifyCampaignCompleted,highOptout:d.notifyHighOptout,rateLimitWarn:d.notifyRateLimit}); setEmailNotifs(Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id, d[o.id]!=null ? d[o.id] : o.default]))); }}).catch(()=>{});
     wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
-    wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(()=>{});
+    if (isAdmin) wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(()=>{});
     wFetch('/settings/invoices').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvoices(d); }).catch(()=>{});
     wFetch('/analytics/chat?days=7').then(r=>r.ok&&r.json()).then(d=>{
       if (d && Array.isArray(d.dailyVolume)) {
@@ -99,7 +101,17 @@ export default function SettingsView() {
   }, []);
 
   const saveWebhook = async () => {
-    await wFetch('/settings', { method:'PATCH', body:JSON.stringify({ webhookUrl }) }).catch(()=>{});
+    const trimmed = webhookUrl.trim();
+    if (trimmed && !/^https?:\/\/.+/i.test(trimmed)) {
+      setWebhookError('Enter a valid URL starting with http:// or https://');
+      return;
+    }
+    setWebhookError(null);
+    const r = await wFetch('/settings', { method:'PATCH', body:JSON.stringify({ webhookUrl: trimmed }) }).catch(()=>null);
+    if (r && !r.ok) {
+      const data = await r.json().catch(()=>({}));
+      setWebhookError(data.error || 'Could not save webhook URL');
+    }
   };
 
   const savePreferences = async () => {
@@ -178,7 +190,9 @@ export default function SettingsView() {
         <SectionCard icon="globe" title="Webhook">
           <div style={{ marginBottom:14 }}>
             <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Webhook URL</label>
-            <FInput value={webhookUrl} onChange={e=>setWebhookUrl(e.target.value)} placeholder="https://your-server.com/webhook" />
+            <FInput value={webhookUrl} onChange={e=>{ setWebhookUrl(e.target.value); setWebhookError(null); }} placeholder="https://your-server.com/webhook" disabled={!isAdmin}
+              style={webhookError ? { borderColor:'#f87171' } : {}} />
+            {webhookError && <p style={{ fontSize:11.5, color:'#f87171', marginTop:6 }}>{webhookError}</p>}
           </div>
           {settings.webhookVerifyToken && (
             <div style={{ marginBottom:14 }}>
@@ -193,10 +207,12 @@ export default function SettingsView() {
               </div>
             </div>
           )}
-          <div style={{ display:'flex', gap:8 }}>
-            <Btn onClick={saveWebhook}>Save</Btn>
-            <Btn variant="outline">Test</Btn>
-          </div>
+          {isAdmin && (
+            <div style={{ display:'flex', gap:8 }}>
+              <Btn onClick={saveWebhook}>Save</Btn>
+              <Btn variant="outline">Test</Btn>
+            </div>
+          )}
         </SectionCard>
 
         {/* ── Rate Limit ── */}
@@ -215,20 +231,22 @@ export default function SettingsView() {
 
         {/* ── Team Members ── */}
         <SectionCard icon="users" title="Team Members">
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
-            <Btn size="sm" style={{ background:'rgba(30,191,94,0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={()=>setShowInvite(!showInvite)}>
-              <I n="plus" s={13} c="var(--green)" />
-              Invite
-            </Btn>
-          </div>
-          {showInvite && (
+          {isAdmin && (
+            <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
+              <Btn size="sm" style={{ background:'rgba(30,191,94,0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={()=>setShowInvite(!showInvite)}>
+                <I n="plus" s={13} c="var(--green)" />
+                Invite
+              </Btn>
+            </div>
+          )}
+          {isAdmin && showInvite && (
             <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:14, padding:14, borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
               <div style={{ display:'flex', gap:8 }}>
                 <FInput value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="colleague@company.com" style={{ flex:1 }} />
                 <select value={inviteRole} onChange={e=>setInviteRole(e.target.value)}
-                  style={{ padding:'9px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none' }}>
-                  <option value="CLIENT">Member</option>
-                  <option value="ADMIN">Admin</option>
+                  style={{ padding:'9px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', colorScheme:'dark' }}>
+                  <option value="CLIENT" style={{ background:'#07090F' }}>Member</option>
+                  <option value="ADMIN" style={{ background:'#07090F' }}>Admin</option>
                 </select>
                 <Btn size="sm" onClick={sendInvite} disabled={sendingInvite}>{sendingInvite ? 'Sending…' : 'Send Invite'}</Btn>
               </div>
@@ -280,15 +298,21 @@ export default function SettingsView() {
                     </td>
                     <td style={{ padding:'10px 12px', fontSize:12, color:'var(--t2)' }}>{m.user.email}</td>
                     <td style={{ padding:'10px 12px' }}>
-                      <select value={memberRoles[m.userId] || m.role} onChange={e=>setRole(m.userId,e.target.value)}
-                        style={{ padding:'5px 8px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none' }}>
-                        <option>ADMIN</option><option>CLIENT</option>
-                      </select>
+                      {isAdmin ? (
+                        <select value={memberRoles[m.userId] || m.role} onChange={e=>setRole(m.userId,e.target.value)}
+                          style={{ padding:'5px 8px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', colorScheme:'dark' }}>
+                          <option style={{ background:'#07090F' }}>ADMIN</option><option style={{ background:'#07090F' }}>CLIENT</option>
+                        </select>
+                      ) : (
+                        <span style={{ fontSize:12, color:'var(--t2)' }}>{m.role === 'ADMIN' ? 'Admin' : 'Member'}</span>
+                      )}
                     </td>
                     <td style={{ padding:'10px 12px' }}>
-                      <button onClick={()=>delMember(m.userId)} style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.18)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        <I n="trash" s={12} c="#f87171" />
-                      </button>
+                      {isAdmin && (
+                        <button onClick={()=>delMember(m.userId)} style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.18)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          <I n="trash" s={12} c="#f87171" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -304,7 +328,7 @@ export default function SettingsView() {
               <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>Growth Plan</p>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Manage your subscription</p>
             </div>
-            <Btn style={{ boxShadow:'var(--glow)' }}>Upgrade</Btn>
+            {isAdmin && <Btn style={{ boxShadow:'var(--glow)' }}>Upgrade</Btn>}
           </div>
           <table style={{ width:'100%', borderCollapse:'collapse' }}>
             <thead>
@@ -338,7 +362,7 @@ export default function SettingsView() {
             {NOTIF_OPTS.map(opt => (
               <div key={opt.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 14px', borderRadius:9, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
                 <span style={{ fontSize:13, fontWeight:500, color:'var(--t1)' }}>{opt.label}</span>
-                <Toggle on={notifs[opt.id]} onToggle={()=>setNotifs(p=>({...p,[opt.id]:!p[opt.id]}))} />
+                <Toggle on={notifs[opt.id]} disabled={!isAdmin} onToggle={()=>setNotifs(p=>({...p,[opt.id]:!p[opt.id]}))} />
               </div>
             ))}
           </div>
@@ -356,14 +380,16 @@ export default function SettingsView() {
                   <span style={{ fontSize:13, fontWeight:500, color:'var(--t1)', display:'block' }}>{opt.label}</span>
                   {opt.hint && <span style={{ fontSize:11, color:'var(--t3)' }}>{opt.hint}</span>}
                 </div>
-                <Toggle on={emailNotifs[opt.id]} onToggle={()=>setEmailNotifs(p=>({...p,[opt.id]:!p[opt.id]}))} />
+                <Toggle on={emailNotifs[opt.id]} disabled={!isAdmin} onToggle={()=>setEmailNotifs(p=>({...p,[opt.id]:!p[opt.id]}))} />
               </div>
             ))}
           </div>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:12, marginTop:16 }}>
-            {prefsSaved && <span style={{ fontSize:12, color:'var(--green)', fontWeight:600 }}>Saved ✓</span>}
-            <Btn onClick={savePreferences} disabled={savingPrefs}>{savingPrefs ? 'Saving…' : 'Save Preferences'}</Btn>
-          </div>
+          {isAdmin && (
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:12, marginTop:16 }}>
+              {prefsSaved && <span style={{ fontSize:12, color:'var(--green)', fontWeight:600 }}>Saved ✓</span>}
+              <Btn onClick={savePreferences} disabled={savingPrefs}>{savingPrefs ? 'Saving…' : 'Save Preferences'}</Btn>
+            </div>
+          )}
         </SectionCard>
       </div>
     </div>

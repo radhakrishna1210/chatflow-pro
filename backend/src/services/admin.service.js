@@ -23,7 +23,7 @@ export async function getPoolSummary() {
     ? await prisma.workspace.findMany({ where: { id: { in: wsIds } }, select: { id: true, name: true } })
     : [];
   const wsMap = Object.fromEntries(workspaces.map(w => [w.id, w.name]));
-  const enriched = pool.map(e => ({ ...e, assignedToName: e.assignedTo ? (wsMap[e.assignedTo] ?? e.assignedTo) : null }));
+  const enriched = pool.map(e => ({ ...e, assignedToName: e.assignedTo ? (wsMap[e.assignedTo] ?? 'Unknown workspace') : null }));
 
   return { summary: { total: finalTotal, available, assigned, banned }, pool: enriched };
 }
@@ -387,6 +387,276 @@ export async function updateTicket(ticketId, { status, adminNote }) {
 // Prices, quotas/rate-limits and feature flags for every subscription plan.
 // These are the values subscription.service.js reads to enforce quota, plan
 // limits and overage billing, so validation here keeps those callers safe.
+
+// ─── Transaction analysis (wallet ledger, filterable per workspace) ───────────
+
+export async function getTransactionAnalysis({ workspaceId, from, to, type } = {}) {
+  const where = {};
+  if (workspaceId) where.workspaceId = workspaceId;
+  if (type === 'CREDIT' || type === 'DEBIT') where.type = type;
+  if (from || to) {
+    where.createdAt = {};
+    if (from) where.createdAt.gte = new Date(from);
+    if (to) where.createdAt.lte = new Date(to);
+  }
+
+  const [transactions, creditAgg, debitAgg, byReason] = await Promise.all([
+    prisma.walletTransaction.findMany({
+      where, orderBy: { createdAt: 'desc' }, take: 200,
+      include: { workspace: { select: { id: true, name: true } } },
+    }),
+    prisma.walletTransaction.aggregate({ where: { ...where, type: 'CREDIT' }, _sum: { amount: true }, _count: true }),
+    prisma.walletTransaction.aggregate({ where: { ...where, type: 'DEBIT' }, _sum: { amount: true }, _count: true }),
+    prisma.walletTransaction.groupBy({ by: ['reason', 'type'], where, _sum: { amount: true }, _count: true }),
+  ]);
+
+  const totalCredit = Number(creditAgg._sum.amount || 0);
+  const totalDebit = Number(debitAgg._sum.amount || 0);
+
+  return {
+    transactions: transactions.map((t) => ({
+      id: t.id, workspaceId: t.workspaceId, workspaceName: t.workspace?.name || '—',
+      amount: Number(t.amount), type: t.type, reason: t.reason,
+      balanceAfter: Number(t.balanceAfter), reference: t.reference, createdAt: t.createdAt,
+    })),
+    summary: {
+      totalCredit, totalDebit, net: totalCredit - totalDebit,
+      creditCount: creditAgg._count, debitCount: debitAgg._count,
+      byReason: byReason
+        .map((r) => ({ reason: r.reason, type: r.type, amount: Number(r._sum.amount || 0), count: r._count }))
+        .sort((a, b) => b.amount - a.amount),
+    },
+  };
+}
+
+// ─── Campaigns across every workspace, filterable per workspace ───────────────
+
+export async function listAllCampaigns({ workspaceId, status } = {}) {
+  const where = {};
+  if (workspaceId) where.workspaceId = workspaceId;
+  if (status) where.status = status;
+
+  const [campaigns, totals] = await Promise.all([
+    prisma.campaign.findMany({
+      where, orderBy: { createdAt: 'desc' }, take: 200,
+      include: { workspace: { select: { id: true, name: true } }, template: { select: { name: true } } },
+    }),
+    prisma.campaign.aggregate({
+      where, _count: true,
+      _sum: { totalContacts: true, sent: true, delivered: true, read: true, failed: true },
+    }),
+  ]);
+
+  return {
+    campaigns: campaigns.map((c) => ({
+      id: c.id, name: c.name, status: c.status,
+      workspaceId: c.workspaceId, workspaceName: c.workspace?.name || '—',
+      templateName: c.template?.name || '—',
+      totalContacts: c.totalContacts, sent: c.sent, delivered: c.delivered, read: c.read, failed: c.failed,
+      createdAt: c.createdAt, launchedAt: c.launchedAt, completedAt: c.completedAt,
+    })),
+    totals: {
+      count: totals._count,
+      totalContacts: totals._sum.totalContacts || 0,
+      sent: totals._sum.sent || 0,
+      delivered: totals._sum.delivered || 0,
+      read: totals._sum.read || 0,
+      failed: totals._sum.failed || 0,
+    },
+  };
+}
+
+// ─── Revenue overview (MRR/ARR from active subscriptions) ─────────────────────
+
+export async function getRevenueOverview() {
+  const subs = await prisma.subscription.findMany({
+    where: { status: 'ACTIVE' },
+    include: { plan: { select: { id: true, key: true, name: true, priceMonthly: true, currency: true } } },
+  });
+
+  const byPlan = new Map();
+  let mrr = 0;
+  for (const s of subs) {
+    if (!s.plan) continue;
+    const price = Number(s.plan.priceMonthly);
+    mrr += price;
+    const existing = byPlan.get(s.plan.key) || {
+      key: s.plan.key, name: s.plan.name, price, currency: s.plan.currency, subscribers: 0, mrr: 0,
+    };
+    existing.subscribers += 1;
+    existing.mrr += price;
+    byPlan.set(s.plan.key, existing);
+  }
+
+  return {
+    mrr, arr: mrr * 12,
+    activeSubscriptions: subs.length,
+    byPlan: [...byPlan.values()].sort((a, b) => b.mrr - a.mrr),
+  };
+}
+
+// ─── Payments (real money in): plan-subscription invoices + wallet recharges ──
+// Distinct from Transactions (the full wallet ledger, which also includes
+// non-payment debits like usage/overage) — this is strictly revenue collected.
+
+const WALLET_RECHARGE_REASON = 'Wallet recharge (Razorpay)';
+
+export async function getPaymentsAnalysis({ workspaceId, from, to } = {}) {
+  const dateRange = {};
+  if (from) dateRange.gte = new Date(from);
+  if (to) dateRange.lte = new Date(to);
+
+  const invoiceWhere = { status: 'PAID' };
+  if (workspaceId) invoiceWhere.workspaceId = workspaceId;
+  if (from || to) invoiceWhere.invoiceDate = dateRange;
+
+  const rechargeWhere = { type: 'CREDIT', reason: WALLET_RECHARGE_REASON };
+  if (workspaceId) rechargeWhere.workspaceId = workspaceId;
+  if (from || to) rechargeWhere.createdAt = dateRange;
+
+  const [invoices, recharges] = await Promise.all([
+    prisma.invoice.findMany({
+      where: invoiceWhere, orderBy: { invoiceDate: 'desc' }, take: 200,
+      include: { workspace: { select: { id: true, name: true } } },
+    }),
+    prisma.walletTransaction.findMany({
+      where: rechargeWhere, orderBy: { createdAt: 'desc' }, take: 200,
+      include: { workspace: { select: { id: true, name: true } } },
+    }),
+  ]);
+
+  const payments = [
+    ...invoices.map((i) => ({
+      id: i.id, kind: 'PLAN_SUBSCRIPTION', workspaceId: i.workspaceId, workspaceName: i.workspace?.name || '—',
+      description: i.description || 'Plan subscription', amount: Number(i.amount), currency: i.currency,
+      reference: i.reference, date: i.invoiceDate,
+    })),
+    ...recharges.map((t) => ({
+      id: t.id, kind: 'WALLET_RECHARGE', workspaceId: t.workspaceId, workspaceName: t.workspace?.name || '—',
+      description: t.reason, amount: Number(t.amount), currency: 'INR',
+      reference: t.reference, date: t.createdAt,
+    })),
+  ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 200);
+
+  const byWorkspace = new Map();
+  const planRevenue = invoices.reduce((s, i) => s + Number(i.amount), 0);
+  const walletRevenue = recharges.reduce((s, t) => s + Number(t.amount), 0);
+  for (const p of payments) {
+    const existing = byWorkspace.get(p.workspaceId) || { workspaceId: p.workspaceId, workspaceName: p.workspaceName, total: 0, count: 0 };
+    existing.total += p.amount;
+    existing.count += 1;
+    byWorkspace.set(p.workspaceId, existing);
+  }
+
+  return {
+    payments,
+    summary: {
+      total: planRevenue + walletRevenue,
+      planRevenue, walletRevenue,
+      count: invoices.length + recharges.length,
+      byWorkspace: [...byWorkspace.values()].sort((a, b) => b.total - a.total),
+    },
+  };
+}
+
+// ─── Workspace members (for the admin "View" drill-in) ─────────────────────────
+// Deliberately surfaces only name/email/role/auth method — never passwordHash.
+
+export async function getWorkspaceMembers(workspaceId) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { id: true, name: true, suspended: true, suspendedReason: true },
+  });
+  if (!workspace) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
+
+  const members = await prisma.workspaceMember.findMany({
+    where: { workspaceId },
+    orderBy: { joinedAt: 'asc' },
+    include: { user: { select: { id: true, name: true, email: true, googleId: true, createdAt: true } } },
+  });
+
+  return {
+    workspace,
+    members: members.map((m) => ({
+      id: m.user.id, name: m.user.name, email: m.user.email, role: m.role, joinedAt: m.joinedAt,
+      authMethod: m.user.googleId ? 'Google' : 'Password',
+      accountCreatedAt: m.user.createdAt,
+    })),
+  };
+}
+
+// ─── User management (search across every workspace) ──────────────────────────
+
+export async function listUsers({ search, page, limit } = {}) {
+  const take = Math.min(Math.max(parseInt(limit, 10) || 25, 1), 100);
+  const currentPage = Math.max(parseInt(page, 10) || 1, 1);
+  const skip = (currentPage - 1) * take;
+
+  const term = String(search || '').trim();
+  const where = term
+    ? { OR: [{ name: { contains: term, mode: 'insensitive' } }, { email: { contains: term, mode: 'insensitive' } }] }
+    : {};
+
+  const [users, total] = await Promise.all([
+    prisma.user.findMany({
+      where, orderBy: { createdAt: 'desc' }, skip, take,
+      include: {
+        workspaceMembers: {
+          orderBy: { joinedAt: 'asc' },
+          include: { workspace: { select: { id: true, name: true } } },
+        },
+      },
+    }),
+    prisma.user.count({ where }),
+  ]);
+
+  return {
+    users: users.map((u) => ({
+      id: u.id, name: u.name, email: u.email, createdAt: u.createdAt,
+      superAdmin: u.email.toLowerCase() === env.ADMIN_EMAIL.toLowerCase(),
+      authMethod: u.googleId ? 'Google' : 'Password',
+      workspaces: u.workspaceMembers.map((m) => ({ id: m.workspace.id, name: m.workspace.name, role: m.role })),
+    })),
+    total, page: currentPage, limit: take,
+  };
+}
+
+// ─── Workspace analytics segregation — message funnel per workspace ───────────
+
+export async function getWorkspaceAnalytics() {
+  const [workspaces, campaignAgg] = await Promise.all([
+    prisma.workspace.findMany({
+      select: {
+        id: true, name: true, plan: true, createdAt: true,
+        _count: { select: { members: true, campaigns: true, contacts: true, waNumbers: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.campaign.groupBy({
+      by: ['workspaceId'],
+      _sum: { sent: true, delivered: true, read: true, failed: true },
+    }),
+  ]);
+
+  const aggByWorkspace = Object.fromEntries(campaignAgg.map((a) => [a.workspaceId, a._sum]));
+
+  return workspaces
+    .map((w) => {
+      const agg = aggByWorkspace[w.id] || {};
+      const sent = agg.sent || 0;
+      const delivered = agg.delivered || 0;
+      const read = agg.read || 0;
+      const failed = agg.failed || 0;
+      return {
+        id: w.id, name: w.name, plan: w.plan, createdAt: w.createdAt,
+        members: w._count.members, campaigns: w._count.campaigns, contacts: w._count.contacts, numbers: w._count.waNumbers,
+        messages: { sent, delivered, read, failed },
+        deliveryRate: sent > 0 ? +((delivered / sent) * 100).toFixed(1) : 0,
+        readRate: delivered > 0 ? +((read / delivered) * 100).toFixed(1) : 0,
+      };
+    })
+    .sort((a, b) => b.messages.sent - a.messages.sent);
+}
 
 // Feature flags enforced elsewhere (requireFeature / hasFeature). Surfaced to
 // the admin UI as known toggles; arbitrary extra flags are still accepted.

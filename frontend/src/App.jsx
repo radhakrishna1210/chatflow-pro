@@ -57,6 +57,7 @@ function clearSession() {
   localStorage.removeItem('accessToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
+  sessionStorage.removeItem('impersonatorSession');
 }
 
 export default function App() {

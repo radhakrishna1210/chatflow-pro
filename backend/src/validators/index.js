@@ -137,6 +137,32 @@ export const memberSchemas = {
   updateRole: z.object({ role: z.enum(['ADMIN', 'CLIENT']) }),
 };
 
+export const apiKeySchemas = {
+  create: z.object({
+    name: z.string().trim().min(1, 'Name is required').max(100),
+    environment: z.string().trim().min(1).max(30).optional(),
+  }),
+};
+
+const webhookUrl = z.string().trim().url('Must be a valid URL (e.g. https://your-server.com/webhook)')
+  .refine((v) => /^https?:\/\//i.test(v), 'URL must start with http:// or https://');
+
+export const settingsSchemas = {
+  update: z.object({
+    webhookUrl: z.union([webhookUrl, z.literal('')]).optional(),
+    notifyNewConversation: z.boolean().optional(),
+    notifyTemplateApproved: z.boolean().optional(),
+    notifyTemplateRejected: z.boolean().optional(),
+    notifyCampaignCompleted: z.boolean().optional(),
+    notifyHighOptout: z.boolean().optional(),
+    notifyRateLimit: z.boolean().optional(),
+    emailNotifyCampaignCompleted: z.boolean().optional(),
+    emailNotifyTemplateApproved: z.boolean().optional(),
+    emailNotifyTemplateRejected: z.boolean().optional(),
+    emailNotifyMemberInvite: z.boolean().optional(),
+  }),
+};
+
 export const invitationSchemas = {
   create: z.object({
     email: z.string().trim().email(),
