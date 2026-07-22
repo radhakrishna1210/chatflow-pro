@@ -14,6 +14,7 @@ import ChatAnalytics from '../components/dashboard/ChatAnalytics.jsx';
 import NumberSetupView from './NumberSetupView.jsx';
 import ApiKeysView from './ApiKeysView.jsx';
 import SettingsView from './SettingsView.jsx';
+import ProfileView from './ProfileView.jsx';
 import SuperAdminView from './SuperAdminView.jsx';
 import SupportView from './SupportView.jsx';
 import IntegrationsView from './IntegrationsView.jsx';
@@ -1744,7 +1745,7 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
   return (
     <div style={{ width: col ? '60px' : '232px', background: '#060913', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', transition: 'width .22s ease', flexShrink: 0, overflow: 'hidden' }}>
       <div style={{ padding: '16px 14px', display: 'flex', alignItems: 'center', gap: '9px', borderBottom: '1px solid var(--bd)', minHeight: '62px' }}>
-        <div onClick={() => onNav('landing')} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', boxShadow: '0 0 16px rgba(30,191,94,0.3)' }}>
+        <div onClick={() => setPage(isSuperAdmin ? 'admin-overview' : 'home')} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', boxShadow: '0 0 16px rgba(30,191,94,0.3)' }}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
         </div>
         {!col && <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span></span>}
@@ -1804,7 +1805,7 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
   );
 };
 
-const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), ...ADMIN_TABS.map(n => n.id), 'campaigns-create']);
+const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), ...ADMIN_TABS.map(n => n.id), 'campaigns-create', 'profile']);
 
 function sectionFromPath(path, user) {
   const defaultSection = user?.superAdmin === true ? 'admin-overview' : 'home';
@@ -1816,10 +1817,14 @@ function sectionFromPath(path, user) {
   return VALID_SECTIONS.has(section) ? section : defaultSection;
 }
 
-function pathFromSection(section) {
-  if (section === 'home') return '/dashboard';
-  if (section === 'campaigns-create') return '/dashboard/campaigns/create';
-  return `/dashboard/${section}`;
+// `subTab` becomes a `?tab=` query param so a Quick Link can deep-link into a
+// specific sub-tab of a tabbed page (e.g. Automation's "WhatsApp AI Agent",
+// Payments' "Invoices") instead of always landing on that page's default tab.
+function pathFromSection(section, subTab) {
+  const path = section === 'home' ? '/dashboard'
+    : section === 'campaigns-create' ? '/dashboard/campaigns/create'
+    : `/dashboard/${section}`;
+  return subTab ? `${path}?tab=${encodeURIComponent(subTab)}` : path;
 }
 
 export default function Dashboard({ onNav, routePath }) {
@@ -1829,23 +1834,31 @@ export default function Dashboard({ onNav, routePath }) {
   const NAV = navForUser(user);
 
   const page = sectionFromPath(routePath ?? window.location.pathname, user);
-  const setPage = (p) => {
+  const setPage = (p, subTab) => {
     if (!p) return;
-    const target = pathFromSection(p);
-    if (window.location.pathname === target) return;
+    const target = pathFromSection(p, subTab);
+    if (window.location.pathname + window.location.search === target) return;
     window.history.pushState({}, '', target);
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
   const isInbox = page === 'inbox';
+  // Read fresh on every render (mirrors the routePath-falls-back-to-location
+  // pattern above) — reflects whatever `?tab=` the current URL carries so a
+  // deep-linked Quick Link can seed a tabbed page's initial sub-tab.
+  const initialSubTab = new URLSearchParams(window.location.search).get('tab') || undefined;
 
-  // Listen for nav events from ProfileMenu (so we don't need to thread setPage as a prop)
+  // Listen for nav events from ProfileMenu / QuickLinksGrid (so we don't need
+  // to thread setPage as a prop). detail is either a plain section string, or
+  // { section, subTab } when a deep-link into a specific sub-tab is wanted.
   useEffect(() => {
     const onAppNav = (e) => {
-      const action = e.detail;
+      const detail = e.detail;
+      const action = typeof detail === 'string' ? detail : detail?.section;
+      const subTab = typeof detail === 'object' ? detail?.subTab : undefined;
       if (action === 'signout') return onNav('landing');
       if (action === 'login')  return onNav('login');
-      if (action === 'profile') return setPage('settings'); // profile lives inside Settings
-      if (action) setPage(action);
+      if (action === 'profile') return setPage('profile');
+      if (action) setPage(action, subTab);
     };
     window.addEventListener('app:nav', onAppNav);
     return () => window.removeEventListener('app:nav', onAppNav);
@@ -1869,10 +1882,11 @@ export default function Dashboard({ onNav, routePath }) {
     if (page === 'user-analytics') return <UserAnalyticsView />;
     if (page === 'integrations')   return <IntegrationsView />;
     if (page === 'setup')          return <NumberSetupView />;
-    if (page === 'payments')       return <PaymentsView />;
+    if (page === 'payments')       return <PaymentsView initialTab={initialSubTab} />;
     if (page === 'api')            return <ApiKeysView />;
     if (page === 'support')        return <SupportView />;
     if (page === 'settings')       return <SettingsView />;
+    if (page === 'profile')        return <ProfileView />;
     const navItem = NAV.find(n => n.id === page);
     return <PlaceholderView title={navItem?.label || 'Section'} icon={navItem?.icon || 'cog'} />;
   };

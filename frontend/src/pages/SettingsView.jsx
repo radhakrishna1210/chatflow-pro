@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
+import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -185,6 +186,11 @@ export default function SettingsView() {
       </div>
 
       <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:16, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+
+        {/* ── Quick Links ── */}
+        <SectionCard icon="columns" title="Quick Links">
+          <QuickLinksGrid currentPage="settings" />
+        </SectionCard>
 
         {/* ── Webhook ── */}
         <SectionCard icon="globe" title="Webhook">

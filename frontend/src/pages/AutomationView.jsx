@@ -1699,7 +1699,9 @@ export default function AutomationView() {
   // Persist the selected tab in the URL (?tab=) so a refresh or a shared link
   // lands back on the same tab instead of always resetting to Basic
   // Automations. Read once on mount; Dashboard's router only looks at
-  // pathname (not search) so this doesn't interact with the outer route.
+  // pathname (not search) so this doesn't interact with the outer route. This
+  // also means a Quick Link that pushes `?tab=wa-agent` (see Dashboard.jsx's
+  // pathFromSection) deep-links straight into that sub-tab.
   const [activeTab, setActiveTab] = useState(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('tab');
     return TAB_IDS.has(fromUrl) ? fromUrl : 'basic';

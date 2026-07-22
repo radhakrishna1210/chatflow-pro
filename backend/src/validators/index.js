@@ -234,3 +234,25 @@ export const invitationSchemas = {
     role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
   }),
 };
+
+const phone = z.string().trim().max(30).regex(/^[0-9+\-\s()]{6,30}$/, 'Enter a valid phone number');
+
+export const userSchemas = {
+  updateProfile: z.object({
+    name: z.string().trim().min(1, 'Name is required').max(100).optional(),
+    phone: z.union([phone, z.literal('')]).optional(),
+    jobTitle: z.union([z.string().trim().max(100), z.literal('')]).optional(),
+    company: z.union([z.string().trim().max(100), z.literal('')]).optional(),
+    timezone: z.union([z.string().trim().max(60), z.literal('')]).optional(),
+    language: z.union([z.string().trim().max(60), z.literal('')]).optional(),
+  }).strict(),
+  changePassword: z.object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z.string().min(8, 'Password must be at least 8 characters').max(128)
+      .regex(/[a-zA-Z]/, 'Password must include at least one letter')
+      .regex(/[0-9]/, 'Password must include at least one number'),
+  }).refine((v) => v.newPassword !== v.currentPassword, {
+    message: 'New password must be different from your current password',
+    path: ['newPassword'],
+  }),
+};
