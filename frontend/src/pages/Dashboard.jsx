@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import CreateCampaign from './CreateCampaign.jsx';
 import { wFetch, apiFetch } from '../lib/api.js';
+import { validateMeaningfulText } from '../lib/validation.js';
 import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 import ContactsView from './ContactsView.jsx';
 import InboxView from './InboxView.jsx';
@@ -785,6 +786,13 @@ const CampaignsView = ({ onCreateCampaign }) => {
     loadCampaigns();
   }, []);
 
+  // Deep link from the campaign completion/failure email's "View Full
+  // Report" button (?campaignId=…) — open that campaign's report directly.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('campaignId');
+    if (id) setDetailId(id);
+  }, []);
+
   useEffect(() => {
     const active = campaigns.some(c => c.status === 'RUNNING' || c.status === 'SCHEDULED');
     if (!active) return;
@@ -938,7 +946,8 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
   const submit = async () => {
     setErr(null);
     if (!nameValid) { setErr('Name must contain only lowercase letters, numbers and underscores.'); return; }
-    if (!body.trim()) { setErr('Body text is required.'); return; }
+    const bodyError = validateMeaningfulText(body, 'Body text');
+    if (bodyError) { setErr(bodyError); return; }
     for (const n of vars) {
       if (!examples[n]?.trim()) { setErr(`Provide an example value for variable {{${n}}}.`); return; }
     }
@@ -1856,7 +1865,7 @@ export default function Dashboard({ onNav, routePath }) {
     if (page === 'contacts')   return <ContactsView />;
     if (page === 'automation')     return <AutomationView />;
     if (page === 'analytics')      return <AnalyticsView />;
-    if (page === 'chat-analysis')  return <ChatAnalytics workspaceId={user.workspaceId} token={token} />;
+    if (page === 'chat-analysis')  return <ChatAnalytics workspaceId={user.workspaceId} />;
     if (page === 'user-analytics') return <UserAnalyticsView />;
     if (page === 'integrations')   return <IntegrationsView />;
     if (page === 'setup')          return <NumberSetupView />;

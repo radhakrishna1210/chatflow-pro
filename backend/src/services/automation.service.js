@@ -109,18 +109,58 @@ export async function listTriggers(workspaceId) {
   return prisma.automationTrigger.findMany({ where: { workspaceId }, orderBy: { createdAt: 'desc' } });
 }
 
+// Normalized to uppercase so "hi"/"Hi"/"HI" are all treated as the same
+// keyword for both duplicate detection and the unique DB constraint —
+// matches the casing the frontend already sends.
+const normalizeKeyword = (k) => String(k || '').trim().toUpperCase();
+
+async function assertKeywordAvailable(workspaceId, keyword, excludeId) {
+  const existing = await prisma.automationTrigger.findFirst({
+    where: { workspaceId, keyword, ...(excludeId ? { id: { not: excludeId } } : {}) },
+  });
+  if (existing) {
+    const e = new Error('A trigger for this keyword already exists');
+    e.status = 409;
+    throw e;
+  }
+}
+
 export async function createTrigger(workspaceId, { keyword, responseTemplate, isActive = true }) {
-  return prisma.automationTrigger.create({ data: { workspaceId, keyword, responseTemplate, isActive } });
+  const normalized = normalizeKeyword(keyword);
+  await assertKeywordAvailable(workspaceId, normalized);
+  try {
+    return await prisma.automationTrigger.create({ data: { workspaceId, keyword: normalized, responseTemplate, isActive } });
+  } catch (err) {
+    // Defense in depth against a race between the check above and the insert.
+    if (err.code === 'P2002') {
+      const e = new Error('A trigger for this keyword already exists');
+      e.status = 409;
+      throw e;
+    }
+    throw err;
+  }
 }
 
 export async function updateTrigger(workspaceId, id, updates) {
   const trigger = await prisma.automationTrigger.findFirst({ where: { id, workspaceId } });
   if (!trigger) { const e = new Error('Trigger not found'); e.status = 404; throw e; }
   const data = {};
-  if (updates.keyword !== undefined) data.keyword = updates.keyword;
+  if (updates.keyword !== undefined) {
+    data.keyword = normalizeKeyword(updates.keyword);
+    await assertKeywordAvailable(workspaceId, data.keyword, id);
+  }
   if (updates.responseTemplate !== undefined) data.responseTemplate = updates.responseTemplate;
   if (updates.isActive !== undefined) data.isActive = updates.isActive;
-  return prisma.automationTrigger.update({ where: { id }, data });
+  try {
+    return await prisma.automationTrigger.update({ where: { id }, data });
+  } catch (err) {
+    if (err.code === 'P2002') {
+      const e = new Error('A trigger for this keyword already exists');
+      e.status = 409;
+      throw e;
+    }
+    throw err;
+  }
 }
 
 export async function deleteTrigger(workspaceId, id) {

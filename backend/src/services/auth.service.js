@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { randomUUID, randomInt, createHash } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
-import { queueWelcomeEmail, queueSignupOtpEmail } from './email.service.js';
+import { queueWelcomeEmail, queueSignupOtpEmail, queuePasswordResetOtpEmail } from './email.service.js';
 import { consumeInvitationAtomically } from './invitations.service.js';
 
 function generateTokens(userId, workspaceId, role, superAdmin = false) {
@@ -398,6 +398,73 @@ export async function verifySignup({ email, code, role = 'CLIENT', inviteToken }
     user: { id: user.id, name: user.name, email: user.email, role: joined?.role ?? null, superAdmin },
     workspace: joined?.workspace ?? null,
   };
+}
+
+// ─── Forgot / reset password ──────────────────────────────────────────────────
+// Mirrors the signup OTP flow above: a 6-digit code is emailed and hashed
+// into EmailOtp (purpose: 'PASSWORD_RESET'), carrying the *new* password's
+// hash so nothing is applied to the User row until the code is verified.
+export async function startPasswordReset({ email }) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  // Don't reveal whether the email exists — always respond the same way.
+  if (!user) return { message: 'If an account exists for this email, a reset code has been sent.' };
+
+  const recent = await prisma.emailOtp.findFirst({
+    where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', consumed: false, createdAt: { gt: new Date(Date.now() - 60 * 1000) } },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (recent) { const e = new Error('A code was just sent — please wait a minute before requesting another.'); e.status = 429; throw e; }
+
+  await prisma.emailOtp.updateMany({ where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', consumed: false }, data: { consumed: true } });
+
+  const code = String(randomInt(100000, 1000000));
+  await prisma.emailOtp.create({
+    data: {
+      email: normalizedEmail, codeHash: hashCode(code), purpose: 'PASSWORD_RESET',
+      name: user.name, expiresAt: new Date(Date.now() + OTP_TTL_MS),
+    },
+  });
+  await queuePasswordResetOtpEmail({ email: normalizedEmail, name: user.name, code }).catch((err) => {
+    console.error('[auth] Failed to queue password reset email:', err.message);
+  });
+
+  return { message: 'If an account exists for this email, a reset code has been sent.' };
+}
+
+export async function resetPassword({ email, code, newPassword }) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const otp = await prisma.emailOtp.findFirst({
+    where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', consumed: false },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!otp) { const e = new Error('No reset code found — request a new one.'); e.status = 404; throw e; }
+  if (otp.expiresAt < new Date()) { const e = new Error('Reset code expired — request a new one.'); e.status = 400; throw e; }
+
+  if (otp.codeHash !== hashCode(code)) {
+    const attempts = otp.attempts + 1;
+    await prisma.emailOtp.update({
+      where: { id: otp.id },
+      data: attempts >= MAX_OTP_ATTEMPTS ? { attempts, consumed: true } : { attempts },
+    });
+    const e = new Error(attempts >= MAX_OTP_ATTEMPTS ? 'Too many incorrect attempts — request a new code.' : 'Incorrect code');
+    e.status = 400;
+    throw e;
+  }
+
+  await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed: true } });
+
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  if (!user) { const e = new Error('Account no longer exists'); e.status = 404; throw e; }
+
+  const passwordHash = await bcrypt.hash(newPassword, env.BCRYPT_SALT_ROUNDS);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+  // Invalidate every existing session — a leaked/expired password shouldn't
+  // leave old refresh tokens usable after a reset.
+  await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+
+  return { message: 'Password updated — please sign in with your new password.' };
 }
 
 // ─── Workspace creation ───────────────────────────────────────────────────────

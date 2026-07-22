@@ -19,3 +19,8 @@ export async function revoke(req, res) {
   await apiKeysService.revokeApiKey(req.params.workspaceId, req.params.id);
   res.status(204).send();
 }
+
+export async function testMessage(req, res) {
+  const result = await apiKeysService.sendTestMessage(req.params.workspaceId, req.body);
+  res.json(result);
+}

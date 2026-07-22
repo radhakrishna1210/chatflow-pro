@@ -214,7 +214,9 @@ export default function NumberSetupView() {
         no_phone_numbers: 'Your WhatsApp Business Account has no phone numbers yet.',
         exchange_failed: 'Meta token exchange failed. Check the app credentials and redirect URI configuration.',
       };
-      return { error: map[err] || `Meta connection failed (${err}).` };
+      const detail = q.get('meta_detail');
+      const base = map[err] || `Meta connection failed (${err}).`;
+      return { error: detail ? `${base} Meta said: "${detail}"` : base };
     }
     return null;
   });

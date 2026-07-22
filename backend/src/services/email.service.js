@@ -130,8 +130,12 @@ function welcomeHtml({ name }) {
   `);
 }
 
-function campaignCompletedHtml({ recipientName, campaignName, sent, delivered, read, failed, totalContacts }) {
-  const appUrl = env.APP_URL || '#';
+function campaignCompletedHtml({ recipientName, campaignName, sent, delivered, read, failed, totalContacts, campaignId }) {
+  // /dashboard/campaigns is a frontend SPA route, not a backend one —
+  // env.APP_URL is documented as the backend base URL (used for OAuth
+  // callback derivation), so this must use CLIENT_URL instead, same as
+  // inviteWithLinkHtml below.
+  const appUrl = campaignId ? `${env.CLIENT_URL}/dashboard/campaigns?campaignId=${encodeURIComponent(campaignId)}` : `${env.CLIENT_URL}/dashboard/campaigns`;
   const deliveryRate = sent > 0 ? Math.round((delivered / sent) * 100) : 0;
   const readRate = delivered > 0 ? Math.round((read / delivered) * 100) : 0;
 
@@ -152,8 +156,8 @@ function campaignCompletedHtml({ recipientName, campaignName, sent, delivered, r
   `);
 }
 
-function campaignFailedHtml({ recipientName, campaignName }) {
-  const appUrl = env.APP_URL || '#';
+function campaignFailedHtml({ recipientName, campaignName, campaignId }) {
+  const appUrl = campaignId ? `${env.CLIENT_URL}/dashboard/campaigns?campaignId=${encodeURIComponent(campaignId)}` : `${env.CLIENT_URL}/dashboard/campaigns`;
   return layout(`
     <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 28px;">
       <p style="margin:0;color:#991b1b;font-size:13px;font-weight:600;">Campaign Failed</p>
@@ -293,6 +297,7 @@ const SUBJECTS = {
   'workspace-invite':  "You've been invited to a workspace",
   'api-key-created':   'Security Alert: New API Key Created',
   'signup-otp':        'Your ChatFlow Pro verification code',
+  'password-reset-otp': 'Your ChatFlow Pro password reset code',
 };
 
 const BUILDERS = {
@@ -305,6 +310,7 @@ const BUILDERS = {
   'workspace-invite':  inviteWithLinkHtml,
   'api-key-created':   apiKeyCreatedHtml,
   'signup-otp':        signupOtpHtml,
+  'password-reset-otp': passwordResetOtpHtml,
 };
 
 export function buildEmailHtml(type, payload) {
@@ -348,6 +354,7 @@ export async function queueCampaignCompletedEmail(campaign) {
       payload: {
         recipientName: m.name,
         campaignName: campaign.name,
+        campaignId: campaign.id,
         sent: campaign.sent,
         delivered: campaign.delivered,
         read: campaign.read,
@@ -370,7 +377,7 @@ export async function queueCampaignFailedEmail(campaign) {
     await emailQueue.add('campaign-failed', {
       type: 'campaign-failed',
       to: m.email,
-      payload: { recipientName: m.name, campaignName: campaign.name },
+      payload: { recipientName: m.name, campaignName: campaign.name, campaignId: campaign.id },
     });
   }
 }
@@ -461,4 +468,17 @@ function signupOtpHtml({ code, name }) {
 
 export async function queueSignupOtpEmail({ email, name, code }) {
   await emailQueue.add('signup-otp', { type: 'signup-otp', to: email, payload: { code, name } });
+}
+
+function passwordResetOtpHtml({ code, name }) {
+  return layout(`
+    <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Reset your password</h2>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, use this code to reset your ChatFlow Pro password:</p>
+    <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#0f172a;background:#f1f5f9;border-radius:10px;padding:18px;text-align:center;margin:18px 0;">${esc(code)}</div>
+    <p style="margin:0;color:#94a3b8;font-size:13px;">This code expires in 10 minutes. If you didn't request a password reset, you can safely ignore this email — your password will not be changed.</p>
+  `);
+}
+
+export async function queuePasswordResetOtpEmail({ email, name, code }) {
+  await emailQueue.add('password-reset-otp', { type: 'password-reset-otp', to: email, payload: { code, name } });
 }

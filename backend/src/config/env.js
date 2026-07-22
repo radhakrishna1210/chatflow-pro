@@ -38,6 +38,12 @@ const envSchema = z.object({
   // Must exactly match the redirect_uri configured in the Meta App dashboard
   // for Embedded Signup. Defaults to the backend callback route.
   META_REDIRECT_URI: z.string().url().optional(),
+  // Meta Embedded Signup "configuration ID", created in the App Dashboard
+  // under WhatsApp > Embedded Signup. Without this, the frontend can't use
+  // FB.login's Embedded Signup flow and silently falls back to the legacy
+  // dialog/oauth flow, which throws Meta's "App not active" error for
+  // Development-mode apps requesting advanced WhatsApp permissions.
+  META_ES_CONFIG_ID: z.string().optional(),
 
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),

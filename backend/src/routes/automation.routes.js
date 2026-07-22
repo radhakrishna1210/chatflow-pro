@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { authorize } from '../middleware/authorize.js';
 import { requireFeature } from '../middleware/requireFeature.js';
+import { validate, automationSchemas } from '../validators/index.js';
 
 const router = Router({ mergeParams: true });
 
@@ -14,8 +15,8 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext, requireFeature('automation'));
 
 router.get('/triggers', automationController.list);
-router.post('/triggers', authorize('CLIENT'), automationController.create);
-router.patch('/triggers/:id', authorize('CLIENT'), automationController.update);
+router.post('/triggers', authorize('CLIENT'), validate({ body: automationSchemas.createTrigger }), automationController.create);
+router.patch('/triggers/:id', authorize('CLIENT'), validate({ body: automationSchemas.updateTrigger }), automationController.update);
 router.delete('/triggers/:id', authorize('CLIENT'), automationController.remove);
 
 router.get('/basic', automationController.getBasicAutomations);
