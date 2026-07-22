@@ -5,6 +5,7 @@ import * as campaignsController from '../controllers/campaigns.controller.js';
 import * as contactsController from '../controllers/contacts.controller.js';
 import * as settingsController from '../controllers/settings.controller.js';
 import * as whatsappService from '../services/whatsapp.service.js';
+import { validate, templateSchemas, campaignSchemas } from '../validators/index.js';
 
 const router = Router();
 
@@ -30,12 +31,12 @@ router.post('/messages', async (req, res, next) => {
 
 // --- Templates ---
 router.get('/templates', injectWorkspace(templatesController.list));
-router.post('/templates', injectWorkspace(templatesController.create));
+router.post('/templates', validate({ body: templateSchemas.create }), injectWorkspace(templatesController.create));
 router.get('/templates/:id', injectWorkspace(templatesController.getOne));
 
 // --- Campaigns ---
 router.get('/campaigns', injectWorkspace(campaignsController.list));
-router.post('/campaigns', injectWorkspace(campaignsController.create));
+router.post('/campaigns', validate({ body: campaignSchemas.create }), injectWorkspace(campaignsController.create));
 router.get('/campaigns/:id', injectWorkspace(campaignsController.getOne));
 router.post('/campaigns/:id/launch', injectWorkspace(campaignsController.launch));
 

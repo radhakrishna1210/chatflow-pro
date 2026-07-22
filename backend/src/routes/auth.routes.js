@@ -21,6 +21,10 @@ router.post('/register', loginLimiter, validate({ body: authSchemas.register }),
 router.post('/register/start',  loginLimiter, validate({ body: authSchemas.signupStart }), authController.startSignup);
 router.post('/register/verify', loginLimiter, validate({ body: authSchemas.signupVerify }), authController.verifySignup);
 router.post('/register/resend', loginLimiter, validate({ body: authSchemas.signupResend }), authController.resendSignupOtp);
+// OTP-verified password reset (same shape as signup: a code is emailed, the
+// new password only takes effect once it's verified).
+router.post('/forgot-password', loginLimiter, validate({ body: authSchemas.forgotPassword }), authController.forgotPassword);
+router.post('/reset-password',  loginLimiter, validate({ body: authSchemas.resetPassword }),  authController.resetPassword);
 router.post('/login',    loginLimiter, validate({ body: authSchemas.login }),    authController.login);
 router.post('/refresh',  refreshLimiter, validate({ body: authSchemas.refresh }), authController.refresh);
 router.post('/logout',   authController.logout);
@@ -91,7 +95,15 @@ router.get('/meta/start', authenticate, async (req, res) => {
 router.get('/meta/callback', async (req, res) => {
   const { code, state } = req.query;
   const { env } = await import('../config/env.js');
-  const fail = (reason) => res.redirect(`${env.CLIENT_URL}/dashboard/setup?meta_error=${encodeURIComponent(reason)}`);
+  // `detail` carries a short, safe excerpt of the real Meta error (when
+  // available) so the user sees the actual reason instead of only ever
+  // getting the generic `exchange_failed` code.
+  const fail = (reason, detail) => {
+    const url = new URL(`${env.CLIENT_URL}/dashboard/setup`);
+    url.searchParams.set('meta_error', reason);
+    if (detail) url.searchParams.set('meta_detail', String(detail).slice(0, 200));
+    return res.redirect(url.toString());
+  };
 
   if (!code) return fail('missing_code');
   const payload = verifyState(state, 30 * 60_000);
@@ -154,7 +166,8 @@ router.get('/meta/callback', async (req, res) => {
   } catch (err) {
     console.error('[Meta OAuth]', err.response?.data || err.message);
     // Always redirect on error — a JSON 500 leaves the OAuth popup hanging.
-    return fail('exchange_failed');
+    const metaMessage = err.response?.data?.error?.message || err.response?.data?.error_message;
+    return fail('exchange_failed', metaMessage);
   }
 });
 

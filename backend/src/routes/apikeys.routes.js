@@ -13,5 +13,6 @@ router.get('/', apiKeysController.list);
 router.post('/', authorize('ADMIN'), validate({ body: apiKeySchemas.create }), apiKeysController.create);
 router.post('/:id/rotate', authorize('ADMIN'), apiKeysController.rotate);
 router.delete('/:id', authorize('ADMIN'), apiKeysController.revoke);
+router.post('/test-message', authorize('ADMIN'), validate({ body: apiKeySchemas.testMessage }), apiKeysController.testMessage);
 
 export default router;

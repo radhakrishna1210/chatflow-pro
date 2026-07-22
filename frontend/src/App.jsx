@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import AuthCallback from './pages/AuthCallback.jsx';
 import WorkspaceSetup from './pages/WorkspaceSetup.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
 
 // ─── Tiny history-based router ────────────────────────────────────────────────
 // Real URLs (/login, /register, /dashboard/campaigns, …) so browser
@@ -100,6 +101,8 @@ export default function App() {
   if (path === '/invite/accept') return <InviteAccept />;
   if (path === '/login')         return <Login onNav={nav} mode="login" />;
   if (path === '/register')      return <Register onNav={nav} />;
+  // Must work whether or not the visitor is logged in, same as /invite/accept.
+  if (path === '/forgot-password') return <ForgotPassword />;
   if (path === '/setup') {
     if (!isAuthed() || canAccessDashboard()) return null; // guard effect redirects
     return <WorkspaceSetup onNav={nav} />;

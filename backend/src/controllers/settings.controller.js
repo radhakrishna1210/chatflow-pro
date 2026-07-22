@@ -14,3 +14,8 @@ export async function getInvoices(req, res) {
   const invoices = await settingsService.getInvoices(req.params.workspaceId);
   res.json(invoices);
 }
+
+export async function testWebhook(req, res) {
+  const result = await settingsService.testWebhook(req.params.workspaceId);
+  res.json(result);
+}

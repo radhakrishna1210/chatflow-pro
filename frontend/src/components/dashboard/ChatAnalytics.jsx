@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 import { I } from '../Icons.jsx';
+import { wFetch } from '../../lib/api.js';
 
 // Shared surface used across all dashboard cards.
 const card = {
@@ -67,7 +68,7 @@ const Avatar = ({ name = '?', size = 28 }) => {
   );
 };
 
-export default function ChatAnalytics({ workspaceId, token }) {
+export default function ChatAnalytics({ workspaceId }) {
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -75,6 +76,15 @@ export default function ChatAnalytics({ workspaceId, token }) {
 
   // Fetch on mount and whenever the date window changes. Aborts the previous
   // in-flight request so toggling the filter doesn't race.
+  //
+  // Uses wFetch (not a raw fetch) so this always sends the *current* token
+  // straight from localStorage and gets the app's automatic 401-refresh-and-
+  // retry — a raw fetch with a token captured at render time would fail
+  // silently and permanently if the access token had already expired by the
+  // time this page first loads, which is exactly what caused analytics to
+  // only start working after the user touched the date filter (by which
+  // point some other wFetch-based widget on the page had already refreshed
+  // the token).
   useEffect(() => {
     if (!workspaceId) return;
 
@@ -82,13 +92,7 @@ export default function ChatAnalytics({ workspaceId, token }) {
     setLoading(true);
     setError('');
 
-    fetch(`/api/v1/workspaces/${workspaceId}/analytics/chat?days=${days}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      signal: ctrl.signal,
-    })
+    wFetch(`/analytics/chat?days=${days}`, { signal: ctrl.signal })
       .then(async (res) => {
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error || `Analytics request failed (${res.status})`);
@@ -103,7 +107,7 @@ export default function ChatAnalytics({ workspaceId, token }) {
       });
 
     return () => ctrl.abort();
-  }, [workspaceId, token, days]);
+  }, [workspaceId, days]);
 
   const chartData = useMemo(() => {
     const rows = data?.dailyVolume || [];

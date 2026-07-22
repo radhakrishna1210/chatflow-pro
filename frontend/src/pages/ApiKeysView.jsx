@@ -43,14 +43,27 @@ export default function ApiKeysView() {
   const [newName, setNewName]   = useState('');
   const [webhookUrl, setWebhookUrl] = useState('');
   const [events, setEvents]     = useState(() => Object.fromEntries(EVENTS.map(e=>[e.id,e.default])));
+  const [webhookSaving, setWebhookSaving] = useState(false);
+  const [webhookMsg, setWebhookMsg] = useState(null); // { ok } | { error }
+  const [webhookTesting, setWebhookTesting] = useState(false);
+  const [webhookTestMsg, setWebhookTestMsg] = useState(null); // { ok } | { error }
   const [testPhone, setTestPhone] = useState('');
   const [testTpl, setTestTpl]   = useState('');
   const [testBody, setTestBody] = useState('');
+  const [testErrors, setTestErrors] = useState({});
   const [sending, setSending]   = useState(false);
   const [sent, setSent]         = useState(false);
+  const [sendError, setSendError] = useState('');
 
   useEffect(() => {
     wFetch('/api-keys').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setKeys(d)}).catch(()=>{});
+    wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{
+      if (!d) return;
+      if (d.webhookUrl) setWebhookUrl(d.webhookUrl);
+      if (Array.isArray(d.webhookEvents)) {
+        setEvents(Object.fromEntries(EVENTS.map(e => [e.id, d.webhookEvents.includes(e.id)])));
+      }
+    }).catch(()=>{});
   }, []);
 
   const generate = async () => {
@@ -73,11 +86,78 @@ export default function ApiKeysView() {
     setKeys(p => p.filter(k => k.id!==id));
   };
 
+  const saveWebhook = async () => {
+    const trimmed = webhookUrl.trim();
+    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+      setWebhookMsg({ error: 'Enter a valid URL starting with http:// or https://' });
+      return;
+    }
+    setWebhookSaving(true);
+    setWebhookMsg(null);
+    try {
+      const res = await wFetch('/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ webhookUrl: trimmed, webhookEvents: Object.keys(events).filter(k => events[k]) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setWebhookMsg({ error: data.error || 'Could not save webhook configuration' }); return; }
+      setWebhookMsg({ ok: 'Webhook configuration saved.' });
+    } catch (e) {
+      setWebhookMsg({ error: e.message || 'Could not save webhook configuration' });
+    } finally {
+      setWebhookSaving(false);
+    }
+  };
+
+  const testWebhookCall = async () => {
+    setWebhookTesting(true);
+    setWebhookTestMsg(null);
+    try {
+      const res = await wFetch('/settings/webhook/test', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setWebhookTestMsg({ error: data.error || 'Webhook test failed' }); return; }
+      setWebhookTestMsg({ ok: `Test payload delivered (status ${data.status}).` });
+    } catch (e) {
+      setWebhookTestMsg({ error: e.message || 'Webhook test failed' });
+    } finally {
+      setWebhookTesting(false);
+    }
+  };
+
+  const validateTestFields = () => {
+    const errs = {};
+    if (!testPhone.trim()) errs.phone = 'Phone number is required';
+    else if (!/^[+\d][\d\s-]{5,19}$/.test(testPhone.trim())) errs.phone = 'Enter a valid phone number';
+    if (!testTpl.trim() && !testBody.trim()) {
+      errs.message = 'Provide a Template ID or a Message';
+    }
+    return errs;
+  };
+
   const sendTest = async () => {
+    const errs = validateTestFields();
+    setTestErrors(errs);
+    if (Object.keys(errs).length > 0) return;
     setSending(true);
-    await new Promise(r=>setTimeout(r,800));
-    setSending(false); setSent(true);
-    setTimeout(()=>setSent(false),2000);
+    setSendError('');
+    try {
+      const res = await wFetch('/api-keys/test-message', {
+        method: 'POST',
+        body: JSON.stringify({
+          to: testPhone.trim(),
+          templateId: testTpl.trim() || undefined,
+          message: testBody.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to send test message');
+      setSent(true);
+      setTimeout(() => setSent(false), 2500);
+    } catch (e) {
+      setSendError(e.message || 'Failed to send test message');
+    } finally {
+      setSending(false);
+    }
   };
 
   const envBadge = env => ({
@@ -177,9 +257,19 @@ export default function ApiKeysView() {
               })}
             </div>
           </div>
+          {webhookMsg && (
+            <p style={{ fontSize:12, color: webhookMsg.error ? '#f87171' : 'var(--green)', margin:'0 0 10px' }}>
+              {webhookMsg.error || webhookMsg.ok}
+            </p>
+          )}
+          {webhookTestMsg && (
+            <p style={{ fontSize:12, color: webhookTestMsg.error ? '#f87171' : 'var(--green)', margin:'0 0 10px' }}>
+              {webhookTestMsg.error || webhookTestMsg.ok}
+            </p>
+          )}
           <div style={{ display:'flex', gap:8 }}>
-            <Btn>Save</Btn>
-            <Btn variant="outline">Test Webhook</Btn>
+            <Btn onClick={saveWebhook} disabled={webhookSaving}>{webhookSaving ? 'Saving…' : 'Save'}</Btn>
+            <Btn variant="outline" onClick={testWebhookCall} disabled={webhookTesting}>{webhookTesting ? 'Testing…' : 'Test Webhook'}</Btn>
           </div>
         </div>
 
@@ -189,22 +279,25 @@ export default function ApiKeysView() {
             <I n="send" s={16} c="var(--green)" />
             <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>API Playground</span>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:4 }}>
             <div>
               <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Phone Number</label>
               {inp(testPhone,setTestPhone,'+91 98765 43210')}
+              {testErrors.phone && <p style={{ fontSize:11.5, color:'#f87171', margin:'6px 0 0' }}>{testErrors.phone}</p>}
             </div>
             <div>
               <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Template ID</label>
               {inp(testTpl,setTestTpl,'welcome_message')}
             </div>
           </div>
-          <div style={{ marginBottom:14 }}>
+          <div style={{ marginBottom:14, marginTop:8 }}>
             <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Message Body</label>
             <textarea value={testBody} onChange={e=>setTestBody(e.target.value)} placeholder="Enter test message…"
               style={{ width:'100%', minHeight:80, padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', resize:'vertical', boxSizing:'border-box', lineHeight:1.55 }} />
+            {testErrors.message && <p style={{ fontSize:11.5, color:'#f87171', margin:'6px 0 0' }}>{testErrors.message}</p>}
           </div>
-          <Btn onClick={sendTest} style={{ width:'100%', justifyContent:'center', boxShadow:'var(--glow)' }}>
+          {sendError && <p style={{ fontSize:12, color:'#f87171', margin:'0 0 12px' }}>{sendError}</p>}
+          <Btn onClick={sendTest} disabled={sending} style={{ width:'100%', justifyContent:'center', boxShadow:'var(--glow)' }}>
             {sending ? 'Sending…' : sent ? '✓ Sent!' : <>
               <I n="send" s={14} c="#060A10" />
               Send Test Message

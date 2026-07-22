@@ -22,6 +22,16 @@ export async function resendSignupOtp(req, res) {
   res.json(result);
 }
 
+// ─── Forgot / reset password ────────────────────────────────────────────────
+export async function forgotPassword(req, res) {
+  const result = await authService.startPasswordReset(req.body);
+  res.json(result);
+}
+export async function resetPassword(req, res) {
+  const result = await authService.resetPassword(req.body);
+  res.json(result);
+}
+
 export async function login(req, res) {
   const result = await authService.login(req.body);
   res.json(result);
