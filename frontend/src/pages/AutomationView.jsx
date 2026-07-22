@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch } from '../lib/api.js';
+import { wFetch, apiFetch } from '../lib/api.js';
+import { validateMeaningfulText } from '../lib/validation.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -116,25 +117,30 @@ const CustomAutoReplyTab = () => {
   const cancel     = () => { setCreating(false); setEditing(null); setError(''); };
 
   const save = async () => {
-    if (!kw.trim()) { setError('Keyword is required'); return; }
-    if (!resp.trim()) { setError('Response message is required'); return; }
+    const kwError = validateMeaningfulText(kw, 'Keyword');
+    if (kwError) { setError(kwError); return; }
+    const respError = validateMeaningfulText(resp, 'Response message');
+    if (respError) { setError(respError); return; }
+    const normalized = kw.trim().toUpperCase();
+    const duplicate = triggers.some(t => t.keyword === normalized && t.id !== editing?.id);
+    if (duplicate) { setError('A trigger for this keyword already exists'); return; }
     setError('');
     setSaving(true);
     try {
       if (editing) {
         const res = await wFetch(`/automation/triggers/${editing.id}`, {
           method: 'PATCH',
-          body: JSON.stringify({ keyword: kw.toUpperCase(), responseTemplate: resp })
+          body: JSON.stringify({ keyword: normalized, responseTemplate: resp })
         });
-        if (!res.ok) throw new Error('Failed to update trigger');
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to update trigger'); }
         const updated = await res.json();
         setTriggers(p => p.map(t => t.id === editing.id ? updated : t));
       } else {
         const res = await wFetch('/automation/triggers', {
           method: 'POST',
-          body: JSON.stringify({ keyword: kw.toUpperCase(), responseTemplate: resp, isActive: true })
+          body: JSON.stringify({ keyword: normalized, responseTemplate: resp, isActive: true })
         });
-        if (!res.ok) throw new Error('Failed to create trigger');
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to create trigger'); }
         const data = await res.json();
         setTriggers(p => [data, ...p]);
       }
@@ -312,8 +318,9 @@ const WorkflowsTab = () => {
   };
 
   const save = async () => {
-    if (!name.trim()) {
-      setError('Workflow name is required');
+    const nameError = validateMeaningfulText(name, 'Workflow name');
+    if (nameError) {
+      setError(nameError);
       return;
     }
     setError('');
@@ -374,14 +381,13 @@ const WorkflowsTab = () => {
   const runSimulation = async (w) => {
     setSimulatingId(w.id);
     setSimResult('');
-    const token = localStorage.getItem('accessToken');
     try {
-      const res = await fetch('/api/v1/ai/workflow/execute', {
+      // Uses apiFetch (not wFetch) because /ai/workflow/execute is mounted
+      // at the top-level /api/v1/ai, not under /workspaces/:id — but it still
+      // needs apiFetch's automatic 401-refresh-and-retry so this doesn't
+      // silently fail whenever the access token has expired.
+      const res = await apiFetch('/api/v1/ai/workflow/execute', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
         body: JSON.stringify({ workflowId: w.id, sampleMessage: 'Hi' })
       });
       if (res.ok) {
@@ -407,7 +413,8 @@ const WorkflowsTab = () => {
   };
 
   const generateAiPreview = async () => {
-    if (!aiPrompt.trim()) {
+    const promptError = validateMeaningfulText(aiPrompt, 'Prompt');
+    if (promptError) {
       setAiError('Describe the workflow you want AI to create.');
       return;
     }
@@ -946,7 +953,21 @@ const WhatsAppAIAgentTab = () => {
   }).catch(() => {});
   useEffect(() => { load(); }, []);
 
+  const validateAgentFields = () => {
+    if (name.trim()) {
+      const e = validateMeaningfulText(name, 'Agent name');
+      if (e) return e;
+    }
+    if (systemPrompt.trim()) {
+      const e = validateMeaningfulText(systemPrompt, 'System prompt');
+      if (e) return e;
+    }
+    return null;
+  };
+
   const save = async () => {
+    const fieldError = validateAgentFields();
+    if (fieldError) { setBanner({ error: fieldError }); return; }
     setSaving(true); setBanner(null);
     try {
       const res = await wFetch('/ai-agent/config', { method: 'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
@@ -959,6 +980,8 @@ const WhatsAppAIAgentTab = () => {
   };
 
   const deploy = async () => {
+    const fieldError = validateAgentFields();
+    if (fieldError) { setBanner({ error: fieldError }); return; }
     setDeploying(true); setBanner(null);
     try {
       await wFetch('/ai-agent/config', { method: 'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
@@ -1277,7 +1300,8 @@ const WhatsAppFormsTab = () => {
   const cancel     = () => { setCreating(false); setEditing(null); setError(''); };
 
   const save = async () => {
-    if (!formName.trim()) { setError('Form name is required'); return; }
+    const nameError = validateMeaningfulText(formName, 'Form name');
+    if (nameError) { setError(nameError); return; }
     setError('');
     try {
       if (editing) {
@@ -1285,7 +1309,7 @@ const WhatsAppFormsTab = () => {
           method: 'PATCH',
           body: JSON.stringify({ name: formName, fields: formFields, status: formStatus })
         });
-        if (!res.ok) throw new Error('Failed to update form');
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to update form'); }
         const updated = await res.json();
         setForms(prev => prev.map(f => f.id === editing.id ? updated : f));
       } else {
@@ -1293,7 +1317,7 @@ const WhatsAppFormsTab = () => {
           method: 'POST',
           body: JSON.stringify({ name: formName, fields: formFields })
         });
-        if (!res.ok) throw new Error('Failed to create form');
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to create form'); }
         const created = await res.json();
         setForms(prev => [created, ...prev]);
       }
@@ -1448,21 +1472,24 @@ const SmartListsTab = () => {
   const cancelSegForm = () => { setSegFormOpen(false); setEditingSeg(null); setSegError(''); };
 
   const saveSeg = async () => {
-    if (!segName.trim()) { setSegError('Segment name is required'); return; }
+    const nameError = validateMeaningfulText(segName, 'Segment name');
+    if (nameError) { setSegError(nameError); return; }
     setSegError('');
     try {
       if (editingSeg) {
+        // `desc`, not `description` — matches segmentSchemas/Prisma's Segment.desc;
+        // sending `description` was silently stripped by the backend schema.
         const res = await wFetch(`/segments/${editingSeg.id}`, {
           method: 'PATCH',
-          body: JSON.stringify({ name: segName, description: segDesc })
+          body: JSON.stringify({ name: segName, desc: segDesc })
         });
-        if (!res.ok) throw new Error('Failed to update segment');
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to update segment'); }
       } else {
         const res = await wFetch('/segments', {
           method: 'POST',
-          body: JSON.stringify({ name: segName, description: segDesc, color: segColors[segments.length % segColors.length] })
+          body: JSON.stringify({ name: segName, desc: segDesc, color: segColors[segments.length % segColors.length] })
         });
-        if (!res.ok) throw new Error('Failed to create segment');
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to create segment'); }
       }
       await fetchSegments();
       cancelSegForm();
@@ -1666,8 +1693,26 @@ const SmartListsTab = () => {
 };
 
 // ─── Main Component ───
-export default function AutomationView({ initialTab } = {}) {
-  const [activeTab, setActiveTab] = useState(() => TABS.some(t => t.id === initialTab) ? initialTab : 'basic');
+const TAB_IDS = new Set(TABS.map(t => t.id));
+
+export default function AutomationView() {
+  // Persist the selected tab in the URL (?tab=) so a refresh or a shared link
+  // lands back on the same tab instead of always resetting to Basic
+  // Automations. Read once on mount; Dashboard's router only looks at
+  // pathname (not search) so this doesn't interact with the outer route. This
+  // also means a Quick Link that pushes `?tab=wa-agent` (see Dashboard.jsx's
+  // pathFromSection) deep-links straight into that sub-tab.
+  const [activeTab, setActiveTab] = useState(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('tab');
+    return TAB_IDS.has(fromUrl) ? fromUrl : 'basic';
+  });
+
+  const selectTab = (id) => {
+    setActiveTab(id);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', id);
+    window.history.replaceState({}, '', url.pathname + url.search);
+  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -1692,7 +1737,7 @@ export default function AutomationView({ initialTab } = {}) {
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
           return (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            <button key={tab.id} onClick={() => selectTab(tab.id)}
               style={{
                 display:'flex', alignItems:'center', gap:'8px', padding:'12px 16px', cursor:'pointer',
                 background: isActive ? 'rgba(30,191,94,0.1)' : 'transparent', border:'none',

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
+import { validateMeaningfulText } from '../lib/validation.js';
 
 // Two-step, OTP-verified email signup. Step 1 collects name/email/password and
 // asks the backend to email a 6-digit code (no account is created yet). Step 2
@@ -9,7 +10,7 @@ import { Btn } from '../components/Btn.jsx';
 // be invited to one.
 export default function Register({ onNav }) {
   const [step, setStep] = useState('details'); // 'details' | 'otp'
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' });
   const [code, setCode] = useState('');
   const [status, setStatus] = useState('idle');
   const [errMsg, setErrMsg] = useState('');
@@ -68,12 +69,16 @@ export default function Register({ onNav }) {
 
   const submitDetails = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.email || !form.password) { setErrMsg('Please fill in all fields.'); setStatus('error'); return; }
+    if (!form.name || !form.email || !form.password || !form.confirmPassword) { setErrMsg('Please fill in all fields.'); setStatus('error'); return; }
+    const nameError = validateMeaningfulText(form.name, 'Full name');
+    if (nameError) { setErrMsg(nameError); setStatus('error'); return; }
     if (form.password.length < 8) { setErrMsg('Password must be at least 8 characters.'); setStatus('error'); return; }
+    if (form.password !== form.confirmPassword) { setErrMsg('Passwords do not match.'); setStatus('error'); return; }
     setStatus('loading'); setErrMsg('');
     try {
+      const { confirmPassword, ...payload } = form;
       const res = await fetch('/api/v1/auth/register/start', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not start signup');
@@ -191,6 +196,10 @@ export default function Register({ onNav }) {
                       <I n="eye" s={15} c="var(--t3)" />
                     </span>
                   </div>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--t1)', marginBottom: '7px' }}>Confirm password</label>
+                  <input type={showPass ? 'text' : 'password'} name="confirmPassword" placeholder="Re-enter your password" value={form.confirmPassword} onChange={change} style={inp('confirmPassword')} onFocus={() => setFocus('confirmPassword')} onBlur={() => setFocus('')} required />
                 </div>
                 <Btn type="submit" disabled={status === 'loading'} style={{ justifyContent: 'center', boxShadow: status === 'loading' ? 'none' : 'var(--glow)' }}>
                   {status === 'loading' ? 'Sending code…' : <>Continue <I n="arrow" s={14} c="#07090F" /></>}

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
+import { validateMeaningfulText } from '../lib/validation.js';
 
 // Extract body text from Meta components array
 const getBodyText = (components) => {
@@ -923,6 +924,8 @@ export default function CreateCampaign({ onBack }) {
 
   const handleGoLive = async () => {
     if (!canLaunch || launching) return;
+    const nameError = validateMeaningfulText(campaignName, 'Campaign name');
+    if (nameError) { alert(nameError); return; }
     setLaunching(true);
     try {
       // Only send a schedule time when "Schedule for Later" is active —
@@ -961,6 +964,10 @@ export default function CreateCampaign({ onBack }) {
     if (!selectedNumberId || !selectedTemplateId) {
       alert('Select a WhatsApp number and a template before saving a draft.');
       return;
+    }
+    if (campaignName.trim()) {
+      const nameError = validateMeaningfulText(campaignName, 'Campaign name');
+      if (nameError) { alert(nameError); return; }
     }
     try {
       const res = await wFetch('/campaigns', {

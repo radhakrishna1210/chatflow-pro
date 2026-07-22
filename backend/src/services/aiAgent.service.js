@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
+import { hasMeaningfulText } from '../lib/textValidation.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI Agent + AI Intent Matching
@@ -31,10 +32,28 @@ export async function getAgentConfig(workspaceId) {
   return { ...ws, llmAvailable: llmAvailable() };
 }
 
+// Rejects emoji/symbol-only text using the same shared rule validators/index.js
+// wraps into a Zod schema — this layer isn't behind a validate() Zod route
+// yet, so it calls the plain predicate directly instead of duplicating a regex.
+function assertMeaningfulIfPresent(value, label) {
+  const trimmed = value.trim();
+  if (trimmed && !hasMeaningfulText(trimmed)) {
+    const e = new Error(`${label} must contain at least one letter`);
+    e.status = 400;
+    throw e;
+  }
+}
+
 export async function updateAgentConfig(workspaceId, updates) {
   const data = {};
-  if (typeof updates.name === 'string') data.aiAgentName = updates.name.slice(0, 80);
-  if (typeof updates.systemPrompt === 'string') data.aiAgentPrompt = updates.systemPrompt.slice(0, 4000);
+  if (typeof updates.name === 'string') {
+    assertMeaningfulIfPresent(updates.name, 'Agent name');
+    data.aiAgentName = updates.name.slice(0, 80);
+  }
+  if (typeof updates.systemPrompt === 'string') {
+    assertMeaningfulIfPresent(updates.systemPrompt, 'System prompt');
+    data.aiAgentPrompt = updates.systemPrompt.slice(0, 4000);
+  }
   if (typeof updates.knowledge === 'string') data.aiAgentKnowledge = updates.knowledge.slice(0, 12000);
   if (typeof updates.model === 'string') data.aiAgentModel = updates.model.slice(0, 60);
   const ws = await prisma.workspace.update({ where: { id: workspaceId }, data, select: {
