@@ -31,9 +31,9 @@ const SUB_TABS = [
   { id: 'invoices',     label: 'Invoices',               icon: 'note'    },
 ];
 
-export default function PaymentsView() {
+export default function PaymentsView({ initialTab } = {}) {
   const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
-  const [activeSubTab, setActiveSubTab] = useState('wallet');
+  const [activeSubTab, setActiveSubTab] = useState(() => SUB_TABS.some(t => t.id === initialTab) ? initialTab : 'wallet');
   
   // Wallet state — server-authoritative. Balance and transactions come from the
   // backend wallet ledger, never localStorage.

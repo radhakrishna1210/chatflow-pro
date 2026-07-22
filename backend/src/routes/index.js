@@ -26,6 +26,7 @@ import subscriptionRoutes from './subscription.routes.js';
 import aiAgentRoutes from './aiAgent.routes.js';
 import invitationsRoutes, { publicInvitationsRouter } from './invitations.routes.js';
 import workspaceSwitchRoutes from './workspaceSwitch.routes.js';
+import usersRoutes from './users.routes.js';
 
 const router = Router();
 
@@ -35,6 +36,7 @@ router.use('/auth', authRoutes);
 router.use('/public', publicRoutes);
 router.use('/webhook', webhookRoutes);
 router.use('/admin', adminRoutes);
+router.use('/users', usersRoutes);
 router.use('/integrations/oauth', oauthCallbackRouter);
 router.use('/invitations', publicInvitationsRouter);
 

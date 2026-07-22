@@ -127,6 +127,7 @@ export async function login({ email, password }) {
   const role = member?.role ?? null;
   const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, role, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
+  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
 
   return {
     accessToken,
@@ -245,6 +246,7 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
   const workspaceId = joined?.workspaceId ?? member?.workspaceId ?? null;
   const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
+  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
 
   // Existing users are never auto-joined to an invited workspace here (that
   // still requires the explicit accept-invite step, same as the
@@ -392,6 +394,7 @@ export async function verifySignup({ email, code, role = 'CLIENT', inviteToken }
 
   const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
+  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
 
   return {
     accessToken, refreshToken,

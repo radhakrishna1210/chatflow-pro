@@ -1666,8 +1666,8 @@ const SmartListsTab = () => {
 };
 
 // ─── Main Component ───
-export default function AutomationView() {
-  const [activeTab, setActiveTab] = useState('basic');
+export default function AutomationView({ initialTab } = {}) {
+  const [activeTab, setActiveTab] = useState(() => TABS.some(t => t.id === initialTab) ? initialTab : 'basic');
 
   const renderContent = () => {
     switch (activeTab) {
