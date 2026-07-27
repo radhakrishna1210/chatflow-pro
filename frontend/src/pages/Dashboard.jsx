@@ -1235,7 +1235,7 @@ const TemplatesView = () => {
       });
       const data = await res.json();
       if (!res.ok) { setSyncMsg({ error: data.error || 'Sync failed' }); return; }
-      setSyncMsg({ ok: true, created: data.created, updated: data.updated, total: data.total });
+      setSyncMsg({ ok: true, created: data.created, updated: data.updated, removed: data.removed, total: data.total });
       await loadTemplates();
     } catch (e) {
       setSyncMsg({ error: e.message });
@@ -1372,7 +1372,8 @@ const TemplatesView = () => {
               : <p style={{ fontSize:12, color:'var(--green)' }}>
                   Synced {syncMsg.total} template{syncMsg.total !== 1 ? 's' : ''} from Meta
                   {syncMsg.created > 0 ? ` · ${syncMsg.created} new` : ''}
-                  {syncMsg.updated > 0 ? ` · ${syncMsg.updated} updated` : ''}.
+                  {syncMsg.updated > 0 ? ` · ${syncMsg.updated} updated` : ''}
+                  {syncMsg.removed > 0 ? ` · ${syncMsg.removed} removed (deleted on Meta)` : ''}.
                 </p>
             }
           </div>

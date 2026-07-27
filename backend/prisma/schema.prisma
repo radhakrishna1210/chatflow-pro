@@ -344,6 +344,7 @@ enum TemplateStatus {
   PENDING
   APPROVED
   REJECTED
+  DELETED
 }
 
 enum CampaignStatus {

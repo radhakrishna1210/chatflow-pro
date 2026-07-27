@@ -40,6 +40,9 @@ export async function processWebhook(body) {
 function mapMetaTemplateEvent(event) {
   if (event === 'APPROVED') return 'APPROVED';
   if (event === 'REJECTED' || event === 'DISABLED' || event === 'FLAGGED' || event === 'PAUSED') return 'REJECTED';
+  // Deleted on Meta — tombstone it so it drops out of the app immediately
+  // instead of falling through to PENDING and reappearing as "in review".
+  if (event === 'DELETED' || event === 'PENDING_DELETION') return 'DELETED';
   return 'PENDING';
 }
 
