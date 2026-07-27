@@ -66,7 +66,7 @@ export async function sendTestMessage(workspaceId, { to, templateId, message }) 
 
   try {
     if (templateId) {
-      const template = await prisma.template.findFirst({ where: { workspaceId, name: templateId } });
+      const template = await prisma.template.findFirst({ where: { workspaceId, name: templateId, status: { not: 'DELETED' } } });
       if (!template) { const e = new Error(`Template not found: "${templateId}"`); e.status = 404; throw e; }
 
       const body = Array.isArray(template.components)

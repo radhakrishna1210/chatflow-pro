@@ -32,6 +32,9 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
   ]);
 
   if (!template) { const e = new Error('Template not found'); e.status = 404; throw e; }
+  if (template.status === 'DELETED') {
+    const e = new Error('That template was deleted on Meta and can no longer be used'); e.status = 400; throw e;
+  }
   if (!waNumber) { const e = new Error('WhatsApp number not found'); e.status = 404; throw e; }
   // Enforce per-number template privacy: the template must belong to this number
   // (or be a legacy template with no number binding yet).

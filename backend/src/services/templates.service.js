@@ -27,7 +27,9 @@ async function resolveWaNumber(workspaceId, waNumberId, { required = true } = {}
 // returned (per-number privacy). Without it, returns all workspace templates
 // (used by pickers that group by number themselves).
 export async function listTemplates(workspaceId, waNumberId) {
-  const where = { workspaceId, ...(waNumberId ? { waNumberId } : {}) };
+  // DELETED rows are tombstones for templates removed on Meta. They are kept so
+  // campaigns that already reference them still resolve, but never listed.
+  const where = { workspaceId, status: { not: 'DELETED' }, ...(waNumberId ? { waNumberId } : {}) };
   return prisma.template.findMany({
     where,
     select: { id: true, name: true, category: true, language: true, status: true, components: true, waNumberId: true, metaTemplateId: true, aiGenerated: true, createdAt: true },
@@ -50,8 +52,10 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
 
   const metaTemplates = await getWabaTemplates(wabaId, accessToken);
   let created = 0, updated = 0;
+  const seenMetaIds = [];
 
   for (const mt of metaTemplates) {
+    seenMetaIds.push(String(mt.id));
     const existing = await prisma.template.findFirst({
       where: { workspaceId, waNumberId: waNumber.id, metaTemplateId: mt.id },
     });
@@ -67,7 +71,39 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
       created++;
     }
   }
-  return { total: metaTemplates.length, created, updated };
+
+  // Anything on this number that Meta no longer returns was deleted there, so
+  // mirror the deletion locally. Only rows that were sourced from Meta
+  // (metaTemplateId set) are eligible — locally drafted templates that have not
+  // been submitted yet must survive a sync.
+  const removed = await removeTemplatesMissingFromMeta(workspaceId, waNumber.id, seenMetaIds);
+
+  return { total: metaTemplates.length, created, updated, removed };
+}
+
+// Deletes local templates absent from Meta. Rows referenced by a campaign can't
+// be hard-deleted (the FK is restrict, and campaign history must stay intact),
+// so those are tombstoned as DELETED instead — either way they stop appearing.
+async function removeTemplatesMissingFromMeta(workspaceId, waNumberId, seenMetaIds) {
+  const stale = await prisma.template.findMany({
+    where: {
+      workspaceId,
+      waNumberId,
+      metaTemplateId: { not: null, notIn: seenMetaIds },
+      status: { not: 'DELETED' },
+    },
+    select: { id: true, _count: { select: { campaigns: true } } },
+  });
+  if (stale.length === 0) return 0;
+
+  const deletable = stale.filter((t) => t._count.campaigns === 0).map((t) => t.id);
+  const tombstone = stale.filter((t) => t._count.campaigns > 0).map((t) => t.id);
+
+  if (deletable.length) await prisma.template.deleteMany({ where: { id: { in: deletable } } });
+  if (tombstone.length) {
+    await prisma.template.updateMany({ where: { id: { in: tombstone } }, data: { status: 'DELETED' } });
+  }
+  return stale.length;
 }
 
 export async function createTemplate(workspaceId, { name, category, language, components, waNumberId }) {
@@ -138,7 +174,13 @@ export async function deleteTemplate(workspaceId, id) {
       await deleteMetaTemplate(waNumber.wabaId, template.metaTemplateId, decrypt(waNumber.encryptedAccessToken)).catch(() => null);
     }
   }
-  await prisma.template.delete({ where: { id } });
+  // Same rule as sync: hard-delete unless a campaign still points at it.
+  const usage = await prisma.campaign.count({ where: { templateId: id } });
+  if (usage > 0) {
+    await prisma.template.update({ where: { id }, data: { status: 'DELETED' } });
+  } else {
+    await prisma.template.delete({ where: { id } });
+  }
 }
 
 export async function duplicateTemplate(workspaceId, id) {
@@ -155,7 +197,7 @@ export async function duplicateTemplate(workspaceId, id) {
 }
 
 export async function listLibrary(workspaceId) {
-  const installed = await prisma.template.findMany({ where: { workspaceId }, select: { name: true, status: true } });
+  const installed = await prisma.template.findMany({ where: { workspaceId, status: { not: 'DELETED' } }, select: { name: true, status: true } });
   const installedByName = new Map(installed.map((t) => [t.name, t.status]));
   return TEMPLATE_LIBRARY.map((t) => ({
     id: t.id, title: t.title, description: t.description, useCase: t.useCase,
@@ -170,7 +212,7 @@ export async function installFromLibrary(workspaceId, libraryId, waNumberId) {
   if (!libTemplate) { const e = new Error('Library template not found'); e.status = 404; throw e; }
 
   const waNumber = await resolveWaNumber(workspaceId, waNumberId);
-  const existing = await prisma.template.findFirst({ where: { workspaceId, waNumberId: waNumber.id, name: libTemplate.name } });
+  const existing = await prisma.template.findFirst({ where: { workspaceId, waNumberId: waNumber.id, name: libTemplate.name, status: { not: 'DELETED' } } });
   if (existing) { const e = new Error(`Template "${libTemplate.name}" is already installed on this number.`); e.status = 409; throw e; }
 
   return createTemplate(workspaceId, {
