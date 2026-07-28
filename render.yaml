@@ -9,11 +9,20 @@
 # never stores them in this file. See DEPLOY.md for the full checklist.
 ##
 
-# Postgres and Redis are hosted externally (Supabase / Upstash), so this
-# blueprint declares no `databases:` block and no Key Value service — their
-# connection strings are supplied as secrets instead.
+# Postgres is hosted externally (Supabase), so there is no `databases:` block —
+# its connection string is supplied as a secret. Redis is a Render Key Value
+# instance: BullMQ workers poll continuously, which makes a per-request-billed
+# store (Upstash) structurally the wrong fit — its 500K/month cap was exhausted
+# and stopped every queue.
 
 services:
+  - type: keyvalue
+    name: chatflow-redis
+    plan: free # 25 MB, no persistence, expires after 30 days -> `starter` to keep it
+    # BullMQ loses jobs if Redis evicts keys under memory pressure.
+    maxmemoryPolicy: noeviction
+    ipAllowList: [] # private network only
+
   - type: web
     name: chatflow-pro
     runtime: node
@@ -44,10 +53,11 @@ services:
         sync: false
       - key: DIRECT_URL
         sync: false
-      # Upstash — use the `rediss://` (TLS) URL. See DEPLOY.md on the request
-      # quota: three BullMQ workers poll continuously and will burn a free plan.
       - key: REDIS_URL
-        sync: false
+        fromService:
+          type: keyvalue
+          name: chatflow-redis
+          property: connectionString
 
       # Same-origin single service: the SPA and the API share this URL.
       # Set both to https://<your-service>.onrender.com after the first deploy.
