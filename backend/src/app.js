@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { existsSync } from 'node:fs';
 import express from 'express';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
@@ -55,6 +57,22 @@ passport.use(
 
 app.use(passport.initialize());
 app.use('/api/v1', apiRoutes);
+
+// Serve the built frontend from the same service (single-service deploy on
+// Render). Skipped when frontend/dist doesn't exist — local dev keeps using
+// Vite's dev server and its /api proxy.
+const clientDist = path.resolve(import.meta.dirname, '../../frontend/dist');
+if (existsSync(path.join(clientDist, 'index.html'))) {
+  // Hashed assets are immutable; index.html must never be cached or users get
+  // stale bundles after a deploy.
+  app.use(express.static(clientDist, { index: false, maxAge: '1y' }));
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.startsWith('/api/')) return next();
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 app.use(errorHandler);
