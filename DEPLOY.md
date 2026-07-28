@@ -81,7 +81,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | --- | --- |
 | `DATABASE_URL` | Supabase → Project Settings → Database → Connection string → **Session mode (port 5432)**. Same value as in `backend/.env` |
 | `DIRECT_URL` | Optional while the pooler is in session mode — leave blank and it defaults to `DATABASE_URL` |
-| `REDIS_URL` | Upstash → database → the `rediss://` TLS URL. It's the commented-out line in `backend/.env` |
+| `REDIS_URL` | Upstash → database → the `rediss://` TLS URL. It's the commented-out line in `backend/.env`. Local dev stays on `redis://localhost:6379` — see `backend/docs/local-redis-setup.md` |
 | `CLIENT_URL` | Leave as `https://chatflow-pro.onrender.com` for now — corrected in step 5 |
 | `APP_URL` | Same value as `CLIENT_URL` |
 | `ENCRYPTION_KEY` | From step 2 |
@@ -165,18 +165,20 @@ around the clock, plus a stalled-job check every 30s per worker — all billed a
 requests, whether or not any campaign is running. A 24/7 Render instance polls
 strictly more than your laptop did.
 
-Options, cheapest first:
+**Mitigated, not solved.** All three workers now run with `drainDelay: 60s` and
+`stalledInterval: 5min` instead of BullMQ's 5s/30s defaults — roughly a 10x cut in
+idle request volume, at no cost to job pickup latency (a waiting worker is still
+woken the moment a job is pushed). Tune via `WORKER_DRAIN_DELAY_SEC` and
+`WORKER_STALLED_INTERVAL_MS` if needed; the trade-off is that a job orphaned by a
+crashed worker now waits up to 5 minutes to be reclaimed.
 
-1. Tune the polling. `src/workers/*.js` use BullMQ defaults; passing
-   `drainDelay: 60` and `stalledInterval: 300_000` to each `new Worker(...)` cuts
-   idle request volume by roughly an order of magnitude.
-2. Upgrade the Upstash plan (pay-as-you-go removes the hard cap).
-3. Switch to a Render Key Value instance — same-region private networking, no
-   per-request billing. This is the option the blueprint originally used.
+If the quota still runs out, the remaining options are upgrading Upstash to
+pay-as-you-go, or moving to a Render Key Value instance (private networking, no
+per-request billing).
 
-Whichever you pick, watch the Upstash console for the first week. Quota
-exhaustion looks like `[Redis] Error: ...max requests limit exceeded` in the logs,
-followed by campaigns silently not sending.
+Watch the Upstash console for the first week. Exhaustion looks like
+`[Redis] Error: ...max requests limit exceeded` in the logs, followed by campaigns
+silently not sending.
 
 **Free web-service tier is wrong for this app.** Render's free instances spin down
 after ~15 minutes idle. This app's BullMQ workers live *inside* the web process —
