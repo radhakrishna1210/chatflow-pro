@@ -29,13 +29,15 @@ const npm = isWindows ? 'npm.cmd' : 'npm';
 
 function run(cmd, args, cwd) {
   console.log(`[build] ${cmd} ${args.join(' ')}  (cwd: ${cwd})`);
-  // Node 20+ refuses to execFile a .cmd shim without a shell (CVE-2024-27980).
-  // Only needed for local Windows runs; the args here contain no shell metachars.
-  execFileSync(cmd, args, { cwd, stdio: 'inherit', shell: isWindows });
+  // Node 20+ refuses to execFile a .cmd shim without a shell (CVE-2024-27980),
+  // but a shell would also re-split an interpreter path containing spaces
+  // (C:\Program Files\...), so scope it to the .cmd case only.
+  execFileSync(cmd, args, { cwd, stdio: 'inherit', shell: cmd.endsWith('.cmd') });
 }
 
 // 1. Prisma client — the app cannot import @prisma/client without this.
-run(npm, ['exec', '--', 'prisma', 'generate'], backendDir);
+//    Goes through the wrapper so schema validation gets a DIRECT_URL.
+run(process.execPath, [path.join(backendDir, 'scripts/prisma-cli.js'), 'generate'], backendDir);
 
 // 2. Frontend bundle, served by app.js at the same origin as the API.
 //    Skipped when dist/ is already present, so an explicit buildCommand that

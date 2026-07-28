@@ -11,7 +11,7 @@ Render Web Service  "chatflow-pro"     (backend/ as rootDir)
 │                             ├─ prisma generate
 │                             └─ npm ci + vite build in ../frontend
 ├── start:  npm run start:prod
-│           └─ prisma migrate deploy && node src/server.js
+│           └─ scripts/prisma-cli.js migrate deploy && node src/server.js
 └── serves: /api/v1/*  ->  Express router
             /*         ->  frontend/dist/index.html  (SPA fallback)
 
@@ -179,6 +179,12 @@ up as a crash-looping deploy rather than a failed build — check the deploy log
 for `prisma migrate` output, not the build logs. `backend/prisma/manual/` is *not*
 applied automatically; those need a shell (Render paid plans) or a one-off local
 run against `DATABASE_URL`.
+
+**`DIRECT_URL` is optional here.** `schema.prisma` declares it, and Prisma's CLI
+treats it as required (`P1012`) — but `scripts/prisma-cli.js` defaults it to
+`DATABASE_URL`, which is correct for Render Postgres because its connection
+strings aren't pgbouncer-pooled. Set `DIRECT_URL` explicitly only if you later
+move the app behind a connection pooler; an explicit value is never overwritten.
 
 **Region.** `render.yaml` sets `singapore`. Change it if your Postgres/users are
 elsewhere — the database and web service must share a region to use the private
