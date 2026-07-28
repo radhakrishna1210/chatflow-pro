@@ -16,7 +16,7 @@ Render Web Service  "chatflow-pro"     (backend/ as rootDir)
             /*         ->  frontend/dist/index.html  (SPA fallback)
 
 Supabase Postgres   (pooler, ap-southeast-1, session mode / port 5432)
-Upstash Redis       (BullMQ campaign / email / billing queues)
+Render Key Value    "chatflow-redis"  (BullMQ campaign / email / billing queues)
 ```
 
 Postgres and Redis are **external** — the blueprint creates neither, it just
@@ -42,8 +42,9 @@ dashboard-created service needs only:
 - **Root Directory** — `backend`
 - **Health Check Path** — `/api/v1/health`
 
-Then add `DATABASE_URL` (Supabase) and `REDIS_URL` (Upstash) plus the variables in
-the step-3 table below. `server.js` exits on startup if either Postgres or Redis
+Then create a **Key Value** instance (New → Key Value, same region as the web
+service, `noeviction`) and add its *Internal* URL as `REDIS_URL`, plus
+`DATABASE_URL` from Supabase and the variables in the step-3 table below. `server.js` exits on startup if either Postgres or Redis
 is unreachable, so those two are what a crash-loop usually means.
 
 ---
@@ -81,7 +82,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | --- | --- |
 | `DATABASE_URL` | Supabase → Project Settings → Database → Connection string → **Session mode (port 5432)**. Same value as in `backend/.env` |
 | `DIRECT_URL` | Optional while the pooler is in session mode — leave blank and it defaults to `DATABASE_URL` |
-| `REDIS_URL` | Upstash → database → the `rediss://` TLS URL. It's the commented-out line in `backend/.env`. Local dev stays on `redis://localhost:6379` — see `backend/docs/local-redis-setup.md` |
+| `REDIS_URL` | Render Key Value → **Internal** URL (`redis://red-...`). Local dev stays on `redis://localhost:6379` — see `backend/docs/local-redis-setup.md` |
 | `CLIENT_URL` | Leave as `https://chatflow-pro.onrender.com` for now — corrected in step 5 |
 | `APP_URL` | Same value as `CLIENT_URL` |
 | `ENCRYPTION_KEY` | From step 2 |
@@ -157,28 +158,28 @@ refresh.
 
 ## Things that will bite you
 
-**Upstash request quota is the live risk.** `backend/.env` records that the
-Upstash URL was already commented out for hitting its monthly request quota. That
-will happen again, faster, once this is deployed: three BullMQ workers
-(`campaign`, `email`, `billing`) each hold a blocking poll open against Redis
-around the clock, plus a stalled-job check every 30s per worker — all billed as
-requests, whether or not any campaign is running. A 24/7 Render instance polls
-strictly more than your laptop did.
+**Don't put the queues back on a per-request-billed Redis.** This deploy ran on
+Upstash first and its 500K/month cap was exhausted (`ERR max requests limit
+exceeded`), which stopped campaigns, emails, and the billing sweep while the API
+kept serving normally. The cause is structural, not a misconfiguration: three
+BullMQ workers hold blocking polls open around the clock and run stalled-job
+checks, so request volume is roughly constant whether or not any job exists.
+Render Key Value bills per instance, so the failure mode doesn't exist there.
 
-**Mitigated, not solved.** All three workers now run with `drainDelay: 60s` and
-`stalledInterval: 5min` instead of BullMQ's 5s/30s defaults — roughly a 10x cut in
-idle request volume, at no cost to job pickup latency (a waiting worker is still
-woken the moment a job is pushed). Tune via `WORKER_DRAIN_DELAY_SEC` and
-`WORKER_STALLED_INTERVAL_MS` if needed; the trade-off is that a job orphaned by a
-crashed worker now waits up to 5 minutes to be reclaimed.
+Workers run with `drainDelay: 60s` and `stalledInterval: 5min` (vs BullMQ's
+5s/30s) to keep that traffic low regardless — tune via `WORKER_DRAIN_DELAY_SEC`
+and `WORKER_STALLED_INTERVAL_MS`. Pickup latency is unaffected: a blocked worker
+is still woken the moment a job is pushed. The cost is that a job orphaned by a
+crashed worker waits up to 5 minutes to be reclaimed.
 
-If the quota still runs out, the remaining options are upgrading Upstash to
-pay-as-you-go, or moving to a Render Key Value instance (private networking, no
-per-request billing).
+The Upstash URL is kept commented out in `backend/.env.production` if you ever
+need to switch back — it's one env var, no code changes.
 
-Watch the Upstash console for the first week. Exhaustion looks like
-`[Redis] Error: ...max requests limit exceeded` in the logs, followed by campaigns
-silently not sending.
+**Free Key Value has no persistence and expires after 30 days.** A restart drops
+whatever is queued. That's survivable here because `server.js` calls
+`recoverScheduledCampaigns()` on boot to re-queue scheduled campaigns from
+Postgres, but in-flight one-off jobs are lost. Move to a paid plan before real
+traffic.
 
 **Free web-service tier is wrong for this app.** Render's free instances spin down
 after ~15 minutes idle. This app's BullMQ workers live *inside* the web process —
