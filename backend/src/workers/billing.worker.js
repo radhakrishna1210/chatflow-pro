@@ -1,5 +1,6 @@
 import { Worker } from 'bullmq';
 import { createBullConnection } from '../lib/redis.js';
+import { env } from '../config/env.js';
 import { runBillingCycleSweep } from '../services/subscription.service.js';
 
 async function processBillingCycle(job) {
@@ -11,6 +12,8 @@ export function startBillingWorker() {
   const worker = new Worker('billing', processBillingCycle, {
     connection: createBullConnection('billing-worker'),
     concurrency: 1,
+    drainDelay: env.WORKER_DRAIN_DELAY_SEC,
+    stalledInterval: env.WORKER_STALLED_INTERVAL_MS,
   });
 
   worker.on('completed', (job) => console.log(`[BillingWorker] Job ${job.id} completed`));

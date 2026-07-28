@@ -48,6 +48,17 @@ const envSchema = z.object({
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
 
+  // BullMQ idle-polling tuning. Every blocking poll and stalled-job check is a
+  // billed request on a hosted Redis (Upstash), and three workers poll around
+  // the clock whether or not any job exists — the defaults below are ~10x
+  // cheaper than BullMQ's (5s / 30s) while costing nothing in pickup latency:
+  // a waiting worker is still woken immediately when a job is pushed.
+  WORKER_DRAIN_DELAY_SEC: z.coerce.number().default(60),
+  // Trade-off: this is how long a job orphaned by a crashed worker waits before
+  // another worker reclaims it. Lower it if faster recovery matters more than
+  // request volume.
+  WORKER_STALLED_INTERVAL_MS: z.coerce.number().default(300_000),
+
   CAMPAIGN_BATCH_SIZE: z.coerce.number().default(50),
   CAMPAIGN_WORKER_CONCURRENCY: z.coerce.number().default(2),
   // Meta Cloud API Tier-1 numbers allow ~250 msgs/min → 1 msg / 250ms is safe.

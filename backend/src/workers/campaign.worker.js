@@ -208,6 +208,8 @@ export function startCampaignWorker() {
   const worker = new Worker('campaigns', processCampaign, {
     connection: createBullConnection('campaign-worker'),
     concurrency: env.CAMPAIGN_WORKER_CONCURRENCY,
+    drainDelay: env.WORKER_DRAIN_DELAY_SEC,
+    stalledInterval: env.WORKER_STALLED_INTERVAL_MS,
   });
 
   worker.on('completed', (job) => console.log(`[CampaignWorker] Job ${job.id} completed`));
