@@ -31,12 +31,13 @@ services:
     rootDir: backend
     region: singapore
     healthCheckPath: /api/v1/health
-    buildCommand: >-
-      (cd ../frontend && npm ci && npm run build) &&
-      npm ci &&
-      npx prisma generate &&
-      npx prisma migrate deploy
-    startCommand: npm start
+    # `npm ci` is enough: backend/scripts/render-build.js runs as a postinstall
+    # hook and handles `prisma generate` plus the frontend/dist build, so a
+    # service created by hand in the dashboard (default build command) works too.
+    buildCommand: npm ci
+    # Migrations run at boot, not at build — the database isn't reachable from
+    # the build step on every plan.
+    startCommand: npm run start:prod
     envVars:
       - key: NODE_VERSION
         value: "22"

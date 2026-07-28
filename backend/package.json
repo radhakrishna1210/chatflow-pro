@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "node --env-file=.env --watch src/server.js",
     "start": "node src/server.js",
+    "postinstall": "node scripts/render-build.js",
+    "start:prod": "prisma migrate deploy && node src/server.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
