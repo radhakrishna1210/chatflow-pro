@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createBullConnection, logRedisError } from '../lib/redis.js';
 import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
@@ -212,6 +212,7 @@ export function startCampaignWorker() {
     stalledInterval: env.WORKER_STALLED_INTERVAL_MS,
   });
 
+  worker.on('error', (err) => logRedisError('campaign-worker', err));
   worker.on('completed', (job) => console.log(`[CampaignWorker] Job ${job.id} completed`));
   worker.on('failed', async (job, err) => {
     console.error(`[CampaignWorker] Job ${job?.id} failed:`, err.message);

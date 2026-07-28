@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createBullConnection, logRedisError } from '../lib/redis.js';
 import { env } from '../config/env.js';
 import { runBillingCycleSweep } from '../services/subscription.service.js';
 
@@ -16,6 +16,10 @@ export function startBillingWorker() {
     stalledInterval: env.WORKER_STALLED_INTERVAL_MS,
   });
 
+  // Connection-level faults (quota exhaustion, dropped TLS) arrive here rather
+  // than on 'failed'. Without a listener BullMQ dumps the raw ReplyError on
+  // every retry, several times a second.
+  worker.on('error', (err) => logRedisError('billing-worker', err));
   worker.on('completed', (job) => console.log(`[BillingWorker] Job ${job.id} completed`));
   worker.on('failed', (job, err) => console.error(`[BillingWorker] Job ${job?.id} failed:`, err.message));
 
