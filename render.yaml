@@ -1,0 +1,115 @@
+##
+# ChatFlow Pro — Render Blueprint (single-service deploy)
+#
+# One Node web service runs the Express API *and* serves the built Vite SPA
+# from frontend/dist, so the frontend's relative `/api/...` calls are
+# same-origin — no CORS, no rewrite rules, no VITE_API_URL.
+#
+# Secrets are marked `sync: false`: Render prompts for them on first apply and
+# never stores them in this file. See DEPLOY.md for the full checklist.
+##
+
+databases:
+  - name: chatflow-db
+    databaseName: chatflow
+    user: chatflow
+    plan: free # -> `basic-256mb` or higher for production (free expires after 30 days)
+    postgresMajorVersion: "16"
+
+services:
+  - type: keyvalue # Redis-compatible; backs BullMQ campaign/email/billing queues
+    name: chatflow-redis
+    plan: free
+    # BullMQ loses jobs if Redis evicts keys under memory pressure.
+    maxmemoryPolicy: noeviction
+    ipAllowList: [] # private network only
+
+  - type: web
+    name: chatflow-pro
+    runtime: node
+    plan: starter # free tier spins down after 15 min idle and stalls the queue workers
+    rootDir: backend
+    region: singapore
+    healthCheckPath: /api/v1/health
+    buildCommand: >-
+      (cd ../frontend && npm ci && npm run build) &&
+      npm ci &&
+      npx prisma generate &&
+      npx prisma migrate deploy
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000" # Render's default injected port
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: chatflow-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: chatflow-redis
+          property: connectionString
+
+      # Same-origin single service: the SPA and the API share this URL.
+      # Set both to https://<your-service>.onrender.com after the first deploy.
+      - key: CLIENT_URL
+        sync: false
+      - key: APP_URL
+        sync: false
+
+      # --- Generated secrets ---
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      # --- Required, must be supplied ---
+      - key: ENCRYPTION_KEY # exactly 32 ASCII chars or 64 hex chars
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_BUSINESS_ID
+        sync: false
+      - key: META_WABA_ID
+        sync: false
+      - key: META_SYSTEM_USER_ID
+        sync: false
+      - key: META_SYSTEM_USER_TOKEN
+        sync: false
+      - key: META_DISPLAY_NAME
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      # --- Optional integrations (leave unset to disable) ---
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
