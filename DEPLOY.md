@@ -15,9 +15,12 @@ Render Web Service  "chatflow-pro"     (backend/ as rootDir)
 └── serves: /api/v1/*  ->  Express router
             /*         ->  frontend/dist/index.html  (SPA fallback)
 
-Render Postgres     "chatflow-db"
-Render Key Value    "chatflow-redis"   (BullMQ campaign / email / billing queues)
+Supabase Postgres   (pooler, ap-southeast-1, session mode / port 5432)
+Upstash Redis       (BullMQ campaign / email / billing queues)
 ```
+
+Postgres and Redis are **external** — the blueprint creates neither, it just
+takes their connection strings as secrets.
 
 Everything is declared in [`render.yaml`](./render.yaml).
 
@@ -39,11 +42,9 @@ dashboard-created service needs only:
 - **Root Directory** — `backend`
 - **Health Check Path** — `/api/v1/health`
 
-Then create a **Postgres** and a **Key Value** instance in the same region and add
-their internal connection strings as `DATABASE_URL` and `REDIS_URL`, plus the
-variables in the step-3 table below. `server.js` exits on startup if either
-Postgres or Redis is unreachable, so those two are what a crash-loop usually
-means.
+Then add `DATABASE_URL` (Supabase) and `REDIS_URL` (Upstash) plus the variables in
+the step-3 table below. `server.js` exits on startup if either Postgres or Redis
+is unreachable, so those two are what a crash-loop usually means.
 
 ---
 
@@ -78,6 +79,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 | Variable | Notes |
 | --- | --- |
+| `DATABASE_URL` | Supabase → Project Settings → Database → Connection string → **Session mode (port 5432)**. Same value as in `backend/.env` |
+| `DIRECT_URL` | Optional while the pooler is in session mode — leave blank and it defaults to `DATABASE_URL` |
+| `REDIS_URL` | Upstash → database → the `rediss://` TLS URL. It's the commented-out line in `backend/.env` |
 | `CLIENT_URL` | Leave as `https://chatflow-pro.onrender.com` for now — corrected in step 5 |
 | `APP_URL` | Same value as `CLIENT_URL` |
 | `ENCRYPTION_KEY` | From step 2 |
@@ -153,21 +157,42 @@ refresh.
 
 ## Things that will bite you
 
+**Upstash request quota is the live risk.** `backend/.env` records that the
+Upstash URL was already commented out for hitting its monthly request quota. That
+will happen again, faster, once this is deployed: three BullMQ workers
+(`campaign`, `email`, `billing`) each hold a blocking poll open against Redis
+around the clock, plus a stalled-job check every 30s per worker — all billed as
+requests, whether or not any campaign is running. A 24/7 Render instance polls
+strictly more than your laptop did.
+
+Options, cheapest first:
+
+1. Tune the polling. `src/workers/*.js` use BullMQ defaults; passing
+   `drainDelay: 60` and `stalledInterval: 300_000` to each `new Worker(...)` cuts
+   idle request volume by roughly an order of magnitude.
+2. Upgrade the Upstash plan (pay-as-you-go removes the hard cap).
+3. Switch to a Render Key Value instance — same-region private networking, no
+   per-request billing. This is the option the blueprint originally used.
+
+Whichever you pick, watch the Upstash console for the first week. Quota
+exhaustion looks like `[Redis] Error: ...max requests limit exceeded` in the logs,
+followed by campaigns silently not sending.
+
 **Free web-service tier is wrong for this app.** Render's free instances spin down
 after ~15 minutes idle. This app's BullMQ workers live *inside* the web process —
 a spun-down instance stops draining campaign, email, and billing queues, and
-scheduled campaigns just sit there. `render.yaml` uses `plan: starter` for the web
-service for that reason. The Postgres and Key Value instances are set to `free`;
-switch `chatflow-db` to a paid plan before real use — **Render free Postgres is
-deleted after 30 days.**
+scheduled campaigns just sit there. `render.yaml` uses `plan: starter` for that
+reason.
 
-**Key Value memory policy.** BullMQ silently loses jobs if Redis evicts keys, so
-`maxmemoryPolicy: noeviction` is set in the blueprint. If you create the instance
-by hand in the dashboard instead, set it there.
+**Keep the Supabase pooler in session mode.** The configured URL uses port 5432
+(session mode). Transaction mode (port 6543) disables prepared statements, which
+breaks both Prisma's query engine and `prisma migrate deploy`. If you ever switch
+to 6543 you must add `?pgbouncer=true&connection_limit=1` and set `DIRECT_URL` to
+a real direct connection for migrations.
 
-**`type: keyvalue` vs `type: redis`.** Render renamed its Redis product to Key
-Value. If the blueprint parser rejects `type: keyvalue`, your account is on the
-older spec — change it to `type: redis` and re-apply.
+**Supabase free projects pause after ~1 week of inactivity.** A paused project
+refuses connections and `server.js` exits on boot. Un-pause from the Supabase
+dashboard.
 
 **Uploads are ephemeral.** `multer` writes to the instance's local disk, which is
 wiped on every deploy and restart. CSV contact imports processed within one
@@ -182,9 +207,9 @@ run against `DATABASE_URL`.
 
 **`DIRECT_URL` is optional here.** `schema.prisma` declares it, and Prisma's CLI
 treats it as required (`P1012`) — but `scripts/prisma-cli.js` defaults it to
-`DATABASE_URL`, which is correct for Render Postgres because its connection
-strings aren't pgbouncer-pooled. Set `DIRECT_URL` explicitly only if you later
-move the app behind a connection pooler; an explicit value is never overwritten.
+`DATABASE_URL`. That's correct for a session-mode pooler, which handles
+migrations fine. An explicitly-set value is never overwritten, so the transaction-
+mode case above still works once you set it.
 
 **Region.** `render.yaml` sets `singapore`. Change it if your Postgres/users are
 elsewhere — the database and web service must share a region to use the private

@@ -9,21 +9,11 @@
 # never stores them in this file. See DEPLOY.md for the full checklist.
 ##
 
-databases:
-  - name: chatflow-db
-    databaseName: chatflow
-    user: chatflow
-    plan: free # -> `basic-256mb` or higher for production (free expires after 30 days)
-    postgresMajorVersion: "16"
+# Postgres and Redis are hosted externally (Supabase / Upstash), so this
+# blueprint declares no `databases:` block and no Key Value service — their
+# connection strings are supplied as secrets instead.
 
 services:
-  - type: keyvalue # Redis-compatible; backs BullMQ campaign/email/billing queues
-    name: chatflow-redis
-    plan: free
-    # BullMQ loses jobs if Redis evicts keys under memory pressure.
-    maxmemoryPolicy: noeviction
-    ipAllowList: [] # private network only
-
   - type: web
     name: chatflow-pro
     runtime: node
@@ -46,15 +36,18 @@ services:
       - key: PORT
         value: "10000" # Render's default injected port
 
+      # Supabase pooler, session mode (port 5432 — NOT 6543/transaction mode,
+      # which breaks prepared statements and `prisma migrate deploy`).
+      # DIRECT_URL is optional: scripts/prisma-cli.js defaults it to
+      # DATABASE_URL, which is correct while the pooler is in session mode.
       - key: DATABASE_URL
-        fromDatabase:
-          name: chatflow-db
-          property: connectionString
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      # Upstash — use the `rediss://` (TLS) URL. See DEPLOY.md on the request
+      # quota: three BullMQ workers poll continuously and will burn a free plan.
       - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: chatflow-redis
-          property: connectionString
+        sync: false
 
       # Same-origin single service: the SPA and the API share this URL.
       # Set both to https://<your-service>.onrender.com after the first deploy.
