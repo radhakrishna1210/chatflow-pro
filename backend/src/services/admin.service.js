@@ -2,6 +2,7 @@ import twilio from 'twilio';
 import { prisma } from '../lib/prisma.js';
 import { encrypt } from '../lib/encryption.js';
 import { getWabaPhoneNumbers, requestOtp, verifyOtp, systemClient } from '../lib/meta.js';
+import { deleteWaNumbers } from './whatsapp.service.js';
 import { env } from '../config/env.js';
 
 // ── Pool summary ──────────────────────────────────────────────
@@ -59,8 +60,8 @@ export async function verifyOtpAndAdd({ phoneNumber, metaPhoneNumberId, otp, dis
 
 // ── Reset ALL assignments ─────────────────────────────────────
 export async function resetAllAssignments() {
-  await prisma.$transaction([
-    prisma.waNumber.deleteMany({}),
+  const numbers = await prisma.waNumber.findMany({ select: { id: true } });
+  await deleteWaNumbers(numbers.map((n) => n.id), [
     prisma.numberPool.updateMany({
       where: { status: 'ASSIGNED' },
       data: { status: 'AVAILABLE', assignedTo: null },
@@ -77,14 +78,17 @@ export async function resetPoolEntry(id) {
     err.status = 404;
     throw err;
   }
-  const [, updated] = await prisma.$transaction([
-    prisma.waNumber.deleteMany({ where: { metaPhoneNumberId: entry.phoneNumberId } }),
+  const numbers = await prisma.waNumber.findMany({
+    where: { metaPhoneNumberId: entry.phoneNumberId },
+    select: { id: true },
+  });
+  const ops = await deleteWaNumbers(numbers.map((n) => n.id), [
     prisma.numberPool.update({
       where: { id },
       data: { status: 'AVAILABLE', assignedTo: null },
     }),
   ]);
-  return updated;
+  return ops[ops.length - 1];
 }
 
 // ── Ban pool entry ────────────────────────────────────────────

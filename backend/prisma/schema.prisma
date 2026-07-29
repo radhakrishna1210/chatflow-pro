@@ -241,14 +241,14 @@ model Conversation {
   id            String             @id @default(cuid())
   workspaceId   String
   contactId     String
-  waNumberId    String
+  waNumberId    String?
   status        ConversationStatus @default(OPEN)
   unreadCount   Int                @default(0)
   label         String?
   lastMessageAt DateTime           @default(now())
   createdAt     DateTime           @default(now())
   contact       Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  waNumber      WaNumber           @relation(fields: [waNumberId], references: [id])
+  waNumber      WaNumber?          @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
   workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   messages      Message[]
 }

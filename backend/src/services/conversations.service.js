@@ -43,6 +43,14 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
 
+  // The thread survives its number being disconnected, but there is nothing left
+  // to send from — the history stays readable, replies do not.
+  if (!conversation.waNumber) {
+    const e = new Error('The WhatsApp number for this conversation was disconnected — connect a number to reply.');
+    e.status = 409;
+    throw e;
+  }
+
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Message overage' });
   if (!credit.ok) {
     const e = new Error('Message quota and wallet balance exhausted — recharge your wallet or upgrade your plan');

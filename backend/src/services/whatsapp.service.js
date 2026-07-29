@@ -218,20 +218,42 @@ export async function onboardFromPool(workspaceId, poolEntryId) {
   return { phoneNumber: number.phoneNumber, displayName: number.displayName, wabaId, appSubscribed: number.appSubscribed };
 }
 
+// Deletes WaNumber rows together with the data that would otherwise block the
+// delete, and runs `extraOps` in the same transaction.
+//
+// Templates live on the Meta WABA tied to the number, so they cascade away with
+// it — except the ones a campaign points at: that FK is restrict, and campaign
+// history must stay intact. Those are detached from the number and tombstoned as
+// DELETED, which keeps them out of every template list. Conversations detach via
+// their SetNull FK so the inbox history survives.
+export async function deleteWaNumbers(waNumberIds, extraOps = []) {
+  const ids = [...new Set(waNumberIds)];
+
+  const templates = ids.length
+    ? await prisma.template.findMany({
+        where: { waNumberId: { in: ids } },
+        select: { id: true, _count: { select: { campaigns: true } } },
+      })
+    : [];
+  const tombstone = templates.filter((t) => t._count.campaigns > 0).map((t) => t.id);
+
+  return prisma.$transaction([
+    ...(tombstone.length
+      ? [prisma.template.updateMany({
+          where: { id: { in: tombstone } },
+          data: { waNumberId: null, status: 'DELETED' },
+        })]
+      : []),
+    ...(ids.length ? [prisma.waNumber.deleteMany({ where: { id: { in: ids } } })] : []),
+    ...extraOps,
+  ]);
+}
+
 export async function disconnectNumber(workspaceId, numberId) {
   const waNumber = await prisma.waNumber.findFirst({ where: { id: numberId, workspaceId } });
   if (!waNumber) { const e = new Error('Number not found in this workspace'); e.status = 404; throw e; }
 
-  // Templates live on the Meta WABA tied to the number. Once the last number is
-  // gone, the workspace cannot operate on those templates anymore, so wipe them.
-  // Campaigns belong to the user's history and stay.
-  const remainingNumbers = await prisma.waNumber.count({
-    where: { workspaceId, id: { not: waNumber.id } },
-  });
-
-  await prisma.$transaction([
-    ...(remainingNumbers === 0 ? [prisma.template.deleteMany({ where: { workspaceId } })] : []),
-    prisma.waNumber.delete({ where: { id: waNumber.id } }),
+  await deleteWaNumbers([waNumber.id], [
     prisma.numberPool.updateMany({
       where: { phoneNumberId: waNumber.metaPhoneNumberId, assignedTo: workspaceId },
       data: { status: 'AVAILABLE', assignedTo: null },
