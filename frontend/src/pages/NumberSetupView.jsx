@@ -113,14 +113,16 @@ export default function NumberSetupView() {
   const resetAllAssignments = async () => {
     if (!window.confirm('This will disconnect all numbers from every workspace and return them to the pool. Continue?')) return;
     setResetting(true);
-    await adminFetch('/numbers/reset-all', { method:'POST' }).catch(()=>{});
-    setNumber(null);
+    const res = await adminFetch('/numbers/reset-all', { method:'POST' }).catch(()=>null);
+    if (res?.ok) setNumber(null);
+    else window.alert((await res?.json().catch(()=>({})))?.error || 'Reset failed');
     loadAdminPool();
     setResetting(false);
   };
 
   const resetEntry = async id => {
-    await adminFetch(`/numbers/pool/${id}/reset`, { method:'PATCH' }).catch(()=>{});
+    const res = await adminFetch(`/numbers/pool/${id}/reset`, { method:'PATCH' }).catch(()=>null);
+    if (!res?.ok) window.alert((await res?.json().catch(()=>({})))?.error || 'Reset failed');
     loadAdminPool();
   };
 

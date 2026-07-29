@@ -469,6 +469,7 @@ function NumbersTab({ workspaces }) {
     const res = await adminFetch(`/numbers/pool/${id}/reset`, { method: 'PATCH' });
     setBusyId(null);
     if (res.ok) load();
+    else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Reset failed'); }
   };
 
   const doBan = async (id) => {
@@ -491,6 +492,7 @@ function NumbersTab({ workspaces }) {
     if (!window.confirm("Reset ALL number assignments across every workspace? This disconnects every workspace's WhatsApp number.")) return;
     const res = await adminFetch('/numbers/reset-all', { method: 'POST' });
     if (res.ok) load();
+    else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Reset failed'); }
   };
 
   const statusColor = (st) => st === 'AVAILABLE' ? 'var(--green)' : st === 'BANNED' ? '#f87171' : '#38bdf8';
