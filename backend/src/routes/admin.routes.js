@@ -14,6 +14,7 @@ router.post('/numbers/assign',          adminController.assignToWorkspace);
 router.post('/numbers/reset-all',       adminController.resetAllAssignments);
 router.patch('/numbers/pool/:id/reset', adminController.resetPoolEntry);
 router.patch('/numbers/pool/:id/ban',   adminController.banPoolEntry);
+router.patch('/numbers/pool/:id/unban', adminController.unbanPoolEntry);
 
 // Workspaces (for admin assignment picker)
 router.get('/workspaces',               adminController.listWorkspaces);

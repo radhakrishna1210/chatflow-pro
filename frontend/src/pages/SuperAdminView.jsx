@@ -480,6 +480,14 @@ function NumbersTab({ workspaces }) {
     if (res.ok) load();
   };
 
+  const doUnban = async (id) => {
+    setBusyId(id);
+    const res = await adminFetch(`/numbers/pool/${id}/unban`, { method: 'PATCH' });
+    setBusyId(null);
+    if (res.ok) load();
+    else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Unban failed'); }
+  };
+
   const doSync = async () => {
     setSyncing(true);
     const res = await adminFetch('/numbers/sync-from-waba', { method: 'POST' });
@@ -555,8 +563,10 @@ function NumbersTab({ workspaces }) {
                     {e.status === 'ASSIGNED' && (
                       <Btn variant="outline" size="sm" onClick={() => doReset(e.id)} disabled={busyId === e.id}>Reset</Btn>
                     )}
-                    {e.status !== 'BANNED' && (
+                    {e.status !== 'BANNED' ? (
                       <Btn variant="outline" size="sm" onClick={() => doBan(e.id)} disabled={busyId === e.id} style={{ borderColor: 'rgba(239,68,68,.35)', color: '#f87171' }}>Ban</Btn>
+                    ) : (
+                      <Btn variant="outline" size="sm" onClick={() => doUnban(e.id)} disabled={busyId === e.id}>Unban</Btn>
                     )}
                   </div>
                 </td>

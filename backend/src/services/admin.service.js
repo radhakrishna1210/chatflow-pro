@@ -99,6 +99,33 @@ export async function banPoolEntry(id) {
   });
 }
 
+// ── Unban pool entry ──────────────────────────────────────────
+// A ban only flips the status, so an entry banned while it was in use still
+// carries its assignment — put it back where it was rather than handing an
+// in-use number out to someone else.
+export async function unbanPoolEntry(id) {
+  const entry = await prisma.numberPool.findUnique({ where: { id } });
+  if (!entry) {
+    const err = new Error('Pool entry not found');
+    err.status = 404;
+    throw err;
+  }
+  if (entry.status !== 'BANNED') return entry;
+
+  const stillAssigned = entry.assignedTo
+    ? await prisma.waNumber.count({
+        where: { workspaceId: entry.assignedTo, metaPhoneNumberId: entry.phoneNumberId },
+      })
+    : 0;
+
+  return prisma.numberPool.update({
+    where: { id },
+    data: stillAssigned > 0
+      ? { status: 'ASSIGNED' }
+      : { status: 'AVAILABLE', assignedTo: null },
+  });
+}
+
 // ── Twilio auto-sync ──────────────────────────────────────────
 export async function twilioSync() {
   const client = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);

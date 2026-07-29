@@ -131,6 +131,12 @@ export default function NumberSetupView() {
     loadAdminPool();
   };
 
+  const unbanEntry = async id => {
+    const res = await adminFetch(`/numbers/pool/${id}/unban`, { method:'PATCH' }).catch(()=>null);
+    if (!res?.ok) window.alert((await res?.json().catch(()=>({})))?.error || 'Unban failed');
+    loadAdminPool();
+  };
+
   const disconnectNumber = async () => {
     if (!number?.id) return;
     if (!window.confirm(`Disconnect ${number.phoneNumber}? It will be returned to the pool.`)) return;
@@ -599,10 +605,15 @@ export default function NumberSetupView() {
                                   Reset
                                 </button>
                               )}
-                              {e.status !== 'BANNED' && (
+                              {e.status !== 'BANNED' ? (
                                 <button onClick={() => banEntry(e.id)}
                                   style={{ padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)', color:'#f87171' }}>
                                   Ban
+                                </button>
+                              ) : (
+                                <button onClick={() => unbanEntry(e.id)}
+                                  style={{ padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', background:'rgba(148,163,184,.1)', border:'1px solid rgba(148,163,184,.25)', color:'var(--t2)' }}>
+                                  Unban
                                 </button>
                               )}
                             </div>
