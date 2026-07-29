@@ -36,6 +36,11 @@ export async function banPoolEntry(req, res) {
   res.json(entry);
 }
 
+export async function unbanPoolEntry(req, res) {
+  const entry = await adminService.unbanPoolEntry(req.params.id);
+  res.json(entry);
+}
+
 export async function twilioSync(req, res) {
   const result = await adminService.twilioSync();
   res.json(result);
