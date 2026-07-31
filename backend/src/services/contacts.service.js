@@ -16,10 +16,11 @@ export function isValidPhone(raw) {
   return digits.length >= 7 && digits.length <= 15;
 }
 
-export async function listContacts(workspaceId, { search = '', page = 1, limit = 20 } = {}) {
+export async function listContacts(workspaceId, { search = '', clusterId = '', page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
   const where = {
     workspaceId,
+    ...(clusterId ? { clusterContacts: { some: { clusterId } } } : {}),
     ...(search ? {
       OR: [
         { name: { contains: search, mode: 'insensitive' } },
@@ -73,7 +74,7 @@ export async function importContacts(workspaceId, csvBuffer) {
   }
 
   if (data.length === 0) {
-    return { imported: 0, duplicates: 0, invalid, totalRows: records.length };
+    return { imported: 0, duplicates: 0, invalid, totalRows: records.length, contacts: [] };
   }
 
   // Plan limit check (README §12.4): reject the whole import rather than
@@ -99,7 +100,11 @@ export async function importContacts(workspaceId, csvBuffer) {
   // (workspaceId, phoneNumber) unique constraint to drop existing contacts.
   const { count: imported } = await prisma.contact.createMany({ data, skipDuplicates: true });
   const duplicates = data.length - imported;
-  return { imported, duplicates, invalid, totalRows: records.length };
+  const matchedContacts = await prisma.contact.findMany({
+    where: { workspaceId, phoneNumber: { in: data.map((d) => d.phoneNumber) } },
+    select: { id: true, name: true, phoneNumber: true },
+  });
+  return { imported, duplicates, invalid, totalRows: records.length, contacts: matchedContacts };
 }
 
 export async function deleteContact(workspaceId, id) {

@@ -231,14 +231,104 @@ const Step2 = ({ templates, selectedTemplateId, setSelectedTemplateId, templateB
 };
 
 // ─── Step 3 ───────────────────────────────────────────────────
-const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds, toggleContact, onNext }) => {
+const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds, setSelectedContactIds, toggleContact, onContactsReload, onNext }) => {
   const [search, setSearch]       = useState('');
   const [manualName, setManualName]   = useState('');
   const [manualPhone, setManualPhone] = useState('');
   const [csvFile, setCsvFile]     = useState(null);
   const [csvDragging, setCsvDragging] = useState(false);
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [csvErr, setCsvErr]             = useState('');
+  const [csvResult, setCsvResult]       = useState(null);
   const [manualAdded, setManualAdded] = useState([]);
   const fileRef = useRef(null);
+  const [clusters, setClusters] = useState([]);
+  const [selectedClusterId, setSelectedClusterId] = useState('');
+  const [clusterLoading, setClusterLoading] = useState(false);
+
+  const downloadSample = () => {
+    const csvContent = [
+      'name,phoneNumber,email,tags',
+      'Aarav,+917410066251,aarav@example.com,test',
+      'Vivaan,+918983416795,vivaan@example.com,test',
+      'Krishna,+919226573383,krishna@example.com,test',
+      'Arjun,+918080178330,arjun@example.com,test',
+      'Rohan,+919604609921,rohan@example.com,test',
+    ].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'sample_contacts.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const uploadCsv = async () => {
+    if (!csvFile || csvUploading) return;
+    setCsvErr(''); setCsvResult(null); setCsvUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', csvFile);
+      const res = await wFetch('/contacts/import', {
+        method: 'POST',
+        body: fd,
+      });
+      if (!res.ok) {
+        let msg = `Upload failed (${res.status})`;
+        try { const j = await res.json(); if (j.error) msg = j.error; } catch {}
+        setCsvErr(msg);
+      } else {
+        const result = await res.json();
+        setCsvResult(result);
+        if (result.contacts && result.contacts.length > 0) {
+          const ids = result.contacts.map(c => c.id);
+          setSelectedContactIds?.(prev => {
+            const next = new Set(prev);
+            ids.forEach(id => next.add(id));
+            return next;
+          });
+          onContactsReload?.();
+        }
+      }
+    } catch (e) {
+      setCsvErr(e.message || 'Could not upload file.');
+    } finally {
+      setCsvUploading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (audienceMethod === 'cluster' && clusters.length === 0) {
+      wFetch('/clusters')
+        .then(r => r.ok && r.json())
+        .then(d => { if (Array.isArray(d)) setClusters(d); })
+        .catch(() => {});
+    }
+  }, [audienceMethod]);
+
+  const handleSelectCluster = async (cid) => {
+    setSelectedClusterId(cid);
+    if (!cid) {
+      setSelectedContactIds?.(new Set());
+      return;
+    }
+    setClusterLoading(true);
+    try {
+      const res = await wFetch(`/clusters/${cid}`);
+      if (res.ok) {
+        const data = await res.json();
+        const ids = (data.memberContacts ?? []).map(c => c.id);
+        setSelectedContactIds?.(new Set(ids));
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setClusterLoading(false);
+    }
+  };
 
   const filtered = contacts.filter(c => {
     if (!search) return true;
@@ -272,6 +362,7 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
     { id: 'list',    label: 'Select from List' },
     { id: 'manual',  label: 'Enter Manually' },
     { id: 'csv',     label: 'Upload CSV' },
+    { id: 'cluster', label: 'Select Cluster' },
     { id: 'segment', label: 'Select Segment', disabled: true },
   ];
 
@@ -336,16 +427,34 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
       )}
 
       {audienceMethod === 'csv' && (
-        <div>
-          <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={e => setCsvFile(e.target.files[0])} />
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Btn variant="outline" size="sm" onClick={downloadSample}>
+              <I n="download" s={13} c="var(--t2)" />
+              Download Sample CSV
+            </Btn>
+          </div>
+          {csvErr && (
+            <div style={{ padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12 }}>{csvErr}</div>
+          )}
+          {csvResult && (
+            <div style={{ padding:'10px 13px', borderRadius:8, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)', fontSize:13, fontWeight:600 }}>
+              ✓ Imported {csvResult.imported} contact{csvResult.imported !== 1 ? 's' : ''} and added to audience.
+            </div>
+          )}
+          <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={e => { setCsvFile(e.target.files[0]); setCsvResult(null); }} />
           <div
             onClick={() => fileRef.current?.click()}
             onDragOver={e => { e.preventDefault(); setCsvDragging(true); }}
             onDragLeave={() => setCsvDragging(false)}
-            onDrop={e => { e.preventDefault(); setCsvDragging(false); const f = e.dataTransfer.files[0]; if (f) setCsvFile(f); }}
-            style={{ border: `2px dashed ${csvDragging ? 'var(--green)' : 'var(--bd)'}`, borderRadius: '12px', padding: '36px 20px', textAlign: 'center', cursor: 'pointer', transition: 'all .2s', background: csvDragging ? 'var(--gbg)' : 'rgba(255,255,255,0.01)' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
-              <div style={{ width: '46px', height: '46px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            onDrop={e => { e.preventDefault(); setCsvDragging(false); const f = e.dataTransfer.files[0]; if (f) { setCsvFile(f); setCsvResult(null); } }}
+            style={{
+              border:`2px dashed ${csvDragging ? 'var(--green)' : 'var(--bd)'}`,
+              borderRadius:12, padding:'30px 18px', textAlign:'center', cursor:'pointer',
+              transition:'all .2s', background: csvDragging ? 'var(--gbg)' : 'rgba(255,255,255,0.01)',
+            }}>
+            <div style={{ display:'flex', justifyContent:'center', marginBottom:10 }}>
+              <div style={{ width:44, height:44, borderRadius:12, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--t2)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                   <polyline points="17,8 12,3 7,8"/>
@@ -354,14 +463,98 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
               </div>
             </div>
             {csvFile ? (
-              <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--green)' }}>{csvFile.name}</p>
+              <>
+                <p style={{ fontSize:14, fontWeight:600, color:'var(--green)' }}>{csvFile.name}</p>
+                <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>{(csvFile.size/1024).toFixed(1)} KB — click to choose a different file</p>
+              </>
             ) : (
               <>
-                <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--t1)', marginBottom: '6px' }}>Drop CSV file here or click to browse</p>
-                <p style={{ fontSize: '12px', color: 'var(--t2)' }}>Required columns: <code style={{ color: 'var(--green)', fontFamily: 'monospace' }}>name</code>, <code style={{ color: 'var(--green)', fontFamily: 'monospace' }}>phone</code></p>
+                <p style={{ fontSize:14, fontWeight:600, color:'var(--t1)', marginBottom:5 }}>Drop CSV here or click to browse</p>
+                <p style={{ fontSize:12, color:'var(--t2)' }}>
+                  Columns: <code style={{ color:'var(--green)', fontFamily:'monospace' }}>name</code>, <code style={{ color:'var(--green)', fontFamily:'monospace' }}>phoneNumber</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>email</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>tags</code>
+                </p>
               </>
             )}
           </div>
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span style={{ fontSize:12, color:'#7dd3fc', lineHeight:1.5 }}>
+              Phone numbers must include country code (e.g. <code style={{ fontFamily:'monospace', color:'#bae6fd' }}>+919876543210</code>). Tags column is comma-separated.
+            </span>
+          </div>
+          <div style={{ padding:'14px 16px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span style={{ fontSize:13, fontWeight:600, color:'#7dd3fc' }}>Instructions for uploading CSV</span>
+            </div>
+            <ul style={{ paddingLeft: 18, margin: 0, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#7dd3fc', lineHeight: 1.5 }}>
+              <li>Upload a CSV file to bulk import contacts.</li>
+              <li>
+                Required columns:
+                <ul style={{ listStyleType: 'none', paddingLeft: 16, marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <li>- <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>phoneNumber</code> (required)</li>
+                  <li>- <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>name</code> (optional)</li>
+                  <li>- <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>email</code> (optional)</li>
+                  <li>- <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>tags</code> (optional)</li>
+                </ul>
+              </li>
+              <li>
+                Phone numbers must include country code.
+                <div style={{ marginTop: 4 }}>
+                  Example:<br />
+                  <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>+919876543210</code>
+                </div>
+              </li>
+              <li>
+                Tags must be comma-separated.
+                <div style={{ marginTop: 4 }}>
+                  Example:<br />
+                  <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>vip,customer</code>
+                </div>
+              </li>
+              <li>Duplicate phone numbers in the CSV will be skipped.</li>
+              <li>Existing contacts are matched using phone number.</li>
+              <li>Invalid rows will not be imported.</li>
+            </ul>
+          </div>
+          {csvFile && (
+            <Btn onClick={uploadCsv} disabled={csvUploading} style={{ alignSelf:'flex-end', boxShadow: 'var(--glow)' }}>
+              {csvUploading ? 'Uploading…' : 'Import Contacts'}
+            </Btn>
+          )}
+        </div>
+      )}
+
+      {audienceMethod === 'cluster' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>
+            Choose an existing contact cluster. All contacts belonging to the selected cluster will be dynamically added to your audience.
+          </div>
+          <select
+            value={selectedClusterId}
+            onChange={(e) => handleSelectCluster(e.target.value)}
+            style={{ width: '100%', padding: '10px 14px', borderRadius: 8, background: 'var(--surf)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none' }}
+          >
+            <option value="">-- Select a Cluster --</option>
+            {clusters.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.memberCount ?? 0} contacts)
+              </option>
+            ))}
+          </select>
+          {clusterLoading && (
+            <div style={{ fontSize: 12, color: 'var(--t2)' }}>Loading cluster contacts...</div>
+          )}
+          {selectedClusterId && !clusterLoading && (
+            <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <I n="check" s={14} c="var(--green)" />
+              <span>Included {selectedContactIds.size} contact{selectedContactIds.size !== 1 ? 's' : ''} from selected cluster.</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -882,10 +1075,14 @@ export default function CreateCampaign({ onBack }) {
   const [templates, setTemplates] = useState([]);
   const [contacts, setContacts]   = useState([]);
 
+  const reloadContacts = () => {
+    wFetch('/contacts').then(r=>r.ok&&r.json()).then(d=>{ const list=Array.isArray(d)?d:d?.data; if(Array.isArray(list)) setContacts(list); }).catch(()=>{});
+  };
+
   useEffect(() => {
     wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setNumbers(d); }).catch(()=>{});
     wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t=>t.status==='APPROVED'||t.status==='Approved')); }).catch(()=>{});
-    wFetch('/contacts').then(r=>r.ok&&r.json()).then(d=>{ const list=Array.isArray(d)?d:d?.data; if(Array.isArray(list)) setContacts(list); }).catch(()=>{});
+    reloadContacts();
   }, []);
 
   const toggleContact = id => setSelectedContactIds(prev => {
@@ -1044,7 +1241,8 @@ export default function CreateCampaign({ onBack }) {
                 <Step3
                   audienceMethod={audienceMethod} setAudienceMethod={setAudienceMethod}
                   contacts={contacts}
-                  selectedContactIds={selectedContactIds} toggleContact={toggleContact}
+                  selectedContactIds={selectedContactIds} setSelectedContactIds={setSelectedContactIds} toggleContact={toggleContact}
+                  onContactsReload={reloadContacts}
                   onNext={() => { setStep3Done(true); setOpenStep(4); }}
                 />
               )}

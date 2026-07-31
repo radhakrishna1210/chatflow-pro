@@ -83,6 +83,7 @@ model Workspace {
   subscription                 Subscription?
   usageCounters                UsageCounter[]
   invitations                  Invitation[]
+  clusters                     Cluster[]
 }
 
 model WorkspaceMember {
@@ -187,6 +188,7 @@ model Contact {
   workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations      Conversation[]
   segments           Segment[]           @relation("ContactSegments")
+  clusterContacts    ClusterContact[]
 
   @@unique([workspaceId, phoneNumber])
 }
@@ -514,4 +516,26 @@ model SupportTicket {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([status, createdAt])
+}
+
+model Cluster {
+  id          String           @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @default(now()) @updatedAt
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts    ClusterContact[]
+
+  @@unique([workspaceId, name])
+}
+
+model ClusterContact {
+  clusterId String
+  contactId String
+  cluster   Cluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([clusterId, contactId])
 }
