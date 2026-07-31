@@ -256,3 +256,16 @@ export const userSchemas = {
     path: ['newPassword'],
   }),
 };
+
+export const clusterSchemas = {
+  create: z.object({
+    name: z.string().trim().min(1, 'Cluster name is required').max(120),
+    description: z.union([z.string().trim(), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    contactIds: z.array(z.string().min(1)).min(1, 'At least one contact must be selected').max(10_000),
+  }),
+  update: z.object({
+    name: z.string().trim().min(1, 'Cluster name is required').max(120).optional(),
+    description: z.union([z.string().trim(), z.literal(''), z.null()]).optional().transform((v) => (v === '' ? null : v)),
+    contactIds: z.array(z.string().min(1)).min(1, 'At least one contact must be selected').max(10_000).optional(),
+  }),
+};

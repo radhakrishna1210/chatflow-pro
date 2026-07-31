@@ -1,8 +1,9 @@
 import * as contactsService from '../services/contacts.service.js';
 
 export async function list(req, res) {
-  const { search, page, limit } = req.query;
-  const result = await contactsService.listContacts(req.params.workspaceId, { search, page: +page || 1, limit: +limit || 20 });
+  const { search, page, limit, clusterId } = req.query;
+  const parsedLimit = limit === 'all' || limit === '0' ? 10000 : (+limit || 20);
+  const result = await contactsService.listContacts(req.params.workspaceId, { search, clusterId, page: +page || 1, limit: parsedLimit });
   res.json(result);
 }
 
