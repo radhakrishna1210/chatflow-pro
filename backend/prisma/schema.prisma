@@ -227,10 +227,15 @@ model CampaignRecipient {
   status      CampaignRecipientStatus @default(PENDING)
   sentAt      DateTime?
   deliveredAt DateTime?
-  readAt      DateTime?
-  failedAt    DateTime?
-  failReason  String?
-  campaign    Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  readAt            DateTime?
+  failedAt          DateTime?
+  failReason        String?
+  retryCount        Int                     @default(0)
+  lastRetryAt       DateTime?
+  nextRetryAt       DateTime?
+  lastFailureReason String?
+  retryStatus       String?
+  campaign          Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact     Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
   messages    Message[]
 
@@ -358,6 +363,7 @@ enum CampaignStatus {
 
 enum CampaignRecipientStatus {
   PENDING
+  RETRYING
   SENT
   DELIVERED
   READ

@@ -532,12 +532,21 @@ const TpPicker = ({ label, h, m, ap, onH, onM, onAp }) => (
   </div>
 );
 
-const Step6 = ({ onRetryToggle, onSaved }) => {
-  const [active, setActive]   = useState(false);
-  const [endDate, setEndDate] = useState('');
-  const [pattern, setPattern] = useState('smart');
-  const [sH, setSH] = useState('09'); const [sM, setSM] = useState('00'); const [sAp, setSAp] = useState('PM');
-  const [eH, setEH] = useState('06'); const [eM, setEM] = useState('00'); const [eAp, setEAp] = useState('AM');
+const parseTimeSplit = (str, defH, defM, defAp) => {
+  if (!str) return [defH, defM, defAp];
+  const parts = String(str).split(' ');
+  const time = (parts[0] || '').split(':');
+  return [time[0] || defH, time[1] || defM, parts[1] || defAp];
+};
+
+const Step6 = ({ initial = null, onRetryToggle, onSaved }) => {
+  const [active, setActive]   = useState(initial?.active ?? false);
+  const [endDate, setEndDate] = useState(initial?.endDate ?? '');
+  const [pattern, setPattern] = useState(initial?.pattern ?? 'smart');
+  const [initSH, initSM, initSAp] = parseTimeSplit(initial?.noRetryStart, '09', '00', 'PM');
+  const [initEH, initEM, initEAp] = parseTimeSplit(initial?.noRetryEnd, '06', '00', 'AM');
+  const [sH, setSH] = useState(initSH); const [sM, setSM] = useState(initSM); const [sAp, setSAp] = useState(initSAp);
+  const [eH, setEH] = useState(initEH); const [eM, setEM] = useState(initEM); const [eAp, setEAp] = useState(initEAp);
   const [saved, setSaved] = useState(false);
 
   const toggle = (v) => { setActive(v); onRetryToggle?.(v); };
@@ -948,7 +957,7 @@ export default function CreateCampaign({ onBack }) {
       if (!recRes.ok) throw new Error(await parseError(recRes, `Could not add recipients (${recRes.status})`));
 
       const launchRes = await wFetch(`/campaigns/${campaign.id}/launch`, {
-        method: 'POST', body: JSON.stringify({ scheduledAt: effectiveScheduledAt }),
+        method: 'POST', body: JSON.stringify({ scheduledAt: effectiveScheduledAt, retryConfig }),
       });
       if (!launchRes.ok) throw new Error(await parseError(launchRes, `Could not launch campaign (${launchRes.status})`));
       onBack?.();
@@ -1057,7 +1066,7 @@ export default function CreateCampaign({ onBack }) {
                 />
               )}
               {s.n === 5 && <Step5 initial={replyRules} onSaved={setReplyRules} />}
-              {s.n === 6 && <Step6 onRetryToggle={setRetriesActive} onSaved={setRetryConfig} />}
+              {s.n === 6 && <Step6 initial={retryConfig} onRetryToggle={setRetriesActive} onSaved={setRetryConfig} />}
               {s.n === 7 && <Step7 onSaved={setTrackingConfig} />}
               {s.n === 8 && <Step8 retriesActive={retriesActive} onSaved={setFallbackConfig} />}
             </StepWrap>

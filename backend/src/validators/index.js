@@ -80,7 +80,17 @@ export const campaignSchemas = {
     fallbackConfig: z.any().optional(),
   }).passthrough().refine((v) => v.numberId || v.whatsappNumberId, { message: 'numberId is required' }),
   addRecipients: z.object({ contactIds: z.array(id).min(1, 'At least one contact is required').max(10_000) }),
-  launch: z.object({ scheduledAt: z.union([z.string(), z.date(), z.null()]).optional() }),
+  update: z.object({
+    name: meaningfulText(z.string().trim().min(1).max(120), 'Campaign name').optional(),
+    replyRules: z.any().optional(),
+    retryConfig: z.any().optional(),
+    trackingConfig: z.any().optional(),
+    fallbackConfig: z.any().optional(),
+  }).passthrough(),
+  launch: z.object({
+    scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
+    retryConfig: z.any().optional(),
+  }),
 };
 
 export const contactSchemas = {

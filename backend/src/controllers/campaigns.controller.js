@@ -16,8 +16,13 @@ export async function addRecipients(req, res) {
   res.json(result);
 }
 
+export async function update(req, res) {
+  const campaign = await campaignsService.updateCampaign(req.params.workspaceId, req.params.id, req.body);
+  res.json(campaign);
+}
+
 export async function launch(req, res) {
-  const campaign = await campaignsService.launchCampaign(req.params.workspaceId, req.params.id, req.body.scheduledAt);
+  const campaign = await campaignsService.launchCampaign(req.params.workspaceId, req.params.id, req.body.scheduledAt, req.body.retryConfig);
   res.json(campaign);
 }
 
