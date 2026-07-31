@@ -13,6 +13,8 @@ router.get('/', campaignsController.list);
 router.get('/fallback-capabilities', campaignsController.fallbackCapabilities);
 router.post('/', authorize('ADMIN'), validate({ body: campaignSchemas.create }), campaignsController.create);
 router.get('/:id', campaignsController.getOne);
+router.patch('/:id', authorize('ADMIN'), validate({ body: campaignSchemas.update }), campaignsController.update);
+router.put('/:id', authorize('ADMIN'), validate({ body: campaignSchemas.update }), campaignsController.update);
 router.post('/:id/recipients', authorize('ADMIN'), validate({ body: campaignSchemas.addRecipients }), campaignsController.addRecipients);
 router.post('/:id/launch', authorize('ADMIN'), validate({ body: campaignSchemas.launch }), campaignsController.launch);
 router.patch('/:id/cancel', authorize('ADMIN'), campaignsController.cancel);

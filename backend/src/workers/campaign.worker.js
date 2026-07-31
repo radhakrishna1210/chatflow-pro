@@ -7,6 +7,7 @@ import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
 import { consumeMessageCredit } from '../services/subscription.service.js';
 import { runFallbackForRecipient } from '../services/fallback.service.js';
+import { handleRecipientFailure, checkAndCompleteCampaign } from '../services/retry.service.js';
 
 // Meta Cloud API Tier-1 numbers are limited to ~250 msgs/min. The old 60ms
 // delay (~1000/min) triggered rate-limit errors (code 131042). 250ms ≈ 240/min.
@@ -42,7 +43,139 @@ const buildTemplateComponents = (components, contact) => {
     }));
 };
 
+async function processRetryJob(job) {
+  const { campaignId, workspaceId, recipientId, attempt = 1 } = job.data;
+  console.log(`[CampaignRetry] Retry started for recipient ${recipientId} (attempt #${attempt})`);
+
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, workspaceId },
+    include: { template: true, waNumber: true },
+  });
+
+  if (!campaign) {
+    console.log(`[CampaignRetry] Campaign ${campaignId} not found — skipping retry`);
+    return;
+  }
+  if (campaign.status === 'CANCELLED') {
+    console.log(`[CampaignRetry] Campaign ${campaignId} was cancelled — skipping retry for ${recipientId}`);
+    return;
+  }
+  if (!campaign.waNumber) {
+    await handleRecipientFailure(campaign, { id: recipientId, retryCount: attempt }, 'No WhatsApp number configured on campaign');
+    return;
+  }
+
+  const recipient = await prisma.campaignRecipient.findUnique({
+    where: { id: recipientId },
+    include: { contact: true },
+  });
+
+  if (!recipient || !recipient.contact) return;
+  if (recipient.status === 'DELIVERED' || recipient.status === 'READ') {
+    console.log(`[CampaignRetry] Recipient ${recipientId} is already ${recipient.status} — skipping retry`);
+    return;
+  }
+
+  await prisma.campaignRecipient.update({
+    where: { id: recipientId },
+    data: { retryStatus: 'IN_PROGRESS', lastRetryAt: new Date(), retryCount: attempt },
+  });
+
+  const accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
+  const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
+
+  try {
+    const credit = await consumeMessageCredit(workspaceId, { reason: 'Campaign retry attempt' });
+    if (!credit.ok) {
+      console.warn(`[CampaignRetry] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
+      await handleRecipientFailure(campaign, recipient, 'Quota and wallet balance exhausted', null);
+      return;
+    }
+
+    const templatePayload = {
+      name: campaign.template.name,
+      language: { code: campaign.template.language },
+    };
+    if (templateHasVariables(campaign.template.components)) {
+      templatePayload.components = buildTemplateComponents(campaign.template.components, recipient.contact);
+    }
+
+    const result = await sendWhatsAppMessage(
+      phoneNumberId,
+      accessToken,
+      normalizePhone(recipient.contact.phoneNumber),
+      templatePayload
+    );
+    const metaMessageId = result?.messages?.[0]?.id ?? null;
+    console.log(`[CampaignRetry] Retry succeeded for recipient ${recipient.id} on attempt #${attempt}:`, metaMessageId);
+
+    const wasSent = Boolean(recipient.sentAt);
+    await prisma.campaignRecipient.update({
+      where: { id: recipient.id },
+      data: {
+        status: 'DELIVERED',
+        sentAt: recipient.sentAt || new Date(),
+        deliveredAt: new Date(),
+        retryStatus: 'SUCCESS',
+        nextRetryAt: null,
+        failReason: null,
+        lastFailureReason: null,
+      },
+    });
+
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        delivered: { increment: 1 },
+        ...(wasSent ? {} : { sent: { increment: 1 } }),
+      },
+    });
+
+    if (metaMessageId) {
+      let convo = await prisma.conversation.findFirst({
+        where: { contactId: recipient.contactId, waNumberId: campaign.waNumberId },
+      });
+      if (!convo) {
+        convo = await prisma.conversation.create({
+          data: {
+            workspaceId: campaign.workspaceId,
+            contactId: recipient.contactId,
+            waNumberId: campaign.waNumberId,
+            status: 'OPEN',
+          },
+        }).catch(() => null);
+      }
+      if (convo) {
+        await prisma.message.create({
+          data: {
+            conversationId: convo.id,
+            body: `[Campaign Retry: ${campaign.name}]`,
+            direction: 'OUTBOUND',
+            metaMessageId,
+            campaignRecipientId: recipient.id,
+            sentAt: new Date(),
+          },
+        }).catch(() => null);
+      }
+    }
+
+    await checkAndCompleteCampaign(campaignId);
+  } catch (err) {
+    const metaErr = err.response?.data?.error;
+    const reason = metaErr
+      ? `${metaErr.message} (code ${metaErr.code}${metaErr.error_subcode ? `/${metaErr.error_subcode}` : ''})`
+      : err.message;
+    console.error(`[CampaignRetry] Retry failed for ${recipient.contact.phoneNumber}:`, reason);
+
+    await handleRecipientFailure(campaign, { ...recipient, retryCount: attempt }, reason, metaErr?.code);
+  }
+}
+
 async function processCampaign(job) {
+  if (job.name === 'retry-recipient' || job.data?.type === 'retry') {
+    await processRetryJob(job);
+    return;
+  }
   const { campaignId, workspaceId } = job.data;
 
   const campaign = await prisma.campaign.findFirst({
@@ -167,21 +300,7 @@ async function processCampaign(job) {
         ? `${metaErr.message} (code ${metaErr.code}${metaErr.error_subcode ? `/${metaErr.error_subcode}` : ''})`
         : err.message;
       console.error(`[CampaignWorker] send failed for ${recipient.contact.phoneNumber}:`, reason, metaErr || '');
-      await prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: { status: 'FAILED', failedAt: new Date(), failReason: reason },
-      });
-      await prisma.campaign.update({
-        where: { id: campaignId },
-        data: { failed: { increment: 1 } },
-      });
-
-      // Fallback channels (wizard step 8): route the failed recipient through
-      // SMS/email if the campaign configured them. Outcome is appended to the
-      // recipient's failReason — real attempts, honestly recorded.
-      await runFallbackForRecipient(campaign, recipient, recipient.contact).catch((fbErr) => {
-        console.error(`[CampaignWorker] fallback error for ${recipient.contact.phoneNumber}:`, fbErr.message);
-      });
+      await handleRecipientFailure(campaign, recipient, reason, metaErr?.code);
     }
 
     await new Promise((r) => setTimeout(r, RATE_DELAY_MS));
@@ -193,15 +312,7 @@ async function processCampaign(job) {
     return;
   }
 
-  // Atomic completion: only mark COMPLETED if still RUNNING.
-  const done = await prisma.campaign.updateMany({
-    where: { id: campaignId, status: 'RUNNING' },
-    data: { status: 'COMPLETED', completedAt: new Date() },
-  });
-  if (done.count > 0) {
-    const completed = await prisma.campaign.findUnique({ where: { id: campaignId } });
-    if (completed) queueCampaignCompletedEmail(completed).catch(() => {});
-  }
+  await checkAndCompleteCampaign(campaignId);
 }
 
 export function startCampaignWorker() {

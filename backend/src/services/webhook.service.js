@@ -4,6 +4,7 @@ import { matchIntent, generateAgentReply } from './aiAgent.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage } from '../lib/meta.js';
 import { queueTemplateApprovedEmail, queueTemplateRejectedEmail } from './email.service.js';
+import { handleRecipientFailure } from './retry.service.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_WELCOME_MESSAGE = "Thanks for reaching out! We've received your message and will get back to you shortly.";
@@ -249,7 +250,7 @@ async function handleStatusUpdate(status) {
 
   const recipient = await prisma.campaignRecipient.findUnique({
     where: { id: message.campaignRecipientId },
-    select: { id: true, campaignId: true, status: true, deliveredAt: true, readAt: true, failedAt: true },
+    select: { id: true, campaignId: true, contactId: true, retryCount: true, status: true, deliveredAt: true, readAt: true, failedAt: true },
   });
   if (!recipient) return;
 
@@ -285,16 +286,16 @@ async function handleStatusUpdate(status) {
     ];
     await prisma.$transaction(ops);
   } else if (newStatus === 'failed' && !recipient.failedAt) {
-    const reason = status.errors?.[0]?.title || status.errors?.[0]?.message || 'Delivery failed';
-    await prisma.$transaction([
-      prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: { failedAt: eventTime, status: 'FAILED', failReason: reason },
-      }),
-      prisma.campaign.update({
-        where: { id: recipient.campaignId },
-        data: { failed: { increment: 1 } },
-      }),
-    ]);
+    const errObj = status.errors?.[0];
+    const code = errObj?.code;
+    const reason = errObj ? `${errObj.title || errObj.message || 'Delivery failed'}${code ? ` (code ${code})` : ''}` : 'Delivery failed';
+
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: recipient.campaignId },
+    });
+    if (campaign) {
+      const contact = await prisma.contact.findUnique({ where: { id: recipient.contactId } }).catch(() => null);
+      await handleRecipientFailure(campaign, { ...recipient, contact }, reason, code);
+    }
   }
 }

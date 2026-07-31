@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
 import { getPlanLimits, assertWithinLimit } from './subscription.service.js';
+import { normalizeRetryConfig } from '../lib/retry.js';
 
 export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
@@ -48,11 +49,27 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
       // Advanced wizard config (reply flows / retries / conversion tracking) is
       // persisted as JSON so it survives and can drive future execution.
       replyRules: replyRules ?? undefined,
-      retryConfig: retryConfig ?? undefined,
+      retryConfig: retryConfig ? normalizeRetryConfig(retryConfig) : undefined,
       trackingConfig: trackingConfig ?? undefined,
       fallbackConfig: fallbackConfig ?? undefined,
     },
   });
+}
+
+export async function updateCampaign(workspaceId, campaignId, { name, replyRules, retryConfig, trackingConfig, fallbackConfig }) {
+  const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
+  if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
+  if (campaign.status !== 'DRAFT' && campaign.status !== 'SCHEDULED') {
+    const e = new Error('Only DRAFT or SCHEDULED campaigns can be updated'); e.status = 400; throw e;
+  }
+  const data = {};
+  if (name !== undefined) data.name = String(name).trim();
+  if (replyRules !== undefined) data.replyRules = replyRules;
+  if (retryConfig !== undefined) data.retryConfig = retryConfig ? normalizeRetryConfig(retryConfig) : null;
+  if (trackingConfig !== undefined) data.trackingConfig = trackingConfig;
+  if (fallbackConfig !== undefined) data.fallbackConfig = fallbackConfig;
+
+  return prisma.campaign.update({ where: { id: campaignId }, data });
 }
 
 export async function addRecipients(workspaceId, campaignId, contactIds) {
@@ -86,7 +103,7 @@ export async function addRecipients(workspaceId, campaignId, contactIds) {
   return { added, skipped: invalidIds.length + duplicates, duplicates, invalidIds, totalContacts: total };
 }
 
-export async function launchCampaign(workspaceId, campaignId, scheduledAt) {
+export async function launchCampaign(workspaceId, campaignId, scheduledAt, retryConfig) {
   const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
   if (campaign.status !== 'DRAFT') {
@@ -112,6 +129,8 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt) {
     }
   }
 
+  const normRetry = retryConfig ? normalizeRetryConfig(retryConfig) : (campaign.retryConfig ? normalizeRetryConfig(campaign.retryConfig) : undefined);
+
   if (scheduledAt) {
     const scheduledDate = new Date(scheduledAt);
     if (Number.isNaN(scheduledDate.getTime())) {
@@ -127,7 +146,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt) {
     // lets startup recovery re-queue lost jobs after a Redis/server restart.
     await prisma.campaign.update({
       where: { id: campaignId },
-      data: { status: 'SCHEDULED', scheduledAt: scheduledDate, queueJobId: String(job.id) },
+      data: { status: 'SCHEDULED', scheduledAt: scheduledDate, queueJobId: String(job.id), ...(normRetry !== undefined ? { retryConfig: normRetry } : {}) },
     });
   } else {
     const job = await campaignQueue.add('send-campaign', { campaignId, workspaceId });
@@ -136,7 +155,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt) {
     // never picks the job up.
     await prisma.campaign.update({
       where: { id: campaignId },
-      data: { scheduledAt: new Date(), queueJobId: String(job.id) },
+      data: { scheduledAt: new Date(), queueJobId: String(job.id), ...(normRetry !== undefined ? { retryConfig: normRetry } : {}) },
     });
   }
 

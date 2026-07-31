@@ -34,6 +34,7 @@ const StatusBadge = ({ s }) => {
     Failed:    { bg: 'rgba(239,68,68,.08)',         bd: 'rgba(239,68,68,.22)',          c: '#f87171' },
     Rejected:  { bg: 'rgba(239,68,68,.08)',         bd: 'rgba(239,68,68,.22)',          c: '#f87171' },
     Pending:   { bg: 'rgba(245,158,11,.1)',        bd: 'rgba(245,158,11,.25)',         c: '#fbbf24' },
+    Retrying:  { bg: 'rgba(168,85,247,.12)',       bd: 'rgba(168,85,247,.3)',          c: '#c084fc' },
     urgent:    { bg: 'rgba(239,68,68,.08)',        bd: 'rgba(239,68,68,.22)',          c: '#f87171' },
     resolved:  { bg: 'var(--gbg)',                bd: 'var(--gbd)',                   c: 'var(--green)' },
     billing:   { bg: 'rgba(245,158,11,.08)',       bd: 'rgba(245,158,11,.22)',         c: '#fbbf24' },
