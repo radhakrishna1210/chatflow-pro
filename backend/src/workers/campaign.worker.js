@@ -8,12 +8,54 @@ import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../servic
 import { consumeMessageCredit } from '../services/subscription.service.js';
 import { runFallbackForRecipient } from '../services/fallback.service.js';
 import { handleRecipientFailure, checkAndCompleteCampaign } from '../services/retry.service.js';
+import { settleCampaignRefund } from '../services/campaigns.service.js';
+import { isOptedOut } from '../services/optout.service.js';
+import { notifyWorkspace } from '../services/notification.service.js';
 
 // Meta Cloud API Tier-1 numbers are limited to ~250 msgs/min. The old 60ms
 // delay (~1000/min) triggered rate-limit errors (code 131042). 250ms ≈ 240/min.
 const RATE_DELAY_MS = Math.max(env.CAMPAIGN_RATE_DELAY_MS, 250);
 
 const normalizePhone = (raw) => String(raw || '').replace(/[^\d]/g, '');
+
+// Marks a recipient as skipped because the number is opted out. Skips are
+// tracked separately from failures: they cost nothing, are never retried, and
+// must never abort the rest of the campaign.
+async function skipOptedOutRecipient(campaignId, recipient) {
+  await prisma.campaignRecipient.update({
+    where: { id: recipient.id },
+    data: {
+      status: 'SKIPPED',
+      failReason: 'Recipient opted out',
+      lastFailureReason: 'Recipient opted out',
+      retryStatus: 'SKIPPED',
+      nextRetryAt: null,
+    },
+  });
+  await prisma.campaign.update({ where: { id: campaignId }, data: { skipped: { increment: 1 } } });
+  console.log(`[CampaignWorker] Skipped ${recipient.contact?.phoneNumber} — opted out`);
+}
+
+// Meta's raw errors are unreadable to a workspace admin ("Unsupported post
+// request. Object with ID '1027…' does not exist … (code 100/33)"). Translate
+// the ones that have an actual fix into that fix; pass everything else
+// through unchanged so nothing is hidden.
+const describeMetaError = (metaErr, fallback) => {
+  if (!metaErr) return fallback;
+  const raw = `${metaErr.message} (code ${metaErr.code}${metaErr.error_subcode ? `/${metaErr.error_subcode}` : ''})`;
+  const code = Number(metaErr.code);
+  const sub = Number(metaErr.error_subcode);
+
+  if (code === 100 && (sub === 33 || /does not exist|cannot be loaded/i.test(metaErr.message || ''))) {
+    return 'This WhatsApp number is no longer reachable on Meta (its phone number ID is missing, was moved to another WABA, or the access token lost permission). Reconnect the number in Number Setup, then relaunch. — ' + raw;
+  }
+  if (code === 190) return 'The WhatsApp access token has expired — reconnect the number in Number Setup. — ' + raw;
+  if (code === 131047) return 'Outside the 24-hour customer service window — this recipient can only be reached with an approved template. — ' + raw;
+  if (code === 131026) return 'The recipient number is not a valid WhatsApp account. — ' + raw;
+  if (code === 132000 || code === 132001) return 'The template is not usable as sent (wrong variable count, or not approved for this number). — ' + raw;
+  if (code === 131042) return 'Meta rejected the send for a billing/rate reason on the business account. — ' + raw;
+  return raw;
+};
 
 const templateHasVariables = (components) => {
   if (!Array.isArray(components)) return false;
@@ -75,6 +117,12 @@ async function processRetryJob(job) {
     console.log(`[CampaignRetry] Recipient ${recipientId} is already ${recipient.status} — skipping retry`);
     return;
   }
+  // The customer may have opted out between the original send and this retry.
+  if (await isOptedOut(workspaceId, recipient.contact.phoneNumber)) {
+    await skipOptedOutRecipient(campaignId, recipient);
+    await checkAndCompleteCampaign(campaignId);
+    return;
+  }
 
   await prisma.campaignRecipient.update({
     where: { id: recipientId },
@@ -85,7 +133,10 @@ async function processRetryJob(job) {
   const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
 
   try {
-    const credit = await consumeMessageCredit(workspaceId, { reason: 'Campaign retry attempt' });
+    const credit = await consumeMessageCredit(workspaceId, {
+      reason: 'Campaign retry attempt',
+      prepaid: !!campaign.chargedAt,
+    });
     if (!credit.ok) {
       console.warn(`[CampaignRetry] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
       await handleRecipientFailure(campaign, recipient, 'Quota and wallet balance exhausted', null);
@@ -162,9 +213,7 @@ async function processRetryJob(job) {
     await checkAndCompleteCampaign(campaignId);
   } catch (err) {
     const metaErr = err.response?.data?.error;
-    const reason = metaErr
-      ? `${metaErr.message} (code ${metaErr.code}${metaErr.error_subcode ? `/${metaErr.error_subcode}` : ''})`
-      : err.message;
+    const reason = describeMetaError(metaErr, err.message);
     console.error(`[CampaignRetry] Retry failed for ${recipient.contact.phoneNumber}:`, reason);
 
     await handleRecipientFailure(campaign, { ...recipient, retryCount: attempt }, reason, metaErr?.code);
@@ -220,8 +269,22 @@ async function processCampaign(job) {
     const refreshed = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
     if (refreshed?.status === 'CANCELLED') { cancelled = true; break; }
 
+    // Re-checked per recipient rather than only at launch: a customer can
+    // reply STOP while the campaign is mid-flight, and that must take effect
+    // for the messages that haven't gone out yet.
+    if (await isOptedOut(campaign.workspaceId, recipient.contact.phoneNumber)) {
+      await skipOptedOutRecipient(campaignId, recipient);
+      continue;
+    }
+
     try {
-      const credit = await consumeMessageCredit(campaign.workspaceId, { reason: 'Campaign overage' });
+      // Campaigns are paid for in full at launch (campaigns.service.js), so
+      // the per-send call only meters quota here — charging again would
+      // double-bill the same message.
+      const credit = await consumeMessageCredit(campaign.workspaceId, {
+        reason: 'Campaign overage',
+        prepaid: !!campaign.chargedAt,
+      });
       if (!credit.ok) {
         console.warn(`[CampaignWorker] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
         await prisma.campaignRecipient.update({
@@ -296,9 +359,7 @@ async function processCampaign(job) {
       }
     } catch (err) {
       const metaErr = err.response?.data?.error;
-      const reason = metaErr
-        ? `${metaErr.message} (code ${metaErr.code}${metaErr.error_subcode ? `/${metaErr.error_subcode}` : ''})`
-        : err.message;
+      const reason = describeMetaError(metaErr, err.message);
       console.error(`[CampaignWorker] send failed for ${recipient.contact.phoneNumber}:`, reason, metaErr || '');
       await handleRecipientFailure(campaign, recipient, reason, metaErr?.code);
     }
@@ -337,7 +398,23 @@ export function startCampaignWorker() {
       }).catch(() => null);
       if (res?.count > 0) {
         const failed = await prisma.campaign.findUnique({ where: { id: job.data.campaignId } }).catch(() => null);
-        if (failed) queueCampaignFailedEmail(failed).catch(() => {});
+        if (failed) {
+          // A campaign that died before sending (a disconnected number, an
+          // expired token) has already taken the money. Give back everything
+          // that never went out — otherwise a FAILED campaign is a dead end
+          // with no refund path, since cancel() refuses terminal campaigns.
+          await settleCampaignRefund(failed.id, 'Refund for failed campaign').catch((e) =>
+            console.error(`[Campaign] Settlement failed for ${failed.id}:`, e.message));
+
+          queueCampaignFailedEmail(failed).catch(() => {});
+          notifyWorkspace(failed.workspaceId, {
+            type: 'CAMPAIGN_FAILED',
+            title: `Campaign "${failed.name}" failed`,
+            body: err.message,
+            link: 'campaigns',
+            meta: { campaignId: failed.id },
+          }).catch(() => {});
+        }
       }
     }
   });

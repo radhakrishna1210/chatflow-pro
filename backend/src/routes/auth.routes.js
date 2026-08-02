@@ -2,6 +2,7 @@ import { Router } from 'express';
 import passport from 'passport';
 import { randomBytes } from 'crypto';
 import * as authController from '../controllers/auth.controller.js';
+import * as instagramController from '../controllers/instagram.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
 import { rateLimit } from '../middleware/rateLimit.js';
@@ -171,11 +172,9 @@ router.get('/meta/callback', async (req, res) => {
   }
 });
 
-router.get('/instagram/callback', async (req, res) => {
-  const { code } = req.query;
-  if (!code) return res.redirect(`${env.CLIENT_URL}/dashboard/integrations?instagram_error=missing_code`);
-  // NOTE: real implementation would exchange the code via Instagram Basic Display API.
-  return res.redirect(`${env.CLIENT_URL}/dashboard/integrations?instagram_code=${encodeURIComponent(code)}`);
-});
+// Exchanges the code for a long-lived token and stores the connection. The
+// workspace is recovered from the signed OAuth `state` minted by
+// POST /workspaces/:id/instagram/auth-url.
+router.get('/instagram/callback', instagramController.oauthCallback);
 
 export default router;

@@ -95,3 +95,34 @@ export const adminFetch = (path, opts = {}) => {
 };
 
 export const apiFetch = authedFetch;
+
+// Downloads a workspace-scoped file (invoice, CSV export) through the
+// authenticated fetch path. A plain <a href> can't be used because every API
+// route needs the Authorization header, so the response is pulled down as a
+// blob and handed to a synthetic link instead.
+export async function wDownload(path, fallbackName = 'download') {
+  const res = await wFetch(path);
+  if (!res.ok) {
+    let message = `Download failed (${res.status})`;
+    try { const data = await res.json(); if (data.error) message = data.error; } catch { /* not JSON */ }
+    throw new Error(message);
+  }
+
+  // Prefer the server's filename from Content-Disposition when it sent one.
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = /filename="?([^"';]+)"?/i.exec(disposition);
+  const filename = match ? match[1] : fallbackName;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  // Revoke on the next tick — revoking synchronously can cancel the download
+  // in some browsers before it has started reading the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return filename;
+}

@@ -141,16 +141,10 @@ export const chatWithAi = async (req, res) => {
         const spec = await generateWorkflowSpec(text);
         const wf = await createWorkflow(workspaceId, { name: spec.name, nodes: spec.nodes, edges: [], isActive: true });
         const triggerStep = spec.nodes.find((n) => n.type === 'trigger');
-        // Keyword triggers are actually executed by the inbound handler, so also
-        // register an AutomationTrigger so the workflow genuinely runs.
-        if (triggerStep?.subtype === 'keyword' && triggerStep.value) {
-          const reply = spec.nodes.find((n) => n.type === 'action' && n.subtype === 'message')?.value;
-          if (reply) {
-            await prisma.automationTrigger.create({
-              data: { workspaceId, keyword: triggerStep.value, responseTemplate: reply, isActive: true },
-            }).catch(() => {});
-          }
-        }
+        // This used to also register a shadow AutomationTrigger, because the
+        // Workflows tab was inert and a workflow alone would never have fired.
+        // The inbound handler runs workflows directly now, so the duplicate is
+        // gone — it would only have made the workflow harder to edit later.
         responseText = `Done — I built the "${wf.name}" automation and activated it. ${triggerStep?.subtype === 'keyword' ? `When someone messages "${triggerStep.value}", it will reply automatically.` : 'You can review and edit it under Automation → Workflows.'}`;
         card = { title: 'Workflow Created', icon: '⚙️', details: { name: wf.name, steps: spec.nodes.length, status: 'ACTIVE' } };
         state = { step: 'IDLE' };

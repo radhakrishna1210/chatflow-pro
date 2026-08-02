@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage } from '../lib/meta.js';
 import { consumeMessageCredit } from './subscription.service.js';
+import { assertNotOptedOut } from './optout.service.js';
 
 export async function listConversations(workspaceId, { page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
@@ -50,6 +51,10 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     e.status = 409;
     throw e;
   }
+
+  // Opt-out is checked on every outbound path, including a human replying
+  // from the inbox — a customer who sent STOP must not be messaged again.
+  await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
 
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Message overage' });
   if (!credit.ok) {

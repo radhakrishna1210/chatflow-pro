@@ -16,6 +16,11 @@ router.post('/onboard', authorize('ADMIN'), whatsappController.onboard);
 router.get('/embedded-signup/config', whatsappController.embeddedSignupConfig);
 router.post('/embedded-signup', authorize('ADMIN'), whatsappController.completeEmbeddedSignup);
 router.get('/numbers/:id/subscription', whatsappController.checkSubscription);
-router.delete('/numbers/:id', authorize('ADMIN'), whatsappController.disconnect);
+// Members can disconnect a number they are working with (it only detaches the
+// number from this workspace and returns it to the pool — conversations,
+// campaigns and template history are all preserved). Connecting and
+// onboarding a new number stay admin-only, since those provision billable
+// resources against the business account.
+router.delete('/numbers/:id', authorize('CLIENT'), whatsappController.disconnect);
 
 export default router;

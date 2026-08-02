@@ -5,6 +5,7 @@ import {
   exchangeEmbeddedSignupCode, getLongLivedToken, registerPhoneNumber, getPhoneNumberById,
 } from '../lib/meta.js';
 import { syncTemplatesFromMeta } from './templates.service.js';
+import { assertNotOptedOut, normalizePhone as normalizeMsisdn } from './optout.service.js';
 import { env } from '../config/env.js';
 
 // Subscribe our Meta app to a WABA so webhooks (inbound messages, delivery/read
@@ -270,6 +271,21 @@ export async function getDecryptedNumber(workspaceId, numberId) {
 }
 
 export async function sendPublicMessage(workspaceId, { to, template, type, body, waNumberId }) {
+  if (!to || !String(to).trim()) {
+    const e = new Error('`to` (recipient phone number) is required'); e.status = 400; throw e;
+  }
+  // Meta rejects anything but bare digits — a caller passing "+91 98765 43210"
+  // used to get an opaque 400 back from the Graph API.
+  const recipient = normalizeMsisdn(to);
+  if (recipient.length < 8) {
+    const e = new Error('`to` must be a phone number in international format, e.g. +919876543210');
+    e.status = 400;
+    throw e;
+  }
+
+  // Opt-out is enforced before anything is sent, on every send path.
+  await assertNotOptedOut(workspaceId, recipient);
+
   // Find the WhatsApp number to send from
   const waNumber = await prisma.waNumber.findFirst({
     where: {
@@ -288,9 +304,9 @@ export async function sendPublicMessage(workspaceId, { to, template, type, body,
   const { sendWhatsAppMessage, sendTextMessage } = await import('../lib/meta.js');
 
   if (type === 'template') {
-    return sendWhatsAppMessage(waNumber.metaPhoneNumberId, accessToken, to, template);
+    return sendWhatsAppMessage(waNumber.metaPhoneNumberId, accessToken, recipient, template);
   } else if (type === 'text') {
-    return sendTextMessage(waNumber.metaPhoneNumberId, accessToken, to, body);
+    return sendTextMessage(waNumber.metaPhoneNumberId, accessToken, recipient, body);
   } else {
     const e = new Error('Invalid message type. Supported: template, text');
     e.status = 400;

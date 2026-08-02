@@ -48,6 +48,19 @@ const envSchema = z.object({
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
 
+  // Public origin of THIS backend. Twilio signs its webhooks over the exact URL
+  // it called, and the Instagram OAuth redirect_uri must match byte-for-byte,
+  // so neither can be derived from CLIENT_URL when the two are deployed apart.
+  // Defaults to APP_URL (the existing backend-base convention, see below) so no
+  // new configuration is needed for the single-service Render deploy.
+  API_PUBLIC_URL: z.string().url().optional(),
+
+  // Instagram Quickflows. Falls back to the Meta app credentials above when a
+  // dedicated IG app isn't used; the feature stays off until one is present.
+  INSTAGRAM_APP_ID: z.string().optional(),
+  INSTAGRAM_APP_SECRET: z.string().optional(),
+  INSTAGRAM_REDIRECT_URI: z.string().url().optional(),
+
   // BullMQ idle-polling tuning. Every blocking poll and stalled-job check is a
   // billed request on a hosted Redis (Upstash), and three workers poll around
   // the clock whether or not any job exists — the defaults below are ~10x
@@ -108,6 +121,12 @@ export const env = {
     base.GOOGLE_CALLBACK_URL ?? `${backendBase}/api/v1/auth/google/callback`,
   META_REDIRECT_URI:
     base.META_REDIRECT_URI ?? `${backendBase}/api/v1/auth/meta/callback`,
+  // Twilio validates its signature against the exact URL it called, and the
+  // Instagram redirect_uri must match the app config byte-for-byte — both
+  // resolve off the same backend base as the OAuth callbacks above.
+  API_PUBLIC_URL: base.API_PUBLIC_URL ?? backendBase,
+  INSTAGRAM_REDIRECT_URI:
+    base.INSTAGRAM_REDIRECT_URI ?? `${backendBase}/api/v1/auth/instagram/callback`,
   CORS_ORIGINS: [
     base.CLIENT_URL,
     ...(base.CORS_EXTRA_ORIGINS ? base.CORS_EXTRA_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean) : []),

@@ -91,6 +91,15 @@ export const campaignSchemas = {
     scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
     retryConfig: z.any().optional(),
   }),
+  // Either a selection of contacts (wizard, before the campaign exists) or an
+  // existing draft campaign.
+  estimate: z.object({
+    contactIds: z.array(id).max(10_000).optional(),
+    campaignId: id.optional(),
+  }).refine((v) => (v.contactIds && v.contactIds.length > 0) || v.campaignId, {
+    message: 'Provide contactIds or a campaignId',
+    path: ['contactIds'],
+  }),
 };
 
 export const contactSchemas = {
@@ -181,17 +190,73 @@ export const automationSchemas = {
     responseTemplate: meaningfulText(z.string().trim().min(1).max(1000), 'Response message').optional(),
     isActive: z.boolean().optional(),
   }).strict(),
+
+  // Basic Automations now carry the reply text and working hours, not just the
+  // three on/off flags. businessHours: null means "always open".
+  updateBasic: z.object({
+    autoOooEnabled: z.boolean().optional(),
+    autoWelcomeEnabled: z.boolean().optional(),
+    autoDelayedEnabled: z.boolean().optional(),
+    welcomeMessage: meaningfulText(z.string().trim().min(1).max(1000), 'Welcome message').optional(),
+    oooMessage: meaningfulText(z.string().trim().min(1).max(1000), 'Out-of-office message').optional(),
+    delayedMessage: meaningfulText(z.string().trim().min(1).max(1000), 'Delayed response message').optional(),
+    delayedAfterMinutes: z.coerce.number().int().min(1).max(1440).optional(),
+    businessHours: z.object({
+      tz: z.string().trim().min(1).max(64).optional(),
+      days: z.array(z.object({
+        day: z.coerce.number().int().min(0).max(6),
+        enabled: z.boolean(),
+        start: z.string().trim().optional(),
+        end: z.string().trim().optional(),
+      })).max(7),
+    }).nullable().optional(),
+  }).strict(),
+};
+
+const formField = z.object({
+  key: z.string().trim().max(60).optional(),
+  label: meaningfulText(z.string().trim().min(1).max(300), 'Question'),
+  type: z.enum(['text', 'email', 'phone', 'number', 'choice']).optional(),
+  required: z.boolean().optional(),
+  options: z.array(z.string().trim().min(1).max(100)).max(10).optional(),
+});
+
+export const instagramSchemas = {
+  create: z.object({
+    name: meaningfulText(z.string().trim().min(1).max(120), 'Flow name'),
+    source: z.enum(['dm', 'comment', 'story_reply']).optional(),
+    // Empty keyword is legal — it means "reply to everything on this source".
+    keyword: z.string().trim().max(80).optional(),
+    responseTemplate: meaningfulText(z.string().trim().min(1).max(1000), 'Reply message'),
+    alsoSendDm: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  }),
+  update: z.object({
+    name: meaningfulText(z.string().trim().min(1).max(120), 'Flow name').optional(),
+    source: z.enum(['dm', 'comment', 'story_reply']).optional(),
+    keyword: z.string().trim().max(80).optional(),
+    responseTemplate: meaningfulText(z.string().trim().min(1).max(1000), 'Reply message').optional(),
+    alsoSendDm: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  }).strict(),
 };
 
 export const whatsappFormSchemas = {
   create: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Form name'),
-    fields: z.coerce.number().int().min(1).max(50).optional(),
+    // `schema` is the real field list; the old numeric `fields` is derived from
+    // it server-side and no longer accepted from the client.
+    schema: z.array(formField).max(50).optional(),
+    keyword: z.string().trim().max(80).optional(),
+    completionMessage: meaningfulText(z.string().trim().min(1).max(1000), 'Completion message').optional(),
+    status: z.enum(['Draft', 'Active']).optional(),
   }),
   update: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Form name').optional(),
-    fields: z.coerce.number().int().min(1).max(50).optional(),
-    status: z.string().trim().min(1).max(30).optional(),
+    schema: z.array(formField).max(50).optional(),
+    keyword: z.string().trim().max(80).optional(),
+    completionMessage: meaningfulText(z.string().trim().min(1).max(1000), 'Completion message').optional(),
+    status: z.enum(['Draft', 'Active']).optional(),
   }).strict(),
 };
 
@@ -209,12 +274,24 @@ export const apiKeySchemas = {
     environment: z.string().trim().min(1).max(30).optional(),
   }),
   testMessage: z.object({
-    to: z.string().trim().min(6, 'A valid phone number is required').max(20),
+    to: z.string().trim().min(6, 'A valid phone number is required').max(24),
     templateId: z.string().trim().min(1).max(64).optional(),
     message: z.string().trim().min(1).max(1000).optional(),
+    // Values for a template's {{1}}, {{2}}, … placeholders, in order.
+    variables: z.array(z.string().max(500)).max(20).optional().default([]),
   }).refine((v) => v.templateId || v.message, {
     message: 'Provide a Template ID or a Message',
     path: ['message'],
+  }),
+};
+
+export const optOutSchemas = {
+  block: z.object({
+    phoneNumber: z.string().trim().min(6, 'A valid phone number is required').max(24),
+    reason: z.string().trim().max(200).optional(),
+  }),
+  bulkUnblock: z.object({
+    ids: z.array(id).min(1, 'Select at least one number to unblock').max(500),
   }),
 };
 

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch } from '../lib/api.js';
+import { wFetch, wDownload } from '../lib/api.js';
 import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
+import BlockedNumbers from '../components/BlockedNumbers.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -64,8 +65,13 @@ const statusBadge = s => {
 };
 
 export default function SettingsView() {
-  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const isAdmin = currentUser.role === 'ADMIN';
+  const currentUserId = currentUser.id;
   const [settings, setSettings] = useState({});
+  const [memberError, setMemberError] = useState(null);
+  const [invoiceError, setInvoiceError] = useState(null);
+  const [downloadingInvoice, setDownloadingInvoice] = useState(null);
   const [members, setMembers]   = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [webhookUrl, setWebhookUrl] = useState('');
@@ -127,18 +133,50 @@ export default function SettingsView() {
     } catch {} finally { setSavingPrefs(false); }
   };
 
-  const delMember = async id => {
+  const reloadMembers = () =>
+    wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
+
+  const delMember = async (m) => {
+    const label = m.userId === currentUserId ? 'Leave this workspace?' : `Remove ${m.user.name} from this workspace?`;
+    if (!window.confirm(`${label} They'll lose access immediately.`)) return;
+
+    setMemberError(null);
     const prev = members;
-    setMembers(p=>p.filter(m=>m.userId!==id));
-    const r = await wFetch(`/members/${id}`, { method:'DELETE' }).catch(()=>null);
-    if (!r || !r.ok) setMembers(prev); // roll back on failure
+    setMembers(p=>p.filter(x=>x.userId!==m.userId));
+    const r = await wFetch(`/members/${m.userId}`, { method:'DELETE' }).catch(()=>null);
+    if (!r || !r.ok) {
+      setMembers(prev); // roll back on failure
+      const data = r ? await r.json().catch(()=>({})) : {};
+      setMemberError(data.error || 'Could not remove this member');
+    }
   };
 
   const setRole = async (id, role) => {
+    setMemberError(null);
     const prev = memberRoles[id];
     setMemberRoles(p=>({...p,[id]:role}));
     const r = await wFetch(`/members/${id}`, { method:'PATCH', body:JSON.stringify({ role }) }).catch(()=>null);
-    if (!r || !r.ok) setMemberRoles(p=>({...p,[id]:prev})); // roll back on failure
+    if (!r || !r.ok) {
+      setMemberRoles(p=>({...p,[id]:prev})); // roll back on failure
+      const data = r ? await r.json().catch(()=>({})) : {};
+      setMemberError(data.error || 'Could not change this role');
+      return;
+    }
+    // Promoting someone changes who the "last admin" is, so re-read the
+    // server's view rather than guessing at it locally.
+    reloadMembers();
+  };
+
+  const downloadInvoice = async (invoiceId) => {
+    setInvoiceError(null);
+    setDownloadingInvoice(invoiceId);
+    try {
+      await wDownload(`/settings/invoices/${invoiceId}/download`, `invoice-${invoiceId}.html`);
+    } catch (e) {
+      setInvoiceError(e.message || 'Could not download this invoice');
+    } finally {
+      setDownloadingInvoice(null);
+    }
   };
 
   const sendInvite = async () => {
@@ -282,6 +320,9 @@ export default function SettingsView() {
               ))}
             </div>
           )}
+          {memberError && (
+            <p style={{ fontSize:12, color:'#f87171', marginBottom:12, padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.2)' }}>{memberError}</p>
+          )}
           {members.length === 0 ? (
             <p style={{ fontSize:13, color:'var(--t2)', textAlign:'center', padding:'16px 0' }}>No members yet.</p>
           ) : (
@@ -294,38 +335,63 @@ export default function SettingsView() {
                 </tr>
               </thead>
               <tbody>
-                {members.map((m,i) => (
+                {members.map((m,i) => {
+                  // The workspace must always keep one admin. The sole admin
+                  // can't demote themselves to Member (nobody would be left
+                  // who could promote them back) and can't be deleted — the
+                  // server refuses both, so the controls are locked here with
+                  // an explanation rather than failing on click.
+                  const isSelf = m.userId === currentUserId;
+                  const lockRole = m.isLastAdmin || (isSelf && m.role === 'ADMIN');
+                  const lockDelete = m.isLastAdmin;
+                  const roleReason = m.isLastAdmin
+                    ? 'This is the only admin — promote another member to admin first.'
+                    : 'You cannot change your own role. Ask another admin to do it.';
+                  return (
                   <tr key={m.userId} style={{ borderBottom: i < members.length-1 ? '1px solid var(--bd)' : 'none' }}>
                     <td style={{ padding:'10px 12px' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                         <Avatar name={m.user.name} />
                         <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{m.user.name}</span>
+                        {isSelf && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:5, background:'rgba(255,255,255,0.05)', border:'1px solid var(--bd)', color:'var(--t3)' }}>You</span>}
+                        {m.isOwner && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:5, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)' }}>Owner</span>}
                       </div>
                     </td>
                     <td style={{ padding:'10px 12px', fontSize:12, color:'var(--t2)' }}>{m.user.email}</td>
                     <td style={{ padding:'10px 12px' }}>
                       {isAdmin ? (
-                        <select value={memberRoles[m.userId] || m.role} onChange={e=>setRole(m.userId,e.target.value)}
-                          style={{ padding:'5px 8px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', colorScheme:'dark' }}>
-                          <option style={{ background:'#07090F' }}>ADMIN</option><option style={{ background:'#07090F' }}>CLIENT</option>
-                        </select>
+                        <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                          <select value={memberRoles[m.userId] || m.role} onChange={e=>setRole(m.userId,e.target.value)}
+                            disabled={lockRole} title={lockRole ? roleReason : undefined}
+                            style={{ padding:'5px 8px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', colorScheme:'dark', opacity: lockRole ? 0.5 : 1, cursor: lockRole ? 'not-allowed' : 'pointer' }}>
+                            <option value="ADMIN" style={{ background:'#07090F' }}>ADMIN</option>
+                            <option value="CLIENT" style={{ background:'#07090F' }}>CLIENT</option>
+                          </select>
+                          {lockRole && <span title={roleReason} style={{ display:'flex' }}><I n="lock" s={12} c="var(--t3)" /></span>}
+                        </div>
                       ) : (
                         <span style={{ fontSize:12, color:'var(--t2)' }}>{m.role === 'ADMIN' ? 'Admin' : 'Member'}</span>
                       )}
                     </td>
                     <td style={{ padding:'10px 12px' }}>
                       {isAdmin && (
-                        <button onClick={()=>delMember(m.userId)} style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.18)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <button onClick={()=>delMember(m)} disabled={lockDelete}
+                          title={lockDelete ? 'The only admin cannot be removed — promote another member to admin first.' : 'Remove from workspace'}
+                          style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.18)', cursor: lockDelete ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', opacity: lockDelete ? 0.35 : 1 }}>
                           <I n="trash" s={12} c="#f87171" />
                         </button>
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
         </SectionCard>
+
+        {/* ── Blocked Numbers (opt-outs) ── */}
+        <BlockedNumbers isAdmin={isAdmin} />
 
         {/* ── Billing ── */}
         <SectionCard icon="credit" title="Billing">
@@ -336,6 +402,10 @@ export default function SettingsView() {
             </div>
             {isAdmin && <Btn style={{ boxShadow:'var(--glow)' }}>Upgrade</Btn>}
           </div>
+          {invoiceError && <p style={{ fontSize:12, color:'#f87171', marginBottom:10 }}>{invoiceError}</p>}
+          {invoices.length === 0 ? (
+            <p style={{ fontSize:13, color:'var(--t2)', textAlign:'center', padding:'16px 0' }}>No invoices yet.</p>
+          ) : (
           <table style={{ width:'100%', borderCollapse:'collapse' }}>
             <thead>
               <tr style={{ borderBottom:'1px solid var(--bd)' }}>
@@ -352,7 +422,9 @@ export default function SettingsView() {
                   <td style={{ padding:'10px 12px', fontSize:13, fontWeight:700, color:'var(--t1)' }}>₹{inv.amount.toLocaleString()}</td>
                   <td style={{ padding:'10px 12px' }}>{statusBadge(inv.status)}</td>
                   <td style={{ padding:'10px 12px' }}>
-                    <button style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)' }}>
+                    {/* This button previously had no click handler at all. */}
+                    <button onClick={()=>downloadInvoice(inv.id)} disabled={downloadingInvoice===inv.id} title="Download invoice"
+                      style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor: downloadingInvoice===inv.id ? 'wait' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', opacity: downloadingInvoice===inv.id ? 0.5 : 1 }}>
                       <I n="download" s={12} c="var(--t2)" />
                     </button>
                   </td>
@@ -360,6 +432,7 @@ export default function SettingsView() {
               ))}
             </tbody>
           </table>
+          )}
         </SectionCard>
 
         {/* ── Notifications ── */}

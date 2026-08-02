@@ -11,11 +11,15 @@ export async function invite(req, res) {
 }
 
 export async function updateRole(req, res) {
-  const member = await membersService.updateMemberRole(req.params.workspaceId, req.params.userId, req.body.role);
+  // The acting user is passed through so the service can refuse a self-demotion
+  // that would leave the workspace without an admin.
+  const member = await membersService.updateMemberRole(
+    req.params.workspaceId, req.params.userId, req.body.role, req.user?.id,
+  );
   res.json(member);
 }
 
 export async function remove(req, res) {
-  await membersService.removeMember(req.params.workspaceId, req.params.userId);
+  await membersService.removeMember(req.params.workspaceId, req.params.userId, req.user?.id);
   res.status(204).send();
 }

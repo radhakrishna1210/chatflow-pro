@@ -17,6 +17,9 @@ import webhookRoutes from './webhook.routes.js';
 import onboardingRoutes from './onboarding.routes.js';
 import aiRoutes from './ai.routes.js';
 import workflowRoutes from './workflow.routes.js';
+import instagramRoutes from './instagram.routes.js';
+import voiceRoutes from './voice.routes.js';
+import * as instagramController from '../controllers/instagram.controller.js';
 import segmentsRoutes from './segments.routes.js';
 import whatsappFormsRoutes from './whatsappForms.routes.js';
 import walletRoutes from './wallet.routes.js';
@@ -28,6 +31,8 @@ import aiAgentRoutes from './aiAgent.routes.js';
 import invitationsRoutes, { publicInvitationsRouter } from './invitations.routes.js';
 import workspaceSwitchRoutes from './workspaceSwitch.routes.js';
 import usersRoutes from './users.routes.js';
+import notificationsRoutes from './notifications.routes.js';
+import optOutRoutes from './optout.routes.js';
 
 const router = Router();
 
@@ -36,8 +41,15 @@ router.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toIS
 router.use('/auth', authRoutes);
 router.use('/public', publicRoutes);
 router.use('/webhook', webhookRoutes);
+// Public, signature-verified webhooks: Instagram DMs/comments and Twilio voice.
+router.get('/webhook/instagram', instagramController.verifyWebhook);
+router.post('/webhook/instagram', instagramController.receiveWebhook);
+router.use('/voice', voiceRoutes);
 router.use('/admin', adminRoutes);
 router.use('/users', usersRoutes);
+// User-scoped, not workspace-scoped: an invitation notification reaches you
+// before you belong to the workspace that sent it.
+router.use('/notifications', notificationsRoutes);
 router.use('/integrations/oauth', oauthCallbackRouter);
 router.use('/invitations', publicInvitationsRouter);
 
@@ -56,7 +68,11 @@ ws.use('/api-keys', apiKeysRoutes);
 ws.use('/segments', segmentsRoutes);
 ws.use('/whatsapp-forms', whatsappFormsRoutes);
 ws.use('/workflows', workflowRoutes);
+ws.use('/instagram', instagramRoutes);
 ws.use('/wallet', walletRoutes);
+ws.use('/opt-outs', optOutRoutes);
+// Friendlier alias for the Settings → Blocked Numbers screen.
+ws.use('/blocked-numbers', optOutRoutes);
 ws.use('/subscription', subscriptionRoutes);
 ws.use('/integrations', integrationsRoutes);
 ws.use('/support', supportRoutes);

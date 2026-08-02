@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { queueWorkspaceInviteEmail } from './email.service.js';
 import { assertWithinLimit } from './subscription.service.js';
+import { notifyUser } from './notification.service.js';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -58,6 +59,29 @@ export async function createInvitation(workspaceId, { email, role }, inviterId) 
     workspaceId,
     workspaceName: workspace?.name || 'your workspace',
     token: rawToken,
+  }).catch(() => {});
+
+  // Inviting someone who already has an account used to produce nothing they
+  // could see in the app — only an email. They get an in-app notification
+  // now, so the invite shows up in their bell the moment it is sent.
+  if (existingUser) {
+    notifyUser(existingUser.id, {
+      type: 'WORKSPACE_INVITE',
+      title: `You've been invited to ${workspace?.name || 'a workspace'}`,
+      body: `${inviter.name || 'A workspace admin'} invited you to join as ${invitation.role === 'ADMIN' ? 'an admin' : 'a member'}. Check your email for the invite link.`,
+      link: 'settings',
+      meta: { invitationId: invitation.id, workspaceId, role: invitation.role },
+    }).catch(() => {});
+  }
+
+  // The inviting admin sees confirmation in their own workspace feed.
+  notifyUser(inviter.id, {
+    type: 'WORKSPACE_INVITE_SENT',
+    workspaceId,
+    title: `Invitation sent to ${normalizedEmail}`,
+    body: `They'll join as ${invitation.role === 'ADMIN' ? 'an admin' : 'a member'} once they accept. The invite expires in 7 days.`,
+    link: 'settings',
+    meta: { invitationId: invitation.id },
   }).catch(() => {});
 
   const { tokenHash: _omit, ...safe } = invitation;
@@ -169,7 +193,9 @@ export async function acceptInvitation(rawToken, userId) {
   });
 
   if (!member) {
-    await assertWithinLimit(invitation.workspaceId, 'member');
+    // This invitation is still PENDING here — exclude it so it isn't counted
+    // both as a pending seat and as the member it's about to become.
+    await assertWithinLimit(invitation.workspaceId, 'member', { ignoreInvitationId: invitation.id });
     try {
       member = await prisma.workspaceMember.create({
         data: { userId, workspaceId: invitation.workspaceId, role: invitation.role },
@@ -214,7 +240,7 @@ export async function consumeInvitationAtomically(tx, rawToken, userEmail, userI
 
     // Best-effort limit check inside the transaction — if it throws
     // (plan full), fall through to the catch below and skip joining.
-    await assertWithinLimit(invitation.workspaceId, 'member');
+    await assertWithinLimit(invitation.workspaceId, 'member', { ignoreInvitationId: invitation.id });
 
     await tx.workspaceMember.create({ data: { userId, workspaceId: invitation.workspaceId, role: invitation.role } });
     await tx.invitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED', acceptedAt: new Date() } });

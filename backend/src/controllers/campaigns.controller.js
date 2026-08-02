@@ -7,8 +7,18 @@ export async function list(req, res) {
 }
 
 export async function create(req, res) {
-  const campaign = await campaignsService.createCampaign(req.params.workspaceId, req.body);
+  const campaign = await campaignsService.createCampaign(req.params.workspaceId, req.body, req.user);
   res.status(201).json(campaign);
+}
+
+// Pre-launch summary: valid/duplicate/blocked/invalid recipients, cost per
+// message, total campaign cost and the wallet balance before and after.
+export async function estimate(req, res) {
+  const summary = await campaignsService.estimateCampaignCost(req.params.workspaceId, {
+    contactIds: req.body?.contactIds,
+    campaignId: req.body?.campaignId,
+  });
+  res.json(summary);
 }
 
 export async function addRecipients(req, res) {
@@ -22,7 +32,9 @@ export async function update(req, res) {
 }
 
 export async function launch(req, res) {
-  const campaign = await campaignsService.launchCampaign(req.params.workspaceId, req.params.id, req.body.scheduledAt, req.body.retryConfig);
+  const campaign = await campaignsService.launchCampaign(
+    req.params.workspaceId, req.params.id, req.body.scheduledAt, req.body.retryConfig, req.user,
+  );
   res.json(campaign);
 }
 

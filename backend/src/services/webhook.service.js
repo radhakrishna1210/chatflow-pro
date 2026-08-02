@@ -1,14 +1,16 @@
 import { prisma } from '../lib/prisma.js';
 import { findMatchingTrigger } from './automation.service.js';
 import { matchIntent, generateAgentReply } from './aiAgent.service.js';
-import { decrypt } from '../lib/encryption.js';
-import { sendTextMessage } from '../lib/meta.js';
 import { queueTemplateApprovedEmail, queueTemplateRejectedEmail } from './email.service.js';
 import { handleRecipientFailure } from './retry.service.js';
+import { sendAutomatedReply } from './outbound.service.js';
+import { runWorkflowsForInbound, runWillSendMessage } from './workflowEngine.service.js';
+import { handleFormInbound } from './whatsappForms.service.js';
+import { isWithinBusinessHours } from './businessHours.service.js';
+import { matchOptOutKeyword, recordOptOut } from './optout.service.js';
+import { notifyWorkspace } from './notification.service.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_WELCOME_MESSAGE = "Thanks for reaching out! We've received your message and will get back to you shortly.";
-const DEFAULT_OOO_MESSAGE = "We're currently unavailable. We'll respond to your message as soon as possible.";
 
 export async function processWebhook(body) {
   const entries = body?.entry || [];
@@ -87,8 +89,20 @@ async function handleTemplateStatusUpdate(wabaId, value) {
       seen.add(t.workspaceId);
       if (newStatus === 'APPROVED') {
         queueTemplateApprovedEmail(t.workspaceId, t.name).catch(() => {});
+        notifyWorkspace(t.workspaceId, {
+          type: 'TEMPLATE_APPROVED',
+          title: `Template "${t.name}" was approved`,
+          body: 'It can now be used in campaigns.',
+          link: 'templates',
+        }).catch(() => {});
       } else if (newStatus === 'REJECTED') {
         queueTemplateRejectedEmail(t.workspaceId, t.name).catch(() => {});
+        notifyWorkspace(t.workspaceId, {
+          type: 'TEMPLATE_REJECTED',
+          title: `Template "${t.name}" was rejected`,
+          body: 'Meta rejected this template. Edit it and resubmit for review.',
+          link: 'templates',
+        }).catch(() => {});
       }
     }
   }
@@ -171,67 +185,148 @@ async function handleInboundMessage(value, msg) {
     data: { unreadCount: { increment: 1 }, lastMessageAt: new Date() },
   });
 
+  const workspaceId = waNumber.workspaceId;
+
+  // 0. Opt-out beats everything. A STOP (or any accepted opt-out keyword)
+  //    blocks the number for good and stops this message from triggering any
+  //    automation — replying to someone who just asked to be left alone is
+  //    exactly what opting out is supposed to prevent. Matching ignores case,
+  //    surrounding spaces and punctuation, so "STOP", " stop ", "Stop." and
+  //    "STOP!" all land here. Repeat STOPs are idempotent.
+  const optOutKeyword = matchOptOutKeyword(messageBody);
+  if (optOutKeyword) {
+    try {
+      await recordOptOut({
+        workspaceId,
+        phoneNumber: fromPhone,
+        waNumberId: waNumber.id,
+        waPhone: waNumber.phoneNumber,
+        contactId: contact.id,
+        keyword: optOutKeyword,
+        reason: 'User Opted Out',
+        source: 'Incoming WhatsApp Message',
+      });
+      console.log(`[Inbound] ${fromPhone} opted out of workspace ${workspaceId} via "${optOutKeyword}"`);
+      await notifyWorkspace(workspaceId, {
+        type: 'OPT_OUT',
+        title: 'A contact opted out',
+        body: `${contact.name || fromPhone} sent "${optOutKeyword}" and will no longer receive messages.`,
+        link: 'settings',
+        meta: { phoneNumber: fromPhone, keyword: optOutKeyword },
+      }).catch(() => {});
+    } catch (err) {
+      console.error('[Inbound] Could not record opt-out:', err.message);
+    }
+    return;
+  }
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: {
+      autoWelcomeEnabled: true,
+      autoOooEnabled: true,
+      autoDelayedEnabled: true,
+      welcomeMessage: true,
+      oooMessage: true,
+      delayedAfterMinutes: true,
+      businessHours: true,
+    },
+  });
+
+  // 0. A form in progress owns the conversation until it finishes — the
+  //    customer is answering a question, not starting a new automation.
+  const consumedByForm = await handleFormInbound({
+    workspaceId,
+    conversation,
+    contact,
+    messageBody,
+  }).catch((err) => {
+    console.error('[Inbound] Form handling failed:', err);
+    return false;
+  });
+  if (consumedByForm) {
+    await scheduleDelayedResponse(workspace, conversation.id);
+    return;
+  }
+
+  // 1. Workflows. Previously the Workflows tab saved rows that nothing ever
+  //    read; the engine now runs the matching workflow's steps for real.
+  let workflowWillReply = false;
+  try {
+    const runs = await runWorkflowsForInbound(workspaceId, {
+      event: 'message',
+      messageBody,
+      isNewContact,
+      conversationId: conversation.id,
+      contactId: contact.id,
+    });
+    workflowWillReply = runs.some(runWillSendMessage);
+  } catch (err) {
+    console.error('[Inbound] Workflow execution failed:', err);
+  }
+
   let autoReplyText = null;
-  if (messageBody) {
-    // 1. Exact / contains keyword trigger (highest priority, deterministic).
-    const trigger = await findMatchingTrigger(waNumber.workspaceId, messageBody);
+
+  // 2. Exact keyword trigger (deterministic, highest priority after workflows).
+  if (messageBody && !workflowWillReply) {
+    const trigger = await findMatchingTrigger(workspaceId, messageBody);
     if (trigger) autoReplyText = trigger.responseTemplate;
 
-    // 2. AI Intent Matching — fuzzy-route to the best trigger when no exact
+    // 3. AI Intent Matching — fuzzy-route to the best trigger when no exact
     //    match was found. Real feature, gated by intentMatchingEnabled.
     if (!autoReplyText) {
-      const intent = await matchIntent(waNumber.workspaceId, messageBody).catch(() => null);
+      const intent = await matchIntent(workspaceId, messageBody).catch(() => null);
       if (intent?.trigger) autoReplyText = intent.trigger.responseTemplate;
     }
   }
 
-  if (!autoReplyText) {
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: waNumber.workspaceId },
-      select: { autoWelcomeEnabled: true, autoOooEnabled: true },
-    });
+  // 4. Welcome / out-of-office. Both messages are workspace-configurable now,
+  //    and OOO additionally fires outside working hours — which is what the UI
+  //    has always claimed it did.
+  if (!autoReplyText && !workflowWillReply) {
     const isReturningAfterGap = !isNewContact && previousLastMessageAt
       && (Date.now() - new Date(previousLastMessageAt).getTime()) > WELCOME_MESSAGE_GAP_MS;
+    const closedNow = !isWithinBusinessHours(workspace?.businessHours);
 
     if (workspace?.autoWelcomeEnabled && (isNewContact || isReturningAfterGap)) {
-      autoReplyText = DEFAULT_WELCOME_MESSAGE;
-    } else if (workspace?.autoOooEnabled && wasClosed) {
-      autoReplyText = DEFAULT_OOO_MESSAGE;
+      autoReplyText = workspace.welcomeMessage;
+    } else if (workspace?.autoOooEnabled && (wasClosed || closedNow)) {
+      autoReplyText = workspace.oooMessage;
     }
   }
 
-  // 3. AI Agent fallback — a deployed LLM agent answers free-form questions when
+  // 5. AI Agent fallback — a deployed LLM agent answers free-form questions when
   //    nothing above matched. Only fires if explicitly deployed.
-  if (!autoReplyText && messageBody) {
-    autoReplyText = await generateAgentReply(waNumber.workspaceId, messageBody, {
+  if (!autoReplyText && !workflowWillReply && messageBody) {
+    autoReplyText = await generateAgentReply(workspaceId, messageBody, {
       contactName: contact?.name,
     }).catch(() => null);
   }
 
   if (autoReplyText) {
-    const accessToken = decrypt(waNumber.encryptedAccessToken);
-    const result = await sendTextMessage(
-      waNumber.metaPhoneNumberId,
-      accessToken,
-      fromPhone,
-      autoReplyText
-    ).catch(() => null);
+    await sendAutomatedReply({
+      conversationId: conversation.id,
+      waNumberId: waNumber.id,
+      toPhone: fromPhone,
+      body: autoReplyText,
+    });
+  }
 
-    if (result) {
-      await prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          body: autoReplyText,
-          direction: 'OUTBOUND',
-          metaMessageId: result?.messages?.[0]?.id,
-          sentAt: new Date(),
-        },
-      });
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { lastMessageAt: new Date() },
-      });
-    }
+  await scheduleDelayedResponse(workspace, conversation.id);
+}
+
+// Arms the "Delayed Response Message" automation. The worker re-checks at fire
+// time whether anyone replied, so scheduling here is harmless when the team is
+// responsive — and the queue's jobId keeps one pending check per conversation.
+async function scheduleDelayedResponse(workspace, conversationId) {
+  if (!workspace?.autoDelayedEnabled) return;
+  const minutes = Math.max(1, workspace.delayedAfterMinutes || 15);
+  try {
+    const { enqueueDelayedResponseCheck } = await import('../queues/workflow.queue.js');
+    await enqueueDelayedResponseCheck(conversationId, minutes * 60_000);
+  } catch (err) {
+    // Redis being down must never cost us the inbound message itself.
+    console.error('[Inbound] Could not schedule delayed-response check:', err.message);
   }
 }
 

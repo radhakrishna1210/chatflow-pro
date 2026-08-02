@@ -64,3 +64,12 @@ h1,h2,h3,h4,h5 { font-family:'Syne',sans-serif; letter-spacing:-0.025em; line-he
   border-radius:var(--rl);
   box-shadow:var(--card-shadow);
 }
+
+/* Scrollable panes that must *look* scrollable — the sidebar nav in
+   particular, where a hidden overflow made the lower tabs feel unreachable.
+   Slightly wider and always visible, unlike the near-invisible global 4px bar. */
+.cfp-scroll { scrollbar-width: thin; scrollbar-color: var(--bdm) transparent; }
+.cfp-scroll::-webkit-scrollbar { width:7px; }
+.cfp-scroll::-webkit-scrollbar-track { background:transparent; }
+.cfp-scroll::-webkit-scrollbar-thumb { background:var(--bdm); border-radius:6px; }
+.cfp-scroll:hover::-webkit-scrollbar-thumb { background:rgba(255,255,255,.22); }

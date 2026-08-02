@@ -377,8 +377,12 @@ export default function NumberSetupView() {
               </div>
               {number?.displayName && <p style={{ fontSize:11, color:'var(--t3)', marginTop:5 }}>{number.displayName}</p>}
             </div>
-            {isAdmin && (
+            {/* Members can disconnect a number they work with; connecting and
+                refreshing (which provision or re-read billable resources on
+                the business account) stay admin-only. */}
+            {(isAdmin || number) && (
               <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+                {isAdmin && (
                 <Btn variant="outline" onClick={async () => {
                   setRefreshing(true);
                   wFetch('/whatsapp/numbers/refresh', { method:'POST' })
@@ -388,6 +392,7 @@ export default function NumberSetupView() {
                   <I n="refresh" s={13} c="var(--t2)" />
                   {refreshing ? 'Refreshing…' : 'Refresh Status'}
                 </Btn>
+                )}
                 {number && (
                   <button
                     onClick={disconnectNumber}
@@ -429,7 +434,10 @@ export default function NumberSetupView() {
         {!isAdmin && (
           <div style={{ ...card, padding:'14px 18px', display:'flex', gap:10, alignItems:'center' }}>
             <I n="alertt" s={16} c="var(--t3)" />
-            <p style={{ fontSize:12.5, color:'var(--t2)' }}>Connecting, refreshing or disconnecting a WhatsApp number requires a workspace admin.</p>
+            <p style={{ fontSize:12.5, color:'var(--t2)' }}>
+              You can disconnect the connected number, which returns it to the pool. Connecting a new number or
+              refreshing its status from Meta requires a workspace admin.
+            </p>
           </div>
         )}
 

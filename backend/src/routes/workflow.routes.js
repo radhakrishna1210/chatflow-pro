@@ -11,6 +11,7 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext, requireFeature('workflows'));
 
 router.get('/', workflowController.list);
+router.get('/runs', workflowController.runs);
 router.post('/', validate({ body: workflowSchemas.create }), workflowController.create);
 router.patch('/:id', validate({ body: workflowSchemas.update }), workflowController.update);
 router.delete('/:id', authorize('ADMIN'), workflowController.remove);
