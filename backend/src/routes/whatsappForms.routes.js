@@ -11,6 +11,7 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/', authorize('ADMIN'), whatsappFormsController.listForms);
+router.get('/:id/submissions', authorize('ADMIN'), whatsappFormsController.listSubmissions);
 router.post('/', authorize('ADMIN'), validate({ body: whatsappFormSchemas.create }), whatsappFormsController.createForm);
 router.patch('/:id', authorize('ADMIN'), validate({ body: whatsappFormSchemas.update }), whatsappFormsController.updateForm);
 router.delete('/:id', authorize('ADMIN'), whatsappFormsController.deleteForm);

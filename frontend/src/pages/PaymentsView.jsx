@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch } from '../lib/api.js';
+import { wFetch, wDownload } from '../lib/api.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -75,6 +75,8 @@ export default function PaymentsView({ initialTab } = {}) {
   // Invoices list
   const [invoices, setInvoices] = useState([]);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
+  const [downloadingInvoice, setDownloadingInvoice] = useState(null);
+  const [invoiceError, setInvoiceError] = useState('');
 
   // Insights state
   const [insights, setInsights] = useState(null);
@@ -168,9 +170,14 @@ export default function PaymentsView({ initialTab } = {}) {
             });
             const data = await verifyRes.json();
             if (!verifyRes.ok) { setRechargeError(data.error || 'Payment verification failed'); setRechargeStatus(''); return; }
+            // Refresh everything the recharge touches — balance, ledger,
+            // invoices, the sidebar figure and the notification bell — so no
+            // part of the app needs a manual reload to catch up.
             setBalance(Number(data.balance) || 0);
             window.dispatchEvent(new CustomEvent('wallet:balance-updated', { detail: Number(data.balance) || 0 }));
+            window.dispatchEvent(new CustomEvent('notifications:refresh'));
             if (window._reloadWallet) window._reloadWallet();
+            wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch(() => {});
             setRechargeStatus('success');
             setTimeout(() => setRechargeStatus(''), 2000);
           } catch {
@@ -249,6 +256,19 @@ export default function PaymentsView({ initialTab } = {}) {
     }
   };
 
+  const downloadInvoice = async (invoiceId) => {
+    if (downloadingInvoice) return; // one at a time — blocks double-clicks
+    setInvoiceError('');
+    setDownloadingInvoice(invoiceId);
+    try {
+      await wDownload(`/settings/invoices/${invoiceId}/download`, `invoice-${invoiceId}.html`);
+    } catch (e) {
+      setInvoiceError(e.message || 'Could not download this invoice');
+    } finally {
+      setDownloadingInvoice(null);
+    }
+  };
+
   const handleSaveBilling = () => {
     const data = { bizName, bizEmail, bizAddress, gstNum };
     localStorage.setItem('chatflow_billing_details', JSON.stringify(data));
@@ -308,7 +328,8 @@ export default function PaymentsView({ initialTab } = {}) {
           </div>
           {rechargeError && <p style={{ fontSize: 12, color: '#f87171', marginTop: 4 }}>{rechargeError}</p>}
           <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
-            Demo mode: recharges credit your wallet through the server ledger without a live payment gateway. Connect a payment provider to enable real charges.
+            Payments run through Razorpay. Your balance is credited only after the payment signature is verified server-side,
+            and the wallet updates everywhere immediately — no reload needed.
           </p>
         </div>
       ) : (
@@ -333,15 +354,29 @@ export default function PaymentsView({ initialTab } = {}) {
         <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--bd)', borderRadius: 8, overflow: 'hidden' }}>
           {walletTxns.map((item, idx, arr) => (
             <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: idx < arr.length - 1 ? '1px solid var(--bd)' : 'none', background: 'rgba(255,255,255,0.01)' }}>
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', marginBottom: 2 }}>{item.reason}</p>
-                <p style={{ fontSize: 11, color: 'var(--t3)' }}>{new Date(item.createdAt).toLocaleString('en-IN')}</p>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{item.reason}</p>
+                  {item.category && (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 6px', borderRadius: 5, letterSpacing: '.04em', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', color: 'var(--t3)' }}>
+                      {item.category}
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--t3)' }}>
+                  {new Date(item.createdAt).toLocaleString('en-IN')}
+                  {item.gateway ? ` · ${item.gateway}` : ''}
+                </p>
               </div>
-              <div style={{ textAlign: 'right' }}>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: item.type === 'CREDIT' ? 'var(--green)' : '#f87171' }}>
                   {item.type === 'CREDIT' ? '+' : '-'} ₹ {Number(item.amount).toFixed(2)}
                 </span>
-                <p style={{ fontSize: 10, color: 'var(--t3)' }}>Bal: ₹ {Number(item.balanceAfter).toFixed(2)}</p>
+                {/* Previous → new balance, so the ledger reads as a running total. */}
+                <p style={{ fontSize: 10, color: 'var(--t3)' }}>
+                  {item.balanceBefore != null ? `₹${Number(item.balanceBefore).toFixed(2)} → ` : 'Bal: '}
+                  ₹{Number(item.balanceAfter).toFixed(2)}
+                </p>
               </div>
             </div>
           ))}
@@ -541,7 +576,9 @@ export default function PaymentsView({ initialTab } = {}) {
                   <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'var(--t2)', padding: 0, margin: 0 }}>
                     <li>{plan.messageQuota === -1 ? 'Unlimited' : plan.messageQuota.toLocaleString()} messages/cycle</li>
                     <li>{plan.contactLimit == null ? 'Unlimited' : plan.contactLimit.toLocaleString()} contacts</li>
-                    <li>{plan.memberLimit == null ? 'Unlimited' : plan.memberLimit} team members</li>
+                    {/* The workspace owner doesn't use a seat, so this is how
+                        many *extra* people can be invited. */}
+                    <li>{plan.memberLimit == null ? 'Unlimited' : plan.memberLimit} team members + owner</li>
                     <li>{plan.apiKeyLimit == null ? 'Unlimited' : plan.apiKeyLimit} API keys</li>
                   </ul>
                   {isAdmin ? (
@@ -610,6 +647,9 @@ export default function PaymentsView({ initialTab } = {}) {
 
   const renderInvoices = () => (
     <div style={{ ...card, overflow: 'hidden' }}>
+      {invoiceError && (
+        <p style={{ margin: 0, padding: '10px 20px', fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.06)' }}>{invoiceError}</p>
+      )}
       <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--bd)', background: 'rgba(255,255,255,0.01)' }}>
@@ -652,9 +692,12 @@ export default function PaymentsView({ initialTab } = {}) {
                 </span>
               </td>
               <td style={{ padding: '14px 20px' }}>
-                <a href="#" onClick={e => e.preventDefault()} style={{ fontSize: 13, color: 'var(--green)', fontWeight: 600, textDecoration: 'none' }}>
-                  Download Invoice
-                </a>
+                {/* Was an <a href="#"> with preventDefault — it looked like a
+                    link and did nothing. It downloads the real invoice now. */}
+                <button onClick={() => downloadInvoice(inv.id)} disabled={downloadingInvoice === inv.id}
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 13, color: 'var(--green)', fontWeight: 600, cursor: downloadingInvoice === inv.id ? 'wait' : 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", opacity: downloadingInvoice === inv.id ? 0.6 : 1 }}>
+                  {downloadingInvoice === inv.id ? 'Preparing…' : 'Download Invoice'}
+                </button>
               </td>
             </tr>
           ))}

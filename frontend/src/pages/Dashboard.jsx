@@ -324,61 +324,128 @@ const HeaderSearch = () => {
   );
 };
 
-// Working notifications popover fed by live workspace data (pending templates,
-// running/scheduled campaigns) — no fake red dot.
+// Icon per notification type, so the feed is scannable without reading it.
+const NOTIF_ICONS = {
+  WORKSPACE_INVITE: 'users',
+  WORKSPACE_INVITE_SENT: 'mail',
+  CAMPAIGN_LAUNCHED: 'send',
+  CAMPAIGN_COMPLETED: 'checkc',
+  CAMPAIGN_FAILED: 'alertt',
+  TEMPLATE_APPROVED: 'checkc',
+  TEMPLATE_REJECTED: 'alertt',
+  WALLET_RECHARGE: 'credit',
+  OPT_OUT: 'shield',
+};
+
+const relativeTime = (iso) => {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.round(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+};
+
+// Server-backed notifications with real read state. The old version derived
+// its list from templates/campaigns on every poll, which meant the badge
+// could never be cleared — reopening the popover just recomputed the same
+// items. Opening it now marks everything read on the server, so the count
+// resets and stays reset.
 const NotificationsBell = () => {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const [loading, setLoading] = useState(true);
   const ref = useRef(null);
 
+  const load = async () => {
+    try {
+      const res = await apiFetch('/api/v1/notifications');
+      if (!res.ok) return;
+      const data = await res.json();
+      setItems(Array.isArray(data.data) ? data.data : []);
+      setUnread(Number(data.unread) || 0);
+    } catch { /* offline — keep whatever is on screen */ }
+    finally { setLoading(false); }
+  };
+
   useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      try {
-        const [tRes, cRes] = await Promise.all([wFetch('/templates'), wFetch('/campaigns')]);
-        const templates = tRes.ok ? await tRes.json() : [];
-        const cData = cRes.ok ? await cRes.json() : {};
-        const campaigns = Array.isArray(cData) ? cData : (cData?.data ?? []);
-        const notes = [];
-        (Array.isArray(templates) ? templates : []).filter(t => t.status === 'PENDING').slice(0, 3)
-          .forEach(t => notes.push({ id: `t-${t.id}`, icon: 'file', text: `Template "${t.name}" is pending Meta review` }));
-        campaigns.filter(c => c.status === 'RUNNING').slice(0, 3)
-          .forEach(c => notes.push({ id: `c-${c.id}`, icon: 'send', text: `Campaign "${c.name}" is running` }));
-        campaigns.filter(c => c.status === 'SCHEDULED').slice(0, 3)
-          .forEach(c => notes.push({ id: `s-${c.id}`, icon: 'send', text: `Campaign "${c.name}" is scheduled${c.scheduledAt ? ' for ' + new Date(c.scheduledAt).toLocaleString() : ''}` }));
-        if (alive) setItems(notes);
-      } catch { /* ignore */ }
-    };
     load();
     const iv = setInterval(load, 30000);
-    return () => { alive = false; clearInterval(iv); };
+    // Anything that creates a notification (launching a campaign, sending an
+    // invite, a recharge) fires this so the bell updates without waiting for
+    // the next poll.
+    const onRefresh = () => load();
+    window.addEventListener('notifications:refresh', onRefresh);
+    return () => { clearInterval(iv); window.removeEventListener('notifications:refresh', onRefresh); };
   }, []);
 
   useEffect(() => {
     if (!open) return;
     const onClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onEsc = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onEsc); };
   }, [open]);
+
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (!next) return;
+
+    await load();
+    if (unread === 0) return;
+    // Optimistic: the badge clears the moment the list is opened, then the
+    // server is told. A failed call is re-synced by the next poll.
+    setUnread(0);
+    setItems(prev => prev.map(n => ({ ...n, read: true })));
+    apiFetch('/api/v1/notifications/read-all', { method: 'POST' }).catch(() => load());
+  };
+
+  const openTarget = (n) => {
+    setOpen(false);
+    if (n.link) window.dispatchEvent(new CustomEvent('app:nav', { detail: n.link }));
+  };
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(o => !o)} aria-label="Notifications"
+      <button onClick={toggle} aria-label={unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'}
         style={{ position: 'relative', width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
         <I n="bell" s={15} c="var(--t2)" />
-        {items.length > 0 && <div style={{ position: 'absolute', top: '7px', right: '7px', width: '6px', height: '6px', borderRadius: '50%', background: 'var(--green)', border: '1.5px solid var(--surf)' }} />}
+        {unread > 0 && (
+          <div style={{ position: 'absolute', top: -5, right: -5, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 9, background: 'var(--green)', border: '1.5px solid var(--surf)', color: '#060913', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {unread > 9 ? '9+' : unread}
+          </div>
+        )}
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 300, background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', zIndex: 200, overflow: 'hidden' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)', fontSize: 12, fontWeight: 700, color: 'var(--t1)' }}>Notifications</div>
-          {items.length === 0 ? (
-            <div style={{ padding: '20px 16px', fontSize: 12, color: 'var(--t3)', textAlign: 'center' }}>You're all caught up.</div>
-          ) : items.map(n => (
-            <div key={n.id} style={{ padding: '11px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-              <I n={n.icon} s={13} c="var(--green)" />
-              <span style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.45 }}>{n.text}</span>
-            </div>
-          ))}
+        <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 330, maxHeight: 420, background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', zIndex: 200, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)', fontSize: 12, fontWeight: 700, color: 'var(--t1)', flexShrink: 0 }}>Notifications</div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {loading ? (
+              <div style={{ padding: '20px 16px', fontSize: 12, color: 'var(--t3)', textAlign: 'center' }}>Loading…</div>
+            ) : items.length === 0 ? (
+              <div style={{ padding: '24px 16px', fontSize: 12, color: 'var(--t3)', textAlign: 'center' }}>You're all caught up.</div>
+            ) : items.map(n => (
+              <div key={n.id} onClick={() => openTarget(n)}
+                style={{ padding: '11px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 10, alignItems: 'flex-start', cursor: n.link ? 'pointer' : 'default', background: n.read ? 'transparent' : 'rgba(30,191,94,0.05)', transition: 'background .12s' }}
+                onMouseEnter={e => { if (n.link) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = n.read ? 'transparent' : 'rgba(30,191,94,0.05)'; }}>
+                <div style={{ marginTop: 2, flexShrink: 0 }}>
+                  <I n={NOTIF_ICONS[n.type] || 'bell'} s={13} c={n.read ? 'var(--t3)' : 'var(--green)'} />
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <p style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--t1)', lineHeight: 1.4 }}>{n.title}</p>
+                  {n.body && <p style={{ fontSize: 11.5, color: 'var(--t2)', lineHeight: 1.45, marginTop: 2 }}>{n.body}</p>}
+                  <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 3 }}>{relativeTime(n.createdAt)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -407,6 +474,54 @@ const createTemplatePayload = (prompt, body) => {
     language: 'en',
     components: [{ type: 'BODY', text: body.trim() || prompt.trim() }],
   };
+};
+
+const inr = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Wallet & spend at a glance (spec Part 5). Refreshes on the same
+// wallet:balance-updated event the sidebar listens to, so a recharge or a
+// campaign deduction shows here immediately.
+const WalletSummaryCards = () => {
+  const [summary, setSummary] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => wFetch('/wallet/summary')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (alive && d) setSummary(d); })
+      .catch(() => {});
+    load();
+    const onUpdated = () => load();
+    window.addEventListener('wallet:balance-updated', onUpdated);
+    return () => { alive = false; window.removeEventListener('wallet:balance-updated', onUpdated); };
+  }, []);
+
+  if (!summary) return null;
+
+  const tiles = [
+    { label: 'Wallet Balance',   value: inr(summary.balance), accent: summary.balance <= 0 ? '#f87171' : 'var(--green)' },
+    { label: "Today's Spend",    value: inr(summary.todaySpend) },
+    { label: 'Campaign Spend',   value: inr(summary.campaignSpend) },
+    { label: 'Total Campaigns',  value: (summary.totalCampaigns || 0).toLocaleString() },
+    { label: 'Avg / Campaign',   value: inr(summary.averageCostPerCampaign) },
+    {
+      label: 'Last Recharge',
+      value: summary.lastRecharge ? inr(summary.lastRecharge.amount) : '—',
+      sub: summary.lastRecharge ? new Date(summary.lastRecharge.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'No recharges yet',
+    },
+  ];
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+      {tiles.map(t => (
+        <div key={t.label} style={{ ...card, padding: '14px 16px' }}>
+          <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>{t.label}</p>
+          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 19, color: t.accent || 'var(--t1)', letterSpacing: '-.02em' }}>{t.value}</p>
+          {t.sub && <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 3 }}>{t.sub}</p>}
+        </div>
+      ))}
+    </div>
+  );
 };
 
 const HomeView = () => {
@@ -512,6 +627,8 @@ const HomeView = () => {
           </div>
           <Btn size="sm" style={{ flexShrink: 0 }} onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'payments' }))}>Upgrade Plan</Btn>
         </div>
+
+        <WalletSummaryCards />
 
         <div style={{ width: '100%', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(30, 191, 94, 0.4)', boxShadow: '0 0 30px rgba(30, 191, 94, 0.15), inset 0 0 20px rgba(30, 191, 94, 0.05)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', transition: 'all 0.3s ease', marginBottom: '16px' }}>
           <div style={{ padding: '24px 24px 12px' }}>
@@ -680,8 +797,9 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
     finally { setCancelling(false); }
   };
 
-  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
-  const cancellable = isAdmin && c && ['DRAFT', 'SCHEDULED', 'RUNNING'].includes(c.status);
+  // Members can cancel too — they can create and launch campaigns, so being
+  // unable to stop one would be worse than not starting it.
+  const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING'].includes(c.status);
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
@@ -701,14 +819,45 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
           {!c && !err && <div style={{ textAlign:'center', padding:'32px', color:'var(--t2)', fontSize:13 }}>Loading…</div>}
           {c && (
             <>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10 }}>
-                {[['Sent', c.sent], ['Delivered', c.delivered], ['Read', c.read], ['Failed', c.failed]].map(([k, v]) => (
+              {/* Total / Sent / Delivered / Read / Failed / Skipped — the full
+                  report. Skipped counts numbers that opted out: they were
+                  never sent to and never charged for. */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+                {[
+                  ['Total Contacts', c.report?.totalContacts ?? c.totalContacts, 'var(--t1)'],
+                  ['Sent',           c.report?.sent ?? c.sent,                   'var(--t1)'],
+                  ['Delivered',      c.report?.delivered ?? c.delivered,         'var(--t1)'],
+                  ['Read',           c.report?.read ?? c.read,                   'var(--t1)'],
+                  ['Failed',         c.report?.failed ?? c.failed,               '#f87171'],
+                  ['Skipped (Opted Out)', c.report?.skipped ?? c.skipped,        '#fbbf24'],
+                ].map(([k, v, danger]) => (
                   <div key={k} style={{ padding:'12px 14px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
                     <p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>{k}</p>
-                    <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color: k === 'Failed' && v > 0 ? '#f87171' : 'var(--t1)' }}>{(v ?? 0).toLocaleString()}</p>
+                    <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color: (v ?? 0) > 0 ? danger : 'var(--t1)' }}>{(v ?? 0).toLocaleString()}</p>
                   </div>
                 ))}
               </div>
+
+              {c.totalCost != null && (
+                <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(30,191,94,0.05)', border:'1px solid var(--gbd)', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px 16px' }}>
+                  {[
+                    ['Cost / message', `₹${Number(c.costPerMessage ?? 0).toFixed(2)}`],
+                    ['Campaign cost',  `₹${Number(c.totalCost ?? 0).toFixed(2)}`],
+                    ['Wallet before',  c.walletBefore == null ? '—' : `₹${Number(c.walletBefore).toFixed(2)}`],
+                    ['Wallet after',   c.walletAfter  == null ? '—' : `₹${Number(c.walletAfter).toFixed(2)}`],
+                  ].map(([k, v]) => (
+                    <div key={k}>
+                      <p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>{k}</p>
+                      <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)' }}>{v}</p>
+                    </div>
+                  ))}
+                  {Number(c.refundAmount ?? 0) > 0 && (
+                    <p style={{ gridColumn:'1 / -1', fontSize:11.5, color:'var(--green)' }}>
+                      ₹{Number(c.refundAmount).toFixed(2)} was refunded to your wallet for messages that were never sent.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 20px' }}>
                 {[
@@ -765,7 +914,6 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
 };
 
 const CampaignsView = ({ onCreateCampaign }) => {
-  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [detailId, setDetailId]   = useState(null);
@@ -814,11 +962,12 @@ const CampaignsView = ({ onCreateCampaign }) => {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <DashHeader title="Campaigns" subtitle="Manage and monitor your broadcasts" />
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
-        {isAdmin && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-            <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#060A10" /> New Campaign</Btn>
-          </div>
-        )}
+        {/* Every workspace member can create a campaign — the button used to
+            be admin-only, which left members on a Free plan able to import
+            contacts and then do nothing with them. */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+          <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#060A10" /> New Campaign</Btn>
+        </div>
         {loading ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading campaigns…</div>
         ) : campaigns.length === 0 ? (
@@ -828,7 +977,7 @@ const CampaignsView = ({ onCreateCampaign }) => {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  {['Campaign', 'Status', 'Sent', 'Delivered', 'Read', 'Rate', 'Date', ''].map(h => (
+                  {['Campaign', 'Status', 'Sent', 'Delivered', 'Read', 'Skipped', 'Cost', 'Rate', 'Date', ''].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{h}</th>
                   ))}
                 </tr>
@@ -850,6 +999,8 @@ const CampaignsView = ({ onCreateCampaign }) => {
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{sent.toLocaleString()}</td>
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{delivered.toLocaleString()}</td>
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{read.toLocaleString()}</td>
+                      <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.skipped ?? 0) > 0 ? '#fbbf24' : 'var(--t2)' }}>{(c.skipped ?? 0).toLocaleString()}</td>
+                      <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{c.totalCost == null ? '—' : `₹${Number(c.totalCost).toFixed(2)}`}</td>
                       <td style={{ padding: '14px 16px' }}>
                         {rate > 0 ? <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <div style={{ width: '60px', height: '4px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)' }}><div style={{ height: '100%', width: `${Math.min(rate,100)}%`, borderRadius: '4px', background: 'var(--green)' }} /></div>
@@ -1733,20 +1884,47 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
   const isSuperAdmin = user?.superAdmin === true;
   const NAV = navForUser(user);
   const planLabel = isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'Member';
-  const [balance, setBalance] = useState(0);
+  const [balance, setBalance] = useState(null);
 
   useEffect(() => {
-    // Server-authoritative balance — fetched from the wallet ledger, updated
-    // live via the wallet:balance-updated event that PaymentsView emits.
-    wFetch('/wallet').then(r => r.ok ? r.json() : null).then(d => { if (d) setBalance(Number(d.balance) || 0); }).catch(() => {});
-    const onBalanceUpdated = (e) => setBalance(Number(e.detail) || 0);
+    if (isSuperAdmin) return undefined;
+
+    // Server-authoritative balance. It used to be read once on mount, so a
+    // recharge or a campaign deduction left a stale figure in the sidebar
+    // until the user logged out and back in. Now it refreshes on the
+    // wallet:balance-updated event, whenever the tab regains focus, and on a
+    // slow background poll — so it is never more than a moment out of date
+    // and never needs a manual reload.
+    let alive = true;
+    const load = () => wFetch('/wallet')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (alive && d) setBalance(Number(d.balance) || 0); })
+      .catch(() => {});
+
+    load();
+    const onBalanceUpdated = (e) => {
+      const next = Number(e.detail);
+      if (Number.isFinite(next)) setBalance(next);
+      else load();
+    };
+    const onFocus = () => { if (document.visibilityState === 'visible') load(); };
+
+    const iv = setInterval(load, 60000);
     window.addEventListener('wallet:balance-updated', onBalanceUpdated);
-    return () => window.removeEventListener('wallet:balance-updated', onBalanceUpdated);
-  }, []);
+    document.addEventListener('visibilitychange', onFocus);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+      window.removeEventListener('wallet:balance-updated', onBalanceUpdated);
+      document.removeEventListener('visibilitychange', onFocus);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [isSuperAdmin]);
 
   return (
-    <div style={{ width: col ? '60px' : '232px', background: '#060913', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', transition: 'width .22s ease', flexShrink: 0, overflow: 'hidden' }}>
-      <div style={{ padding: '16px 14px', display: 'flex', alignItems: 'center', gap: '9px', borderBottom: '1px solid var(--bd)', minHeight: '62px' }}>
+    <div style={{ width: col ? '60px' : '232px', background: '#060913', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', transition: 'width .22s ease', flexShrink: 0, overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ padding: '16px 14px', display: 'flex', alignItems: 'center', gap: '9px', borderBottom: '1px solid var(--bd)', minHeight: '62px', flexShrink: 0 }}>
         <div onClick={() => setPage(isSuperAdmin ? 'admin-overview' : 'home')} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', boxShadow: '0 0 16px rgba(30,191,94,0.3)' }}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
         </div>
@@ -1758,7 +1936,11 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 5l7 7-7 7M6 5l7 7-7 7" /></svg>
         </button>}
       </div>
-      <div style={{ flex: 1, padding: '8px', display: 'flex', flexDirection: 'column', gap: '2px', overflowY: 'auto' }}>
+      {/* minHeight:0 is what makes this actually scroll: without it a flex
+          child refuses to shrink below its content height, so on a short
+          viewport the nav pushed the wallet card and the footer off-screen
+          and the tabs past "Payments" became unreachable. */}
+      <div className="cfp-scroll" style={{ flex: 1, minHeight: 0, padding: '8px', display: 'flex', flexDirection: 'column', gap: '2px', overflowY: 'auto', overflowX: 'hidden' }}>
         {!col && <div style={{ padding: '6px 8px 4px', fontSize: '10px', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.1em' }}>Menu</div>}
         {NAV.map(item => {
           const on = page === item.id || (page === 'campaigns-create' && item.id === 'campaigns');
@@ -1776,18 +1958,18 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
         })}
       </div>
       {!col && !isSuperAdmin && (
-        <div onClick={() => setPage('payments')} style={{ margin: '8px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(30,191,94,0.04)', border: '1px solid rgba(30,191,94,0.15)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px', transition: 'all 0.15s', marginBottom: '4px' }}
+        <div onClick={() => setPage('payments')} title="Open Payments to recharge" style={{ margin: '8px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(30,191,94,0.04)', border: '1px solid rgba(30,191,94,0.15)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px', transition: 'all 0.15s', marginBottom: '4px', flexShrink: 0 }}
           onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.08)'; e.currentTarget.style.borderColor = 'rgba(30,191,94,0.3)'; }}
           onMouseLeave={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.04)'; e.currentTarget.style.borderColor = 'rgba(30,191,94,0.15)'; }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
             <I n="credit" s={12} c="var(--green)" /> Wallet Balance
           </div>
-          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--t1)' }}>
-            ₹ {balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <span style={{ fontSize: '13px', fontWeight: 700, color: balance != null && balance <= 0 ? '#f87171' : 'var(--t1)' }}>
+            {balance == null ? '—' : `₹ ${balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </span>
         </div>
       )}
-      <div style={{ padding: '10px 8px', borderTop: '1px solid var(--bd)' }}>
+      <div style={{ padding: '10px 8px', borderTop: '1px solid var(--bd)', flexShrink: 0 }}>
         {!col && <div style={{ padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '9px' }}>
           <Avatar name={user?.name || 'User'} size={28} showRing />
           <div style={{ flex: 1, minWidth: 0 }}>

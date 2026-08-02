@@ -1,21 +1,28 @@
 
 
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import app from './app.js';
 import { env } from './config/env.js';
 import { startCampaignWorker } from './workers/campaign.worker.js';
 import { startEmailWorker } from './workers/email.worker.js';
 import { startBillingWorker } from './workers/billing.worker.js';
+import { startWorkflowWorker } from './workers/workflow.worker.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
 import { campaignQueue } from './queues/campaign.queue.js';
 import { emailQueue } from './queues/email.queue.js';
 import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
+import { workflowQueue } from './queues/workflow.queue.js';
 import { prisma } from './lib/prisma.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
 
 let campaignWorker = null;
 let emailWorker = null;
 let billingWorker = null;
+let workflowWorker = null;
 let httpServer = null;
 
 async function initializeSubscriptions() {
@@ -30,7 +37,9 @@ async function initializeSubscriptions() {
       campaignLimit: null,
       apiKeyLimit: 1,
       overageRatePerMsg: 0.02,
-      features: {},
+      // Keep in sync with scripts/seed-plans.js — this list is upserted on
+      // every boot, so a change made only there would be overwritten.
+      features: { automation: true, workflows: true },
     },
     {
       key: 'STARTER',
@@ -42,7 +51,7 @@ async function initializeSubscriptions() {
       campaignLimit: null,
       apiKeyLimit: 3,
       overageRatePerMsg: 0.015,
-      features: { automation: true },
+      features: { automation: true, workflows: true },
     },
     {
       key: 'PRO',
@@ -135,6 +144,18 @@ async function initializeSubscriptions() {
 
 async function main() {
   try {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const prismaCliPath = path.resolve(__dirname, '../scripts/prisma-cli.js');
+    console.log('[Migration] Running auto-migrations...');
+    execFileSync(process.execPath, [prismaCliPath, 'migrate', 'deploy'], {
+      stdio: 'inherit'
+    });
+    console.log('[Migration] Auto-migrations completed successfully.');
+  } catch (err) {
+    console.error('[Migration] Failed to run migration:', err);
+  }
+
+  try {
     await prisma.$connect();
     console.log('[DB] Connected to PostgreSQL');
     await initializeSubscriptions();
@@ -158,6 +179,8 @@ async function main() {
   console.log('[Worker] Email worker started');
   billingWorker = startBillingWorker();
   console.log('[Worker] Billing worker started');
+  workflowWorker = startWorkflowWorker();
+  console.log('[Worker] Workflow worker started');
 
   // Re-queue SCHEDULED campaigns whose jobs were lost (server/Redis restart).
   try {
@@ -216,8 +239,9 @@ async function shutdown(signal) {
       campaignWorker?.close(),
       emailWorker?.close(),
       billingWorker?.close(),
+      workflowWorker?.close(),
     ]);
-    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close()]);
+    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close()]);
     await Promise.allSettled([redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);

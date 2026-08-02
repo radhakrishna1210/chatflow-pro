@@ -12,6 +12,7 @@ router.use(authenticate, workspaceContext);
 router.get('/', settingsController.getSettings);
 router.patch('/', authorize('ADMIN'), validate({ body: settingsSchemas.update }), settingsController.updateSettings);
 router.get('/invoices', settingsController.getInvoices);
+router.get('/invoices/:invoiceId/download', settingsController.downloadInvoice);
 router.post('/webhook/test', authorize('ADMIN'), settingsController.testWebhook);
 
 export default router;

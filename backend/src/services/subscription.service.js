@@ -37,7 +37,12 @@ export async function getActiveSubscription(workspaceId) {
 // concurrent worker sends can't both slip past the quota — the quota check
 // is an atomic conditional increment (updateMany re-evaluates its WHERE
 // against the row Postgres just locked), never a read-then-write.
-export async function consumeMessageCredit(workspaceId, { reason = 'Message send' } = {}) {
+//
+// `prepaid: true` means the wallet was already charged up front for this
+// message (campaigns pay their whole cost at launch). Such a send still meters
+// quota, but must never touch the wallet again — that would double-charge —
+// and must never be refused for an exhausted balance the customer already paid.
+export async function consumeMessageCredit(workspaceId, { reason = 'Message send', prepaid = false } = {}) {
   return prisma.$transaction(async (tx) => {
     const subscription = await tx.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
     if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
@@ -68,16 +73,52 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
       return { ok: true, source: 'QUOTA', remaining: plan.messageQuota - usage.messagesUsed };
     }
 
-    // Quota exhausted — overflow to the wallet at the plan's overage rate.
-    const result = await debit(workspaceId, plan.overageRatePerMsg, { reason }, tx);
+    // Quota exhausted. A prepaid message is already paid for, so it just
+    // records the usage and goes out.
+    if (prepaid) {
+      await tx.usageCounter.update({ where: periodKey, data: { messagesUsed: { increment: 1 } } });
+      return { ok: true, source: 'PREPAID' };
+    }
+
+    // Otherwise overflow to the wallet at the plan's overage rate.
+    const result = await debit(workspaceId, plan.overageRatePerMsg, { reason, category: 'USAGE' }, tx);
     if (!result.ok) return { ok: false, code: 'QUOTA_AND_WALLET_EXHAUSTED' };
     return { ok: true, source: 'WALLET', newBalance: result.balance };
-  });
+    // Same reasoning as wallet.service.js#TX_OPTS: this runs once per campaign
+    // message and can take a row lock on the wallet, so it needs more than
+    // Prisma's default 5s budget against a pooled remote database.
+  }, { maxWait: 15_000, timeout: 30_000 });
+}
+
+// `memberLimit` counts *teammates*, not seats: the workspace owner does not
+// consume one. Counting the owner made a Free plan (memberLimit 1) reject the
+// very first invite with "your plan allows up to 1 members" while the admin
+// was the only person in the workspace — the plan was full before anyone had
+// been invited. Pending invitations count, so a plan can't be oversubscribed
+// by sending N invites and having them all accepted.
+const OWNER_SEAT = 1;
+
+// `ignoreInvitationId` excludes the invitation currently being accepted: it is
+// still PENDING at check time, and the member row it becomes must not be
+// counted twice.
+async function countTeamSeats(workspaceId, { ignoreInvitationId = null } = {}) {
+  const [members, pendingInvites] = await Promise.all([
+    prisma.workspaceMember.count({ where: { workspaceId } }),
+    prisma.invitation.count({
+      where: {
+        workspaceId,
+        status: 'PENDING',
+        expiresAt: { gt: new Date() },
+        ...(ignoreInvitationId ? { id: { not: ignoreInvitationId } } : {}),
+      },
+    }),
+  ]);
+  return Math.max(0, members - OWNER_SEAT) + pendingInvites;
 }
 
 const LIMIT_KINDS = {
   contact: { field: 'contactLimit', label: 'contacts', count: (workspaceId) => prisma.contact.count({ where: { workspaceId } }) },
-  member: { field: 'memberLimit', label: 'members', count: (workspaceId) => prisma.workspaceMember.count({ where: { workspaceId } }) },
+  member: { field: 'memberLimit', label: 'team members (the workspace owner is not counted)', count: countTeamSeats },
   apiKey: { field: 'apiKeyLimit', label: 'API keys', count: (workspaceId) => prisma.apiKey.count({ where: { workspaceId, revokedAt: null } }) },
   campaign: { field: 'campaignLimit', label: 'campaigns', count: (workspaceId) => prisma.campaign.count({ where: { workspaceId } }) },
 };
@@ -85,7 +126,7 @@ const LIMIT_KINDS = {
 // README §12.4 plan-limit checks (contacts, members, API keys). `additional`
 // lets a caller check a batch (e.g. a CSV import adding N new contacts) in one
 // call instead of looping. A null/undefined plan limit means unlimited.
-export async function assertWithinLimit(workspaceId, kind, { additional = 1, message } = {}) {
+export async function assertWithinLimit(workspaceId, kind, { additional = 1, message, ...countOptions } = {}) {
   const config = LIMIT_KINDS[kind];
   if (!config) throw new Error(`Unknown limit kind: ${kind}`);
 
@@ -93,7 +134,7 @@ export async function assertWithinLimit(workspaceId, kind, { additional = 1, mes
   const limit = plan[config.field];
   if (limit === null || limit === undefined) return;
 
-  const count = await config.count(workspaceId);
+  const count = await config.count(workspaceId, countOptions);
   if (count + additional > limit) {
     const e = new Error(message || `Your plan allows up to ${limit} ${config.label}. Upgrade your plan to add more.`);
     e.status = 403;

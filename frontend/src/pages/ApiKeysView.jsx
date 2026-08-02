@@ -54,9 +54,16 @@ export default function ApiKeysView() {
   const [sending, setSending]   = useState(false);
   const [sent, setSent]         = useState(false);
   const [sendError, setSendError] = useState('');
+  // Templates whose body uses {{1}}-style placeholders can be sent from the
+  // playground now — the values are collected here instead of the send being
+  // refused. `requiredVars` is how many the chosen template needs.
+  const [templates, setTemplates] = useState([]);
+  const [requiredVars, setRequiredVars] = useState(0);
+  const [testVars, setTestVars] = useState([]);
 
   useEffect(() => {
     wFetch('/api-keys').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setKeys(d)}).catch(()=>{});
+    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setTemplates(d.filter(t=>t.status!=='DELETED'))}).catch(()=>{});
     wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{
       if (!d) return;
       if (d.webhookUrl) setWebhookUrl(d.webhookUrl);
@@ -65,6 +72,36 @@ export default function ApiKeysView() {
       }
     }).catch(()=>{});
   }, []);
+
+  // Highest {{n}} across a template's components — the number of parameters
+  // Meta will expect for it.
+  const countTemplateVars = (tpl) => {
+    const components = Array.isArray(tpl?.components) ? tpl.components : [];
+    return components.reduce((max, c) => {
+      const nums = [...String(c?.text || '').matchAll(/\{\{(\d+)\}\}/g)].map(m => parseInt(m[1], 10));
+      return nums.length ? Math.max(max, ...nums) : max;
+    }, 0);
+  };
+
+  // Recompute the variable inputs whenever the typed template name resolves
+  // to a real template.
+  useEffect(() => {
+    const name = testTpl.trim();
+    if (!name) { setRequiredVars(0); return; }
+    const match = templates.find(t => t.name === name);
+    if (!match) return; // unknown name — leave whatever the server last told us
+    const needed = countTemplateVars(match);
+    setRequiredVars(needed);
+    setTestBody(prev => prev || (Array.isArray(match.components)
+      ? (match.components.find(c => String(c?.type || '').toUpperCase() === 'BODY')?.text ?? '')
+      : ''));
+  }, [testTpl, templates]);
+
+  const setVar = (index, value) => setTestVars(prev => {
+    const next = [...prev];
+    next[index] = value;
+    return next;
+  });
 
   const generate = async () => {
     const res = await wFetch('/api-keys', { method:'POST', body:JSON.stringify({ name:newName||'New Key', environment:'live' }) }).catch(()=>null);
@@ -126,15 +163,22 @@ export default function ApiKeysView() {
 
   const validateTestFields = () => {
     const errs = {};
-    if (!testPhone.trim()) errs.phone = 'Phone number is required';
-    else if (!/^[+\d][\d\s-]{5,19}$/.test(testPhone.trim())) errs.phone = 'Enter a valid phone number';
+    const phone = testPhone.trim();
+    if (!phone) errs.phone = 'Phone number is required';
+    // Meta needs the country code — validate on digits so spaces, dashes and
+    // brackets in what the user typed don't reject an otherwise fine number.
+    else if (phone.replace(/\D/g, '').length < 8) errs.phone = 'Include the country code, e.g. +91 98765 43210';
     if (!testTpl.trim() && !testBody.trim()) {
       errs.message = 'Provide a Template ID or a Message';
+    }
+    if (requiredVars > 0 && testVars.slice(0, requiredVars).some(v => !String(v || '').trim())) {
+      errs.variables = `Fill in all ${requiredVars} template variable${requiredVars === 1 ? '' : 's'}`;
     }
     return errs;
   };
 
   const sendTest = async () => {
+    if (sending) return; // guards against a double-click firing two sends
     const errs = validateTestFields();
     setTestErrors(errs);
     if (Object.keys(errs).length > 0) return;
@@ -147,10 +191,16 @@ export default function ApiKeysView() {
           to: testPhone.trim(),
           templateId: testTpl.trim() || undefined,
           message: testBody.trim() || undefined,
+          variables: requiredVars > 0 ? testVars.slice(0, requiredVars) : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to send test message');
+      if (!res.ok) {
+        // The server tells us how many {{n}} values the template needs —
+        // surface the inputs instead of refusing the send outright.
+        if (data.details?.requiredVariables) setRequiredVars(data.details.requiredVariables);
+        throw new Error(data.error || 'Failed to send test message');
+      }
       setSent(true);
       setTimeout(() => setSent(false), 2500);
     } catch (e) {
@@ -187,6 +237,20 @@ export default function ApiKeysView() {
             <I n="key" s={16} c="var(--green)" />
             <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>API Keys</span>
           </div>
+
+          {/* Without this, a workspace with no keys rendered a card that was
+              nothing but a title bar — and a member (who can't generate keys)
+              saw an empty box with no explanation at all. */}
+          {keys.length === 0 && (
+            <div style={{ padding:'26px 20px', textAlign:'center' }}>
+              <p style={{ fontSize:13, color:'var(--t2)', marginBottom:4 }}>No API keys yet.</p>
+              <p style={{ fontSize:12, color:'var(--t3)' }}>
+                {isAdmin
+                  ? 'Generate one below to start calling the ChatFlow Pro API.'
+                  : 'Ask a workspace admin to generate an API key for you.'}
+              </p>
+            </div>
+          )}
 
           {keys.map((k, i) => {
             const badge = envBadge(k.environment);
@@ -283,15 +347,48 @@ export default function ApiKeysView() {
             <div>
               <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Phone Number</label>
               {inp(testPhone,setTestPhone,'+91 98765 43210')}
-              {testErrors.phone && <p style={{ fontSize:11.5, color:'#f87171', margin:'6px 0 0' }}>{testErrors.phone}</p>}
+              {testErrors.phone
+                ? <p style={{ fontSize:11.5, color:'#f87171', margin:'6px 0 0' }}>{testErrors.phone}</p>
+                : <p style={{ fontSize:11, color:'var(--t3)', margin:'6px 0 0' }}>Include the country code. Spaces and dashes are fine.</p>}
             </div>
             <div>
               <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Template ID</label>
-              {inp(testTpl,setTestTpl,'welcome_message')}
+              {/* A datalist of the workspace's real template names — the field
+                  expects the template *name* (welcome_new_customer), which
+                  wasn't obvious and made "test" style guesses fail. */}
+              <input list="cfp-template-names" value={testTpl} onChange={e=>setTestTpl(e.target.value)} placeholder="welcome_new_customer"
+                style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', boxSizing:'border-box' }}
+                onFocus={e=>e.target.style.borderColor='var(--gbd)'}
+                onBlur={e=>e.target.style.borderColor='var(--bd)'} />
+              <datalist id="cfp-template-names">
+                {templates.map(t => <option key={t.id} value={t.name}>{t.category} · {t.status}</option>)}
+              </datalist>
+              <p style={{ fontSize:11, color:'var(--t3)', margin:'6px 0 0' }}>Leave empty to send plain text instead.</p>
             </div>
           </div>
+
+          {requiredVars > 0 && (
+            <div style={{ margin:'12px 0 4px', padding:'12px 14px', borderRadius:9, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
+              <p style={{ fontSize:12, fontWeight:600, color:'#7dd3fc', marginBottom:10 }}>
+                This template has {requiredVars} variable{requiredVars === 1 ? '' : 's'}. Provide a value for each placeholder.
+              </p>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:10 }}>
+                {Array.from({ length: requiredVars }, (_, i) => (
+                  <div key={i}>
+                    <label style={{ fontSize:11, fontWeight:700, color:'var(--t3)', display:'block', marginBottom:5, fontFamily:'monospace' }}>{`{{${i + 1}}}`}</label>
+                    <input value={testVars[i] || ''} onChange={e=>setVar(i, e.target.value)} placeholder={i === 0 ? 'e.g. Priya' : 'Value'}
+                      style={{ width:'100%', padding:'8px 11px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12.5, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                ))}
+              </div>
+              {testErrors.variables && <p style={{ fontSize:11.5, color:'#f87171', margin:'8px 0 0' }}>{testErrors.variables}</p>}
+            </div>
+          )}
+
           <div style={{ marginBottom:14, marginTop:8 }}>
-            <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Message Body</label>
+            <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>
+              Message Body {testTpl.trim() && <span style={{ fontWeight:500, color:'var(--t3)' }}>· preview only, the template text is sent</span>}
+            </label>
             <textarea value={testBody} onChange={e=>setTestBody(e.target.value)} placeholder="Enter test message…"
               style={{ width:'100%', minHeight:80, padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', resize:'vertical', boxSizing:'border-box', lineHeight:1.55 }} />
             {testErrors.message && <p style={{ fontSize:11.5, color:'#f87171', margin:'6px 0 0' }}>{testErrors.message}</p>}

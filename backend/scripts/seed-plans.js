@@ -11,7 +11,11 @@ const PLANS = [
     campaignLimit: null,
     apiKeyLimit: 1,
     overageRatePerMsg: 0.02,
-    features: {},
+    // The whole Automation tab (basic auto-replies, keyword triggers, workflows,
+    // forms, Instagram, Voice AI) is available on every plan. Free accounts are
+    // still bounded by messageQuota/contactLimit above, which is what actually
+    // meters usage — gating the feature only made the tab look broken.
+    features: { automation: true, workflows: true },
   },
   {
     key: 'STARTER',
@@ -23,7 +27,7 @@ const PLANS = [
     campaignLimit: null,
     apiKeyLimit: 3,
     overageRatePerMsg: 0.015,
-    features: { automation: true },
+    features: { automation: true, workflows: true },
   },
   {
     key: 'PRO',

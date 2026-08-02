@@ -1,4 +1,16 @@
 import * as workflowService from '../services/workflow.service.js';
+import { listRuns } from '../services/workflowEngine.service.js';
+
+// Execution history for a workflow — "did this actually fire?" answered from
+// the UI instead of from server logs.
+export async function runs(req, res) {
+  try {
+    res.json(await listRuns(req.params.workspaceId, { workflowId: req.query.workflowId }));
+  } catch (err) {
+    console.error('[Workflow] runs error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to list runs' });
+  }
+}
 
 export async function list(req, res) {
   try {

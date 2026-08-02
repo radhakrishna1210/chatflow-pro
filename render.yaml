@@ -103,6 +103,23 @@ services:
       # --- Optional integrations (leave unset to disable) ---
       - key: GEMINI_API_KEY
         sync: false
+
+      # Voice AI (Automation > Voice AI). Point the Twilio number's voice
+      # webhook at /api/v1/voice/incoming and its status callback at
+      # /api/v1/voice/status. Signature validation resolves the callback URL
+      # from APP_URL, so no extra origin config is needed here.
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+
+      # Instagram Quickflows. Falls back to the META_* app credentials above
+      # when unset, so only supply these for a dedicated Instagram app.
+      # Webhook: /api/v1/webhook/instagram (verify token = META_WEBHOOK_VERIFY_TOKEN).
+      - key: INSTAGRAM_APP_ID
+        sync: false
+      - key: INSTAGRAM_APP_SECRET
+        sync: false
       - key: RAZORPAY_KEY_ID
         sync: false
       - key: RAZORPAY_KEY_SECRET

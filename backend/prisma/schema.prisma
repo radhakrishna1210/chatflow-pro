@@ -27,6 +27,8 @@ model User {
   refreshTokens    RefreshToken[]
   workspaceMembers WorkspaceMember[]
   sentInvitations  Invitation[]
+  assignedConversations Conversation[] @relation("ConversationAssignee")
+  notifications    Notification[]
 }
 
 model Workspace {
@@ -49,10 +51,31 @@ model Workspace {
   autoOooEnabled               Boolean                @default(true)
   autoWelcomeEnabled           Boolean                @default(true)
   autoDelayedEnabled           Boolean                @default(false)
+  // The three basic auto-replies used to be hardcoded constants in
+  // webhook.service.js while the UI claimed they were configurable. They are
+  // real editable fields now.
+  welcomeMessage               String                 @default("Thanks for reaching out! We've received your message and will get back to you shortly.")
+  oooMessage                   String                 @default("We're currently unavailable. We'll respond to your message as soon as possible.")
+  delayedMessage               String                 @default("Sorry for the wait — we're still looking into this and will reply as soon as we can.")
+  // How long an inbound message may sit without a human reply before the
+  // delayed-response auto-reply fires.
+  delayedAfterMinutes          Int                    @default(15)
+  // { tz: "Asia/Kolkata", days: [{ day: 0-6, enabled: bool, start: "09:00", end: "18:00" }] }
+  // Null means "always open" — OOO then only fires on reopened conversations.
+  businessHours                Json?
   voiceAiEnabled               Boolean                @default(false)
   voiceAiName                  String                 @default("MyCallGenie")
   voiceAiPrompt                String                 @default("Greet the caller and ask for their details.")
   voiceAiPhone                 String                 @default("")
+  // Voice AI answers on this inbound number (provisioned with the telephony
+  // provider); voiceAiPhone is where calls are forwarded on handoff.
+  voiceAiInboundPhone          String                 @default("")
+  voiceAiGreeting              String                 @default("Hi! Thanks for calling. How can I help you today?")
+  instagramUserId              String?
+  instagramUsername            String?
+  // Encrypted at rest via lib/encryption.js, same as WaNumber access tokens.
+  instagramAccessToken         String?
+  instagramConnectedAt         DateTime?
   aiAgentEnabled               Boolean                @default(false)
   aiAgentName                  String                 @default("Assistant")
   aiAgentPrompt                String                 @default("You are a helpful customer support agent. Answer briefly and politely.")
@@ -64,6 +87,10 @@ model Workspace {
   suspended                    Boolean                @default(false)
   suspendedReason              String?
   walletBalance                Decimal                @default(0) @db.Decimal(12, 2)
+  // What one campaign message costs this workspace, in the wallet's currency
+  // (INR). Campaign cost = valid recipients × this, charged once at launch.
+  // Workspace-level so a reseller can price per account without a plan change.
+  costPerMessage               Decimal                @default(0.92) @db.Decimal(10, 4)
   createdAt                    DateTime               @default(now())
   apiKeys                      ApiKey[]
   triggers                     AutomationTrigger[]
@@ -84,6 +111,12 @@ model Workspace {
   usageCounters                UsageCounter[]
   invitations                  Invitation[]
   clusters                     Cluster[]
+  workflowRuns                 WorkflowRun[]
+  formSubmissions              WhatsappFormSubmission[]
+  instagramFlows               InstagramFlow[]
+  voiceCalls                   VoiceCall[]
+  optOuts                      OptOut[]
+  notifications                Notification[]
 }
 
 model WorkspaceMember {
@@ -183,6 +216,7 @@ model Contact {
   email              String?
   tags               String[]
   optedOut           Boolean             @default(false)
+  optedOutAt         DateTime?
   createdAt          DateTime            @default(now())
   campaignRecipients CampaignRecipient[]
   workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -205,6 +239,21 @@ model Campaign {
   delivered      Int                 @default(0)
   read           Int                 @default(0)
   failed         Int                 @default(0)
+  // Recipients never sent to because the number opted out. Counted separately
+  // from `failed` — a blocked number is a skip, not a delivery error, and it
+  // must never stop the rest of the campaign.
+  skipped        Int                 @default(0)
+  // Wallet accounting, written once when the launch charge succeeds.
+  // `chargedAt` is the idempotency guard: a campaign with it set is already
+  // paid for and can never be charged again (retry, resume, worker restart).
+  costPerMessage Decimal?            @db.Decimal(10, 4)
+  totalCost      Decimal?            @db.Decimal(12, 2)
+  walletBefore   Decimal?            @db.Decimal(12, 2)
+  walletAfter    Decimal?            @db.Decimal(12, 2)
+  chargedAt      DateTime?
+  refundAmount   Decimal?            @db.Decimal(12, 2)
+  refundedAt     DateTime?
+  createdByUserId String?
   scheduledAt    DateTime?
   launchedAt     DateTime?
   completedAt    DateTime?
@@ -252,12 +301,17 @@ model Conversation {
   status        ConversationStatus @default(OPEN)
   unreadCount   Int                @default(0)
   label         String?
+  // Set by a workflow's "assign to agent" action, or manually from the inbox.
+  // SetNull so removing a member detaches their threads instead of blocking.
+  assignedToUserId String?
   lastMessageAt DateTime           @default(now())
   createdAt     DateTime           @default(now())
   contact       Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
   waNumber      WaNumber?          @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
   workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedTo    User?              @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   messages      Message[]
+  workflowRuns  WorkflowRun[]
 }
 
 model Message {
@@ -299,6 +353,43 @@ model Workflow {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs        WorkflowRun[]
+}
+
+// One execution of a workflow against one conversation. Persisted (rather than
+// held in the queue job) because a "delay" step can park a run for a day, and
+// the Workflows tab shows the run history so "did it fire?" is answerable
+// without reading logs.
+model WorkflowRun {
+  id             String            @id @default(cuid())
+  workspaceId    String
+  workflowId     String
+  conversationId String?
+  contactId      String?
+  status         WorkflowRunStatus @default(RUNNING)
+  // Index into the workflow's action nodes — where to resume after a delay.
+  cursor         Int               @default(0)
+  // Snapshot of the nodes at trigger time, so editing a workflow mid-run
+  // doesn't make an in-flight run jump to a different set of steps.
+  nodes          Json
+  trace          Json?
+  triggerMessage String?
+  error          String?
+  startedAt      DateTime          @default(now())
+  finishedAt     DateTime?
+  workflow       Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workspace      Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation?     @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, startedAt])
+  @@index([workflowId, startedAt])
+}
+
+enum WorkflowRunStatus {
+  RUNNING
+  WAITING
+  COMPLETED
+  FAILED
 }
 
 model ApiKey {
@@ -370,6 +461,7 @@ enum CampaignRecipientStatus {
   DELIVERED
   READ
   FAILED
+  SKIPPED
 }
 
 enum ConversationStatus {
@@ -408,26 +500,191 @@ model WhatsappForm {
   id          String    @id @default(cuid())
   workspaceId String
   name        String
+  // Denormalised counters kept for the existing list UI. `fields` is derived
+  // from `schema` on every write so the two can't drift.
   submissions Int       @default(0)
   fields      Int       @default(1)
   status      String    @default("Draft")
+  // The actual field definitions the form collects:
+  // [{ key, label, type: text|email|phone|number|choice, required, options[] }]
+  schema      Json?
+  // Keyword that starts the form over WhatsApp, e.g. "SURVEY".
+  keyword     String?
+  // Sent once every field has been answered.
+  completionMessage String  @default("Thanks! We've recorded your response.")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  formSubmissions WhatsappFormSubmission[]
+
+  @@unique([workspaceId, keyword])
+}
+
+// A contact's run through a form. Rows start PARTIAL and are filled in one
+// answer per inbound message until every field is collected.
+model WhatsappFormSubmission {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  formId         String
+  contactId      String?
+  conversationId String?
+  // { fieldKey: answer }
+  answers        Json      @default("{}")
+  // Index of the field currently being asked.
+  cursor         Int       @default(0)
+  completed      Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  completedAt    DateTime?
+  form           WhatsappForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, formId])
+  @@index([conversationId, completed])
+}
+
+// Instagram DM / comment / story-reply automation. Mirrors AutomationTrigger
+// but for the IG surface, which has its own webhook and send API.
+model InstagramFlow {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  // dm | comment | story_reply
+  source      String    @default("dm")
+  // Empty keyword means "match every message on this source".
+  keyword     String    @default("")
+  responseTemplate String
+  // For comment flows: also DM the commenter, not just reply publicly.
+  alsoSendDm  Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  triggeredCount Int    @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, isActive])
+}
+
+// One inbound call handled by the Voice AI receptionist, plus whatever the
+// agent managed to capture from the caller.
+model VoiceCall {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  providerCallId String?
+  fromPhone    String
+  toPhone      String
+  status       String    @default("IN_PROGRESS")
+  // [{ role: 'caller'|'agent', text, at }]
+  transcript   Json      @default("[]")
+  leadName     String?
+  leadEmail    String?
+  leadSummary  String?
+  contactId    String?
+  forwarded    Boolean   @default(false)
+  durationSec  Int       @default(0)
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, startedAt])
+  @@unique([providerCallId])
 }
 
 model WalletTransaction {
-  id           String    @id @default(cuid())
-  workspaceId  String
-  amount       Decimal   @db.Decimal(12, 2)
-  type         String // CREDIT | DEBIT
-  reason       String
-  balanceAfter Decimal   @db.Decimal(12, 2)
-  reference    String?
-  createdAt    DateTime  @default(now())
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id            String    @id @default(cuid())
+  workspaceId   String
+  amount        Decimal   @db.Decimal(12, 2)
+  // CREDIT | DEBIT — the direction. `category` is what it was for:
+  // RECHARGE | CAMPAIGN | REFUND | USAGE | ADJUSTMENT.
+  type          String
+  category      String    @default("USAGE")
+  reason        String
+  balanceBefore Decimal?  @db.Decimal(12, 2)
+  balanceAfter  Decimal   @db.Decimal(12, 2)
+  status        String    @default("SUCCESS") // SUCCESS | PENDING | FAILED
+  gateway       String? // razorpay | manual | system
+  reference     String? // gateway payment id / campaign id
+  // Caller-supplied dedupe key. Unique, so a replayed recharge callback or a
+  // double-submitted campaign charge collides at the DB level instead of
+  // relying on a read-then-write check that two workers can both pass.
+  idempotencyKey String?  @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, category])
+}
+
+// A phone number that must never be messaged again from this workspace.
+// Written by the webhook when an inbound message matches an opt-out keyword,
+// and checked before every outbound send. `phoneNumber` is stored as bare
+// digits so "+91 98765 43210", "9198765 43210" and "919876543210" all collide
+// on the same row.
+model OptOut {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  phoneNumber  String
+  // What the customer actually typed, kept for the audit trail.
+  rawPhone     String?
+  waNumberId   String?
+  waPhone      String?
+  contactId    String?
+  keyword      String?
+  reason       String    @default("User Opted Out")
+  source       String    @default("Incoming WhatsApp Message")
+  // Who blocked it: null for the customer themselves (the normal case), a
+  // user id when an admin blocked the number by hand.
+  blockedByUserId String?
+  blockedByName   String?
+  // Soft state so unblocking keeps the history instead of erasing it.
+  active       Boolean   @default(true)
+  unblockedAt  DateTime?
+  unblockedByUserId String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now()) @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, phoneNumber])
+  @@index([workspaceId, active, createdAt])
+}
+
+// In-app notification. `userId` targets one person (e.g. "you were invited to
+// a workspace"); a null userId with a workspaceId is a workspace-wide notice
+// every member sees. Read state lives in `readAt` for per-user targets and in
+// NotificationRead for workspace-wide ones.
+model Notification {
+  id          String     @id @default(cuid())
+  workspaceId String?
+  userId      String?
+  type        String
+  title       String
+  body        String?
+  // Dashboard section to open when the notification is clicked, e.g.
+  // "campaigns" or "settings".
+  link        String?
+  meta        Json?
+  readAt      DateTime?
+  createdAt   DateTime   @default(now())
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reads       NotificationRead[]
+
+  @@index([userId, readAt])
+  @@index([workspaceId, createdAt])
+}
+
+// Per-user read marker for workspace-wide notifications (userId = null on the
+// Notification itself), so one member reading a notice doesn't clear it for
+// everyone else.
+model NotificationRead {
+  notificationId String
+  userId         String
+  readAt         DateTime     @default(now())
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@id([notificationId, userId])
+  @@index([userId])
 }
 
 model WorkspaceIntegration {

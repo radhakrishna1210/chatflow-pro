@@ -569,10 +569,28 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
 };
 
 // ─── Step 4 ───────────────────────────────────────────────────
-const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, summary, onLaunch }) => {
+const inr = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, summary, estimate, estimating, estimateError, onLaunch, launching }) => {
   const minDate = new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16);
   const ready   = !!(summary.contactCount > 0 && summary.templateName && summary.numberPhone && summary.campaignName);
-  const canLaunch = ready && (scheduleType === 'immediately' || !!scheduledAt);
+  // The wallet must cover the whole campaign before it can start. The server
+  // enforces this too — this just refuses the click instead of failing later.
+  const affordable = !estimate || estimate.sufficientBalance;
+  const hasSendable = !estimate || estimate.validContacts > 0;
+  const canLaunch = ready && affordable && hasSendable && !launching && (scheduleType === 'immediately' || !!scheduledAt);
+
+  const costRows = estimate ? [
+    ['Total Contacts',      estimate.totalContacts.toLocaleString(), null],
+    ['Valid Contacts',      estimate.validContacts.toLocaleString(), 'var(--green)'],
+    ['Duplicate Contacts',  estimate.duplicateContacts.toLocaleString(), estimate.duplicateContacts > 0 ? '#fbbf24' : null],
+    ['Blocked (Opted Out)', estimate.blockedContacts.toLocaleString(), estimate.blockedContacts > 0 ? '#f87171' : null],
+    ['Invalid Numbers',     estimate.invalidContacts.toLocaleString(), estimate.invalidContacts > 0 ? '#f87171' : null],
+    ['Cost Per Message',    inr(estimate.costPerMessage), null],
+    ['Total Campaign Cost', inr(estimate.totalCost), 'var(--t1)'],
+    ['Wallet Balance',      inr(estimate.walletBalance), null],
+    ['Balance After Campaign', inr(estimate.remainingBalance), estimate.sufficientBalance ? 'var(--green)' : '#f87171'],
+  ] : [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -613,12 +631,66 @@ const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, sum
           ))}
         </div>
       </div>
+
+      {/* Cost breakdown, priced by the server against the same rules the
+          launch uses — so what's approved here is exactly what's charged. */}
+      <div style={{ ...card, padding: '18px 20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '14px', color: 'var(--t1)' }}>Cost &amp; Wallet</span>
+          {estimating && <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>Calculating…</span>}
+        </div>
+
+        {estimateError ? (
+          <p style={{ fontSize: 12.5, color: '#f87171' }}>{estimateError}</p>
+        ) : !estimate ? (
+          <p style={{ fontSize: 12.5, color: 'var(--t3)' }}>Select your audience to see the campaign cost.</p>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '9px 24px' }}>
+              {costRows.map(([k, v, color]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ fontSize: 12.5, color: 'var(--t2)' }}>{k}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: color || 'var(--t1)' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+
+            {estimate.blockedContacts > 0 && (
+              <p style={{ marginTop: 12, fontSize: 11.5, color: '#fbbf24', lineHeight: 1.5 }}>
+                {estimate.blockedContacts} contact{estimate.blockedContacts === 1 ? ' has' : 's have'} opted out and will be skipped —
+                you are not charged for them, and the campaign continues for everyone else.
+              </p>
+            )}
+
+            {!estimate.sufficientBalance && (
+              <div style={{ marginTop: 14, padding: '11px 14px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)' }}>
+                <p style={{ fontSize: 12.5, color: '#f87171', fontWeight: 600 }}>Insufficient Wallet Balance. Please recharge your wallet.</p>
+                <p style={{ fontSize: 11.5, color: '#f8c6c6', marginTop: 4 }}>
+                  This campaign needs {inr(estimate.totalCost)} but your wallet holds {inr(estimate.walletBalance)}.
+                  Add at least {inr(estimate.totalCost - estimate.walletBalance)} to continue.
+                </p>
+                <Btn size="sm" variant="outline" style={{ marginTop: 10 }}
+                  onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: { section: 'payments', subTab: 'wallet' } }))}>
+                  Recharge Wallet
+                </Btn>
+              </div>
+            )}
+
+            {estimate.validContacts === 0 && (
+              <p style={{ marginTop: 12, fontSize: 12.5, color: '#f87171' }}>
+                There is nobody left to send to — every selected contact is a duplicate, invalid, or has opted out.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
       <Btn onClick={onLaunch} disabled={!canLaunch} style={{ width: '100%', justifyContent: 'center', boxShadow: canLaunch ? 'var(--glow)' : 'none' }}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>
           <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11A22.35 22.35 0 0 1 12 15z"/>
         </svg>
-        Launch Campaign
+        {launching ? 'Launching…' : estimate ? `Launch Campaign · ${inr(estimate.totalCost)}` : 'Launch Campaign'}
       </Btn>
     </div>
   );
@@ -1024,7 +1096,7 @@ const PhonePreview = ({ templateBody }) => {
 };
 
 // ─── Top Bar ───────────────────────────────────────────────────
-const TopBar = ({ campaignName, setCampaignName, canLaunch, onSaveDraft, onGoLive, onBack }) => (
+const TopBar = ({ campaignName, setCampaignName, canLaunch, onSaveDraft, onGoLive, onBack, launching, savingDraft }) => (
   <div style={{ height: '58px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: '12px', flexShrink: 0, background: 'var(--surf)' }}>
     <button onClick={onBack}
       style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', background: 'transparent', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: '13px', fontFamily: "'Plus Jakarta Sans',sans-serif", cursor: 'pointer', transition: 'all .15s', fontWeight: 500 }}
@@ -1039,14 +1111,14 @@ const TopBar = ({ campaignName, setCampaignName, canLaunch, onSaveDraft, onGoLiv
       onFocus={e => e.target.style.borderColor = 'var(--gbd)'}
       onBlur={e => e.target.style.borderColor = 'var(--bd)'} />
     <div style={{ flex: 1 }} />
-    <Btn variant="outline" onClick={onSaveDraft}>
+    <Btn variant="outline" onClick={onSaveDraft} disabled={savingDraft}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
         <polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/>
       </svg>
-      Save as Draft
+      {savingDraft ? 'Saving…' : 'Save as Draft'}
     </Btn>
-    <Btn onClick={onGoLive} disabled={!canLaunch} style={{ boxShadow: canLaunch ? 'var(--glow)' : 'none' }}>
+    <Btn onClick={onGoLive} disabled={!canLaunch || launching} style={{ boxShadow: canLaunch && !launching ? 'var(--glow)' : 'none' }}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>
         <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11A22.35 22.35 0 0 1 12 15z"/>
@@ -1074,6 +1146,8 @@ export default function CreateCampaign({ onBack }) {
   const [openStep, setOpenStep]               = useState(1);
   const [retriesActive, setRetriesActive]     = useState(false);
   const [launching, setLaunching]             = useState(false);
+  const [launchError, setLaunchError]         = useState('');
+  const [savingDraft, setSavingDraft]         = useState(false);
   // Advanced wizard config (steps 5-7) — persisted to the campaign on launch.
   const [replyRules, setReplyRules]           = useState(null);
   const [retryConfig, setRetryConfig]         = useState(null);
@@ -1083,6 +1157,11 @@ export default function CreateCampaign({ onBack }) {
   const [numbers, setNumbers]     = useState([]);
   const [templates, setTemplates] = useState([]);
   const [contacts, setContacts]   = useState([]);
+  // Server-priced campaign summary: valid/duplicate/blocked/invalid counts,
+  // cost per message, total cost, and the wallet before and after.
+  const [estimate, setEstimate]         = useState(null);
+  const [estimating, setEstimating]     = useState(false);
+  const [estimateError, setEstimateError] = useState('');
 
   const reloadContacts = () => {
     wFetch('/contacts').then(r=>r.ok&&r.json()).then(d=>{ const list=Array.isArray(d)?d:d?.data; if(Array.isArray(list)) setContacts(list); }).catch(()=>{});
@@ -1099,6 +1178,35 @@ export default function CreateCampaign({ onBack }) {
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   });
+
+  // Re-price whenever the audience changes. Debounced because selecting
+  // contacts one at a time would otherwise fire a request per click, and
+  // guarded by a request id so a slow earlier response can't overwrite a
+  // newer one.
+  const estimateSeq = useRef(0);
+  useEffect(() => {
+    const ids = [...selectedContactIds];
+    if (ids.length === 0) { setEstimate(null); setEstimateError(''); return undefined; }
+
+    const seq = ++estimateSeq.current;
+    setEstimating(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await wFetch('/campaigns/estimate', { method: 'POST', body: JSON.stringify({ contactIds: ids }) });
+        const data = await res.json().catch(() => ({}));
+        if (seq !== estimateSeq.current) return; // a newer selection won
+        if (!res.ok) { setEstimateError(data.error || 'Could not calculate the campaign cost'); setEstimate(null); return; }
+        setEstimate(data);
+        setEstimateError('');
+      } catch (e) {
+        if (seq === estimateSeq.current) { setEstimateError(e.message || 'Could not calculate the campaign cost'); setEstimate(null); }
+      } finally {
+        if (seq === estimateSeq.current) setEstimating(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [selectedContactIds]);
 
   const isLocked = n => {
     if (n === 2) return !step1Done;
@@ -1129,9 +1237,16 @@ export default function CreateCampaign({ onBack }) {
   };
 
   const handleGoLive = async () => {
+    // `launching` also blocks the double-submit that a refresh or an
+    // impatient second click would otherwise cause.
     if (!canLaunch || launching) return;
     const nameError = validateMeaningfulText(campaignName, 'Campaign name');
-    if (nameError) { alert(nameError); return; }
+    if (nameError) { setLaunchError(nameError); return; }
+    if (estimate && !estimate.sufficientBalance) {
+      setLaunchError('Insufficient Wallet Balance. Please recharge your wallet.');
+      return;
+    }
+    setLaunchError('');
     setLaunching(true);
     try {
       // Only send a schedule time when "Schedule for Later" is active —
@@ -1157,24 +1272,38 @@ export default function CreateCampaign({ onBack }) {
         method: 'POST', body: JSON.stringify({ scheduledAt: effectiveScheduledAt, retryConfig }),
       });
       if (!launchRes.ok) throw new Error(await parseError(launchRes, `Could not launch campaign (${launchRes.status})`));
+      const launched = await launchRes.json().catch(() => null);
+
+      // The launch charged the wallet — tell the sidebar, the dashboard and
+      // the bell so none of them show a stale balance.
+      if (launched?.summary?.walletAfter != null) {
+        window.dispatchEvent(new CustomEvent('wallet:balance-updated', { detail: Number(launched.summary.walletAfter) }));
+      } else {
+        window.dispatchEvent(new CustomEvent('wallet:balance-updated'));
+      }
+      window.dispatchEvent(new CustomEvent('notifications:refresh'));
+      window.dispatchEvent(new CustomEvent('app:data-updated', { detail: { campaigns: true } }));
       onBack?.();
     } catch (err) {
       console.error('[launch campaign]', err);
-      alert(`Failed to launch campaign: ${err.message}`);
+      setLaunchError(err.message || 'Failed to launch campaign');
     } finally {
       setLaunching(false);
     }
   };
 
   const handleSaveDraft = async () => {
+    if (savingDraft) return; // no duplicate drafts from a double-click
     if (!selectedNumberId || !selectedTemplateId) {
-      alert('Select a WhatsApp number and a template before saving a draft.');
+      setLaunchError('Select a WhatsApp number and a template before saving a draft.');
       return;
     }
     if (campaignName.trim()) {
       const nameError = validateMeaningfulText(campaignName, 'Campaign name');
-      if (nameError) { alert(nameError); return; }
+      if (nameError) { setLaunchError(nameError); return; }
     }
+    setLaunchError('');
+    setSavingDraft(true);
     try {
       const res = await wFetch('/campaigns', {
         method: 'POST',
@@ -1189,7 +1318,9 @@ export default function CreateCampaign({ onBack }) {
       }
       onBack?.();
     } catch (err) {
-      alert(`Failed to save draft: ${err.message}`);
+      setLaunchError(err.message || 'Failed to save draft');
+    } finally {
+      setSavingDraft(false);
     }
   };
 
@@ -1224,10 +1355,19 @@ export default function CreateCampaign({ onBack }) {
         onSaveDraft={handleSaveDraft}
         onGoLive={handleGoLive}
         onBack={onBack}
+        launching={launching}
+        savingDraft={savingDraft}
       />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* ── accordion ── */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {launchError && (
+            <div style={{ padding: '11px 15px', borderRadius: 9, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+              <p style={{ fontSize: 12.5, color: '#f87171', lineHeight: 1.5 }}>{launchError}</p>
+              <button onClick={() => setLaunchError('')} aria-label="Dismiss"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
+            </div>
+          )}
           {STEPS.map(s => (
             <StepWrap key={s.n} n={s.n} title={s.title} done={s.done} open={openStep === s.n} locked={isLocked(s.n)} onToggle={() => toggleStep(s.n)}>
               {s.n === 1 && (
@@ -1260,7 +1400,8 @@ export default function CreateCampaign({ onBack }) {
                   scheduleType={scheduleType} setScheduleType={setScheduleType}
                   scheduledAt={scheduledAt}   setScheduledAt={setScheduledAt}
                   summary={summary}
-                  onLaunch={handleGoLive}
+                  estimate={estimate} estimating={estimating} estimateError={estimateError}
+                  onLaunch={handleGoLive} launching={launching}
                 />
               )}
               {s.n === 5 && <Step5 initial={replyRules} onSaved={setReplyRules} />}

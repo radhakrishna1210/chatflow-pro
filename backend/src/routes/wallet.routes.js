@@ -8,6 +8,7 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/', walletController.getWallet);
+router.get('/summary', walletController.getSummary);
 router.post('/recharge', authorize('ADMIN'), walletController.recharge);
 router.post('/checkout', authorize('ADMIN'), walletController.createCheckout);
 router.post('/checkout/verify', authorize('ADMIN'), walletController.verifyCheckout);

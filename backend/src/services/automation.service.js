@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { normalizeBusinessHours, DEFAULT_BUSINESS_HOURS } from './businessHours.service.js';
 
 // Lazily initialised: constructing the client at import time crashes startup
 // when GEMINI_API_KEY is not configured (it's optional in the env schema).
@@ -169,25 +170,55 @@ export async function deleteTrigger(workspaceId, id) {
   await prisma.automationTrigger.delete({ where: { id } });
 }
 
+// Escapes a keyword for use inside a RegExp — keywords are user input and may
+// contain ".", "+", "?" etc.
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Whole-word match. Plain `body.includes(keyword)` (the old behaviour) fired
+// "HI" on "t-hi-s" and "ORDER" on "re-order-ed", so almost every message hit
+// the first short keyword in the workspace. `\b` doesn't work for keywords
+// with leading/trailing non-word characters, so the boundaries are asserted
+// with lookarounds against the word-character class instead.
+export function keywordMatches(keyword, messageBody) {
+  const kw = String(keyword || '').trim();
+  if (!kw) return false;
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegex(kw)}(?![\\p{L}\\p{N}_])`, 'iu');
+  return pattern.test(String(messageBody || ''));
+}
+
 export async function findMatchingTrigger(workspaceId, messageBody) {
   const triggers = await prisma.automationTrigger.findMany({
     where: { workspaceId, isActive: true },
   });
-  const lowerBody = messageBody.toLowerCase();
-  return triggers.find((t) => lowerBody.includes(t.keyword.toLowerCase()));
+  // Longest keyword wins, then oldest — so "ORDER STATUS" beats "ORDER" and
+  // the winner is stable instead of depending on row order.
+  return triggers
+    .filter((t) => keywordMatches(t.keyword, messageBody))
+    .sort((a, b) => b.keyword.length - a.keyword.length || a.createdAt - b.createdAt)[0];
 }
+
+// The message bodies and working hours used to be hardcoded in
+// webhook.service.js while this endpoint exposed only the three on/off flags —
+// so the UI's "configure your greeting" and "set up your working hours" copy
+// had nothing behind it. All of it is editable now.
+const BASIC_AUTOMATION_FIELDS = {
+  autoOooEnabled: true,
+  autoWelcomeEnabled: true,
+  autoDelayedEnabled: true,
+  welcomeMessage: true,
+  oooMessage: true,
+  delayedMessage: true,
+  delayedAfterMinutes: true,
+  businessHours: true,
+};
 
 export async function getBasicAutomations(workspaceId) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: {
-      autoOooEnabled: true,
-      autoWelcomeEnabled: true,
-      autoDelayedEnabled: true,
-    },
+    select: BASIC_AUTOMATION_FIELDS,
   });
   if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
-  return ws;
+  return { ...ws, businessHours: ws.businessHours ?? DEFAULT_BUSINESS_HOURS, businessHoursEnabled: ws.businessHours !== null };
 }
 
 export async function updateBasicAutomations(workspaceId, updates) {
@@ -195,47 +226,44 @@ export async function updateBasicAutomations(workspaceId, updates) {
   if (updates.autoOooEnabled !== undefined) data.autoOooEnabled = updates.autoOooEnabled;
   if (updates.autoWelcomeEnabled !== undefined) data.autoWelcomeEnabled = updates.autoWelcomeEnabled;
   if (updates.autoDelayedEnabled !== undefined) data.autoDelayedEnabled = updates.autoDelayedEnabled;
-  
-  return prisma.workspace.update({
+  if (updates.welcomeMessage !== undefined) data.welcomeMessage = updates.welcomeMessage;
+  if (updates.oooMessage !== undefined) data.oooMessage = updates.oooMessage;
+  if (updates.delayedMessage !== undefined) data.delayedMessage = updates.delayedMessage;
+  if (updates.delayedAfterMinutes !== undefined) data.delayedAfterMinutes = updates.delayedAfterMinutes;
+  // Explicit null clears working hours → "always open", so OOO falls back to
+  // firing only on reopened conversations.
+  if (updates.businessHours !== undefined) data.businessHours = normalizeBusinessHours(updates.businessHours);
+
+  const ws = await prisma.workspace.update({
     where: { id: workspaceId },
     data,
-    select: {
-      autoOooEnabled: true,
-      autoWelcomeEnabled: true,
-      autoDelayedEnabled: true,
-    },
+    select: BASIC_AUTOMATION_FIELDS,
   });
+  return { ...ws, businessHours: ws.businessHours ?? DEFAULT_BUSINESS_HOURS, businessHoursEnabled: ws.businessHours !== null };
 }
 
 // Voice AI Settings
+const VOICE_FIELDS = {
+  voiceAiEnabled: true,
+  voiceAiName: true,
+  voiceAiPrompt: true,
+  // Where a call is transferred on human handoff.
+  voiceAiPhone: true,
+  // The number the AI receptionist actually answers on.
+  voiceAiInboundPhone: true,
+  voiceAiGreeting: true,
+};
+
 export async function getVoiceSettings(workspaceId) {
-  return prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: {
-      voiceAiEnabled: true,
-      voiceAiName: true,
-      voiceAiPrompt: true,
-      voiceAiPhone: true,
-    },
-  });
+  return prisma.workspace.findUnique({ where: { id: workspaceId }, select: VOICE_FIELDS });
 }
 
 export async function updateVoiceSettings(workspaceId, updates) {
   const allowed = {};
-  if (updates.voiceAiEnabled !== undefined) allowed.voiceAiEnabled = updates.voiceAiEnabled;
-  if (updates.voiceAiName !== undefined) allowed.voiceAiName = updates.voiceAiName;
-  if (updates.voiceAiPrompt !== undefined) allowed.voiceAiPrompt = updates.voiceAiPrompt;
-  if (updates.voiceAiPhone !== undefined) allowed.voiceAiPhone = updates.voiceAiPhone;
-  return prisma.workspace.update({
-    where: { id: workspaceId },
-    data: allowed,
-    select: {
-      voiceAiEnabled: true,
-      voiceAiName: true,
-      voiceAiPrompt: true,
-      voiceAiPhone: true,
-    },
-  });
+  for (const key of Object.keys(VOICE_FIELDS)) {
+    if (updates[key] !== undefined) allowed[key] = updates[key];
+  }
+  return prisma.workspace.update({ where: { id: workspaceId }, data: allowed, select: VOICE_FIELDS });
 }
 
 export async function generateWorkflowPreview(workspaceId, prompt) {

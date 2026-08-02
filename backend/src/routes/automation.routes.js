@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as automationController from '../controllers/automation.controller.js';
+import * as voiceController from '../controllers/voice.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { authorize } from '../middleware/authorize.js';
@@ -20,10 +21,11 @@ router.patch('/triggers/:id', authorize('CLIENT'), validate({ body: automationSc
 router.delete('/triggers/:id', authorize('CLIENT'), automationController.remove);
 
 router.get('/basic', automationController.getBasicAutomations);
-router.patch('/basic', authorize('CLIENT'), automationController.updateBasicAutomations);
+router.patch('/basic', authorize('CLIENT'), validate({ body: automationSchemas.updateBasic }), automationController.updateBasicAutomations);
 router.post('/workflows/ai-preview', authorize('CLIENT'), automationController.generateWorkflowPreview);
 router.get('/voice', automationController.getVoiceSettings);
 router.patch('/voice', authorize('CLIENT'), automationController.updateVoiceSettings);
+router.get('/voice/calls', voiceController.listCalls);
 
 
 export default router;

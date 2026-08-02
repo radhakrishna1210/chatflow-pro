@@ -1,15 +1,82 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch, apiFetch } from '../lib/api.js';
+import { apiFetch } from '../lib/api.js';
+import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
+const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Plus Jakarta Sans',sans-serif", boxSizing:'border-box' };
+const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
 
 const Toggle = ({ on, onToggle, disabled = false }) => (
   <div onClick={disabled ? undefined : onToggle} style={{ width:36, height:20, borderRadius:20, background: on ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, transition:'background .2s', position:'relative', border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`, flexShrink:0 }}>
     <div style={{ position:'absolute', top:2, left: on ? 17 : 2, width:14, height:14, borderRadius:'50%', background:'white', transition:'left .2s', boxShadow:'0 1px 3px rgba(0,0,0,0.4)' }} />
   </div>
+);
+
+const Banner = ({ tone = 'info', children }) => {
+  const palette = {
+    error: { bd:'rgba(239,68,68,.25)', bg:'rgba(239,68,68,.06)', fg:'#f87171' },
+    warn:  { bd:'rgba(245,158,11,.3)', bg:'rgba(245,158,11,.06)', fg:'#fbbf24' },
+    ok:    { bd:'var(--gbd)',          bg:'var(--gbg)',           fg:'var(--green)' },
+    info:  { bd:'var(--bd)',           bg:'rgba(255,255,255,0.03)', fg:'var(--t2)' },
+  }[tone];
+  return (
+    <div style={{ ...card, padding:'11px 15px', border:`1px solid ${palette.bd}`, background:palette.bg, display:'flex', alignItems:'center', gap:8 }}>
+      <I n="alertc" s={14} c={palette.fg} />
+      <span style={{ fontSize:12.5, color:palette.fg, lineHeight:1.5 }}>{children}</span>
+    </div>
+  );
+};
+
+// The FREE plan carries no automation features, so the entire tab 403s. The old
+// code swallowed that and rendered an empty, broken-looking screen; this says
+// what actually happened.
+const PlanLocked = ({ feature }) => (
+  <div style={{ ...card, padding:'40px 28px', display:'flex', flexDirection:'column', alignItems:'center', textAlign:'center', gap:14 }}>
+    <div style={{ width:56, height:56, borderRadius:14, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.25)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <I n="lock" s={26} c="#f59e0b" />
+    </div>
+    <div>
+      <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:17, fontWeight:700, color:'var(--t1)', marginBottom:6 }}>Not included in your plan</h3>
+      <p style={{ fontSize:13, color:'var(--t2)', maxWidth:420 }}>
+        {feature === 'workflows'
+          ? 'Workflows are available on the Pro plan and above.'
+          : 'Automation is available on the Starter plan and above.'}
+        {' '}Upgrade to turn this on.
+      </p>
+    </div>
+    <Btn onClick={() => { window.location.href = '/dashboard/settings?tab=billing'; }} style={{ boxShadow:'var(--glow)' }}>
+      View plans
+    </Btn>
+  </div>
+);
+
+const Loading = () => <div style={{ color:'var(--t2)', fontSize:13, padding:20 }}>Loading…</div>;
+
+const TabHeader = ({ icon, color, bg, title, subtitle, badge, children }) => (
+  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:16, flexWrap:'wrap' }}>
+    <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+      <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:bg, border:`1px solid ${color}44`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        <I n={icon} s={18} c={color} />
+      </div>
+      <div>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>{title}</h2>
+          {badge}
+        </div>
+        <p style={{ fontSize:'13px', color:'var(--t2)', marginTop:2 }}>{subtitle}</p>
+      </div>
+    </div>
+    {children}
+  </div>
+);
+
+const Pill = ({ children, tone = 'green' }) => (
+  <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background: tone === 'green' ? 'var(--gbg)' : 'rgba(245,158,11,0.1)', border:`1px solid ${tone === 'green' ? 'var(--gbd)' : 'rgba(245,158,11,0.3)'}`, color: tone === 'green' ? 'var(--green)' : '#f59e0b', textTransform:'uppercase', letterSpacing:'.05em' }}>
+    {children}
+  </span>
 );
 
 // ── SUB-TABS ──
@@ -25,70 +92,213 @@ const TABS = [
   { id: 'interactive', label: 'Smart Lists',             icon: 'users' },
 ];
 
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 // ─────────────────────────────────────────────
 // 1. BASIC AUTOMATIONS
 // ─────────────────────────────────────────────
 const BasicAutomationsTab = () => {
-  const [ooo,     setOoo]     = useState(false);
-  const [welcome, setWelcome] = useState(false);
-  const [delayed, setDelayed] = useState(false);
+  const [cfg, setCfg] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [locked, setLocked] = useState(null);
+  const [banner, setBanner] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
-    wFetch('/automation/basic')
-      .then(r => r.ok && r.json())
-      .then(d => {
-        if (d) {
-          setOoo(!!d.autoOooEnabled);
-          setWelcome(!!d.autoWelcomeEnabled);
-          setDelayed(!!d.autoDelayedEnabled);
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    wJson('/automation/basic').then(r => {
+      if (r.locked) setLocked(r.feature || 'automation');
+      else if (r.ok) setCfg(r.data);
+      else setBanner({ tone:'error', text:r.error });
+      setLoading(false);
+    });
   }, []);
 
-  const toggleSetting = async (setting, currentVal, setter) => {
-    const newVal = !currentVal;
-    setter(newVal);
-    await wFetch('/automation/basic', {
-      method: 'PATCH',
-      body: JSON.stringify({ [setting]: newVal })
-    }).catch(() => setter(currentVal));
+  // Every save goes through here so a rejected write always rolls the UI back
+  // and says why — the old toggles flipped green on a 403 and saved nothing.
+  const patch = async (updates, { optimistic = true } = {}) => {
+    const previous = cfg;
+    if (optimistic) setCfg(c => ({ ...c, ...updates }));
+    setSaving(true);
+    const r = await wJson('/automation/basic', { method:'PATCH', body: JSON.stringify(updates) });
+    setSaving(false);
+
+    if (!r.ok) {
+      setCfg(previous);
+      if (r.locked) setLocked(r.feature || 'automation');
+      else setBanner({ tone:'error', text:r.error });
+      return false;
+    }
+    setCfg(r.data);
+    setBanner({ tone:'ok', text:'Saved.' });
+    return true;
   };
 
-  if (loading) return <div style={{ color:'var(--t2)', fontSize:13, padding:20 }}>Loading...</div>;
+  if (loading) return <Loading />;
+  if (locked) return <PlanLocked feature={locked} />;
+  if (!cfg) return <Banner tone="error">{banner?.text || 'Could not load automations.'}</Banner>;
+
+  const blocks = [
+    {
+      key: 'ooo',
+      title: 'Out of Office Message',
+      desc: 'Replies automatically outside your working hours, and to anyone messaging a conversation you already closed.',
+      on: cfg.autoOooEnabled,
+      toggle: () => patch({ autoOooEnabled: !cfg.autoOooEnabled }),
+      messageField: 'oooMessage',
+    },
+    {
+      key: 'welcome',
+      title: 'Welcome Message',
+      desc: 'Greets customers the first time they message you, and returning customers who come back after 24 hours.',
+      on: cfg.autoWelcomeEnabled,
+      toggle: () => patch({ autoWelcomeEnabled: !cfg.autoWelcomeEnabled }),
+      messageField: 'welcomeMessage',
+    },
+    {
+      key: 'delayed',
+      title: 'Delayed Response Message',
+      desc: 'Sent when nobody has replied within your chosen window. Skipped automatically if your team answers in time.',
+      on: cfg.autoDelayedEnabled,
+      toggle: () => patch({ autoDelayedEnabled: !cfg.autoDelayedEnabled }),
+      messageField: 'delayedMessage',
+      extra: 'delay',
+    },
+  ];
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:'12px', marginBottom:'8px' }}>
-        <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(30,191,94,0.1)', border:'1px solid var(--gbd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <I n="play" s={18} c="var(--green)" />
-        </div>
-        <div>
-          <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>Basic Automations</h2>
-          <p style={{ fontSize:'13px', color:'var(--t2)' }}>Set up Welcome, OOO &amp; Delayed autoreplies.</p>
-        </div>
-      </div>
+      <TabHeader icon="play" color="var(--green)" bg="rgba(30,191,94,0.1)"
+        title="Basic Automations" subtitle="Welcome, out-of-office and delayed auto-replies" />
 
-      {[
-        { title:'Out of Office Message', desc:'Set up your working hours and Out of Office Message. Auto Reply gets triggered for new users and users whose conversation is marked closed.', on:ooo,     set:() => toggleSetting('autoOooEnabled',     ooo,     setOoo)     },
-        { title:'Welcome Message',        desc:'Configure Greeting message triggered when new customers reach out for the first time or existing customers reach out after 24 hours.',        on:welcome, set:() => toggleSetting('autoWelcomeEnabled', welcome, setWelcome) },
-        { title:'Delayed Response Message',desc:'Configure Auto Replies when you are delayed in responding. Setup your delay time and the message to be triggered.',                          on:delayed, set:() => toggleSetting('autoDelayedEnabled', delayed, setDelayed) },
-      ].map((b, i) => (
-        <div key={i} style={{ ...card, padding:'0', display:'flex', flexDirection:'column' }}>
-          <div style={{ padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-            <div style={{ flex:1, paddingRight:'24px' }}>
-              <h3 style={{ fontSize:'14px', fontWeight:600, color:'var(--t1)', marginBottom:'8px' }}>{b.title}</h3>
+      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
+
+      {blocks.map(b => (
+        <div key={b.key} style={{ ...card, padding:0 }}>
+          <div style={{ padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16 }}>
+            <div style={{ flex:1 }}>
+              <h3 style={{ fontSize:'14px', fontWeight:600, color:'var(--t1)', marginBottom:8 }}>{b.title}</h3>
               <p style={{ fontSize:'12px', color:'var(--t2)', lineHeight:1.5 }}>{b.desc}</p>
             </div>
-            <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'8px', flexShrink:0 }}>
               <span style={{ fontSize:'12px', fontWeight:600, color: b.on ? 'var(--green)' : 'var(--t3)' }}>{b.on ? 'Enabled' : 'Disabled'}</span>
-              <Toggle on={b.on} onToggle={b.set} />
+              <Toggle on={b.on} onToggle={b.toggle} disabled={saving} />
             </div>
+          </div>
+
+          <div style={{ borderTop:'1px solid var(--bd)', padding:'12px 20px' }}>
+            <button onClick={() => setExpanded(expanded === b.key ? null : b.key)}
+              style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--green)', fontSize:12, fontWeight:600, display:'flex', alignItems:'center', gap:6 }}>
+              <I n="pencil" s={11} c="var(--green)" /> {expanded === b.key ? 'Hide message' : 'Edit message'}
+            </button>
+
+            {expanded === b.key && (
+              <div style={{ marginTop:14, display:'flex', flexDirection:'column', gap:12 }}>
+                <div>
+                  <label style={labelStyle}>Message sent to the customer</label>
+                  <textarea rows={3} value={cfg[b.messageField] || ''}
+                    onChange={e => setCfg(c => ({ ...c, [b.messageField]: e.target.value }))}
+                    style={{ ...inputStyle, resize:'vertical' }} maxLength={1000} />
+                </div>
+                {b.extra === 'delay' && (
+                  <div style={{ maxWidth:220 }}>
+                    <label style={labelStyle}>Wait before sending</label>
+                    <select value={cfg.delayedAfterMinutes}
+                      onChange={e => setCfg(c => ({ ...c, delayedAfterMinutes: parseInt(e.target.value, 10) }))}
+                      style={inputStyle}>
+                      {[5, 10, 15, 30, 60, 120, 240].map(m => (
+                        <option key={m} value={m} style={{ background:'#07090F' }}>
+                          {m < 60 ? `${m} minutes` : `${m / 60} hour${m === 60 ? '' : 's'}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <Btn size="sm" disabled={saving}
+                    onClick={async () => {
+                      const err = validateMeaningfulText(cfg[b.messageField], 'Message');
+                      if (err) { setBanner({ tone:'error', text:err }); return; }
+                      const payload = { [b.messageField]: cfg[b.messageField] };
+                      if (b.extra === 'delay') payload.delayedAfterMinutes = cfg.delayedAfterMinutes;
+                      await patch(payload, { optimistic:false });
+                    }}>
+                    {saving ? 'Saving…' : 'Save message'}
+                  </Btn>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ))}
+
+      <WorkingHours cfg={cfg} patch={patch} saving={saving} />
+    </div>
+  );
+};
+
+// Drives the out-of-office automation: outside these hours, OOO replies fire.
+const WorkingHours = ({ cfg, patch, saving }) => {
+  const [hours, setHours] = useState(cfg.businessHours);
+  const [enabled, setEnabled] = useState(cfg.businessHoursEnabled);
+
+  useEffect(() => { setHours(cfg.businessHours); setEnabled(cfg.businessHoursEnabled); }, [cfg]);
+
+  const setDay = (day, patchDay) =>
+    setHours(h => ({ ...h, days: h.days.map(d => d.day === day ? { ...d, ...patchDay } : d) }));
+
+  return (
+    <div style={{ ...card, padding:0 }}>
+      <div style={{ padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16 }}>
+        <div style={{ flex:1 }}>
+          <h3 style={{ fontSize:'14px', fontWeight:600, color:'var(--t1)', marginBottom:8, display:'flex', alignItems:'center', gap:8 }}>
+            <I n="clock" s={14} c="var(--t2)" /> Working Hours
+          </h3>
+          <p style={{ fontSize:'12px', color:'var(--t2)', lineHeight:1.5 }}>
+            When this is off, your inbox is treated as always open and the out-of-office reply only fires on reopened conversations.
+          </p>
+        </div>
+        <Toggle on={enabled} disabled={saving}
+          onToggle={async () => {
+            const next = !enabled;
+            setEnabled(next);
+            // null clears working hours server-side → "always open".
+            const ok = await patch({ businessHours: next ? hours : null }, { optimistic:false });
+            if (!ok) setEnabled(!next);
+          }} />
+      </div>
+
+      {enabled && (
+        <div style={{ borderTop:'1px solid var(--bd)', padding:'16px 20px', display:'flex', flexDirection:'column', gap:12 }}>
+          <div style={{ maxWidth:280 }}>
+            <label style={labelStyle}>Timezone</label>
+            <input value={hours?.tz || ''} onChange={e => setHours(h => ({ ...h, tz: e.target.value }))}
+              placeholder="Asia/Kolkata" style={inputStyle} />
+          </div>
+
+          {(hours?.days || []).map(d => (
+            <div key={d.day} style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+              <div style={{ width:110, display:'flex', alignItems:'center', gap:8 }}>
+                <Toggle on={d.enabled} onToggle={() => setDay(d.day, { enabled: !d.enabled })} />
+                <span style={{ fontSize:12.5, color: d.enabled ? 'var(--t1)' : 'var(--t3)' }}>{DAY_NAMES[d.day]}</span>
+              </div>
+              <input type="time" value={d.start} disabled={!d.enabled}
+                onChange={e => setDay(d.day, { start: e.target.value })}
+                style={{ ...inputStyle, width:120, opacity: d.enabled ? 1 : .4 }} />
+              <span style={{ color:'var(--t3)', fontSize:12 }}>to</span>
+              <input type="time" value={d.end} disabled={!d.enabled}
+                onChange={e => setDay(d.day, { end: e.target.value })}
+                style={{ ...inputStyle, width:120, opacity: d.enabled ? 1 : .4 }} />
+            </div>
+          ))}
+
+          <div>
+            <Btn size="sm" disabled={saving} onClick={() => patch({ businessHours: hours }, { optimistic:false })}>
+              {saving ? 'Saving…' : 'Save working hours'}
+            </Btn>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -98,18 +308,23 @@ const BasicAutomationsTab = () => {
 // ─────────────────────────────────────────────
 const CustomAutoReplyTab = () => {
   const [triggers, setTriggers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [locked, setLocked] = useState(null);
   const [creating, setCreating] = useState(false);
   const [editing,  setEditing]  = useState(null);
   const [kw,   setKw]   = useState('');
   const [resp, setResp] = useState('');
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    wFetch('/automation/triggers')
-      .then(r => r.ok ? r.json() : [])
-      .then(d => { if (Array.isArray(d)) setTriggers(d); })
-      .catch(() => {});
+    wJson('/automation/triggers').then(r => {
+      if (r.locked) setLocked(r.feature || 'automation');
+      else if (r.ok && Array.isArray(r.data)) setTriggers(r.data);
+      setLoading(false);
+    });
   }, []);
 
   const openCreate = () => { setKw(''); setResp(''); setEditing(null); setError(''); setCreating(true); };
@@ -122,74 +337,74 @@ const CustomAutoReplyTab = () => {
     const respError = validateMeaningfulText(resp, 'Response message');
     if (respError) { setError(respError); return; }
     const normalized = kw.trim().toUpperCase();
-    const duplicate = triggers.some(t => t.keyword === normalized && t.id !== editing?.id);
-    if (duplicate) { setError('A trigger for this keyword already exists'); return; }
+    if (triggers.some(t => t.keyword === normalized && t.id !== editing?.id)) {
+      setError('A trigger for this keyword already exists');
+      return;
+    }
     setError('');
     setSaving(true);
-    try {
-      if (editing) {
-        const res = await wFetch(`/automation/triggers/${editing.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ keyword: normalized, responseTemplate: resp })
-        });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to update trigger'); }
-        const updated = await res.json();
-        setTriggers(p => p.map(t => t.id === editing.id ? updated : t));
-      } else {
-        const res = await wFetch('/automation/triggers', {
-          method: 'POST',
-          body: JSON.stringify({ keyword: normalized, responseTemplate: resp, isActive: true })
-        });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to create trigger'); }
-        const data = await res.json();
-        setTriggers(p => [data, ...p]);
-      }
-      cancel();
-    } catch (err) {
-      setError(err.message || 'Something went wrong');
-    } finally {
-      setSaving(false);
+
+    const r = editing
+      ? await wJson(`/automation/triggers/${editing.id}`, { method:'PATCH', body: JSON.stringify({ keyword: normalized, responseTemplate: resp }) })
+      : await wJson('/automation/triggers', { method:'POST', body: JSON.stringify({ keyword: normalized, responseTemplate: resp, isActive: true }) });
+    setSaving(false);
+
+    if (!r.ok) { setError(r.error); return; }
+    setTriggers(p => editing ? p.map(t => t.id === editing.id ? r.data : t) : [r.data, ...p]);
+    cancel();
+  };
+
+  // Deleting a trigger is irreversible, so it goes through a confirmation
+  // dialog rather than firing on the first click of a small icon button.
+  const del = async () => {
+    const target = confirmDelete;
+    if (!target || deleting) return;
+    setDeleting(true);
+    const r = await wJson(`/automation/triggers/${target.id}`, { method:'DELETE' });
+    setDeleting(false);
+    if (r.ok) {
+      setTriggers(p => p.filter(t => t.id !== target.id));
+      setConfirmDelete(null);
+    } else {
+      setError(r.error);
+      setConfirmDelete(null);
     }
   };
 
-  const del = async id => {
-    await wFetch(`/automation/triggers/${id}`, { method:'DELETE' }).catch(() => {});
-    setTriggers(p => p.filter(t => t.id !== id));
+  const toggleActive = async t => {
+    const next = !t.isActive;
+    setTriggers(p => p.map(x => x.id === t.id ? { ...x, isActive: next } : x));
+    const r = await wJson(`/automation/triggers/${t.id}`, { method:'PATCH', body: JSON.stringify({ isActive: next }) });
+    if (!r.ok) {
+      setTriggers(p => p.map(x => x.id === t.id ? t : x));
+      setError(r.error);
+    }
   };
 
-  const toggleActive = async t => {
-    const updated = { ...t, isActive: !t.isActive };
-    await wFetch(`/automation/triggers/${t.id}`, { method:'PATCH', body:JSON.stringify({ isActive:updated.isActive }) }).catch(() => {});
-    setTriggers(p => p.map(x => x.id === t.id ? updated : x));
-  };
+  if (loading) return <Loading />;
+  if (locked) return <PlanLocked feature={locked} />;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(30,191,94,0.1)', border:'1px solid var(--gbd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="msg" s={18} c="var(--green)" />
-          </div>
-          <div>
-            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>Custom Auto Reply</h2>
-            <p style={{ fontSize:'13px', color:'var(--t2)' }}>Keyword-based automatic replies for common questions</p>
-          </div>
-        </div>
+      <TabHeader icon="msg" color="var(--green)" bg="rgba(30,191,94,0.1)"
+        title="Custom Auto Reply" subtitle="Keyword-based automatic replies for common questions">
         <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Add Trigger</Btn>
-      </div>
+      </TabHeader>
+
+      <Banner>Keywords match whole words only — a trigger for “HI” no longer fires on “this”. When two keywords match, the longer one wins.</Banner>
 
       {creating && (
         <div style={{ ...card, padding:'20px', display:'flex', flexDirection:'column', gap:'12px' }}>
           <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Trigger' : 'New Trigger'}</p>
-          <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
-            <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Keyword</label>
+          <div style={{ maxWidth:220 }}>
+            <label style={labelStyle}>Keyword</label>
             <input value={kw} onChange={e => setKw(e.target.value.toUpperCase())} placeholder="e.g. STOP"
-              style={{ padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--green)', fontSize:13, fontFamily:'monospace', outline:'none', letterSpacing:'.05em', width:'200px' }} />
+              style={{ ...inputStyle, color:'var(--green)', fontFamily:'monospace', letterSpacing:'.05em' }} />
           </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
-            <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Auto-reply Message</label>
+          <div>
+            <label style={labelStyle}>Auto-reply Message</label>
             <textarea value={resp} onChange={e => setResp(e.target.value)} placeholder="Auto-reply message…" rows={3}
-              style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', resize:'vertical', boxSizing:'border-box' }} />
+              style={{ ...inputStyle, resize:'vertical' }} />
           </div>
           {error && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {error}</p>}
           <div style={{ display:'flex', gap:8 }}>
@@ -198,6 +413,8 @@ const CustomAutoReplyTab = () => {
           </div>
         </div>
       )}
+
+      {!creating && error && <Banner tone="error">{error}</Banner>}
 
       <div style={{ ...card, overflow:'hidden' }}>
         {triggers.length === 0 && (
@@ -209,565 +426,338 @@ const CustomAutoReplyTab = () => {
             <p style={{ flex:1, fontSize:13, color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.responseTemplate}</p>
             <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
               <Toggle on={t.isActive} onToggle={() => toggleActive(t)} />
-              <button onClick={() => openEdit(t)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <I n="pencil" s={12} c="var(--t2)" />
-              </button>
-              <button onClick={() => del(t.id)} style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <I n="trash" s={12} c="#f87171" />
-              </button>
+              <IconBtn icon="pencil" onClick={() => openEdit(t)} title="Edit trigger" />
+              <IconBtn icon="trash" danger onClick={() => setConfirmDelete(t)} title="Delete trigger" />
             </div>
           </div>
         ))}
+      </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete this trigger?"
+          message={<>The keyword <strong style={{ color:'var(--green)', fontFamily:'monospace' }}>{confirmDelete.keyword}</strong> will stop auto-replying to incoming messages. This can't be undone.</>}
+          confirmLabel={deleting ? 'Deleting…' : 'Delete Trigger'}
+          busy={deleting}
+          onConfirm={del}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+// Small modal used for irreversible actions. Confirms on Enter, cancels on
+// Escape, and blocks a second click while the request is in flight.
+const ConfirmDialog = ({ title, message, confirmLabel = 'Delete', busy = false, onConfirm, onCancel }) => {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onCancel?.();
+      if (e.key === 'Enter' && !busy) onConfirm?.();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [busy, onConfirm, onCancel]);
+
+  return (
+    <div onClick={onCancel} role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ ...card, width:'100%', maxWidth:420, padding:24, display:'flex', flexDirection:'column', gap:14 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ width:38, height:38, borderRadius:10, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <I n="alertt" s={17} c="#f87171" />
+          </div>
+          <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</p>
+        </div>
+        <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.55 }}>{message}</p>
+        <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+          <Btn variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Btn>
+          <Btn onClick={onConfirm} disabled={busy}
+            style={{ background:'#ef4444', color:'#fff', border:'1px solid #ef4444', opacity: busy ? 0.6 : 1 }}>
+            {confirmLabel}
+          </Btn>
+        </div>
       </div>
     </div>
   );
 };
 
-// ─── Workflows ───
+const IconBtn = ({ icon, onClick, danger = false, title }) => (
+  <button onClick={onClick} title={title} style={{ width:28, height:28, borderRadius:6, background: danger ? 'rgba(239,68,68,0.07)' : 'rgba(255,255,255,0.04)', border:`1px solid ${danger ? 'rgba(239,68,68,0.2)' : 'var(--bd)'}`, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+    <I n={icon} s={12} c={danger ? '#f87171' : 'var(--t2)'} />
+  </button>
+);
+
+// ─────────────────────────────────────────────
+// 3. WORKFLOWS
+// ─────────────────────────────────────────────
+const blankTrigger = () => ({ id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'ORDER' });
+
 const WorkflowsTab = () => {
   const [workflows, setWorkflows] = useState([]);
+  const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [locked, setLocked] = useState(null);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
   const [name, setName] = useState('');
-  const [steps, setSteps] = useState([
-    { id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'ORDER' }
-  ]);
+  const [steps, setSteps] = useState([blankTrigger()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [simulatingId, setSimulatingId] = useState(null);
-  const [simResult, setSimResult] = useState('');
+  const [simulating, setSimulating] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiPreview, setAiPreview] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSaving, setAiSaving] = useState(false);
   const [aiError, setAiError] = useState('');
-  const [aiGuided, setAiGuided] = useState(true);
 
-  const fetchWorkflows = async () => {
-    try {
-      const res = await wFetch('/workflows');
-      if (res.ok) {
-        const data = await res.json();
-        setWorkflows(Array.isArray(data) ? data : []);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchWorkflows();
+  const fetchWorkflows = useCallback(async () => {
+    const r = await wJson('/workflows');
+    if (r.locked) { setLocked(r.feature || 'workflows'); setLoading(false); return; }
+    if (r.ok) setWorkflows(Array.isArray(r.data) ? r.data : []);
+    else setError(r.error);
+    const runsRes = await wJson('/workflows/runs');
+    if (runsRes.ok && Array.isArray(runsRes.data)) setRuns(runsRes.data);
+    setLoading(false);
   }, []);
 
-  const openCreate = () => {
-    setName('');
-    setSteps([{ id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'ORDER' }]);
-    setEditing(null);
-    setError('');
-    setCreating(true);
-  };
+  useEffect(() => { fetchWorkflows(); }, [fetchWorkflows]);
 
-  const openAiCreate = () => {
-    setAiPrompt('');
-    setAiPreview(null);
-    setAiError('');
-    setAiGuided(true);
-    setAiOpen(true);
-  };
-
-  const closeAiCreate = (force = false) => {
-    if (!force && (aiLoading || aiSaving)) return;
-    setAiOpen(false);
-    setAiPrompt('');
-    setAiPreview(null);
-    setAiError('');
-  };
-
-  const openEdit = (w) => {
+  const openCreate = () => { setName(''); setSteps([blankTrigger()]); setEditing(null); setError(''); setCreating(true); };
+  const openEdit = w => {
     setName(w.name);
     const wSteps = Array.isArray(w.nodes) ? w.nodes : [];
-    setSteps(wSteps.length ? wSteps : [{ id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'ORDER' }]);
-    setEditing(w);
-    setError('');
-    setCreating(true);
+    setSteps(wSteps.length ? wSteps : [blankTrigger()]);
+    setEditing(w); setError(''); setCreating(true);
   };
+  const cancel = () => { setCreating(false); setEditing(null); setError(''); };
 
-  const cancel = () => {
-    setCreating(false);
-    setEditing(null);
-    setError('');
-  };
-
-  const addActionStep = () => {
-    setSteps(p => [
-      ...p,
-      { id: `step_${Date.now()}`, type: 'action', subtype: 'message', value: 'Hello, how can I help you today?' }
-    ]);
-  };
-
-  const updateStep = (id, fields) => {
-    setSteps(p => p.map(s => s.id === id ? { ...s, ...fields } : s));
-  };
-
-  const removeStep = (id) => {
-    setSteps(p => p.filter(s => s.id !== id));
-  };
+  const addActionStep = () => setSteps(p => [...p, { id:`step_${Date.now()}`, type:'action', subtype:'message', value:'Hello, how can I help you today?' }]);
+  const updateStep = (id, fields) => setSteps(p => p.map(s => s.id === id ? { ...s, ...fields } : s));
+  const removeStep = id => setSteps(p => p.filter(s => s.id !== id));
 
   const save = async () => {
     const nameError = validateMeaningfulText(name, 'Workflow name');
-    if (nameError) {
-      setError(nameError);
+    if (nameError) { setError(nameError); return; }
+    const trigger = steps.find(s => s.type === 'trigger');
+    if (trigger?.subtype === 'keyword' && !String(trigger.value || '').trim()) {
+      setError('Give the keyword trigger a word to match, or this workflow can never fire.');
+      return;
+    }
+    if (!steps.some(s => s.type === 'action')) {
+      setError('Add at least one action — a workflow with only a trigger does nothing.');
       return;
     }
     setError('');
     setSaving(true);
-    try {
-      const payload = {
-        name,
-        isActive: editing ? editing.isActive : true,
-        nodes: steps,
-        edges: []
-      };
 
-      if (editing) {
-        const res = await wFetch(`/workflows/${editing.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Failed to update workflow');
-      } else {
-        const res = await wFetch('/workflows', {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Failed to create workflow');
-      }
-      await fetchWorkflows();
-      cancel();
-    } catch (err) {
-      setError(err.message || 'Something went wrong');
-    } finally {
-      setSaving(false);
-    }
+    const payload = { name, isActive: editing ? editing.isActive : true, nodes: steps, edges: [] };
+    const r = editing
+      ? await wJson(`/workflows/${editing.id}`, { method:'PATCH', body: JSON.stringify(payload) })
+      : await wJson('/workflows', { method:'POST', body: JSON.stringify(payload) });
+    setSaving(false);
+
+    if (!r.ok) { setError(r.error); return; }
+    await fetchWorkflows();
+    cancel();
   };
 
-  const toggleActive = async (w) => {
-    const updated = { ...w, isActive: !w.isActive };
-    setWorkflows(p => p.map(x => x.id === w.id ? updated : x));
-    try {
-      await wFetch(`/workflows/${w.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isActive: updated.isActive })
-      });
-    } catch (err) {
-      setWorkflows(p => p.map(x => x.id === w.id ? w : x));
-    }
+  const toggleActive = async w => {
+    const next = !w.isActive;
+    setWorkflows(p => p.map(x => x.id === w.id ? { ...x, isActive: next } : x));
+    const r = await wJson(`/workflows/${w.id}`, { method:'PATCH', body: JSON.stringify({ isActive: next }) });
+    if (!r.ok) { setWorkflows(p => p.map(x => x.id === w.id ? w : x)); setError(r.error); }
   };
 
-  const del = async (id) => {
+  const del = async id => {
     if (!window.confirm('Delete this workflow?')) return;
-    try {
-      await wFetch(`/workflows/${id}`, { method: 'DELETE' });
-      await fetchWorkflows();
-    } catch (err) {
-      console.error(err);
-    }
+    const r = await wJson(`/workflows/${id}`, { method:'DELETE' });
+    if (r.ok) await fetchWorkflows();
+    else setError(r.error);
   };
 
-  const runSimulation = async (w) => {
-    setSimulatingId(w.id);
-    setSimResult('');
+  // The old button hardcoded sampleMessage:'Hi' while a new workflow defaults to
+  // the keyword ORDER — so the test always reported "would not run". It now
+  // defaults to the workflow's own keyword and is editable.
+  const openSim = w => {
+    const trigger = (w.nodes || []).find(n => n.type === 'trigger');
+    setSimulating({ id: w.id, sample: trigger?.subtype === 'keyword' ? (trigger.value || 'Hi') : 'Hi', result: null, busy: false });
+  };
+
+  const runSimulation = async () => {
+    setSimulating(s => ({ ...s, busy: true, result: null }));
     try {
-      // Uses apiFetch (not wFetch) because /ai/workflow/execute is mounted
-      // at the top-level /api/v1/ai, not under /workspaces/:id — but it still
-      // needs apiFetch's automatic 401-refresh-and-retry so this doesn't
-      // silently fail whenever the access token has expired.
       const res = await apiFetch('/api/v1/ai/workflow/execute', {
         method: 'POST',
-        body: JSON.stringify({ workflowId: w.id, sampleMessage: 'Hi' })
+        body: JSON.stringify({ workflowId: simulating.id, sampleMessage: simulating.sample }),
       });
-      if (res.ok) {
-        const d = await res.json();
-        if (d.ran) {
-          const actions = (d.trace || []).filter(t => t.step === 'action').length;
-          setSimResult(`Triggered — ${actions} action${actions === 1 ? '' : 's'} would run. ${d.note || ''}`);
-        } else {
-          setSimResult(`Would not run: ${d.reason || 'trigger did not match'}`);
-        }
-      } else {
-        const d = await res.json().catch(() => ({}));
-        setSimResult(d.error || 'Failed to run simulation');
-      }
-    } catch {
-      setSimResult('Failed to run simulation due to error');
-    } finally {
-      setTimeout(() => {
-        setSimulatingId(null);
-        setSimResult('');
-      }, 6000);
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setSimulating(s => ({ ...s, busy:false, result:{ error: d.error || 'Simulation failed' } })); return; }
+      setSimulating(s => ({ ...s, busy:false, result: d }));
+    } catch (err) {
+      setSimulating(s => ({ ...s, busy:false, result:{ error: err.message } }));
     }
   };
 
   const generateAiPreview = async () => {
-    const promptError = validateMeaningfulText(aiPrompt, 'Prompt');
-    if (promptError) {
-      setAiError('Describe the workflow you want AI to create.');
-      return;
-    }
-    setAiLoading(true);
-    setAiError('');
-    setAiPreview(null);
-    try {
-      const res = await wFetch('/automation/workflows/ai-preview', {
-        method: 'POST',
-        body: JSON.stringify({ prompt: aiPrompt })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to generate workflow preview');
-      setAiPreview(data);
-    } catch (err) {
-      setAiError(err.message || 'Failed to generate workflow preview');
-    } finally {
-      setAiLoading(false);
-    }
+    if (validateMeaningfulText(aiPrompt, 'Prompt')) { setAiError('Describe the workflow you want AI to create.'); return; }
+    setAiLoading(true); setAiError(''); setAiPreview(null);
+    const r = await wJson('/automation/workflows/ai-preview', { method:'POST', body: JSON.stringify({ prompt: aiPrompt }) });
+    setAiLoading(false);
+    if (!r.ok) { setAiError(r.error); return; }
+    setAiPreview(r.data);
   };
 
   const saveAiPreview = async () => {
-    if (!aiPreview?.name || !Array.isArray(aiPreview.nodes)) {
-      setAiError('Generate a workflow preview before saving.');
-      return;
-    }
-    setAiSaving(true);
-    setAiError('');
-    try {
-      const res = await wFetch('/workflows', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: aiPreview.name,
-          isActive: true,
-          nodes: aiPreview.nodes,
-          edges: aiPreview.edges || []
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to save workflow');
-      await fetchWorkflows();
-      closeAiCreate(true);
-    } catch (err) {
-      setAiError(err.message || 'Failed to save workflow');
-    } finally {
-      setAiSaving(false);
-    }
+    if (!aiPreview?.name || !Array.isArray(aiPreview.nodes)) { setAiError('Generate a workflow preview before saving.'); return; }
+    setAiSaving(true); setAiError('');
+    const r = await wJson('/workflows', {
+      method: 'POST',
+      body: JSON.stringify({ name: aiPreview.name, isActive: true, nodes: aiPreview.nodes, edges: aiPreview.edges || [] }),
+    });
+    setAiSaving(false);
+    if (!r.ok) { setAiError(r.error); return; }
+    await fetchWorkflows();
+    setAiOpen(false); setAiPrompt(''); setAiPreview(null);
   };
 
   const useAiPreviewInBuilder = () => {
     if (!aiPreview) return;
     setName(aiPreview.name || 'AI Generated Workflow');
-    setSteps(Array.isArray(aiPreview.nodes) && aiPreview.nodes.length ? aiPreview.nodes : [{ id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'HELP' }]);
-    setEditing(null);
-    setError('');
-    setCreating(true);
-    closeAiCreate(true);
+    setSteps(aiPreview.nodes?.length ? aiPreview.nodes : [blankTrigger()]);
+    setEditing(null); setError(''); setCreating(true);
+    setAiOpen(false); setAiPreview(null); setAiPrompt('');
   };
 
-  const updateAiPreview = (fields) => {
-    setAiPreview(p => p ? { ...p, ...fields } : p);
-  };
+  const updateAiStep = (id, fields) => setAiPreview(p => {
+    if (!p) return p;
+    return { ...p, nodes: (p.nodes || []).map(step => {
+      if (step.id !== id) return step;
+      const next = { ...step, ...fields };
+      if (fields.type === 'trigger' && step.type !== 'trigger') { next.subtype = 'keyword'; next.value = 'HELP'; }
+      if (fields.type === 'action' && step.type !== 'action') { next.subtype = 'message'; next.value = 'Thanks for reaching out. Our team will help you shortly.'; }
+      return next;
+    }) };
+  });
 
-  const updateAiPreviewStep = (id, fields) => {
-    setAiPreview(p => {
-      if (!p) return p;
-      const nodes = Array.isArray(p.nodes) ? p.nodes : [];
-      return {
-        ...p,
-        nodes: nodes.map(step => {
-          if (step.id !== id) return step;
-          const next = { ...step, ...fields };
-          if (fields.type === 'trigger' && step.type !== 'trigger') {
-            next.subtype = 'keyword';
-            next.value = 'HELP';
-          }
-          if (fields.type === 'action' && step.type !== 'action') {
-            next.subtype = 'message';
-            next.value = 'Thanks for reaching out. Our team will help you shortly.';
-          }
-          return next;
-        })
-      };
-    });
-  };
+  if (loading) return <Loading />;
+  if (locked) return <PlanLocked feature={locked} />;
 
-  const addAiPreviewAction = () => {
-    setAiPreview(p => {
-      if (!p) return p;
-      const nodes = Array.isArray(p.nodes) ? p.nodes : [];
-      return {
-        ...p,
-        nodes: [
-          ...nodes,
-          { id: `step_${Date.now()}`, type: 'action', subtype: 'message', value: 'Thanks for reaching out. Our team will help you shortly.' }
-        ]
-      };
-    });
-  };
-
-  const removeAiPreviewStep = (id) => {
-    setAiPreview(p => {
-      if (!p) return p;
-      const nodes = Array.isArray(p.nodes) ? p.nodes : [];
-      if (nodes.length <= 1) return p;
-      return { ...p, nodes: nodes.filter(step => step.id !== id) };
-    });
-  };
+  const runsFor = id => runs.filter(r => r.workflowId === id);
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="wflow" s={18} c="#f59e0b" />
-          </div>
-          <div>
-            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>Workflows</h2>
-            <p style={{ fontSize:'13px', color:'var(--t2)' }}>Build multi-step automation flows with triggers and actions</p>
-          </div>
-        </div>
+      <TabHeader icon="wflow" color="#f59e0b" bg="rgba(245,158,11,0.1)"
+        title="Workflows" subtitle="Multi-step automations that run on incoming messages">
         {!creating && !aiOpen && (
-          <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end' }}>
-            <Btn variant="outline" onClick={openAiCreate}>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
+            <Btn variant="outline" onClick={() => { setAiPrompt(''); setAiPreview(null); setAiError(''); setAiOpen(true); }}>
               <I n="spark" s={14} c="var(--green)" /> Create with AI
             </Btn>
-            <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}>
-              <I n="plus" s={14} c="#060A10" /> Create Workflow
-            </Btn>
+            <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Create Workflow</Btn>
           </div>
         )}
-      </div>
+      </TabHeader>
+
+      {error && <Banner tone="error">{error}</Banner>}
 
       {aiOpen && !creating && (
-        <div style={{
-            width:'100%', minHeight:0, overflow:'hidden', display:'flex', flexDirection:'column',
-            background:'linear-gradient(180deg,#080d18 0%,#070b13 100%)', border:'1px solid rgba(30,191,94,0.34)',
-            borderRadius:14, boxShadow:'0 0 0 1px rgba(30,191,94,0.08), 0 22px 80px rgba(0,0,0,0.52)'
-          }}>
-            <div style={{ padding:'28px 32px 18px', display:'flex', justifyContent:'space-between', gap:18 }}>
-              <div>
-                <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:21, fontWeight:800, color:'var(--t1)', marginBottom:8, letterSpacing:'-.02em' }}>Create Workflow with AI</h3>
-                <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.45 }}>Describe your business flow or automation logic below to build a ready-to-save workflow.</p>
-              </div>
-              <button onClick={() => closeAiCreate()} style={{ width:34, height:34, borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                <I n="x" s={13} c="var(--t2)" />
-              </button>
+        <div style={{ ...card, padding:0, overflow:'hidden' }}>
+          <div style={{ padding:'22px 24px 14px', display:'flex', justifyContent:'space-between', gap:16 }}>
+            <div>
+              <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:18, fontWeight:800, color:'var(--t1)', marginBottom:6 }}>Create Workflow with AI</h3>
+              <p style={{ fontSize:13, color:'var(--t2)' }}>Describe the automation in plain English and edit the result before saving.</p>
+            </div>
+            <IconBtn icon="x" onClick={() => { if (!aiLoading && !aiSaving) { setAiOpen(false); setAiPreview(null); } }} />
+          </div>
+
+          <div style={{ padding:'0 24px 18px', display:'flex', flexDirection:'column', gap:14 }}>
+            <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} rows={3}
+              placeholder="e.g. When someone asks about a refund, ask for their order ID, wait 5 minutes, then assign it to the support team."
+              style={{ ...inputStyle, resize:'vertical', fontSize:14 }} />
+
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {[
+                ['Refund support flow', 'When someone asks about refund, reply asking for order ID, wait 5 minutes, then assign to support team.'],
+                ['Abandoned cart follow-up', 'When a customer says cart or checkout, send a helpful checkout reminder and tag them as cart lead.'],
+                ['Demo booking workflow', 'When someone asks for a demo, ask for their preferred time and assign the lead to sales.'],
+              ].map(([label, prompt]) => (
+                <button key={label} onClick={() => setAiPrompt(prompt)}
+                  style={{ padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', cursor:'pointer', fontSize:12.5, fontWeight:600 }}>
+                  {label}
+                </button>
+              ))}
             </div>
 
-            <div style={{ padding:'0 32px 22px', display:'flex', flexDirection:'column', gap:18 }}>
-              <div style={{ minHeight:130, display:'flex', position:'relative', flexShrink:0 }}>
-                <textarea
-                  value={aiPrompt}
-                  onChange={e => setAiPrompt(e.target.value)}
-                  placeholder="Describe your ideal WhatsApp workflow or onboarding flow..."
-                  style={{ width:'100%', minHeight:130, padding:0, background:'transparent', border:'none', color:'var(--t1)', fontSize:17, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', resize:'vertical', boxSizing:'border-box', lineHeight:1.55 }}
-                />
-              </div>
+            {aiPreview?.provider === 'fallback' && (
+              <Banner tone="warn">No Gemini key on the server — this preview came from the built-in template generator.</Banner>
+            )}
+            {aiError && <Banner tone="error">{aiError}</Banner>}
 
-              <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
-                {[
-                  ['Refund support flow', 'When someone asks about refund, reply asking for order ID, wait 5 minutes, then assign to support team.'],
-                  ['Abandoned cart follow-up', 'When a customer says cart or checkout, send a helpful checkout reminder and tag them as cart lead.'],
-                  ['Demo booking workflow', 'When someone asks for a demo, ask for their preferred time and assign the lead to sales.'],
-                  ['Order tracking flow', 'When someone asks about order status, ask for order ID and assign to support team.'],
-                ].map(([label, prompt]) => (
-                  <button key={label} onClick={() => setAiPrompt(prompt)}
-                    style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
-                    {label}
-                  </button>
-                ))}
-                {aiPreview?.provider === 'fallback' && (
-                  <span style={{ fontSize:11, color:'#fbbf24', padding:'4px 8px', borderRadius:6, border:'1px solid rgba(245,158,11,0.24)', background:'rgba(245,158,11,0.08)' }}>
-                    Gemini key not configured, using local preview
-                  </span>
-                )}
-              </div>
-
-              {aiError && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>{aiError}</p>}
-
-              {aiPreview && (
-                <div style={{ border:'1px solid var(--bd)', borderRadius:10, background:'rgba(255,255,255,0.025)', overflow:'hidden' }}>
-                  <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
-                    <div style={{ flex:1, minWidth:220 }}>
-                      <p style={{ fontSize:11, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', fontWeight:700, marginBottom:4 }}>Preview</p>
-                      <input value={aiPreview.name || ''} onChange={e => updateAiPreview({ name: e.target.value })}
-                        style={{ width:'100%', maxWidth:420, padding:'8px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:14, fontWeight:700, outline:'none', boxSizing:'border-box' }} />
-                    </div>
-                    <span style={{ fontSize:11, color:'var(--t2)' }}>{Array.isArray(aiPreview.nodes) ? aiPreview.nodes.length : 0} steps</span>
-                  </div>
-
-                  <div style={{ padding:16, display:'flex', flexDirection:'column', gap:10 }}>
-                    {(aiPreview.nodes || []).map((step, idx) => (
-                      <div key={step.id || idx} style={{ display:'flex', gap:10, alignItems:'center', padding:'10px 12px', borderRadius:8, background:'rgba(255,255,255,0.025)', border:'1px solid var(--bd)', flexWrap:'wrap' }}>
-                        <span style={{ width:54, fontSize:11, color:'var(--t3)', fontWeight:700 }}>Step {idx + 1}</span>
-                        <select value={step.type} onChange={e => updateAiPreviewStep(step.id, { type: e.target.value })}
-                          style={{ padding:'7px 10px', borderRadius:7, background: step.type === 'trigger' ? 'rgba(245,158,11,0.1)' : 'rgba(30,191,94,0.1)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.22)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontSize:11, fontWeight:700, outline:'none', textTransform:'uppercase' }}>
-                          <option value="trigger" style={{ background:'#07090F' }}>Trigger</option>
-                          <option value="action" style={{ background:'#07090F' }}>Action</option>
-                        </select>
-                        <select value={step.subtype} onChange={e => updateAiPreviewStep(step.id, { subtype: e.target.value })}
-                          style={{ padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', minWidth:145 }}>
-                          {step.type === 'trigger' ? (
-                            <>
-                              <option value="keyword" style={{ background:'#07090F' }}>Keyword Match</option>
-                              <option value="welcome" style={{ background:'#07090F' }}>New Contact Welcome</option>
-                              <option value="missed" style={{ background:'#07090F' }}>Missed Inbound Call</option>
-                            </>
-                          ) : (
-                            <>
-                              <option value="message" style={{ background:'#07090F' }}>Send message</option>
-                              <option value="delay" style={{ background:'#07090F' }}>Wait / Delay</option>
-                              <option value="tag" style={{ background:'#07090F' }}>Add tag</option>
-                              <option value="agent" style={{ background:'#07090F' }}>Assign agent</option>
-                            </>
-                          )}
-                        </select>
-                        {step.subtype === 'delay' ? (
-                          <select value={step.value} onChange={e => updateAiPreviewStep(step.id, { value: e.target.value })}
-                            style={{ padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', minWidth:130 }}>
-                            <option value="Immediate" style={{ background:'#07090F' }}>Immediate</option>
-                            <option value="5 min" style={{ background:'#07090F' }}>5 Minutes</option>
-                            <option value="1 hour" style={{ background:'#07090F' }}>1 Hour</option>
-                            <option value="1 day" style={{ background:'#07090F' }}>1 Day</option>
-                          </select>
-                        ) : (
-                          <input value={step.value || ''} onChange={e => updateAiPreviewStep(step.id, { value: step.type === 'trigger' && step.subtype === 'keyword' ? e.target.value.toUpperCase() : e.target.value })}
-                            placeholder={step.type === 'trigger' ? 'e.g. HELP' : 'Step value...'}
-                            style={{ flex:1, minWidth:220, padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color: step.type === 'trigger' && step.subtype === 'keyword' ? 'var(--green)' : 'var(--t1)', fontSize:12, outline:'none', boxSizing:'border-box' }} />
-                        )}
-                        <button onClick={() => removeAiPreviewStep(step.id)} disabled={(aiPreview.nodes || []).length <= 1}
-                          style={{ padding:'7px 10px', borderRadius:7, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:(aiPreview.nodes || []).length <= 1 ? 'not-allowed' : 'pointer', fontSize:11, opacity:(aiPreview.nodes || []).length <= 1 ? 0.45 : 1 }}>
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                    <button onClick={addAiPreviewAction}
-                      style={{ alignSelf:'flex-start', padding:'8px 12px', borderRadius:8, background:'transparent', border:'1px solid var(--bd)', color:'var(--green)', cursor:'pointer', fontSize:12, fontWeight:700 }}>
-                      + Add action step
-                    </button>
-                  </div>
+            {aiPreview && (
+              <div style={{ border:'1px solid var(--bd)', borderRadius:10, background:'rgba(255,255,255,0.02)', overflow:'hidden' }}>
+                <div style={{ padding:'12px 14px', borderBottom:'1px solid var(--bd)' }}>
+                  <label style={labelStyle}>Workflow name</label>
+                  <input value={aiPreview.name || ''} onChange={e => setAiPreview(p => ({ ...p, name: e.target.value }))}
+                    style={{ ...inputStyle, maxWidth:420, fontWeight:700 }} />
                 </div>
-              )}
-            </div>
-
-            <div style={{ padding:'14px 32px', borderTop:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap', background:'rgba(255,255,255,0.015)' }}>
-              <label style={{ display:'flex', alignItems:'center', gap:9, color:'var(--green)', fontSize:13, fontWeight:700, cursor:'pointer' }}>
-                <input type="checkbox" checked={aiGuided} onChange={e => setAiGuided(e.target.checked)}
-                  style={{ width:16, height:16, accentColor:'var(--green)', cursor:'pointer' }} />
-                Guided Flow
-              </label>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
-                {aiPreview && <Btn variant="ghost" onClick={() => closeAiCreate()} disabled={aiLoading || aiSaving}>Cancel</Btn>}
-                {aiPreview && <Btn onClick={useAiPreviewInBuilder} disabled={aiLoading || aiSaving} style={{ boxShadow:'var(--glow)' }}>Edit Preview</Btn>}
-                {aiPreview && <Btn onClick={saveAiPreview} disabled={aiLoading || aiSaving} style={{ boxShadow:'var(--glow)' }}>
-                {aiSaving ? 'Saving...' : 'Save Workflow'}
-                </Btn>}
-                <Btn onClick={generateAiPreview} disabled={aiLoading || aiSaving} style={{ minWidth:90, justifyContent:'center', boxShadow:'var(--glow)' }}>
-                  {aiLoading ? 'Sending...' : aiPreview ? 'Send Again' : 'Send'}
-                </Btn>
+                <div style={{ padding:14, display:'flex', flexDirection:'column', gap:10 }}>
+                  {(aiPreview.nodes || []).map((step, idx) => (
+                    <StepRow key={step.id || idx} step={step} index={idx}
+                      onChange={fields => updateAiStep(step.id, fields)}
+                      onRemove={() => setAiPreview(p => (p.nodes || []).length <= 1 ? p : { ...p, nodes: p.nodes.filter(s => s.id !== step.id) })}
+                      canRemove={(aiPreview.nodes || []).length > 1} allowTypeChange />
+                  ))}
+                  <button onClick={() => setAiPreview(p => ({ ...p, nodes: [...(p.nodes || []), { id:`step_${Date.now()}`, type:'action', subtype:'message', value:'Thanks for reaching out.' }] }))}
+                    style={{ alignSelf:'flex-start', padding:'8px 12px', borderRadius:8, background:'transparent', border:'1px solid var(--bd)', color:'var(--green)', cursor:'pointer', fontSize:12, fontWeight:700 }}>
+                    + Add action step
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+          </div>
+
+          <div style={{ padding:'12px 24px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap' }}>
+            {aiPreview && <Btn variant="ghost" onClick={useAiPreviewInBuilder} disabled={aiLoading || aiSaving}>Edit in builder</Btn>}
+            {aiPreview && <Btn onClick={saveAiPreview} disabled={aiLoading || aiSaving} style={{ boxShadow:'var(--glow)' }}>{aiSaving ? 'Saving…' : 'Save Workflow'}</Btn>}
+            <Btn variant={aiPreview ? 'outline' : 'primary'} onClick={generateAiPreview} disabled={aiLoading || aiSaving}
+              style={aiPreview ? {} : { boxShadow:'var(--glow)' }}>
+              {aiLoading ? 'Generating…' : aiPreview ? 'Regenerate' : 'Generate'}
+            </Btn>
+          </div>
         </div>
       )}
 
       {creating && (
         <div style={{ ...card, padding:'24px', display:'flex', flexDirection:'column', gap:'20px' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <h3 style={{ fontSize:15, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>
-              {editing ? 'Edit Workflow' : 'Create New Workflow'}
-            </h3>
+            <h3 style={{ fontSize:15, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Workflow' : 'Create New Workflow'}</h3>
             <Btn variant="ghost" size="sm" onClick={cancel}>Cancel</Btn>
           </div>
 
-          {/* Workflow Name */}
-          <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
-            <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Workflow Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Inbound Support Flow"
-              style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', width:'100%', maxWidth:'400px', boxSizing:'border-box' }} />
+          <div style={{ maxWidth:400 }}>
+            <label style={labelStyle}>Workflow Name</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Inbound Support Flow" style={inputStyle} />
           </div>
 
-          {/* Steps list */}
           <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
-            <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Steps Configuration</label>
-            
+            <label style={labelStyle}>Steps</label>
             {steps.map((step, idx) => (
-              <div key={step.id} style={{ display:'flex', gap:10, alignItems:'center', background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', borderRadius:8, padding:14 }}>
-                <span style={{ fontSize:11, fontWeight:700, color:'var(--t3)', width:55 }}>Step {idx+1}</span>
-                
-                {step.type === 'trigger' ? (
-                  <>
-                    <span style={{ background:'rgba(245,158,11,0.1)', color:'#f59e0b', border:'1px solid rgba(245,158,11,0.2)', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600 }}>TRIGGER</span>
-                    <select value={step.subtype} onChange={e => updateStep(step.id, { subtype: e.target.value })}
-                      style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' }}>
-                      <option value="keyword" style={{ background:'#07090F' }}>Keyword Match</option>
-                      <option value="welcome" style={{ background:'#07090F' }}>New Contact Welcome</option>
-                      <option value="missed" style={{ background:'#07090F' }}>Missed Inbound Call</option>
-                    </select>
-                    {step.subtype === 'keyword' && (
-                      <input value={step.value} onChange={e => updateStep(step.id, { value: e.target.value.toUpperCase() })} placeholder="e.g. HELP"
-                        style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--green)', fontSize:12, fontFamily:'monospace', outline:'none', width:120 }} />
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <span style={{ background:'rgba(30,191,94,0.1)', color:'var(--green)', border:'1px solid var(--gbd)', padding:'2px 8px', borderRadius:6, fontSize:11, fontWeight:600 }}>ACTION</span>
-                    <select value={step.subtype} onChange={e => updateStep(step.id, { subtype: e.target.value })}
-                      style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' }}>
-                      <option value="message" style={{ background:'#07090F' }}>Send message reply</option>
-                      <option value="delay" style={{ background:'#07090F' }}>Wait / Delay</option>
-                      <option value="tag" style={{ background:'#07090F' }}>Add Customer Tag</option>
-                      <option value="agent" style={{ background:'#07090F' }}>Assign to Agent</option>
-                    </select>
-                    
-                    {step.subtype === 'message' && (
-                      <input value={step.value} onChange={e => updateStep(step.id, { value: e.target.value })} placeholder="Message text..."
-                        style={{ flex:1, padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' }} />
-                    )}
-                    {step.subtype === 'delay' && (
-                      <select value={step.value} onChange={e => updateStep(step.id, { value: e.target.value })}
-                        style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' }}>
-                        <option value="Immediate" style={{ background:'#07090F' }}>Immediate</option>
-                        <option value="5 min" style={{ background:'#07090F' }}>5 Minutes</option>
-                        <option value="1 hour" style={{ background:'#07090F' }}>1 Hour</option>
-                        <option value="1 day" style={{ background:'#07090F' }}>1 Day</option>
-                      </select>
-                    )}
-                    {(step.subtype === 'tag' || step.subtype === 'agent') && (
-                      <input value={step.value} onChange={e => updateStep(step.id, { value: e.target.value })} placeholder={step.subtype === 'tag' ? "e.g. VIP" : "e.g. John Doe"}
-                        style={{ padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', width:150 }} />
-                    )}
-                    
-                    <button onClick={() => removeStep(step.id)} style={{ padding:'4px 8px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:6, cursor:'pointer', color:'#f87171', fontSize:11 }}>
-                      Remove
-                    </button>
-                  </>
-                )}
-              </div>
+              <StepRow key={step.id} step={step} index={idx}
+                onChange={fields => updateStep(step.id, fields)}
+                onRemove={() => removeStep(step.id)}
+                canRemove={step.type === 'action'} />
             ))}
           </div>
 
-          <div style={{ display:'flex', gap:10 }}>
-            <Btn variant="outline" size="sm" onClick={addActionStep}>
-              <I n="plus" s={12} c="var(--t2)" /> Add Action Step
-            </Btn>
-          </div>
+          <div><Btn variant="outline" size="sm" onClick={addActionStep}><I n="plus" s={12} c="var(--t2)" /> Add Action Step</Btn></div>
 
           {error && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {error}</p>}
 
           <div style={{ display:'flex', gap:8, borderTop:'1px solid var(--bd)', paddingTop:16 }}>
-            <Btn onClick={save} disabled={saving} style={{ boxShadow:'var(--glow)' }}>
-              {saving ? 'Saving...' : editing ? 'Update Workflow' : 'Save Workflow'}
-            </Btn>
+            <Btn onClick={save} disabled={saving} style={{ boxShadow:'var(--glow)' }}>{saving ? 'Saving…' : editing ? 'Update Workflow' : 'Save Workflow'}</Btn>
             <Btn variant="ghost" onClick={cancel}>Cancel</Btn>
           </div>
         </div>
@@ -781,74 +771,192 @@ const WorkflowsTab = () => {
                 <I n="wflow" s={32} c="#f59e0b" />
               </div>
               <div>
-                <h3 style={{ fontSize:16, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>No Workflows Created Yet</h3>
-                <p style={{ fontSize:13, color:'var(--t2)', maxWidth:360, margin:'0 auto' }}>Design powerful multi-step automation flows with custom triggers, delays, and action sequences.</p>
+                <h3 style={{ fontSize:16, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>No Workflows Yet</h3>
+                <p style={{ fontSize:13, color:'var(--t2)', maxWidth:380, margin:'0 auto' }}>Build multi-step automations that reply, wait, tag contacts and hand off to an agent — all triggered by an incoming message.</p>
               </div>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-                <Btn onClick={openAiCreate} style={{ boxShadow:'var(--glow)' }}><I n="spark" s={14} c="#060A10" /> Create with AI</Btn>
+                <Btn onClick={() => setAiOpen(true)} style={{ boxShadow:'var(--glow)' }}><I n="spark" s={14} c="#060A10" /> Create with AI</Btn>
                 <Btn variant="outline" onClick={openCreate}>Create Your First Flow</Btn>
               </div>
             </div>
-          ) : (
-            workflows.map(w => (
-              <div key={w.id} style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <div style={{ display:'flex', gap:12, alignItems:'center' }}>
-                    <div style={{ width:32, height:32, borderRadius:8, background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      <I n="wflow" s={16} c="#f59e0b" />
-                    </div>
-                    <div>
-                      <h3 style={{ fontSize:15, fontWeight:600, color:'var(--t1)' }}>{w.name}</h3>
-                      <p style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>
-                        Steps: {Array.isArray(w.nodes) ? w.nodes.length : 0} | Updated {new Date(w.updatedAt || w.createdAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <Toggle on={w.isActive} onToggle={() => toggleActive(w)} />
-                    <button onClick={() => openEdit(w)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      <I n="pencil" s={12} c="var(--t2)" />
-                    </button>
-                    <button onClick={() => del(w.id)} style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      <I n="trash" s={12} c="#f87171" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Steps summary */}
-                <div style={{ display:'flex', flexWrap:'wrap', gap:6, alignItems:'center', background:'rgba(255,255,255,0.01)', border:'1px solid var(--bd)', borderRadius:8, padding:'10px 14px' }}>
-                  {Array.isArray(w.nodes) && w.nodes.map((step, idx) => (
-                    <div key={step.id} style={{ display:'flex', alignItems:'center', gap:6 }}>
-                      {idx > 0 && <I n="arrow" s={10} c="var(--t3)" />}
-                      <span style={{ fontSize:12, padding:'3px 8px', borderRadius:6, background: step.type === 'trigger' ? 'rgba(245,158,11,0.08)' : 'rgba(30,191,94,0.08)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:600 }}>
-                        {step.subtype === 'keyword' ? `Keyword: ${step.value}` : step.subtype === 'welcome' ? 'Welcome' : step.subtype === 'missed' ? 'Missed Call' : step.subtype === 'message' ? `Send: "${step.value}"` : step.subtype === 'delay' ? `Wait: ${step.value}` : step.subtype === 'tag' ? `Tag: ${step.value}` : `Assign: ${step.value}`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Simulation trigger */}
-                <div style={{ display:'flex', justifyContent:'flex-end', borderTop:'1px solid var(--bd)', paddingTop:12 }}>
-                  {simulatingId === w.id ? (
-                    <span style={{ fontSize:12, color: (simResult.includes('Failed') || simResult.includes('Would not run')) ? '#f87171' : 'var(--green)', fontWeight:600, display:'flex', alignItems:'center', gap:6 }}>
-                      {simResult ? <>{(simResult.includes('Failed') || simResult.includes('Would not run')) ? <I n="alertc" s={12} c="#f87171" /> : <I n="check" s={12} c="var(--green)" />} {simResult}</> : 'Running Simulation...'}
-                    </span>
-                  ) : (
-                    <button onClick={() => runSimulation(w)} style={{ background:'transparent', border:'none', cursor:'pointer', fontSize:12, color:'var(--green)', fontWeight:600, display:'flex', alignItems:'center', gap:6, padding:0 }}>
-                      <I n="play" s={12} c="var(--green)" /> Run AI Test Simulation
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
+          ) : workflows.map(w => (
+            <WorkflowCard key={w.id} workflow={w} runs={runsFor(w.id)}
+              onToggle={() => toggleActive(w)} onEdit={() => openEdit(w)} onDelete={() => del(w.id)}
+              onSimulate={() => openSim(w)}
+              sim={simulating?.id === w.id ? simulating : null}
+              onSimChange={sample => setSimulating(s => ({ ...s, sample }))}
+              onSimRun={runSimulation} onSimClose={() => setSimulating(null)} />
+          ))}
         </div>
       )}
     </div>
   );
 };
 
-// ─── AI Intent Matching ───
+const TRIGGER_SUBTYPES = [['keyword', 'Keyword Match'], ['welcome', 'New Contact Welcome'], ['missed', 'Missed Inbound Call']];
+const ACTION_SUBTYPES = [['message', 'Send message'], ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent']];
+
+const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange = false }) => {
+  const isTrigger = step.type === 'trigger';
+  const options = isTrigger ? TRIGGER_SUBTYPES : ACTION_SUBTYPES;
+  const selectStyle = { padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' };
+
+  return (
+    <div style={{ display:'flex', gap:10, alignItems:'center', padding:'10px 12px', borderRadius:8, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', flexWrap:'wrap' }}>
+      <span style={{ width:52, fontSize:11, fontWeight:700, color:'var(--t3)' }}>Step {index + 1}</span>
+
+      {allowTypeChange ? (
+        <select value={step.type} onChange={e => onChange({ type: e.target.value })}
+          style={{ ...selectStyle, background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(30,191,94,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', fontWeight:700, textTransform:'uppercase', fontSize:11 }}>
+          <option value="trigger" style={{ background:'#07090F' }}>Trigger</option>
+          <option value="action" style={{ background:'#07090F' }}>Action</option>
+        </select>
+      ) : (
+        <span style={{ background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(30,191,94,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', border:`1px solid ${isTrigger ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, padding:'3px 9px', borderRadius:6, fontSize:11, fontWeight:700 }}>
+          {isTrigger ? 'TRIGGER' : 'ACTION'}
+        </span>
+      )}
+
+      <select value={step.subtype} onChange={e => onChange({ subtype: e.target.value })} style={{ ...selectStyle, minWidth:150 }}>
+        {options.map(([v, label]) => <option key={v} value={v} style={{ background:'#07090F' }}>{label}</option>)}
+      </select>
+
+      {step.subtype === 'delay' ? (
+        <select value={step.value} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, minWidth:130 }}>
+          {['Immediate', '5 min', '1 hour', '1 day'].map(v => <option key={v} value={v} style={{ background:'#07090F' }}>{v}</option>)}
+        </select>
+      ) : (step.subtype === 'welcome' || step.subtype === 'missed') ? (
+        <span style={{ fontSize:12, color:'var(--t3)', flex:1 }}>No configuration needed</span>
+      ) : (
+        <input value={step.value || ''}
+          onChange={e => onChange({ value: isTrigger && step.subtype === 'keyword' ? e.target.value.toUpperCase() : e.target.value })}
+          placeholder={isTrigger ? 'e.g. HELP' : step.subtype === 'tag' ? 'e.g. VIP' : step.subtype === 'agent' ? "Agent name or email" : 'Message text…'}
+          style={{ ...selectStyle, flex:1, minWidth:200, color: isTrigger && step.subtype === 'keyword' ? 'var(--green)' : 'var(--t1)', fontFamily: isTrigger && step.subtype === 'keyword' ? 'monospace' : 'inherit' }} />
+      )}
+
+      {canRemove && (
+        <button onClick={onRemove} style={{ padding:'7px 10px', borderRadius:7, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Remove</button>
+      )}
+    </div>
+  );
+};
+
+const stepLabel = (step) => {
+  switch (step.subtype) {
+    case 'keyword': return `Keyword: ${step.value}`;
+    case 'welcome': return 'New contact';
+    case 'missed':  return 'Missed call';
+    case 'message': return `Send: "${step.value}"`;
+    case 'delay':   return `Wait: ${step.value}`;
+    case 'tag':     return `Tag: ${step.value}`;
+    case 'agent':   return `Assign: ${step.value}`;
+    default:        return step.subtype;
+  }
+};
+
+const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulate, sim, onSimChange, onSimRun, onSimClose }) => {
+  const [showRuns, setShowRuns] = useState(false);
+
+  return (
+    <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
+        <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+          <div style={{ width:32, height:32, borderRadius:8, background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <I n="wflow" s={16} c="#f59e0b" />
+          </div>
+          <div>
+            <h3 style={{ fontSize:15, fontWeight:600, color:'var(--t1)' }}>{w.name}</h3>
+            <p style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>
+              {Array.isArray(w.nodes) ? w.nodes.length : 0} steps · {runs.length} run{runs.length === 1 ? '' : 's'} · updated {new Date(w.updatedAt || w.createdAt).toLocaleDateString()}
+            </p>
+          </div>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <Toggle on={w.isActive} onToggle={onToggle} />
+          <IconBtn icon="pencil" onClick={onEdit} title="Edit" />
+          <IconBtn icon="trash" danger onClick={onDelete} title="Delete" />
+        </div>
+      </div>
+
+      <div style={{ display:'flex', flexWrap:'wrap', gap:6, alignItems:'center', background:'rgba(255,255,255,0.01)', border:'1px solid var(--bd)', borderRadius:8, padding:'10px 14px' }}>
+        {(Array.isArray(w.nodes) ? w.nodes : []).map((step, idx) => (
+          <div key={step.id || idx} style={{ display:'flex', alignItems:'center', gap:6 }}>
+            {idx > 0 && <I n="arrow" s={10} c="var(--t3)" />}
+            <span style={{ fontSize:12, padding:'3px 8px', borderRadius:6, background: step.type === 'trigger' ? 'rgba(245,158,11,0.08)' : 'rgba(30,191,94,0.08)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:600 }}>
+              {stepLabel(step)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {!w.isActive && <Banner tone="warn">This workflow is paused — it will not run on incoming messages.</Banner>}
+
+      <div style={{ borderTop:'1px solid var(--bd)', paddingTop:12, display:'flex', gap:16, flexWrap:'wrap' }}>
+        <button onClick={onSimulate} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'var(--green)', fontWeight:600, display:'flex', alignItems:'center', gap:6, padding:0 }}>
+          <I n="play" s={12} c="var(--green)" /> Test this workflow
+        </button>
+        <button onClick={() => setShowRuns(v => !v)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'var(--t2)', fontWeight:600, display:'flex', alignItems:'center', gap:6, padding:0 }}>
+          <I n="clock" s={12} c="var(--t2)" /> {showRuns ? 'Hide' : 'Show'} run history
+        </button>
+      </div>
+
+      {sim && (
+        <div style={{ border:'1px solid var(--bd)', borderRadius:8, padding:14, display:'flex', flexDirection:'column', gap:10, background:'rgba(255,255,255,0.02)' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span style={{ fontSize:12, fontWeight:700, color:'var(--t1)' }}>Test with a sample message</span>
+            <IconBtn icon="x" onClick={onSimClose} />
+          </div>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <input value={sim.sample} onChange={e => onSimChange(e.target.value)}
+              placeholder="Type what a customer would send…" style={{ ...inputStyle, flex:1, minWidth:220 }} />
+            <Btn size="sm" onClick={onSimRun} disabled={sim.busy}>{sim.busy ? 'Running…' : 'Run test'}</Btn>
+          </div>
+          <p style={{ fontSize:11, color:'var(--t3)', margin:0 }}>Simulation only — no messages are actually sent.</p>
+
+          {sim.result?.error && <Banner tone="error">{sim.result.error}</Banner>}
+          {sim.result && !sim.result.error && (
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              <span style={{ fontSize:12.5, fontWeight:700, color: sim.result.ran ? 'var(--green)' : '#f87171' }}>
+                {sim.result.ran ? 'Triggered' : `Would not run — ${sim.result.reason || 'trigger did not match'}`}
+              </span>
+              {(sim.result.trace || []).map((t, i) => (
+                <div key={i} style={{ fontSize:12, color:'var(--t2)', display:'flex', gap:8, paddingLeft:4 }}>
+                  <span style={{ color:'var(--t3)', minWidth:56 }}>{t.step}</span>
+                  <span style={{ flex:1 }}>{t.detail}</span>
+                  <span style={{ color: t.result === 'no match' || t.result === 'skipped' ? '#f87171' : 'var(--green)' }}>{t.result}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showRuns && (
+        <div style={{ border:'1px solid var(--bd)', borderRadius:8, overflow:'hidden' }}>
+          {runs.length === 0 ? (
+            <div style={{ padding:16, fontSize:12.5, color:'var(--t2)', textAlign:'center' }}>
+              No runs yet. This workflow fires when a customer sends a matching message.
+            </div>
+          ) : runs.slice(0, 8).map(run => (
+            <div key={run.id} style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+              <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20, color: run.status === 'COMPLETED' ? 'var(--green)' : run.status === 'FAILED' ? '#f87171' : '#fbbf24', background: run.status === 'COMPLETED' ? 'var(--gbg)' : run.status === 'FAILED' ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.08)' }}>
+                {run.status}
+              </span>
+              <span style={{ fontSize:12, color:'var(--t2)', flex:1, minWidth:160 }}>
+                {run.triggerMessage ? `“${run.triggerMessage}”` : '—'}
+              </span>
+              <span style={{ fontSize:11, color:'var(--t3)' }}>{new Date(run.startedAt).toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
+// 4. AI INTENT MATCHING
+// ─────────────────────────────────────────────
 const AIIntentMatchingTab = () => {
   const [enabled, setEnabled] = useState(false);
   const [threshold, setThreshold] = useState(0.6);
@@ -858,63 +966,49 @@ const AIIntentMatchingTab = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    wFetch('/ai-agent/config').then(r => r.ok ? r.json() : null).then(d => {
-      if (!d) return;
-      setEnabled(d.intentMatchingEnabled === true);
-      setThreshold(typeof d.intentMatchThreshold === 'number' ? d.intentMatchThreshold : 0.6);
-      setLlmAvailable(d.llmAvailable !== false);
-    }).catch(() => {});
-    wFetch('/automation/triggers').then(r => r.ok ? r.json() : []).then(d => setTriggerCount(Array.isArray(d) ? d.length : 0)).catch(() => {});
+    wJson('/ai-agent/config').then(r => {
+      if (!r.ok || !r.data) return;
+      setEnabled(r.data.intentMatchingEnabled === true);
+      setThreshold(typeof r.data.intentMatchThreshold === 'number' ? r.data.intentMatchThreshold : 0.6);
+      setLlmAvailable(r.data.llmAvailable !== false);
+    });
+    wJson('/automation/triggers').then(r => setTriggerCount(r.ok && Array.isArray(r.data) ? r.data.length : 0));
   }, []);
 
   const persist = async (next, nextThreshold) => {
     setSaving(true); setBanner(null);
-    try {
-      const res = await wFetch('/ai-agent/intent-matching', { method: 'PATCH', body: JSON.stringify({ enabled: next, threshold: nextThreshold }) });
-      const d = await res.json();
-      if (!res.ok) { setBanner({ error: d.error || 'Save failed' }); return; }
-      setEnabled(d.intentMatchingEnabled); setThreshold(d.intentMatchThreshold);
-      setBanner({ ok: d.intentMatchingEnabled ? 'Intent matching is ON — inbound messages will be fuzzy-routed to your keyword triggers.' : 'Intent matching is off.' });
-    } catch (e) { setBanner({ error: e.message }); }
-    finally { setSaving(false); }
+    const r = await wJson('/ai-agent/intent-matching', { method:'PATCH', body: JSON.stringify({ enabled: next, threshold: nextThreshold }) });
+    setSaving(false);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    setEnabled(r.data.intentMatchingEnabled);
+    setThreshold(r.data.intentMatchThreshold);
+    setBanner({ tone:'ok', text: r.data.intentMatchingEnabled
+      ? 'Intent matching is on — inbound messages are fuzzy-routed to your keyword triggers.'
+      : 'Intent matching is off.' });
   };
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(167,139,250,0.1)', border:'1px solid rgba(167,139,250,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="spark" s={18} c="#a78bfa" />
-          </div>
-          <div>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>AI Intent Matching</h2>
-              {enabled && <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)', textTransform:'uppercase', letterSpacing:'.05em' }}>On</span>}
-            </div>
-            <p style={{ fontSize:'13px', color:'var(--t2)', marginTop:2 }}>Route messages to the best keyword trigger — even without an exact match</p>
-          </div>
-        </div>
+      <TabHeader icon="spark" color="#a78bfa" bg="rgba(167,139,250,0.1)"
+        title="AI Intent Matching" subtitle="Route messages to the best keyword trigger, even without an exact match"
+        badge={enabled && <Pill>On</Pill>}>
         <Toggle on={enabled} onToggle={() => persist(!enabled, threshold)} disabled={saving} />
-      </div>
+      </TabHeader>
 
-      {banner && (
-        <div style={{ ...card, padding:'11px 15px', border:`1px solid ${banner.error ? 'rgba(239,68,68,.25)' : 'var(--gbd)'}`, background: banner.error ? 'rgba(239,68,68,.06)' : 'var(--gbg)' }}>
-          <span style={{ fontSize:12.5, color: banner.error ? '#f87171' : 'var(--green)' }}>{banner.error || banner.ok}</span>
-        </div>
-      )}
+      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 
       <div style={{ ...card, padding:'22px 24px', display:'flex', flexDirection:'column', gap:16 }}>
         <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.6 }}>
-          When someone writes "my package hasn't arrived" and you have a trigger for the keyword <em>shipping</em>, intent matching connects them —
-          {llmAvailable
-            ? ' using the server\u2019s AI model to understand the message, with a keyword-similarity fallback.'
-            : ' currently using keyword similarity only (set GEMINI_API_KEY on the server for full AI understanding).'}
+          When someone writes “my package hasn’t arrived” and you have a trigger for <em>shipping</em>, intent matching connects them —
+          {llmAvailable ? ' using the server’s AI model, with a keyword-similarity fallback.' : ' currently using keyword similarity only (set GEMINI_API_KEY on the server for full AI understanding).'}
         </p>
 
         <div>
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
             <label style={{ fontSize:12, fontWeight:600, color:'var(--t1)' }}>Match sensitivity</label>
-            <span style={{ fontSize:12, color:'var(--t2)' }}>{Math.round(threshold * 100)}% — {threshold >= 0.75 ? 'strict (fewer, safer matches)' : threshold >= 0.5 ? 'balanced' : 'loose (more matches, more risk)'}</span>
+            <span style={{ fontSize:12, color:'var(--t2)' }}>
+              {Math.round(threshold * 100)}% — {threshold >= 0.75 ? 'strict' : threshold >= 0.5 ? 'balanced' : 'loose'}
+            </span>
           </div>
           <input type="range" min="0.3" max="0.9" step="0.05" value={threshold}
             onChange={e => setThreshold(parseFloat(e.target.value))}
@@ -923,18 +1017,19 @@ const AIIntentMatchingTab = () => {
             style={{ width:'100%', accentColor:'var(--green)' }} />
         </div>
 
-        <div style={{ padding:'12px 16px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:12, color:'var(--t2)', display:'flex', alignItems:'center', gap:8 }}>
-          <I n="alertc" s={14} c="var(--t3)" />
+        <Banner>
           {triggerCount === null ? 'Checking your keyword triggers…'
             : triggerCount === 0 ? 'You have no keyword triggers yet — add some in Custom Auto Reply first; intent matching routes messages to them.'
-            : `Intent matching routes to your ${triggerCount} keyword trigger${triggerCount === 1 ? '' : 's'} from Custom Auto Reply. Exact matches always win; intent matching only handles the fuzzy cases.`}
-        </div>
+            : `Routes to your ${triggerCount} keyword trigger${triggerCount === 1 ? '' : 's'}. Exact matches always win.`}
+        </Banner>
       </div>
     </div>
   );
 };
 
-// ─── WhatsApp AI Agent ───
+// ─────────────────────────────────────────────
+// 5. WHATSAPP AI AGENT
+// ─────────────────────────────────────────────
 const WhatsAppAIAgentTab = () => {
   const [cfg, setCfg] = useState(null);
   const [name, setName] = useState('');
@@ -947,116 +1042,79 @@ const WhatsAppAIAgentTab = () => {
   const [testing, setTesting] = useState(false);
   const [banner, setBanner] = useState(null);
 
-  const load = () => wFetch('/ai-agent/config').then(r => r.ok ? r.json() : null).then(d => {
-    if (!d) return;
-    setCfg(d); setName(d.aiAgentName || ''); setSystemPrompt(d.aiAgentPrompt || ''); setKnowledge(d.aiAgentKnowledge || '');
-  }).catch(() => {});
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => wJson('/ai-agent/config').then(r => {
+    if (!r.ok || !r.data) return;
+    setCfg(r.data);
+    setName(r.data.aiAgentName || '');
+    setSystemPrompt(r.data.aiAgentPrompt || '');
+    setKnowledge(r.data.aiAgentKnowledge || '');
+  }), []);
+  useEffect(() => { load(); }, [load]);
 
-  const validateAgentFields = () => {
-    if (name.trim()) {
-      const e = validateMeaningfulText(name, 'Agent name');
-      if (e) return e;
-    }
-    if (systemPrompt.trim()) {
-      const e = validateMeaningfulText(systemPrompt, 'System prompt');
-      if (e) return e;
-    }
+  const validateFields = () => {
+    if (name.trim()) { const e = validateMeaningfulText(name, 'Agent name'); if (e) return e; }
+    if (systemPrompt.trim()) { const e = validateMeaningfulText(systemPrompt, 'System prompt'); if (e) return e; }
     return null;
   };
 
   const save = async () => {
-    const fieldError = validateAgentFields();
-    if (fieldError) { setBanner({ error: fieldError }); return; }
+    const fieldError = validateFields();
+    if (fieldError) { setBanner({ tone:'error', text:fieldError }); return; }
     setSaving(true); setBanner(null);
-    try {
-      const res = await wFetch('/ai-agent/config', { method: 'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
-      const d = await res.json();
-      if (!res.ok) { setBanner({ error: d.error || 'Save failed' }); return; }
-      setBanner({ ok: 'Configuration saved.' });
-      load();
-    } catch (e) { setBanner({ error: e.message }); }
-    finally { setSaving(false); }
+    const r = await wJson('/ai-agent/config', { method:'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
+    setSaving(false);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    setBanner({ tone:'ok', text:'Configuration saved.' });
+    load();
   };
 
   const deploy = async () => {
-    const fieldError = validateAgentFields();
-    if (fieldError) { setBanner({ error: fieldError }); return; }
+    const fieldError = validateFields();
+    if (fieldError) { setBanner({ tone:'error', text:fieldError }); return; }
     setDeploying(true); setBanner(null);
-    try {
-      await wFetch('/ai-agent/config', { method: 'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
-      const res = await wFetch(cfg?.aiAgentEnabled ? '/ai-agent/undeploy' : '/ai-agent/deploy', { method: 'POST' });
-      const d = await res.json();
-      if (!res.ok) { setBanner({ error: d.error || 'Deploy failed' }); return; }
-      setBanner({ ok: d.aiAgentEnabled ? 'Agent deployed — it now answers inbound messages when no automation rule matches.' : 'Agent undeployed.' });
-      load();
-    } catch (e) { setBanner({ error: e.message }); }
-    finally { setDeploying(false); }
+    await wJson('/ai-agent/config', { method:'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
+    const r = await wJson(cfg?.aiAgentEnabled ? '/ai-agent/undeploy' : '/ai-agent/deploy', { method:'POST' });
+    setDeploying(false);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    setBanner({ tone:'ok', text: r.data.aiAgentEnabled ? 'Agent deployed — it now answers inbound messages when no automation rule matches.' : 'Agent undeployed.' });
+    load();
   };
 
   const runTest = async () => {
     if (!testMsg.trim()) return;
     setTesting(true); setTestReply(null);
-    try {
-      const res = await wFetch('/ai-agent/test', { method: 'POST', body: JSON.stringify({ message: testMsg }) });
-      const d = await res.json();
-      setTestReply(d.ok ? { ok: d.reply } : { error: d.reason || d.error || 'Test failed' });
-    } catch (e) { setTestReply({ error: e.message }); }
-    finally { setTesting(false); }
+    const r = await wJson('/ai-agent/test', { method:'POST', body: JSON.stringify({ message: testMsg }) });
+    setTesting(false);
+    setTestReply(r.ok && r.data?.ok ? { ok: r.data.reply } : { error: r.data?.reason || r.error || 'Test failed' });
   };
 
   const deployed = cfg?.aiAgentEnabled === true;
   const llmMissing = cfg && cfg.llmAvailable === false;
-  const inputStyle = { width: '100%', padding: '10px 13px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif" };
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(56,189,248,0.1)', border:'1px solid rgba(56,189,248,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="bot" s={18} c="#38bdf8" />
-          </div>
-          <div>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>WhatsApp AI Agent</h2>
-              {deployed && <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)', textTransform:'uppercase', letterSpacing:'.05em' }}>Live</span>}
-            </div>
-            <p style={{ fontSize:'13px', color:'var(--t2)', marginTop:2 }}>Answers inbound messages when no automation rule matches</p>
-          </div>
-        </div>
+      <TabHeader icon="bot" color="#38bdf8" bg="rgba(56,189,248,0.1)"
+        title="WhatsApp AI Agent" subtitle="Answers inbound messages when no automation rule matches"
+        badge={deployed && <Pill>Live</Pill>}>
         <Btn onClick={deploy} disabled={deploying || llmMissing}
           style={deployed ? { background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', boxShadow:'none' } : { boxShadow:'var(--glow)' }}>
           {deploying ? 'Working…' : deployed ? 'Undeploy Agent' : <><I n="play" s={14} c="#060913"/> Deploy Agent</>}
         </Btn>
-      </div>
+      </TabHeader>
 
-      {llmMissing && (
-        <div style={{ ...card, padding:'12px 16px', border:'1px solid rgba(245,158,11,0.3)', background:'rgba(245,158,11,0.06)', display:'flex', alignItems:'center', gap:8 }}>
-          <I n="alertc" s={14} c="#fbbf24" />
-          <span style={{ fontSize:12.5, color:'#fbbf24' }}>No LLM provider is configured on the server. Set <code>GEMINI_API_KEY</code> in the backend environment to enable deployment and live testing.</span>
-        </div>
-      )}
-      {banner && (
-        <div style={{ ...card, padding:'11px 15px', border:`1px solid ${banner.error ? 'rgba(239,68,68,.25)' : 'var(--gbd)'}`, background: banner.error ? 'rgba(239,68,68,.06)' : 'var(--gbg)' }}>
-          <span style={{ fontSize:12.5, color: banner.error ? '#f87171' : 'var(--green)' }}>{banner.error || banner.ok}</span>
-        </div>
-      )}
+      {llmMissing && <Banner tone="warn">No LLM provider is configured on the server. Set <code>GEMINI_API_KEY</code> in the backend environment to enable deployment and live testing.</Banner>}
+      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))', gap:16 }}>
         <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
           <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, color:'var(--t1)' }}>Configuration</h3>
-          <div>
-            <label style={{ display:'block', fontSize:11.5, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Agent name</label>
-            <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} maxLength={80} />
-          </div>
-          <div>
-            <label style={{ display:'block', fontSize:11.5, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>System prompt (personality + rules)</label>
-            <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4} style={{ ...inputStyle, resize:'vertical' }} maxLength={4000} />
-          </div>
-          <div>
-            <label style={{ display:'block', fontSize:11.5, fontWeight:600, color:'var(--t2)', marginBottom:6 }}>Knowledge base (FAQs, hours, policies — the agent only answers from this)</label>
-            <textarea value={knowledge} onChange={e => setKnowledge(e.target.value)} rows={6} style={{ ...inputStyle, resize:'vertical' }} maxLength={12000} placeholder={"Business hours: Mon-Sat 9am-7pm IST\nReturns: within 7 days with receipt\nShipping: 2-4 business days across India"} />
-          </div>
+          <div><label style={labelStyle}>Agent name</label>
+            <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} maxLength={80} /></div>
+          <div><label style={labelStyle}>System prompt</label>
+            <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4} style={{ ...inputStyle, resize:'vertical' }} maxLength={4000} /></div>
+          <div><label style={labelStyle}>Knowledge base</label>
+            <textarea value={knowledge} onChange={e => setKnowledge(e.target.value)} rows={6} style={{ ...inputStyle, resize:'vertical' }} maxLength={12000}
+              placeholder={"Business hours: Mon-Sat 9am-7pm IST\nReturns: within 7 days with receipt\nShipping: 2-4 business days"} /></div>
           <div style={{ display:'flex', justifyContent:'flex-end' }}>
             <Btn variant="outline" size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Config'}</Btn>
           </div>
@@ -1074,12 +1132,12 @@ const WhatsAppAIAgentTab = () => {
               {testReply.error
                 ? <span style={{ fontSize:12.5, color:'#f87171' }}>{testReply.error}</span>
                 : <div style={{ background:'#fff', borderRadius:'0 8px 8px 8px', padding:'9px 12px', display:'inline-block', maxWidth:'92%' }}>
-                    <p style={{ fontSize:12.5, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', margin:0, fontFamily:'system-ui,sans-serif' }}>{testReply.ok}</p>
+                    <p style={{ fontSize:12.5, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', margin:0 }}>{testReply.ok}</p>
                   </div>}
             </div>
           )}
-          <div style={{ marginTop:'auto', padding:'10px 14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:11.5, color:'var(--t3)', lineHeight:1.5 }}>
-            Reply order on inbound messages: exact keyword trigger → AI intent match → welcome/out-of-office → <strong style={{ color:'var(--t2)' }}>this agent</strong> (only when deployed).
+          <div style={{ marginTop:'auto', padding:'10px 14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:11.5, color:'var(--t3)', lineHeight:1.6 }}>
+            Reply order on inbound messages: form in progress → workflow → keyword trigger → AI intent match → welcome/out-of-office → <strong style={{ color:'var(--t2)' }}>this agent</strong>.
           </div>
         </div>
       </div>
@@ -1087,123 +1145,251 @@ const WhatsAppAIAgentTab = () => {
   );
 };
 
-// ─── Instagram Quickflows ───
+// ─────────────────────────────────────────────
+// 6. INSTAGRAM QUICKFLOWS
+// ─────────────────────────────────────────────
+const IG_SOURCES = [['dm', 'Direct Message'], ['comment', 'Post Comment'], ['story_reply', 'Story Reply']];
+
 const InstagramQuickflowsTab = () => {
-  const handleConnect = () => {
-    const clientId = '1483504773159594';
-    const redirectUri = encodeURIComponent(`${window.location.origin}/api/v1/auth/instagram/callback`);
-    const scopes = 'instagram_basic,instagram_manage_messages,instagram_manage_comments,pages_show_list';
-    window.location.href = `https://api.instagram.com/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=${scopes}&response_type=code`;
+  const [conn, setConn] = useState(null);
+  const [flows, setFlows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [locked, setLocked] = useState(null);
+  const [banner, setBanner] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    const c = await wJson('/instagram/connection');
+    if (c.locked) { setLocked(c.feature || 'automation'); setLoading(false); return; }
+    if (c.ok) setConn(c.data);
+    const f = await wJson('/instagram/flows');
+    if (f.ok && Array.isArray(f.data)) setFlows(f.data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    load();
+    // The OAuth callback redirects back here with a result in the query string.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('instagram') === 'connected') setBanner({ tone:'ok', text:'Instagram account connected.' });
+    const err = params.get('instagram_error');
+    if (err) setBanner({ tone:'error', text:`Instagram connection failed: ${err.replace(/_/g, ' ')}.` });
+  }, [load]);
+
+  const connect = async () => {
+    const r = await wJson('/instagram/auth-url', { method:'POST' });
+    if (!r.ok) { setBanner({ tone: r.data?.code === 'INSTAGRAM_NOT_CONFIGURED' ? 'warn' : 'error', text:r.error }); return; }
+    window.location.href = r.data.url;
   };
+
+  const disconnect = async () => {
+    if (!window.confirm('Disconnect this Instagram account? Your flows are kept but will stop running.')) return;
+    const r = await wJson('/instagram/connection', { method:'DELETE' });
+    if (r.ok) { setBanner({ tone:'ok', text:'Instagram disconnected.' }); load(); }
+    else setBanner({ tone:'error', text:r.error });
+  };
+
+  const openCreate = () => { setEditing(null); setForm({ name:'', source:'dm', keyword:'', responseTemplate:'', alsoSendDm:false }); };
+  const openEdit = f => { setEditing(f); setForm({ ...f }); };
+
+  const save = async () => {
+    const nameError = validateMeaningfulText(form.name, 'Flow name');
+    if (nameError) { setBanner({ tone:'error', text:nameError }); return; }
+    const respError = validateMeaningfulText(form.responseTemplate, 'Reply message');
+    if (respError) { setBanner({ tone:'error', text:respError }); return; }
+    setSaving(true);
+    const payload = {
+      name: form.name, source: form.source, keyword: form.keyword || '',
+      responseTemplate: form.responseTemplate, alsoSendDm: !!form.alsoSendDm,
+    };
+    const r = editing
+      ? await wJson(`/instagram/flows/${editing.id}`, { method:'PATCH', body: JSON.stringify(payload) })
+      : await wJson('/instagram/flows', { method:'POST', body: JSON.stringify(payload) });
+    setSaving(false);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    setForm(null); setEditing(null); setBanner(null);
+    load();
+  };
+
+  const toggle = async f => {
+    const next = !f.isActive;
+    setFlows(p => p.map(x => x.id === f.id ? { ...x, isActive: next } : x));
+    const r = await wJson(`/instagram/flows/${f.id}`, { method:'PATCH', body: JSON.stringify({ isActive: next }) });
+    if (!r.ok) { setFlows(p => p.map(x => x.id === f.id ? f : x)); setBanner({ tone:'error', text:r.error }); }
+  };
+
+  const del = async id => {
+    if (!window.confirm('Delete this flow?')) return;
+    const r = await wJson(`/instagram/flows/${id}`, { method:'DELETE' });
+    if (r.ok) load(); else setBanner({ tone:'error', text:r.error });
+  };
+
+  if (loading) return <Loading />;
+  if (locked) return <PlanLocked feature={locked} />;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="insta" s={18} c="#fff" />
+      <TabHeader icon="insta" color="#dc2743" bg="linear-gradient(45deg,#f09433,#dc2743,#bc1888)"
+        title="Instagram Quickflows" subtitle="Auto-reply to Instagram DMs, comments and story replies"
+        badge={conn?.connected && <Pill>Connected</Pill>}>
+        {conn?.connected && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060913"/> New IG Flow</Btn>}
+      </TabHeader>
+
+      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
+
+      {!conn?.configured && (
+        <Banner tone="warn">
+          Instagram isn’t configured on this server yet. Set <code>INSTAGRAM_APP_ID</code> and <code>INSTAGRAM_APP_SECRET</code> in the backend environment, then point the Meta webhook at <code>/api/v1/webhook/instagram</code>.
+        </Banner>
+      )}
+
+      {!conn?.connected ? (
+        <div style={{ ...card, padding:'40px 24px', textAlign:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:16 }}>
+          <div style={{ width:64, height:64, borderRadius:16, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <I n="insta" s={32} c="var(--t3)" />
           </div>
           <div>
-            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>Instagram Quickflows</h2>
-            <p style={{ fontSize:'13px', color:'var(--t2)' }}>Automate your Instagram DMs &amp; Comments</p>
+            <h3 style={{ fontSize:16, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>Connect your Instagram account</h3>
+            <p style={{ fontSize:13, color:'var(--t2)', maxWidth:420, margin:'0 auto' }}>
+              Once connected, you can auto-reply to DMs, comments on your posts and story replies.
+            </p>
           </div>
+          <Btn onClick={connect} disabled={!conn?.configured} style={{ boxShadow:'var(--glow)' }}>Connect Instagram Account</Btn>
         </div>
-        <Btn style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060913"/> New IG Flow</Btn>
-      </div>
-      <div style={{ ...card, padding:'40px 20px', textAlign:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:'16px' }}>
-        <div style={{ width:'64px', height:'64px', borderRadius:'16px', background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <I n="insta" s={32} c="var(--t3)" />
-        </div>
-        <div>
-          <h3 style={{ fontSize:'16px', fontWeight:600, color:'var(--t1)', marginBottom:'8px' }}>No Instagram Flows Yet</h3>
-          <p style={{ fontSize:'13px', color:'var(--t2)', maxWidth:'400px', margin:'0 auto' }}>Create automated replies for story mentions, comments on posts, or direct messages to boost your engagement.</p>
-        </div>
-        <Btn variant="outline" onClick={handleConnect}>Connect Instagram Account</Btn>
-      </div>
+      ) : (
+        <>
+          <div style={{ ...card, padding:'14px 18px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <I n="insta" s={16} c="#dc2743" />
+              <div>
+                <p style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{conn.username ? `@${conn.username}` : 'Instagram account'}</p>
+                <p style={{ fontSize:11, color:'var(--t3)' }}>Connected {new Date(conn.connectedAt).toLocaleDateString()}</p>
+              </div>
+            </div>
+            <Btn variant="outline" size="sm" onClick={disconnect} style={{ borderColor:'#f8717133', color:'#f87171' }}>Disconnect</Btn>
+          </div>
+
+          {form && (
+            <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:12 }}>
+              <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Flow' : 'New Instagram Flow'}</p>
+              <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+                <div style={{ flex:1, minWidth:200 }}>
+                  <label style={labelStyle}>Flow name</label>
+                  <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Price enquiries" style={inputStyle} />
+                </div>
+                <div style={{ minWidth:180 }}>
+                  <label style={labelStyle}>Trigger on</label>
+                  <select value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} style={inputStyle}>
+                    {IG_SOURCES.map(([v, l]) => <option key={v} value={v} style={{ background:'#07090F' }}>{l}</option>)}
+                  </select>
+                </div>
+                <div style={{ minWidth:160 }}>
+                  <label style={labelStyle}>Keyword (optional)</label>
+                  <input value={form.keyword} onChange={e => setForm(f => ({ ...f, keyword: e.target.value.toUpperCase() }))}
+                    placeholder="Blank = all" style={{ ...inputStyle, fontFamily:'monospace', color:'var(--green)' }} />
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>Reply message</label>
+                <textarea value={form.responseTemplate} onChange={e => setForm(f => ({ ...f, responseTemplate: e.target.value }))}
+                  rows={3} style={{ ...inputStyle, resize:'vertical' }} />
+              </div>
+              {form.source === 'comment' && (
+                <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, color:'var(--t2)', cursor:'pointer' }}>
+                  <input type="checkbox" checked={!!form.alsoSendDm} onChange={e => setForm(f => ({ ...f, alsoSendDm: e.target.checked }))}
+                    style={{ width:15, height:15, accentColor:'var(--green)' }} />
+                  Also send the commenter a DM
+                </label>
+              )}
+              <div style={{ display:'flex', gap:8 }}>
+                <Btn onClick={save} disabled={saving} style={{ boxShadow:'var(--glow)' }}>{saving ? 'Saving…' : editing ? 'Update Flow' : 'Create Flow'}</Btn>
+                <Btn variant="ghost" onClick={() => { setForm(null); setEditing(null); }}>Cancel</Btn>
+              </div>
+            </div>
+          )}
+
+          <div style={{ ...card, overflow:'hidden' }}>
+            {flows.length === 0 ? (
+              <div style={{ padding:32, textAlign:'center', color:'var(--t2)', fontSize:13 }}>No Instagram flows yet. Create one above.</div>
+            ) : flows.map((f, i) => (
+              <div key={f.id} style={{ padding:'14px 18px', borderBottom: i < flows.length-1 ? '1px solid var(--bd)' : 'none', display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', opacity: f.isActive ? 1 : .55 }}>
+                <span style={{ fontSize:11, fontWeight:700, padding:'3px 8px', borderRadius:6, background:'rgba(220,39,67,0.1)', border:'1px solid rgba(220,39,67,0.25)', color:'#f472b6' }}>
+                  {IG_SOURCES.find(([v]) => v === f.source)?.[1] || f.source}
+                </span>
+                {f.keyword
+                  ? <span style={{ fontSize:12, fontFamily:'monospace', color:'var(--green)' }}>{f.keyword}</span>
+                  : <span style={{ fontSize:11, color:'var(--t3)' }}>all messages</span>}
+                <div style={{ flex:1, minWidth:180 }}>
+                  <p style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{f.name}</p>
+                  <p style={{ fontSize:12, color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.responseTemplate}</p>
+                </div>
+                <span style={{ fontSize:11, color:'var(--t3)' }}>{f.triggeredCount} fired</span>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <Toggle on={f.isActive} onToggle={() => toggle(f)} />
+                  <IconBtn icon="pencil" onClick={() => openEdit(f)} />
+                  <IconBtn icon="trash" danger onClick={() => del(f.id)} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 };
 
-// ─── Voice AI ───
+// ─────────────────────────────────────────────
+// 7. VOICE AI
+// ─────────────────────────────────────────────
 const VoiceAITab = () => {
-  const [enabled, setEnabled] = useState(false);
-  const [name,   setName]   = useState('MyCallGenie');
-  const [prompt, setPrompt] = useState('Greet the caller and ask for their details.');
-  const [phone,  setPhone]  = useState('');
+  const [cfg, setCfg] = useState(null);
+  const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving,  setSaving]  = useState(false);
+  const [locked, setLocked] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [banner, setBanner] = useState(null);
+  const [openCall, setOpenCall] = useState(null);
 
-  useEffect(() => {
-    wFetch('/automation/voice')
-      .then(r => r.ok && r.json())
-      .then(d => {
-        if (d) {
-          setEnabled(!!d.voiceAiEnabled);
-          setName(d.voiceAiName || 'MyCallGenie');
-          setPrompt(d.voiceAiPrompt || 'Greet the caller and ask for their details.');
-          setPhone(d.voiceAiPhone || '');
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+  const load = useCallback(async () => {
+    const r = await wJson('/automation/voice');
+    if (r.locked) { setLocked(r.feature || 'automation'); setLoading(false); return; }
+    if (r.ok) setCfg(r.data);
+    const c = await wJson('/automation/voice/calls');
+    if (c.ok && Array.isArray(c.data)) setCalls(c.data);
+    setLoading(false);
   }, []);
+  useEffect(() => { load(); }, [load]);
 
-  const handleToggle = async newVal => {
-    setEnabled(newVal);
-    await wFetch('/automation/voice', {
-      method: 'PATCH',
-      body: JSON.stringify({ voiceAiEnabled: newVal })
-    }).catch(() => setEnabled(!newVal));
+  const patch = async (updates) => {
+    setSaving(true); setBanner(null);
+    const r = await wJson('/automation/voice', { method:'PATCH', body: JSON.stringify(updates) });
+    setSaving(false);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return false; }
+    setCfg(r.data);
+    setBanner({ tone:'ok', text:'Saved.' });
+    return true;
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const res = await wFetch('/automation/voice', {
-        method: 'PATCH',
-        body: JSON.stringify({ voiceAiName: name, voiceAiPrompt: prompt, voiceAiPhone: phone })
-      });
-      if (!res.ok) throw new Error('Failed to save voice settings');
-      // Re-fetch to confirm persisted state
-      const refetch = await wFetch('/automation/voice');
-      if (refetch.ok) {
-        const d = await refetch.json();
-        if (d) {
-          setName(d.voiceAiName || 'MyCallGenie');
-          setPrompt(d.voiceAiPrompt || 'Greet the caller and ask for their details.');
-          setPhone(d.voiceAiPhone || '');
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Failed to save voice settings. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
+  if (loading) return <Loading />;
+  if (locked) return <PlanLocked feature={locked} />;
+  if (!cfg) return <Banner tone="error">Could not load voice settings.</Banner>;
 
-  if (loading) return <div style={{ color:'var(--t2)', fontSize:13, padding:20 }}>Loading...</div>;
-
-  if (!enabled) {
+  if (!cfg.voiceAiEnabled) {
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(30,191,94,0.1)', border:'1px solid var(--gbd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="phone" s={18} c="var(--green)" />
-          </div>
-          <div>
-            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>Voice AI - Inbound Calls</h2>
-            <p style={{ fontSize:'13px', color:'var(--t2)' }}>Set up AI to answer inbound calls and capture leads.</p>
-          </div>
-        </div>
-        <div style={{ ...card, padding:'40px', display:'flex', flexDirection:'column', alignItems:'center', gap:'32px' }}>
-          <div style={{ display:'flex', flexWrap:'wrap', gap:'40px', width:'100%', justifyContent:'center', alignItems:'center' }}>
+        <TabHeader icon="phone" color="var(--green)" bg="rgba(30,191,94,0.1)"
+          title="Voice AI - Inbound Calls" subtitle="An AI receptionist that answers calls and captures leads" />
+        {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
+        <div style={{ ...card, padding:'40px', display:'flex', flexDirection:'column', alignItems:'center', gap:'28px' }}>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:'40px', width:'100%', justifyContent:'center' }}>
             <div style={{ flex:1, minWidth:'280px', display:'flex', flexDirection:'column', gap:'16px' }}>
               <p style={{ fontSize:'20px', fontFamily:"'Syne',sans-serif", fontWeight:700, color:'var(--t1)', lineHeight:1.3 }}>
                 Get an <span style={{ color:'var(--green)' }}>AI Receptionist</span> to handle your calls 24/7.
               </p>
               <ul style={{ display:'flex', flexDirection:'column', gap:'12px', padding:0, listStyle:'none' }}>
-                {['AI answers calls 24x7','Leads auto-pushed to ChatFlow Pro','Works on your existing personal number','Built by your trusted team'].map((item, i) => (
+                {['AI answers calls 24x7', 'Callers are saved as contacts automatically', 'Transfers to your team when asked', 'Full transcript of every call'].map((item, i) => (
                   <li key={i} style={{ display:'flex', alignItems:'center', gap:'12px', fontSize:'14px', color:'var(--t1)' }}>
                     <I n="check" s={16} c="var(--green)" /> {item}
                   </li>
@@ -1213,24 +1399,22 @@ const VoiceAITab = () => {
             <div style={{ flex:1, minWidth:'300px' }}>
               <p style={{ fontSize:'14px', fontWeight:700, color:'var(--t1)', marginBottom:'16px', textAlign:'center' }}>How It Works</p>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(255,255,255,0.02)', padding:'20px', borderRadius:'12px', border:'1px solid var(--bd)' }}>
-                <div style={{ textAlign:'center' }}>
-                  <div style={{ width:'40px', height:'40px', borderRadius:'50%', background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 8px' }}><I n="phone" s={18} c="var(--t2)" /></div>
-                  <p style={{ fontSize:'11px', color:'var(--t2)', fontWeight:600 }}>Missed Call</p>
-                </div>
-                <I n="arrow" s={14} c="var(--t3)" />
-                <div style={{ textAlign:'center' }}>
-                  <div style={{ width:'40px', height:'40px', borderRadius:'50%', background:'#581c87', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 8px' }}><I n="spark" s={18} c="#e9d5ff" /></div>
-                  <p style={{ fontSize:'11px', color:'var(--t2)', fontWeight:600 }}>AI Answers</p>
-                </div>
-                <I n="arrow" s={14} c="var(--t3)" />
-                <div style={{ textAlign:'center' }}>
-                  <div style={{ width:'40px', height:'40px', borderRadius:'50%', background:'var(--green)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 8px' }}><I n="users" s={18} c="#000" /></div>
-                  <p style={{ fontSize:'11px', color:'var(--t2)', fontWeight:600 }}>Lead Captured</p>
-                </div>
+                {[['phone', 'Call comes in', 'rgba(255,255,255,0.05)', 'var(--t2)'], ['spark', 'AI answers', '#581c87', '#e9d5ff'], ['users', 'Lead captured', 'var(--green)', '#000']].map(([icon, label, bg, fg], i, arr) => (
+                  <div key={label} style={{ display:'contents' }}>
+                    {i > 0 && <I n="arrow" s={14} c="var(--t3)" />}
+                    <div style={{ textAlign:'center' }}>
+                      <div style={{ width:'40px', height:'40px', borderRadius:'50%', background:bg, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 8px' }}>
+                        <I n={icon} s={18} c={fg} />
+                      </div>
+                      <p style={{ fontSize:'11px', color:'var(--t2)', fontWeight:600 }}>{label}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
-          <Btn style={{ padding:'12px 32px', fontSize:'15px', boxShadow:'var(--glow)' }} onClick={() => handleToggle(true)}>Get Started Now →</Btn>
+          <Btn style={{ padding:'12px 32px', fontSize:'15px', boxShadow:'var(--glow)' }} disabled={saving}
+            onClick={() => patch({ voiceAiEnabled: true })}>Get Started Now →</Btn>
         </div>
       </div>
     );
@@ -1238,369 +1422,211 @@ const VoiceAITab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(30,191,94,0.1)', border:'1px solid var(--gbd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="phone" s={18} c="var(--green)" />
-          </div>
-          <div>
-            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>Voice AI - Receptionist Settings</h2>
-            <p style={{ fontSize:'13px', color:'var(--t2)' }}>Configure how the Voice AI interacts with callers</p>
-          </div>
-        </div>
-        <Btn variant="outline" onClick={() => handleToggle(false)} style={{ borderColor:'#f8717133', color:'#f87171' }}>Deactivate Agent</Btn>
-      </div>
-      <div style={{ ...card, padding:'24px', display:'flex', flexDirection:'column', gap:'20px' }}>
-        <div style={{ display:'flex', gap:'24px', flexWrap:'wrap' }}>
-          <div style={{ flex:1, minWidth:'250px', display:'flex', flexDirection:'column', gap:'8px' }}>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--t1)' }}>Agent Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. MyCallGenie"
-              style={{ width:'100%', padding:'10px 16px', borderRadius:'8px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:'13px', outline:'none' }} />
-          </div>
-          <div style={{ flex:1, minWidth:'250px', display:'flex', flexDirection:'column', gap:'8px' }}>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--t1)' }}>Call Forwarding Number</label>
-            <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. +1 (555) 019-2834"
-              style={{ width:'100%', padding:'10px 16px', borderRadius:'8px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:'13px', outline:'none' }} />
-          </div>
-        </div>
-        <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
-          <label style={{ fontSize:'12px', fontWeight:600, color:'var(--t1)' }}>System Prompt / Agent Instructions</label>
-          <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Greet the caller and ask for their details..."
-            style={{ width:'100%', minHeight:'120px', padding:'12px 16px', borderRadius:'8px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:'13px', fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', resize:'vertical' }} />
-          <span style={{ fontSize:'11px', color:'var(--t3)' }}>Provide guidance on what info the AI should gather from the caller.</span>
-        </div>
-        <div style={{ display:'flex', gap:8, marginTop:'4px' }}>
-          <Btn onClick={handleSave} disabled={saving} style={{ boxShadow:'var(--glow)' }}>{saving ? 'Saving...' : 'Save Settings'}</Btn>
-        </div>
-      </div>
-    </div>
-  );
-};
+      <TabHeader icon="phone" color="var(--green)" bg="rgba(30,191,94,0.1)"
+        title="Voice AI - Receptionist" subtitle="Configure how the AI answers your inbound calls" badge={<Pill>Active</Pill>}>
+        <Btn variant="outline" onClick={() => patch({ voiceAiEnabled: false })} style={{ borderColor:'#f8717133', color:'#f87171' }}>Deactivate</Btn>
+      </TabHeader>
 
-// ─── WhatsApp Forms ───
-const WhatsAppFormsTab = () => {
-  const [forms,      setForms]      = useState([]);
-  const [editing,    setEditing]    = useState(null);
-  const [creating,   setCreating]   = useState(false);
-  const [formName,   setFormName]   = useState('');
-  const [formFields, setFormFields] = useState(1);
-  const [formStatus, setFormStatus] = useState('Draft');
-  const [error,  setError]  = useState('');
-  const [loading, setLoading] = useState(true);
+      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 
-  useEffect(() => {
-    wFetch('/whatsapp-forms')
-      .then(r => r.ok ? r.json() : [])
-      .then(d => { if (Array.isArray(d)) setForms(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-
-  const openCreate = () => { setFormName(''); setFormFields(1); setFormStatus('Draft'); setEditing(null); setError(''); setCreating(true); };
-  const openEdit   = form => { setFormName(form.name); setFormFields(form.fields); setFormStatus(form.status); setEditing(form); setError(''); setCreating(true); };
-  const cancel     = () => { setCreating(false); setEditing(null); setError(''); };
-
-  const save = async () => {
-    const nameError = validateMeaningfulText(formName, 'Form name');
-    if (nameError) { setError(nameError); return; }
-    setError('');
-    try {
-      if (editing) {
-        const res = await wFetch(`/whatsapp-forms/${editing.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ name: formName, fields: formFields, status: formStatus })
-        });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to update form'); }
-        const updated = await res.json();
-        setForms(prev => prev.map(f => f.id === editing.id ? updated : f));
-      } else {
-        const res = await wFetch('/whatsapp-forms', {
-          method: 'POST',
-          body: JSON.stringify({ name: formName, fields: formFields })
-        });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to create form'); }
-        const created = await res.json();
-        setForms(prev => [created, ...prev]);
-      }
-      cancel();
-    } catch (err) {
-      setError(err.message || 'Something went wrong');
-    }
-  };
-
-  const deleteForm = async id => {
-    if (!window.confirm('Delete this form?')) return;
-    try {
-      const res = await wFetch(`/whatsapp-forms/${id}`, { method:'DELETE' });
-      if (res.ok) setForms(prev => prev.filter(f => f.id !== id));
-    } catch (err) { console.error(err); }
-  };
-
-  const toggleStatus = async id => {
-    const form = forms.find(f => f.id === id);
-    if (!form) return;
-    const newStatus = form.status === 'Active' ? 'Draft' : 'Active';
-    setForms(prev => prev.map(f => f.id === id ? { ...f, status: newStatus } : f));
-    try {
-      const res = await wFetch(`/whatsapp-forms/${id}`, { method:'PATCH', body: JSON.stringify({ status: newStatus }) });
-      if (!res.ok) throw new Error();
-    } catch { setForms(prev => prev.map(f => f.id === id ? form : f)); }
-  };
-
-  if (loading) return <div style={{ color:'var(--t2)', fontSize:13, padding:20 }}>Loading...</div>;
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="note" s={18} c="var(--t2)" />
-          </div>
-          <div>
-            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>WhatsApp Forms</h2>
-            <p style={{ fontSize:'13px', color:'var(--t2)' }}>Collect structured data natively inside WhatsApp</p>
-          </div>
-        </div>
-        <Btn style={{ boxShadow:'var(--glow)' }} onClick={openCreate}><I n="plus" s={14} c="#060913"/> Create Form</Btn>
-      </div>
-
-      {creating && (
-        <div style={{ ...card, padding:'20px', display:'flex', flexDirection:'column', gap:'16px' }}>
-          <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Form' : 'Create New Form'}</p>
-          <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
-            <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Form Name <span style={{ color:'#f87171' }}>*</span></label>
-            <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Customer Feedback Survey"
-              style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:`1px solid ${error && !formName.trim() ? '#f87171' : 'var(--bd)'}`, color:'var(--t1)', fontSize:13, outline:'none', width:'100%', maxWidth:'400px', boxSizing:'border-box' }} />
-          </div>
-          <div style={{ display:'flex', gap:'16px' }}>
-            <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
-              <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Number of Fields</label>
-              <input type="number" min="1" value={formFields} onChange={e => setFormFields(parseInt(e.target.value) || 1)}
-                style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', width:'120px' }} />
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
-              <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Status</label>
-              <select value={formStatus} onChange={e => setFormStatus(e.target.value)}
-                style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none' }}>
-                <option value="Draft" style={{ background:'#07090F' }}>Draft</option>
-                <option value="Active" style={{ background:'#07090F' }}>Active</option>
-              </select>
-            </div>
-          </div>
-          {error && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {error}</p>}
-          <div style={{ display:'flex', gap:8, marginTop:'4px' }}>
-            <Btn onClick={save} style={{ boxShadow:'var(--glow)' }}>{editing ? 'Update Form' : 'Create Form'}</Btn>
-            <Btn variant="ghost" onClick={cancel}>Cancel</Btn>
-          </div>
-        </div>
+      {!cfg.voiceAiInboundPhone && (
+        <Banner tone="warn">
+          Set the inbound number below, then point that number’s “A call comes in” webhook at <code>/api/v1/voice/incoming</code> (and its status callback at <code>/api/v1/voice/status</code>) in your Twilio console.
+        </Banner>
       )}
 
+      <div style={{ ...card, padding:'24px', display:'flex', flexDirection:'column', gap:'18px' }}>
+        <div style={{ display:'flex', gap:'20px', flexWrap:'wrap' }}>
+          <div style={{ flex:1, minWidth:'220px' }}>
+            <label style={labelStyle}>Agent name</label>
+            <input value={cfg.voiceAiName || ''} onChange={e => setCfg(c => ({ ...c, voiceAiName: e.target.value }))} style={inputStyle} />
+          </div>
+          <div style={{ flex:1, minWidth:'220px' }}>
+            <label style={labelStyle}>Inbound number (the AI answers this)</label>
+            <input value={cfg.voiceAiInboundPhone || ''} onChange={e => setCfg(c => ({ ...c, voiceAiInboundPhone: e.target.value }))}
+              placeholder="+14155551234" style={inputStyle} />
+          </div>
+          <div style={{ flex:1, minWidth:'220px' }}>
+            <label style={labelStyle}>Transfer to (human handoff)</label>
+            <input value={cfg.voiceAiPhone || ''} onChange={e => setCfg(c => ({ ...c, voiceAiPhone: e.target.value }))}
+              placeholder="+14155559876" style={inputStyle} />
+          </div>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Greeting (the first thing callers hear)</label>
+          <input value={cfg.voiceAiGreeting || ''} onChange={e => setCfg(c => ({ ...c, voiceAiGreeting: e.target.value }))} style={inputStyle} />
+        </div>
+
+        <div>
+          <label style={labelStyle}>Agent instructions</label>
+          <textarea value={cfg.voiceAiPrompt || ''} onChange={e => setCfg(c => ({ ...c, voiceAiPrompt: e.target.value }))}
+            rows={4} style={{ ...inputStyle, resize:'vertical' }} />
+          <span style={{ fontSize:'11px', color:'var(--t3)' }}>Tell the AI what to gather. It transfers the call if the caller asks for a human.</span>
+        </div>
+
+        <div>
+          <Btn disabled={saving} style={{ boxShadow:'var(--glow)' }}
+            onClick={() => patch({
+              voiceAiName: cfg.voiceAiName, voiceAiPrompt: cfg.voiceAiPrompt, voiceAiPhone: cfg.voiceAiPhone,
+              voiceAiInboundPhone: cfg.voiceAiInboundPhone, voiceAiGreeting: cfg.voiceAiGreeting,
+            })}>
+            {saving ? 'Saving…' : 'Save Settings'}
+          </Btn>
+        </div>
+      </div>
+
       <div style={{ ...card, overflow:'hidden' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left' }}>
-          <thead>
-            <tr style={{ borderBottom:'1px solid var(--bd)' }}>
-              {['Form Name','Submissions','Fields','Status',''].map(h => (
-                <th key={h} style={{ padding:'12px 20px', fontSize:'11px', fontWeight:600, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.05em' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {forms.length === 0 && (
-              <tr><td colSpan="5" style={{ padding:'32px', textAlign:'center', color:'var(--t2)', fontSize:'13px' }}>No forms yet. Create one above.</td></tr>
+        <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', gap:8 }}>
+          <I n="clock" s={14} c="var(--t2)" />
+          <span style={{ fontSize:13, fontWeight:700, color:'var(--t1)' }}>Recent calls</span>
+        </div>
+        {calls.length === 0 ? (
+          <div style={{ padding:28, textAlign:'center', color:'var(--t2)', fontSize:13 }}>No calls yet.</div>
+        ) : calls.map((c, i) => (
+          <div key={c.id} style={{ borderBottom: i < calls.length-1 ? '1px solid var(--bd)' : 'none' }}>
+            <div onClick={() => setOpenCall(openCall === c.id ? null : c.id)}
+              style={{ padding:'12px 18px', display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', cursor:'pointer' }}>
+              <span style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)', minWidth:130 }}>{c.leadName || c.fromPhone}</span>
+              <span style={{ flex:1, fontSize:12, color:'var(--t2)', minWidth:180 }}>{c.leadSummary || '—'}</span>
+              {c.forwarded && <Pill tone="amber">Transferred</Pill>}
+              <span style={{ fontSize:11, color:'var(--t3)' }}>{c.durationSec}s · {new Date(c.startedAt).toLocaleString()}</span>
+            </div>
+            {openCall === c.id && (
+              <div style={{ padding:'0 18px 14px', display:'flex', flexDirection:'column', gap:6 }}>
+                {(Array.isArray(c.transcript) ? c.transcript : []).map((t, idx) => (
+                  <div key={idx} style={{ display:'flex', gap:8, fontSize:12 }}>
+                    <span style={{ minWidth:52, color: t.role === 'caller' ? '#38bdf8' : 'var(--green)', fontWeight:600 }}>{t.role === 'caller' ? 'Caller' : 'AI'}</span>
+                    <span style={{ color:'var(--t2)' }}>{t.text}</span>
+                  </div>
+                ))}
+                {c.leadEmail && <p style={{ fontSize:12, color:'var(--t3)', marginTop:4 }}>Email captured: {c.leadEmail}</p>}
+              </div>
             )}
-            {forms.map((form, i) => (
-              <tr key={form.id} style={{ borderBottom: i < forms.length-1 ? '1px solid var(--bd)' : 'none' }}>
-                <td style={{ padding:'14px 20px', fontSize:'13px', fontWeight:600, color:'var(--t1)' }}>{form.name}</td>
-                <td style={{ padding:'14px 20px', fontSize:'13px', color:'var(--t2)' }}>{(form.submissions || 0).toLocaleString()}</td>
-                <td style={{ padding:'14px 20px', fontSize:'13px', color:'var(--t2)' }}>{form.fields} Fields</td>
-                <td style={{ padding:'14px 20px' }}>
-                  <span onClick={() => toggleStatus(form.id)} style={{ padding:'2px 8px', borderRadius:10, fontSize:11, fontWeight:600, cursor:'pointer', color: form.status === 'Active' ? 'var(--green)' : 'var(--t3)', background: form.status === 'Active' ? 'var(--gbg)' : 'rgba(255,255,255,0.04)', border:`1px solid ${form.status === 'Active' ? 'var(--gbd)' : 'var(--bd)'}` }}>
-                    {form.status}
-                  </span>
-                </td>
-                <td style={{ padding:'14px 20px', textAlign:'right' }}>
-                  <button onClick={() => openEdit(form)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', marginRight:'12px' }}><I n="pencil" s={14}/></button>
-                  <button onClick={() => deleteForm(form.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#f87171' }}><I n="trash" s={14}/></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          </div>
+        ))}
       </div>
     </div>
   );
 };
 
-// ─── Smart Lists ───
-const SmartListsTab = () => {
-  const [segments, setSegments] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [viewingSegmentId, setViewingSegmentId] = useState(null);
+// ─────────────────────────────────────────────
+// 8. WHATSAPP FORMS
+// ─────────────────────────────────────────────
+const FIELD_TYPES = [['text', 'Text'], ['email', 'Email'], ['phone', 'Phone'], ['number', 'Number'], ['choice', 'Multiple choice']];
 
-  // Segment form
-  const [segFormOpen, setSegFormOpen] = useState(false);
-  const [editingSeg,  setEditingSeg]  = useState(null);
-  const [segName, setSegName] = useState('');
-  const [segDesc, setSegDesc] = useState('');
-  const [segError, setSegError] = useState('');
+const WhatsAppFormsTab = () => {
+  const [forms, setForms] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [locked, setLocked] = useState(null);
+  const [banner, setBanner] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [viewing, setViewing] = useState(null);
+  const [submissions, setSubmissions] = useState([]);
 
-  // Contact form
-  const [contactFormOpen,  setContactFormOpen]  = useState(false);
-  const [editingContact,   setEditingContact]   = useState(null);
-  const [contactName,  setContactName]  = useState('');
-  const [contactPhone, setContactPhone] = useState('');
-  const [contactError, setContactError] = useState('');
+  const load = useCallback(async () => {
+    const r = await wJson('/whatsapp-forms');
+    if (r.locked) { setLocked(r.feature || 'automation'); setLoading(false); return; }
+    if (r.ok && Array.isArray(r.data)) setForms(r.data);
+    else if (!r.ok) setBanner({ tone:'error', text:r.error });
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
-  const segColors = ['#8b5cf6','#f43f5e','#0ea5e9','#f59e0b','#10b981','#ec4899'];
-  const viewingSegment = segments.find(s => s.id === viewingSegmentId) || null;
-
-  const fetchSegments = async () => {
-    try {
-      const res = await wFetch('/segments');
-      if (res.ok) {
-        const data = await res.json();
-        setSegments(Array.isArray(data) ? data : []);
-      }
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+  const openCreate = () => {
+    setEditing(null);
+    setDraft({ name:'', keyword:'', status:'Draft', completionMessage:"Thanks! We've recorded your response.", schema:[{ label:'', type:'text', required:true, options:[] }] });
+  };
+  const openEdit = f => {
+    setEditing(f);
+    setDraft({
+      name: f.name, keyword: f.keyword || '', status: f.status,
+      completionMessage: f.completionMessage || '',
+      schema: Array.isArray(f.schema) && f.schema.length ? f.schema : [{ label:'', type:'text', required:true, options:[] }],
+    });
   };
 
-  useEffect(() => { fetchSegments(); }, []);
+  const setField = (idx, patchField) =>
+    setDraft(d => ({ ...d, schema: d.schema.map((f, i) => i === idx ? { ...f, ...patchField } : f) }));
 
-  // ── Segment CRUD ──
-  const openCreateSeg = () => { setSegName(''); setSegDesc(''); setEditingSeg(null); setSegError(''); setSegFormOpen(true); };
-  const openEditSeg   = seg => { setSegName(seg.name); setSegDesc(seg.description || seg.desc || ''); setEditingSeg(seg); setSegError(''); setSegFormOpen(true); };
-  const cancelSegForm = () => { setSegFormOpen(false); setEditingSeg(null); setSegError(''); };
-
-  const saveSeg = async () => {
-    const nameError = validateMeaningfulText(segName, 'Segment name');
-    if (nameError) { setSegError(nameError); return; }
-    setSegError('');
-    try {
-      if (editingSeg) {
-        // `desc`, not `description` — matches segmentSchemas/Prisma's Segment.desc;
-        // sending `description` was silently stripped by the backend schema.
-        const res = await wFetch(`/segments/${editingSeg.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ name: segName, desc: segDesc })
-        });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to update segment'); }
-      } else {
-        const res = await wFetch('/segments', {
-          method: 'POST',
-          body: JSON.stringify({ name: segName, desc: segDesc, color: segColors[segments.length % segColors.length] })
-        });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Failed to create segment'); }
-      }
-      await fetchSegments();
-      cancelSegForm();
-    } catch (err) { setSegError(err.message || 'Something went wrong'); }
+  const save = async () => {
+    const nameError = validateMeaningfulText(draft.name, 'Form name');
+    if (nameError) { setBanner({ tone:'error', text:nameError }); return; }
+    const cleanSchema = draft.schema.filter(f => String(f.label || '').trim());
+    if (cleanSchema.length === 0) { setBanner({ tone:'error', text:'Add at least one question.' }); return; }
+    if (draft.status === 'Active' && !String(draft.keyword || '').trim()) {
+      setBanner({ tone:'error', text:'An active form needs a keyword so customers can start it.' });
+      return;
+    }
+    setSaving(true);
+    const payload = {
+      name: draft.name, keyword: draft.keyword || '', status: draft.status,
+      completionMessage: draft.completionMessage, schema: cleanSchema,
+    };
+    const r = editing
+      ? await wJson(`/whatsapp-forms/${editing.id}`, { method:'PATCH', body: JSON.stringify(payload) })
+      : await wJson('/whatsapp-forms', { method:'POST', body: JSON.stringify(payload) });
+    setSaving(false);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    setDraft(null); setEditing(null); setBanner(null);
+    load();
   };
 
-  const deleteSeg = async id => {
-    if (!window.confirm('Delete this segment?')) return;
-    try {
-      const res = await wFetch(`/segments/${id}`, { method:'DELETE' });
-      if (res.ok) {
-        if (viewingSegmentId === id) setViewingSegmentId(null);
-        await fetchSegments();
-      }
-    } catch (err) { console.error(err); }
+  const del = async id => {
+    if (!window.confirm('Delete this form?')) return;
+    const r = await wJson(`/whatsapp-forms/${id}`, { method:'DELETE' });
+    if (r.ok) load(); else setBanner({ tone:'error', text:r.error });
   };
 
-  // ── Contact CRUD ──
-  const openAddContact  = () => { setContactName(''); setContactPhone(''); setEditingContact(null); setContactError(''); setContactFormOpen(true); };
-  const openEditContact = c => { setContactName(c.name); setContactPhone(c.phone || c.phoneNumber || ''); setEditingContact(c); setContactError(''); setContactFormOpen(true); };
-  const cancelContactForm = () => { setContactFormOpen(false); setEditingContact(null); setContactError(''); };
-
-  const saveContact = async () => {
-    if (!contactName.trim()) { setContactError('Name is required'); return; }
-    if (!contactPhone.trim()) { setContactError('Phone number is required'); return; }
-    setContactError('');
-    try {
-      if (editingContact) {
-        const res = await wFetch(`/segments/${viewingSegmentId}/contacts/${editingContact.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ name: contactName, phone: contactPhone })
-        });
-        if (!res.ok) throw new Error('Failed to update contact');
-      } else {
-        const res = await wFetch(`/segments/${viewingSegmentId}/contacts`, {
-          method: 'POST',
-          body: JSON.stringify({ name: contactName, phone: contactPhone })
-        });
-        if (!res.ok) throw new Error('Failed to add contact');
-      }
-      await fetchSegments();
-      cancelContactForm();
-    } catch (err) { setContactError(err.message || 'Something went wrong'); }
+  const toggleStatus = async f => {
+    const next = f.status === 'Active' ? 'Draft' : 'Active';
+    const r = await wJson(`/whatsapp-forms/${f.id}`, { method:'PATCH', body: JSON.stringify({ status: next }) });
+    if (r.ok) load(); else setBanner({ tone:'error', text:r.error });
   };
 
-  const deleteContact = async contactId => {
-    if (!window.confirm('Remove this contact from the segment?')) return;
-    try {
-      const res = await wFetch(`/segments/${viewingSegmentId}/contacts/${contactId}`, { method:'DELETE' });
-      if (res.ok) await fetchSegments();
-    } catch (err) { console.error(err); }
+  const viewSubmissions = async f => {
+    setViewing(f);
+    const r = await wJson(`/whatsapp-forms/${f.id}/submissions`);
+    setSubmissions(r.ok && Array.isArray(r.data) ? r.data : []);
   };
 
-  if (viewingSegment) {
-    const list = viewingSegment.contacts || [];
+  if (loading) return <Loading />;
+  if (locked) return <PlanLocked feature={locked} />;
+
+  if (viewing) {
+    const fields = Array.isArray(viewing.schema) ? viewing.schema : [];
     return (
-      <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-            <button onClick={() => setViewingSegmentId(null)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)' }}><I n="arrow" s={12}/></button>
-            <div>
-              <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>{viewingSegment.name}</h2>
-              <p style={{ fontSize:'13px', color:'var(--t2)' }}>{viewingSegment.description || viewingSegment.desc || 'No description'}</p>
-            </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <IconBtn icon="arrow" onClick={() => setViewing(null)} />
+          <div>
+            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:18, color:'var(--t1)' }}>{viewing.name}</h2>
+            <p style={{ fontSize:13, color:'var(--t2)' }}>{submissions.length} submission{submissions.length === 1 ? '' : 's'}</p>
           </div>
-          <Btn onClick={openAddContact} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10"/> Add Customer</Btn>
         </div>
-
-        {contactFormOpen && (
-          <div style={{ ...card, padding:'20px', display:'flex', flexDirection:'column', gap:'12px' }}>
-            <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editingContact ? 'Edit Contact' : 'Add Contact'}</p>
-            <div style={{ display:'flex', gap:'12px', flexWrap:'wrap' }}>
-              <div style={{ display:'flex', flexDirection:'column', gap:'6px', flex:1, minWidth:'200px' }}>
-                <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)' }}>Name</label>
-                <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="e.g. Alice Smith"
-                  style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none' }} />
-              </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:'6px', flex:1, minWidth:'200px' }}>
-                <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)' }}>Phone Number</label>
-                <input value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="e.g. +14155552671"
-                  style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none' }} />
-              </div>
-            </div>
-            {contactError && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {contactError}</p>}
-            <div style={{ display:'flex', gap:8, marginTop:'4px' }}>
-              <Btn onClick={saveContact} style={{ boxShadow:'var(--glow)' }}>{editingContact ? 'Update' : 'Add'}</Btn>
-              <Btn variant="ghost" onClick={cancelContactForm}>Cancel</Btn>
-            </div>
-          </div>
-        )}
-
-        <div style={{ ...card, overflow:'hidden' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left' }}>
+        <div style={{ ...card, overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left', minWidth:520 }}>
             <thead>
               <tr style={{ borderBottom:'1px solid var(--bd)' }}>
-                {['Name','Phone Number','Actions'].map(h => (
-                  <th key={h} style={{ padding:'12px 20px', fontSize:'11px', fontWeight:600, color:'var(--t3)', textTransform:'uppercase' }}>{h}</th>
+                {['When', ...fields.map(f => f.label), 'Status'].map((h, i) => (
+                  <th key={i} style={{ padding:'12px 16px', fontSize:11, fontWeight:600, color:'var(--t3)', textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {list.length === 0 && (
-                <tr><td colSpan="3" style={{ padding:'32px', textAlign:'center', color:'var(--t2)', fontSize:'13px' }}>No contacts in this segment yet. Add some above.</td></tr>
+              {submissions.length === 0 && (
+                <tr><td colSpan={fields.length + 2} style={{ padding:32, textAlign:'center', color:'var(--t2)', fontSize:13 }}>No submissions yet.</td></tr>
               )}
-              {list.map(c => (
-                <tr key={c.id} style={{ borderBottom:'1px solid var(--bd)' }}>
-                  <td style={{ padding:'14px 20px', fontSize:'13px', fontWeight:600, color:'var(--t1)' }}>{c.name}</td>
-                  <td style={{ padding:'14px 20px', fontSize:'13px', color:'var(--t2)' }}>{c.phone || c.phoneNumber}</td>
-                  <td style={{ padding:'14px 20px' }}>
-                    <button onClick={() => openEditContact(c)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t3)', marginRight:12 }}><I n="pencil" s={14}/></button>
-                    <button onClick={() => deleteContact(c.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'#f87171' }}><I n="trash" s={14}/></button>
+              {submissions.map(s => (
+                <tr key={s.id} style={{ borderBottom:'1px solid var(--bd)' }}>
+                  <td style={{ padding:'12px 16px', fontSize:12, color:'var(--t2)', whiteSpace:'nowrap' }}>{new Date(s.createdAt).toLocaleString()}</td>
+                  {fields.map(f => (
+                    <td key={f.key} style={{ padding:'12px 16px', fontSize:12.5, color:'var(--t1)' }}>{s.answers?.[f.key] ?? '—'}</td>
+                  ))}
+                  <td style={{ padding:'12px 16px' }}>
+                    <Pill tone={s.completed ? 'green' : 'amber'}>{s.completed ? 'Complete' : `Q${s.cursor + 1}`}</Pill>
                   </td>
                 </tr>
               ))}
@@ -1611,34 +1637,290 @@ const SmartListsTab = () => {
     );
   }
 
-  // ── Segment list view ──
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ width:'36px', height:'36px', borderRadius:'8px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <I n="users" s={18} c="var(--t2)" />
+      <TabHeader icon="note" color="var(--t2)" bg="rgba(255,255,255,0.04)"
+        title="WhatsApp Forms" subtitle="Collect structured answers one question at a time, right inside the chat">
+        <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060913"/> Create Form</Btn>
+      </TabHeader>
+
+      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
+      <Banner>A customer starts a form by sending its keyword. Each answer is validated, and they can send “cancel” to stop at any point.</Banner>
+
+      {draft && (
+        <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+          <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Form' : 'Create New Form'}</p>
+
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+            <div style={{ flex:1, minWidth:220 }}>
+              <label style={labelStyle}>Form name</label>
+              <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="e.g. Customer Feedback" style={inputStyle} />
+            </div>
+            <div style={{ minWidth:180 }}>
+              <label style={labelStyle}>Start keyword</label>
+              <input value={draft.keyword} onChange={e => setDraft(d => ({ ...d, keyword: e.target.value.toUpperCase() }))}
+                placeholder="e.g. FEEDBACK" style={{ ...inputStyle, fontFamily:'monospace', color:'var(--green)' }} />
+            </div>
+            <div style={{ minWidth:140 }}>
+              <label style={labelStyle}>Status</label>
+              <select value={draft.status} onChange={e => setDraft(d => ({ ...d, status: e.target.value }))} style={inputStyle}>
+                <option value="Draft" style={{ background:'#07090F' }}>Draft</option>
+                <option value="Active" style={{ background:'#07090F' }}>Active</option>
+              </select>
+            </div>
           </div>
+
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <label style={labelStyle}>Questions</label>
+            {draft.schema.map((f, idx) => (
+              <div key={idx} style={{ border:'1px solid var(--bd)', borderRadius:8, padding:12, background:'rgba(255,255,255,0.02)', display:'flex', flexDirection:'column', gap:10 }}>
+                <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+                  <span style={{ fontSize:11, fontWeight:700, color:'var(--t3)', width:24 }}>Q{idx + 1}</span>
+                  <input value={f.label} onChange={e => setField(idx, { label: e.target.value })}
+                    placeholder="What should the customer be asked?" style={{ ...inputStyle, flex:1, minWidth:220 }} />
+                  <select value={f.type || 'text'} onChange={e => setField(idx, { type: e.target.value })} style={{ ...inputStyle, width:150 }}>
+                    {FIELD_TYPES.map(([v, l]) => <option key={v} value={v} style={{ background:'#07090F' }}>{l}</option>)}
+                  </select>
+                  <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, color:'var(--t2)', cursor:'pointer' }}>
+                    <input type="checkbox" checked={f.required !== false} onChange={e => setField(idx, { required: e.target.checked })}
+                      style={{ width:14, height:14, accentColor:'var(--green)' }} />
+                    Required
+                  </label>
+                  {draft.schema.length > 1 && (
+                    <button onClick={() => setDraft(d => ({ ...d, schema: d.schema.filter((_, i) => i !== idx) }))}
+                      style={{ padding:'6px 10px', borderRadius:7, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Remove</button>
+                  )}
+                </div>
+                {f.type === 'choice' && (
+                  <input value={(f.options || []).join(', ')}
+                    onChange={e => setField(idx, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                    placeholder="Comma-separated options, e.g. Yes, No, Maybe" style={inputStyle} />
+                )}
+              </div>
+            ))}
+            <button onClick={() => setDraft(d => ({ ...d, schema: [...d.schema, { label:'', type:'text', required:true, options:[] }] }))}
+              style={{ alignSelf:'flex-start', padding:'8px 12px', borderRadius:8, background:'transparent', border:'1px solid var(--bd)', color:'var(--green)', cursor:'pointer', fontSize:12, fontWeight:700 }}>
+              + Add question
+            </button>
+          </div>
+
           <div>
-            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)', marginBottom:'2px' }}>Smart Lists</h2>
-            <p style={{ fontSize:'13px', color:'var(--t2)' }}>Segment your contacts for targeted messaging</p>
+            <label style={labelStyle}>Message after the last answer</label>
+            <input value={draft.completionMessage} onChange={e => setDraft(d => ({ ...d, completionMessage: e.target.value }))} style={inputStyle} />
+          </div>
+
+          <div style={{ display:'flex', gap:8 }}>
+            <Btn onClick={save} disabled={saving} style={{ boxShadow:'var(--glow)' }}>{saving ? 'Saving…' : editing ? 'Update Form' : 'Create Form'}</Btn>
+            <Btn variant="ghost" onClick={() => { setDraft(null); setEditing(null); }}>Cancel</Btn>
           </div>
         </div>
-        <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Create Segment</Btn>
+      )}
+
+      <div style={{ ...card, overflowX:'auto' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left', minWidth:600 }}>
+          <thead>
+            <tr style={{ borderBottom:'1px solid var(--bd)' }}>
+              {['Form Name','Keyword','Questions','Submissions','Status',''].map(h => (
+                <th key={h} style={{ padding:'12px 18px', fontSize:11, fontWeight:600, color:'var(--t3)', textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {forms.length === 0 && (
+              <tr><td colSpan="6" style={{ padding:32, textAlign:'center', color:'var(--t2)', fontSize:13 }}>No forms yet. Create one above.</td></tr>
+            )}
+            {forms.map((f, i) => (
+              <tr key={f.id} style={{ borderBottom: i < forms.length-1 ? '1px solid var(--bd)' : 'none' }}>
+                <td style={{ padding:'14px 18px', fontSize:13, fontWeight:600, color:'var(--t1)' }}>{f.name}</td>
+                <td style={{ padding:'14px 18px', fontSize:12.5, fontFamily:'monospace', color: f.keyword ? 'var(--green)' : 'var(--t3)' }}>{f.keyword || '—'}</td>
+                <td style={{ padding:'14px 18px', fontSize:13, color:'var(--t2)' }}>{Array.isArray(f.schema) ? f.schema.length : f.fields}</td>
+                <td style={{ padding:'14px 18px', fontSize:13, color:'var(--t2)' }}>
+                  <button onClick={() => viewSubmissions(f)} style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--green)', fontSize:13, fontWeight:600 }}>
+                    {(f.submissions || 0).toLocaleString()}
+                  </button>
+                </td>
+                <td style={{ padding:'14px 18px' }}>
+                  <span onClick={() => toggleStatus(f)} style={{ cursor:'pointer' }}>
+                    <Pill tone={f.status === 'Active' ? 'green' : 'amber'}>{f.status}</Pill>
+                  </span>
+                </td>
+                <td style={{ padding:'14px 18px', textAlign:'right', whiteSpace:'nowrap' }}>
+                  <span style={{ display:'inline-flex', gap:8 }}>
+                    <IconBtn icon="pencil" onClick={() => openEdit(f)} />
+                    <IconBtn icon="trash" danger onClick={() => del(f.id)} />
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
+// 9. SMART LISTS
+// ─────────────────────────────────────────────
+const SmartListsTab = () => {
+  const [segments, setSegments] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [viewingSegmentId, setViewingSegmentId] = useState(null);
+
+  const [segFormOpen, setSegFormOpen] = useState(false);
+  const [editingSeg,  setEditingSeg]  = useState(null);
+  const [segName, setSegName] = useState('');
+  const [segDesc, setSegDesc] = useState('');
+  const [segError, setSegError] = useState('');
+
+  const [contactFormOpen,  setContactFormOpen]  = useState(false);
+  const [editingContact,   setEditingContact]   = useState(null);
+  const [contactName,  setContactName]  = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactError, setContactError] = useState('');
+
+  const segColors = ['#8b5cf6','#f43f5e','#0ea5e9','#f59e0b','#10b981','#ec4899'];
+  const viewingSegment = segments.find(s => s.id === viewingSegmentId) || null;
+
+  const fetchSegments = useCallback(async () => {
+    const r = await wJson('/segments');
+    if (r.ok && Array.isArray(r.data)) setSegments(r.data);
+    setLoading(false);
+  }, []);
+  useEffect(() => { fetchSegments(); }, [fetchSegments]);
+
+  const openCreateSeg = () => { setSegName(''); setSegDesc(''); setEditingSeg(null); setSegError(''); setSegFormOpen(true); };
+  const openEditSeg   = seg => { setSegName(seg.name); setSegDesc(seg.description || seg.desc || ''); setEditingSeg(seg); setSegError(''); setSegFormOpen(true); };
+  const cancelSegForm = () => { setSegFormOpen(false); setEditingSeg(null); setSegError(''); };
+
+  const saveSeg = async () => {
+    const nameError = validateMeaningfulText(segName, 'Segment name');
+    if (nameError) { setSegError(nameError); return; }
+    setSegError('');
+    // `desc`, not `description` — matches segmentSchemas/Prisma's Segment.desc.
+    const r = editingSeg
+      ? await wJson(`/segments/${editingSeg.id}`, { method:'PATCH', body: JSON.stringify({ name: segName, desc: segDesc }) })
+      : await wJson('/segments', { method:'POST', body: JSON.stringify({ name: segName, desc: segDesc, color: segColors[segments.length % segColors.length] }) });
+    if (!r.ok) { setSegError(r.error); return; }
+    await fetchSegments();
+    cancelSegForm();
+  };
+
+  const deleteSeg = async id => {
+    if (!window.confirm('Delete this segment?')) return;
+    const r = await wJson(`/segments/${id}`, { method:'DELETE' });
+    if (r.ok) { if (viewingSegmentId === id) setViewingSegmentId(null); await fetchSegments(); }
+  };
+
+  const openAddContact  = () => { setContactName(''); setContactPhone(''); setEditingContact(null); setContactError(''); setContactFormOpen(true); };
+  const openEditContact = c => { setContactName(c.name); setContactPhone(c.phone || c.phoneNumber || ''); setEditingContact(c); setContactError(''); setContactFormOpen(true); };
+  const cancelContactForm = () => { setContactFormOpen(false); setEditingContact(null); setContactError(''); };
+
+  const saveContact = async () => {
+    if (!contactName.trim()) { setContactError('Name is required'); return; }
+    if (!contactPhone.trim()) { setContactError('Phone number is required'); return; }
+    setContactError('');
+    const r = editingContact
+      ? await wJson(`/segments/${viewingSegmentId}/contacts/${editingContact.id}`, { method:'PATCH', body: JSON.stringify({ name: contactName, phone: contactPhone }) })
+      : await wJson(`/segments/${viewingSegmentId}/contacts`, { method:'POST', body: JSON.stringify({ name: contactName, phone: contactPhone }) });
+    if (!r.ok) { setContactError(r.error); return; }
+    await fetchSegments();
+    cancelContactForm();
+  };
+
+  const deleteContact = async contactId => {
+    if (!window.confirm('Remove this contact from the segment?')) return;
+    const r = await wJson(`/segments/${viewingSegmentId}/contacts/${contactId}`, { method:'DELETE' });
+    if (r.ok) await fetchSegments();
+  };
+
+  if (loading) return <Loading />;
+
+  if (viewingSegment) {
+    const list = viewingSegment.contacts || [];
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+            <IconBtn icon="arrow" onClick={() => setViewingSegmentId(null)} />
+            <div>
+              <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>{viewingSegment.name}</h2>
+              <p style={{ fontSize:'13px', color:'var(--t2)' }}>{viewingSegment.description || viewingSegment.desc || 'No description'}</p>
+            </div>
+          </div>
+          <Btn onClick={openAddContact} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10"/> Add Customer</Btn>
+        </div>
+
+        {contactFormOpen && (
+          <div style={{ ...card, padding:'20px', display:'flex', flexDirection:'column', gap:'12px' }}>
+            <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editingContact ? 'Edit Contact' : 'Add Contact'}</p>
+            <div style={{ display:'flex', gap:'12px', flexWrap:'wrap' }}>
+              <div style={{ flex:1, minWidth:'200px' }}>
+                <label style={labelStyle}>Name</label>
+                <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="e.g. Alice Smith" style={inputStyle} />
+              </div>
+              <div style={{ flex:1, minWidth:'200px' }}>
+                <label style={labelStyle}>Phone Number</label>
+                <input value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="e.g. +14155552671" style={inputStyle} />
+              </div>
+            </div>
+            {contactError && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {contactError}</p>}
+            <div style={{ display:'flex', gap:8 }}>
+              <Btn onClick={saveContact} style={{ boxShadow:'var(--glow)' }}>{editingContact ? 'Update' : 'Add'}</Btn>
+              <Btn variant="ghost" onClick={cancelContactForm}>Cancel</Btn>
+            </div>
+          </div>
+        )}
+
+        <div style={{ ...card, overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left', minWidth:420 }}>
+            <thead>
+              <tr style={{ borderBottom:'1px solid var(--bd)' }}>
+                {['Name','Phone Number','Actions'].map(h => (
+                  <th key={h} style={{ padding:'12px 20px', fontSize:'11px', fontWeight:600, color:'var(--t3)', textTransform:'uppercase' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {list.length === 0 && (
+                <tr><td colSpan="3" style={{ padding:'32px', textAlign:'center', color:'var(--t2)', fontSize:'13px' }}>No contacts in this segment yet.</td></tr>
+              )}
+              {list.map(c => (
+                <tr key={c.id} style={{ borderBottom:'1px solid var(--bd)' }}>
+                  <td style={{ padding:'14px 20px', fontSize:'13px', fontWeight:600, color:'var(--t1)' }}>{c.name}</td>
+                  <td style={{ padding:'14px 20px', fontSize:'13px', color:'var(--t2)' }}>{c.phone || c.phoneNumber}</td>
+                  <td style={{ padding:'14px 20px' }}>
+                    <span style={{ display:'inline-flex', gap:8 }}>
+                      <IconBtn icon="pencil" onClick={() => openEditContact(c)} />
+                      <IconBtn icon="trash" danger onClick={() => deleteContact(c.id)} />
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
+      <TabHeader icon="users" color="var(--t2)" bg="rgba(255,255,255,0.04)"
+        title="Smart Lists" subtitle="Segment your contacts for targeted messaging">
+        <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Create Segment</Btn>
+      </TabHeader>
 
       {segFormOpen && (
         <div style={{ ...card, padding:'20px', display:'flex', flexDirection:'column', gap:'12px' }}>
           <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editingSeg ? 'Edit Segment' : 'New Segment'}</p>
-          <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
-            <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Segment Name</label>
-            <input value={segName} onChange={e => setSegName(e.target.value)} placeholder="e.g. VIP Customers"
-              style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', width:'100%', maxWidth:'400px', boxSizing:'border-box' }} />
+          <div style={{ maxWidth:400 }}>
+            <label style={labelStyle}>Segment Name</label>
+            <input value={segName} onChange={e => setSegName(e.target.value)} placeholder="e.g. VIP Customers" style={inputStyle} />
           </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
-            <label style={{ fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em' }}>Description (optional)</label>
-            <input value={segDesc} onChange={e => setSegDesc(e.target.value)} placeholder="e.g. High-value customers"
-              style={{ padding:'10px 14px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', width:'100%', maxWidth:'400px', boxSizing:'border-box' }} />
+          <div style={{ maxWidth:400 }}>
+            <label style={labelStyle}>Description (optional)</label>
+            <input value={segDesc} onChange={e => setSegDesc(e.target.value)} placeholder="e.g. High-value customers" style={inputStyle} />
           </div>
           {segError && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {segError}</p>}
           <div style={{ display:'flex', gap:8 }}>
@@ -1668,12 +1950,8 @@ const SmartListsTab = () => {
                   <I n="users" s={16} c={list.color || '#8b5cf6'} />
                 </div>
                 <div style={{ display:'flex', gap:'8px' }}>
-                  <button onClick={() => openEditSeg(list)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t3)' }}
-                    onMouseEnter={e => e.currentTarget.style.color = 'var(--t1)'}
-                    onMouseLeave={e => e.currentTarget.style.color = 'var(--t3)'}><I n="pencil" s={14}/></button>
-                  <button onClick={() => deleteSeg(list.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t3)' }}
-                    onMouseEnter={e => e.currentTarget.style.color = '#f87171'}
-                    onMouseLeave={e => e.currentTarget.style.color = 'var(--t3)'}><I n="trash" s={14}/></button>
+                  <IconBtn icon="pencil" onClick={() => openEditSeg(list)} />
+                  <IconBtn icon="trash" danger onClick={() => deleteSeg(list.id)} />
                 </div>
               </div>
               <div>
@@ -1692,16 +1970,15 @@ const SmartListsTab = () => {
   );
 };
 
-// ─── Main Component ───
+// ─────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────
 const TAB_IDS = new Set(TABS.map(t => t.id));
 
 export default function AutomationView() {
   // Persist the selected tab in the URL (?tab=) so a refresh or a shared link
-  // lands back on the same tab instead of always resetting to Basic
-  // Automations. Read once on mount; Dashboard's router only looks at
-  // pathname (not search) so this doesn't interact with the outer route. This
-  // also means a Quick Link that pushes `?tab=wa-agent` (see Dashboard.jsx's
-  // pathFromSection) deep-links straight into that sub-tab.
+  // lands back on the same tab. Dashboard's router only looks at pathname, so
+  // this doesn't interact with the outer route.
   const [activeTab, setActiveTab] = useState(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('tab');
     return TAB_IDS.has(fromUrl) ? fromUrl : 'basic';
@@ -1731,8 +2008,6 @@ export default function AutomationView() {
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#060B18' }}>
-
-      {/* Horizontal Tab Bar */}
       <div style={{ padding:'20px 32px 0 32px', borderBottom:'1px solid var(--bd)', display:'flex', gap:'4px', overflowX:'auto', flexShrink:0, background:'var(--surf)' }}>
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
@@ -1754,7 +2029,6 @@ export default function AutomationView() {
         })}
       </div>
 
-      {/* Content Area */}
       <div style={{ flex:1, overflowY:'auto', padding:'32px' }}>
         <div style={{ maxWidth:'1000px', margin:'0 auto' }}>
           {renderContent()}

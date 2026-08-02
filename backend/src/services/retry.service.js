@@ -3,6 +3,7 @@ import { campaignQueue } from '../queues/campaign.queue.js';
 import { isRetryableFailure, calculateNextRetry } from '../lib/retry.js';
 import { queueCampaignCompletedEmail } from './email.service.js';
 import { runFallbackForRecipient } from './fallback.service.js';
+import { notifyWorkspace } from './notification.service.js';
 
 export async function checkAndCompleteCampaign(campaignId) {
   const pendingCount = await prisma.campaignRecipient.count({
@@ -20,7 +21,23 @@ export async function checkAndCompleteCampaign(campaignId) {
     if (done.count > 0) {
       console.log(`[CampaignWorker] All recipients finished. Campaign ${campaignId} completed.`);
       const completed = await prisma.campaign.findUnique({ where: { id: campaignId } });
-      if (completed) queueCampaignCompletedEmail(completed).catch(() => {});
+      if (completed) {
+        // Anything paid for but never sent (a contact who replied STOP after
+        // launch, for instance) goes back to the wallet now that the
+        // campaign is finished and the final tally is known.
+        const { settleCampaignRefund } = await import('./campaigns.service.js');
+        await settleCampaignRefund(campaignId, 'Refund for unsent campaign messages').catch((e) =>
+          console.error(`[Campaign] Settlement failed for ${campaignId}:`, e.message));
+
+        queueCampaignCompletedEmail(completed).catch(() => {});
+        notifyWorkspace(completed.workspaceId, {
+          type: 'CAMPAIGN_COMPLETED',
+          title: `Campaign "${completed.name}" finished`,
+          body: `${completed.sent} sent · ${completed.delivered} delivered · ${completed.failed} failed${completed.skipped ? ` · ${completed.skipped} skipped (opted out)` : ''}`,
+          link: 'campaigns',
+          meta: { campaignId },
+        }).catch(() => {});
+      }
       return true;
     }
   }
