@@ -25,6 +25,13 @@ logs/
 *.log
 npm-debug.log*
 
+# Scratch output from local script runs (migrations, startup, error dumps).
+# Machine-specific and regenerated on every run — nothing here belongs in the
+# repo. Matched at any depth so the root and backend/ copies are both covered.
+migration_status.txt
+init_status.txt
+server_errors.txt
+
 # OS files
 .DS_Store
 Thumbs.db
