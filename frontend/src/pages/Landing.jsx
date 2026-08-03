@@ -21,22 +21,22 @@ const HeroPreview = () => {
   const spark4 = [95, 97, 96, 98, 97, 99, 98, 99, 98, 99];
   const bars   = [40, 58, 45, 72, 65, 88, 80];
   return (
-    <div className="fu5 floatY" style={{ position: 'relative', flexShrink: 0 }}>
-      <div style={{ position: 'absolute', top: '-18px', right: '-24px', zIndex: 10, padding: '8px 14px', borderRadius: '40px', background: 'var(--surf)', border: '1px solid var(--bd)', boxShadow: 'var(--card-shadow)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <div className="fu5 floatY hero-preview-root" style={{ position: 'relative' }}>
+      <div className="hero-preview-badge-right" style={{ position: 'absolute', top: '-18px', right: '-24px', zIndex: 10, padding: '8px 14px', borderRadius: '40px', background: 'var(--surf)', border: '1px solid var(--bd)', boxShadow: 'var(--card-shadow)', display: 'flex', alignItems: 'center', gap: '8px' }}>
         <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s ease infinite' }} />
         <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--t1)' }}>98.7% delivered</span>
       </div>
-      <div style={{ position: 'absolute', bottom: '-16px', left: '-24px', zIndex: 10, padding: '8px 14px', borderRadius: '40px', background: 'var(--surf)', border: '1px solid var(--bd)', boxShadow: 'var(--card-shadow)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="hero-preview-badge-left" style={{ position: 'absolute', bottom: '-16px', left: '-24px', zIndex: 10, padding: '8px 14px', borderRadius: '40px', background: 'var(--surf)', border: '1px solid var(--bd)', boxShadow: 'var(--card-shadow)', display: 'flex', alignItems: 'center', gap: '8px' }}>
         <I n="send" s={13} c="#1EBF5E" />
         <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--t1)' }}>12,421 sent today</span>
       </div>
-      <div style={{ background: '#090D1A', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 32px 80px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)', overflow: 'hidden', width: '560px' }}>
+      <div className="hero-preview-card" style={{ background: '#090D1A', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 32px 80px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)', overflow: 'hidden' }}>
         <div style={{ height: '36px', background: '#060A15', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '10px' }}>
           <div style={{ display: 'flex', gap: '5px' }}>{['#FF5F57', '#FFBD2E', '#28C840'].map(c => <div key={c} style={{ width: '10px', height: '10px', borderRadius: '50%', background: c }} />)}</div>
-          <div style={{ flex: 1, maxWidth: '300px', margin: '0 auto', background: 'rgba(255,255,255,0.05)', borderRadius: '5px', padding: '3px 12px', fontSize: '10.5px', color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>app.chatflowpro.com/dashboard</div>
+          <div style={{ flex: 1, maxWidth: '300px', margin: '0 auto', background: 'rgba(255,255,255,0.05)', borderRadius: '5px', padding: '3px 12px', fontSize: '10.5px', color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>app.chatflowpro.com/dashboard</div>
         </div>
-        <div style={{ display: 'flex', height: '430px' }}>
-          <div style={{ width: '50px', background: '#060913', borderRight: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '14px 0', gap: '4px' }}>
+        <div style={{ display: 'flex', height: 'auto', minHeight: '430px' }}>
+          <div style={{ width: '50px', flexShrink: 0, background: '#060913', borderRight: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '14px 0', gap: '4px' }}>
             <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '10px' }}>
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
             </div>
@@ -46,8 +46,8 @@ const HeroPreview = () => {
               </div>
             ))}
           </div>
-          <div style={{ flex: 1, background: '#070B18', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 0, background: '#070B18', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
               <div>
                 <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '14px', color: 'var(--t1)' }}>Dashboard</div>
                 <div style={{ fontSize: '10px', color: 'var(--t2)', marginTop: '1px' }}>May 9, 2026</div>
@@ -57,12 +57,12 @@ const HeroPreview = () => {
                 <div style={{ padding: '4px 10px', fontSize: '10px', fontWeight: 700, borderRadius: '6px', background: 'var(--green)', color: '#060913' }}>+ Campaign</div>
               </div>
             </div>
-            <div style={{ height: '32px', borderRadius: '8px', background: 'linear-gradient(90deg,rgba(30,191,94,0.12),rgba(14,165,233,0.07))', border: '1px solid rgba(30,191,94,0.2)', display: 'flex', alignItems: 'center', padding: '0 12px', gap: '6px' }}>
+            <div style={{ minHeight: '32px', borderRadius: '8px', background: 'linear-gradient(90deg,rgba(30,191,94,0.12),rgba(14,165,233,0.07))', border: '1px solid rgba(30,191,94,0.2)', display: 'flex', alignItems: 'center', padding: '6px 12px', gap: '6px', flexWrap: 'wrap' }}>
               <I n="spark" s={10} c="var(--green)" />
               <span style={{ fontSize: '10px', color: 'var(--t1)', fontWeight: 600 }}>Unlock AI Copilot — Upgrade to Growth</span>
               <span style={{ marginLeft: 'auto', fontSize: '9px', padding: '2px 8px', borderRadius: '20px', background: 'var(--green)', color: '#060913', fontWeight: 700 }}>Upgrade</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '6px' }}>
+            <div className="preview-grid-4">
               {[['50.2K', 'Messages', spark1, 'var(--green)', '↑12%'], ['12.4K', 'Contacts', spark2, '#0EA5E9', '↑8%'], ['24', 'Campaigns', spark3, '#A78BFA', '↑3'], ['98.7%', 'Delivery', spark4, '#F59E0B', '↑0.4%']].map(([v, l, sp, c, ch]) => (
                 <div key={l} style={{ padding: '9px 10px', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)' }}>
                   <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', marginBottom: '3px' }}>{l}</div>
@@ -74,7 +74,7 @@ const HeroPreview = () => {
                 </div>
               ))}
             </div>
-            <div style={{ flex: 1, padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+            <div style={{ flex: 1, padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <span style={{ fontSize: '10px', fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>Messages Sent</span>
                 <span style={{ fontSize: '9px', color: 'var(--green)', fontWeight: 600 }}>↑ 32% this week</span>
@@ -88,17 +88,17 @@ const HeroPreview = () => {
                 {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i} style={{ flex: 1, fontSize: '8px', color: 'rgba(255,255,255,0.2)', textAlign: 'center' }}>{d}</div>)}
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+            <div className="preview-grid-2">
               {[
                 { label: 'WhatsApp', value: '+91 98765 43210', sub: 'Quality: High', badge: 'Connected', bc: 'var(--green)', bb: 'var(--gbd)', bbg: 'var(--gbg)' },
                 { label: 'Campaigns', value: 'Diwali Sale Active', sub: '12,421 sent', badge: 'Live', bc: '#0EA5E9', bb: 'rgba(14,165,233,0.25)', bbg: 'rgba(14,165,233,0.08)' },
               ].map(it => (
-                <div key={it.label} style={{ padding: '9px 10px', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '7px' }}>
+                <div key={it.label} style={{ padding: '9px 10px', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '7px', minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
                     <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{it.label}</span>
                     <span style={{ fontSize: '8px', padding: '1px 6px', borderRadius: '20px', background: it.bbg, border: `1px solid ${it.bb}`, color: it.bc, fontWeight: 700 }}>{it.badge}</span>
                   </div>
-                  <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '10px', fontWeight: 700, color: 'var(--t1)' }}>{it.value}</div>
+                  <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '10px', fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.value}</div>
                   <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', marginTop: '1px' }}>{it.sub}</div>
                 </div>
               ))}
@@ -143,17 +143,132 @@ const Navbar = ({ onNav }) => {
 
 const Hero = ({ onNav }) => {
   return (
-    <section style={{ minHeight: '100vh', paddingTop: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
+    <section className="hero-section" style={{ minHeight: '100vh', paddingTop: '140px', paddingBottom: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
+      <style>{`
+        .hero-container {
+          width: 100%;
+          max-width: 1240px;
+          margin: 0 auto;
+          padding: 0 32px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 60px;
+          z-index: 10;
+        }
+        .hero-left-col {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 26px;
+          align-items: flex-start;
+          text-align: left;
+        }
+        .hero-right-col {
+          flex: 1;
+          width: 100%;
+          max-width: 560px;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+        }
+        .hero-preview-root {
+          width: 100%;
+          max-width: 560px;
+          flex-shrink: 0;
+        }
+        .hero-preview-card {
+          width: 100%;
+          max-width: 560px;
+        }
+        .hero-heading {
+          font-size: clamp(54px, 5.5vw, 84px);
+          font-weight: 800;
+          color: var(--t1);
+          margin: 0;
+          letter-spacing: -.05em;
+          line-height: 1.02;
+        }
+        .preview-grid-4 {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 6px;
+        }
+        .preview-grid-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 6px;
+        }
+
+        /* Tablet widths and medium screen sizes: <= 1024px */
+        @media (max-width: 1024px) {
+          .hero-container {
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: flex-start;
+            gap: 56px;
+          }
+          .hero-left-col {
+            width: 100%;
+            max-width: 100%;
+            flex: none;
+          }
+          .hero-right-col {
+            width: 100%;
+            max-width: 100%;
+            flex: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+          }
+          .hero-heading {
+            font-size: clamp(42px, 6vw, 60px);
+          }
+        }
+
+        /* Smaller screens / mobile: < 768px */
+        @media (max-width: 767px) {
+          .hero-container {
+            gap: 48px;
+          }
+          .hero-heading {
+            font-size: clamp(36px, 7vw, 48px);
+          }
+          .preview-grid-4 {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+
+        @media (max-width: 480px) {
+          .hero-container {
+            gap: 40px;
+          }
+          .hero-heading {
+            font-size: clamp(32px, 8vw, 40px);
+          }
+          .preview-grid-2 {
+            grid-template-columns: 1fr;
+          }
+          .hero-preview-badge-right {
+            right: 0px !important;
+            top: -14px !important;
+          }
+          .hero-preview-badge-left {
+            left: 0px !important;
+            bottom: -14px !important;
+          }
+        }
+      `}</style>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '600px', background: 'radial-gradient(ellipse at 50% 0%, rgba(30,191,94,0.15) 0%, transparent 70%)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', top: '20%', left: '5%', width: '300px', height: '300px', background: 'var(--green)', filter: 'blur(150px)', opacity: 0.05, pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', bottom: '10%', right: '5%', width: '400px', height: '400px', background: '#0EA5E9', filter: 'blur(150px)', opacity: 0.05, pointerEvents: 'none' }} />
-      <div style={{ width: '100%', maxWidth: '1240px', margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '60px', zIndex: 10, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 480px', minWidth: '320px', display: 'flex', flexDirection: 'column', gap: '26px', alignItems: 'flex-start', textAlign: 'left' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '10px 18px', borderRadius: '999px', background: 'rgba(30,191,94,0.08)', border: '1px solid rgba(30,191,94,0.2)', color: 'var(--green)', fontSize: '13px', fontWeight: 700, letterSpacing: '.08em' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)' }} />
-            Official Meta WhatsApp Business API Partner
+      <div className="hero-container">
+        <div className="hero-left-col">
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '10px 18px', borderRadius: '999px', background: 'rgba(30,191,94,0.08)', border: '1px solid rgba(30,191,94,0.2)', color: 'var(--green)', fontSize: '13px', fontWeight: 700, letterSpacing: '.08em', maxWidth: '100%', whiteSpace: 'normal' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
+            <span>Official Meta WhatsApp Business API Partner</span>
           </div>
-          <h1 style={{ fontSize: 'clamp(54px, 5.5vw, 84px)', fontWeight: 800, color: 'var(--t1)', margin: 0, letterSpacing: '-.05em', lineHeight: 1.02 }}>
+          <h1 className="hero-heading">
             The WhatsApp Platform <br />Built for <span style={{ color: 'var(--green)' }}>Revenue.</span>
           </h1>
           <p style={{ fontSize: '18px', color: 'var(--t2)', maxWidth: '540px', lineHeight: 1.7, fontWeight: 500 }}>
@@ -166,7 +281,7 @@ const Hero = ({ onNav }) => {
           </div>
           <p style={{ fontSize: '13px', color: 'var(--t3)', margin: 0 }}>14-day free trial · No credit card required</p>
         </div>
-        <div style={{ flex: '1 1 520px', minWidth: '320px', display: 'flex', justifyContent: 'center' }}>
+        <div className="hero-right-col">
           <HeroPreview />
         </div>
       </div>
