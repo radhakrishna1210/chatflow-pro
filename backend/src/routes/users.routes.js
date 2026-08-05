@@ -13,5 +13,8 @@ router.patch('/me', validate({ body: userSchemas.updateProfile }), usersControll
 router.post('/me/password', validate({ body: userSchemas.changePassword }), usersController.changePassword);
 router.get('/me/sessions', usersController.listSessions);
 router.post('/me/sessions/revoke-others', usersController.revokeOtherSessions);
+// Preview first so the UI can spell out exactly what deletion destroys.
+router.get('/me/deletion-preview', usersController.deletionPreview);
+router.delete('/me', validate({ body: userSchemas.deleteAccount }), usersController.deleteMe);
 
 export default router;

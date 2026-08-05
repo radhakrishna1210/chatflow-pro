@@ -435,18 +435,26 @@ export async function queueMemberInvitedEmail({ inviteeEmail, inviteeName, invit
 
 // Token-based invite (works whether or not the invitee has an account yet)
 // — reuses the same workspace-level toggle as queueMemberInvitedEmail.
+// Returns whether an email was actually queued, so the caller can tell the
+// admin the truth. `false` here is not an error — the workspace may simply
+// have invite emails switched off — but it does mean the invitee will never
+// receive a link unless one is shared with them another way.
 export async function queueWorkspaceInviteEmail({ inviteeEmail, inviterName, workspaceId, workspaceName, token }) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { emailNotifyMemberInvite: true },
   });
-  if (ws && !ws.emailNotifyMemberInvite) return;
+  if (ws && !ws.emailNotifyMemberInvite) {
+    console.warn(`[Email] Invite email to ${inviteeEmail} skipped — emailNotifyMemberInvite is off for workspace ${workspaceId}`);
+    return false;
+  }
 
   await emailQueue.add('workspace-invite', {
     type: 'workspace-invite',
     to: inviteeEmail,
     payload: { inviterName, workspaceName, token },
   });
+  return true;
 }
 
 export async function queueApiKeyCreatedEmail({ userEmail, userName, keyName, environment, keyPrefix }) {

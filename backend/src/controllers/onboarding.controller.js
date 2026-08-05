@@ -100,14 +100,16 @@ export const chatWithAi = async (req, res) => {
     // feature flag, session lookup, and number count were previously each
     // awaited one at a time). Results are only used after the membership
     // check below, so a non-member never sees any of this data.
-    const [member, aiOnboardingAllowed, existingSession, numberCount] = await Promise.all([
-      prisma.workspaceMember.findUnique({ where: { userId_workspaceId: { userId, workspaceId } } }),
+    const member = await prisma.workspaceMember.findUnique({
+      where: { userId_workspaceId: { userId, workspaceId } },
+    });
+    if (!member) return res.status(403).json({ content: 'You are not a member of that workspace.' });
+
+    const [aiOnboardingAllowed, existingSession, numberCount] = await Promise.all([
       hasFeature(workspaceId, 'aiOnboarding'),
       prisma.aiSession.findFirst({ where: { userId, workspaceId }, orderBy: { updatedAt: 'desc' } }),
       prisma.waNumber.count({ where: { workspaceId } }),
     ]);
-
-    if (!member) return res.status(403).json({ content: 'You are not a member of that workspace.' });
 
     if (!aiOnboardingAllowed) {
       return res.status(403).json({

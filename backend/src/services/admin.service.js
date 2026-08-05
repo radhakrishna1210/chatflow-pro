@@ -4,6 +4,7 @@ import { encrypt } from '../lib/encryption.js';
 import { getWabaPhoneNumbers, requestOtp, verifyOtp, systemClient } from '../lib/meta.js';
 import { deleteWaNumbers } from './whatsapp.service.js';
 import { env } from '../config/env.js';
+import { normalizeOverageRates } from '../lib/messagePricing.js';
 
 // ── Pool summary ──────────────────────────────────────────────
 export async function getPoolSummary() {
@@ -733,8 +734,18 @@ function buildPlanData(body, { partial } = {}) {
     data.name = name;
   }
   if (!partial || has('priceMonthly')) data.priceMonthly = normMoney(body.priceMonthly ?? 0, 'Monthly price');
-  if (!partial || has('currency')) data.currency = String(body.currency || 'USD').trim().toUpperCase().slice(0, 8) || 'USD';
+  // Null/blank clears the quarterly option, leaving the plan monthly-only.
+  if (!partial || has('priceQuarterly')) {
+    const raw = body.priceQuarterly;
+    data.priceQuarterly = raw === null || raw === undefined || raw === ''
+      ? null
+      : normMoney(raw, 'Quarterly price');
+  }
+  if (!partial || has('currency')) data.currency = String(body.currency || 'INR').trim().toUpperCase().slice(0, 8) || 'INR';
   if (!partial || has('overageRatePerMsg')) data.overageRatePerMsg = normMoney(body.overageRatePerMsg ?? 0, 'Overage rate per message');
+  // null clears the override so the plan charges cost (the shared rates in
+  // lib/messagePricing.js) rather than being pinned at zero.
+  if (!partial || has('overageRates')) data.overageRates = normalizeOverageRates(body.overageRates);
 
   if (!partial || has('messageQuota')) {
     const q = Number(body.messageQuota ?? 0);

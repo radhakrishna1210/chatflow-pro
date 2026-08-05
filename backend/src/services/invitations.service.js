@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { queueWorkspaceInviteEmail } from './email.service.js';
 import { assertWithinLimit } from './subscription.service.js';
 import { notifyUser } from './notification.service.js';
+import { env } from '../config/env.js';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -53,13 +54,23 @@ export async function createInvitation(workspaceId, { email, role }, inviterId) 
     },
   });
 
-  queueWorkspaceInviteEmail({
-    inviteeEmail: normalizedEmail,
-    inviterName: inviter.name || 'A workspace admin',
-    workspaceId,
-    workspaceName: workspace?.name || 'your workspace',
-    token: rawToken,
-  }).catch(() => {});
+  // Whether the email actually got queued decides what the admin is told.
+  // This used to be `.catch(() => {})`: if SMTP was misconfigured, the
+  // notification flag was off, or Redis was unreachable, the invitation row
+  // was still created and the UI reported success — so an invite that nobody
+  // could ever receive looked identical to one that was delivered.
+  let emailQueued = false;
+  try {
+    emailQueued = await queueWorkspaceInviteEmail({
+      inviteeEmail: normalizedEmail,
+      inviterName: inviter.name || 'A workspace admin',
+      workspaceId,
+      workspaceName: workspace?.name || 'your workspace',
+      token: rawToken,
+    });
+  } catch (err) {
+    console.error(`[Invitation] Could not queue invite email to ${normalizedEmail}:`, err.message);
+  }
 
   // Inviting someone who already has an account used to produce nothing they
   // could see in the app — only an email. They get an in-app notification
@@ -85,7 +96,17 @@ export async function createInvitation(workspaceId, { email, role }, inviterId) 
   }).catch(() => {});
 
   const { tokenHash: _omit, ...safe } = invitation;
-  return safe;
+  // The raw token is returned once, to the admin who just created the invite
+  // — they are authorised to invite and would receive the same link by email
+  // anyway. It lets the UI offer a copyable link so invitations still work
+  // when email delivery doesn't. It is never returned by list/get.
+  return { ...safe, inviteUrl: buildInviteUrl(rawToken), emailQueued };
+}
+
+export function buildInviteUrl(rawToken) {
+  // Must match the link in inviteWithLinkHtml (email.service.js):
+  // /invite/accept is a frontend SPA route, so it hangs off CLIENT_URL.
+  return `${env.CLIENT_URL}/invite/accept?token=${encodeURIComponent(rawToken)}`;
 }
 
 export async function listInvitations(workspaceId) {
@@ -115,16 +136,23 @@ export async function resendInvitation(workspaceId, invitationId, inviterId) {
     data: { tokenHash: hashToken(rawToken), expiresAt: new Date(Date.now() + INVITE_TTL_MS) },
   });
 
-  queueWorkspaceInviteEmail({
-    inviteeEmail: invitation.email,
-    inviterName: inviter.name || 'A workspace admin',
-    workspaceId,
-    workspaceName: workspace?.name || 'your workspace',
-    token: rawToken,
-  }).catch(() => {});
+  let emailQueued = false;
+  try {
+    emailQueued = await queueWorkspaceInviteEmail({
+      inviteeEmail: invitation.email,
+      inviterName: inviter.name || 'A workspace admin',
+      workspaceId,
+      workspaceName: workspace?.name || 'your workspace',
+      token: rawToken,
+    });
+  } catch (err) {
+    console.error(`[Invitation] Could not queue resend to ${invitation.email}:`, err.message);
+  }
 
   const { tokenHash: _omit, ...safe } = updated;
-  return safe;
+  // Resending rotates the token, so the previous link is dead — hand back the
+  // new one for the same copy-link fallback as create.
+  return { ...safe, inviteUrl: buildInviteUrl(rawToken), emailQueued };
 }
 
 export async function revokeInvitation(workspaceId, invitationId) {

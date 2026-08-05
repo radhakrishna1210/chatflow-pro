@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
-import { debit } from './wallet.service.js';
+import { debit, credit } from './wallet.service.js';
+import { overageRateFor } from '../lib/messagePricing.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
 import { env } from '../config/env.js';
 
@@ -42,7 +43,13 @@ export async function getActiveSubscription(workspaceId) {
 // message (campaigns pay their whole cost at launch). Such a send still meters
 // quota, but must never touch the wallet again — that would double-charge —
 // and must never be refused for an exhausted balance the customer already paid.
-export async function consumeMessageCredit(workspaceId, { reason = 'Message send', prepaid = false } = {}) {
+//
+// `messageCategory` is the template's category (MARKETING / UTILITY /
+// AUTHENTICATION). Overage is billed at that category's rate, so an
+// over-quota send costs what the message actually costs. Omit it for a send
+// that carries no template — an inbox reply — and the plan's flat
+// overageRatePerMsg is used instead.
+export async function consumeMessageCredit(workspaceId, { reason = 'Message send', prepaid = false, messageCategory = null } = {}) {
   return prisma.$transaction(async (tx) => {
     const subscription = await tx.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
     if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
@@ -80,14 +87,56 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
       return { ok: true, source: 'PREPAID' };
     }
 
-    // Otherwise overflow to the wallet at the plan's overage rate.
-    const result = await debit(workspaceId, plan.overageRatePerMsg, { reason, category: 'USAGE' }, tx);
+    // Otherwise overflow to the wallet, priced by the message's category so
+    // the charge tracks what the send actually costs. `amount` is returned so
+    // releaseMessageCredit can give back exactly what was taken.
+    const amount = overageRateFor(plan, messageCategory);
+    const result = await debit(workspaceId, amount, { reason, category: 'USAGE' }, tx);
     if (!result.ok) return { ok: false, code: 'QUOTA_AND_WALLET_EXHAUSTED' };
-    return { ok: true, source: 'WALLET', newBalance: result.balance };
+    return { ok: true, source: 'WALLET', newBalance: result.balance, amount };
     // Same reasoning as wallet.service.js#TX_OPTS: this runs once per campaign
     // message and can take a row lock on the wallet, so it needs more than
     // Prisma's default 5s budget against a pooled remote database.
   }, { maxWait: 15_000, timeout: 30_000 });
+}
+
+// Gives back a credit taken by consumeMessageCredit() when the send it was
+// taken for never happened. The credit is claimed *before* handing the
+// message to Meta (it has to be — the quota check is what authorises the
+// send), so a rejected send would otherwise permanently burn a message from
+// the customer's monthly allowance for a message nobody ever received.
+//
+// `source` is the value consumeMessageCredit returned: QUOTA and PREPAID both
+// incremented the usage counter, WALLET did not (it debited the overage rate
+// instead) and so is refunded in money rather than in quota.
+export async function releaseMessageCredit(workspaceId, { source, amount: charged = null, messageCategory = null, reason = 'Refund for failed message send' } = {}) {
+  if (!source) return { released: false };
+
+  if (source === 'WALLET') {
+    const subscription = await prisma.subscription.findUnique({
+      where: { workspaceId }, include: { plan: true },
+    });
+    if (!subscription) return { released: false };
+    // Prefer the exact figure consumeMessageCredit reported. Re-deriving it
+    // would refund the wrong amount if the plan's rates changed in between.
+    const amount = charged != null && Number.isFinite(Number(charged))
+      ? Number(charged)
+      : overageRateFor(subscription.plan, messageCategory);
+    if (!(amount > 0)) return { released: false };
+    const result = await credit(workspaceId, amount, { reason, category: 'REFUND', gateway: 'system' })
+      .catch((err) => { console.error(`[Subscription] Overage refund failed for ${workspaceId}:`, err.message); return null; });
+    return { released: !!result, source, amount };
+  }
+
+  const subscription = await prisma.subscription.findUnique({ where: { workspaceId } });
+  if (!subscription) return { released: false };
+  // Guarded at 0 so a double release (a retry that also fails, a replayed
+  // webhook) can never drive usage negative and hand out free quota.
+  const decremented = await prisma.usageCounter.updateMany({
+    where: { workspaceId, periodStart: subscription.currentPeriodStart, messagesUsed: { gt: 0 } },
+    data: { messagesUsed: { decrement: 1 } },
+  });
+  return { released: decremented.count > 0, source };
 }
 
 // `memberLimit` counts *teammates*, not seats: the workspace owner does not
@@ -164,11 +213,17 @@ export async function listPlans() {
 // Creates a Razorpay order for one billing cycle of `planId`. The order's
 // `notes` carry workspaceId+planId so verifyCheckoutPayment can read back
 // what was actually paid for — never trust a client-supplied planId here.
-export async function createCheckoutOrder(workspaceId, planId) {
+export async function createCheckoutOrder(workspaceId, planId, cycle = 'monthly') {
   const plan = await prisma.plan.findFirst({ where: { id: planId, isActive: true } });
   if (!plan) { const e = new Error('Plan not found'); e.status = 404; throw e; }
 
-  const amountPaise = Math.round(Number(plan.priceMonthly) * 100);
+  const billingCycle = cycle === 'quarterly' ? 'quarterly' : 'monthly';
+  if (billingCycle === 'quarterly' && plan.priceQuarterly == null) {
+    const e = new Error('This plan is not sold on a quarterly cycle'); e.status = 400; throw e;
+  }
+  const price = billingCycle === 'quarterly' ? plan.priceQuarterly : plan.priceMonthly;
+
+  const amountPaise = Math.round(Number(price) * 100);
   if (amountPaise <= 0) { const e = new Error("This plan is free — there's nothing to check out"); e.status = 400; throw e; }
 
   const client = getRazorpayClient();
@@ -179,12 +234,18 @@ export async function createCheckoutOrder(workspaceId, planId) {
     // millisecond timestamp would overflow it, so truncate and base36 the
     // timestamp. Not used for lookups (that's what `notes` is for below).
     receipt: `sub_${workspaceId.slice(-12)}_${Date.now().toString(36)}`,
-    notes: { workspaceId, planId: plan.id },
+    // `cycle` rides along so verifyCheckoutPayment sets a period length that
+    // matches what was actually paid for, rather than trusting the client.
+    notes: { workspaceId, planId: plan.id, cycle: billingCycle },
   }).catch(normalizeRazorpayError);
 
   return {
     orderId: order.id, amount: order.amount, currency: order.currency, keyId: env.RAZORPAY_KEY_ID,
-    plan: { id: plan.id, key: plan.key, name: plan.name, priceMonthly: plan.priceMonthly },
+    cycle: billingCycle,
+    plan: {
+      id: plan.id, key: plan.key, name: plan.name,
+      priceMonthly: plan.priceMonthly, priceQuarterly: plan.priceQuarterly,
+    },
   };
 }
 
@@ -226,7 +287,7 @@ export async function verifyCheckoutPayment(workspaceId, { orderId, paymentId, s
     data: {
       workspaceId,
       invoiceDate: new Date(),
-      description: `${plan.name} plan subscription`,
+      description: `${plan.name} plan subscription (${order.notes?.cycle === 'quarterly' ? 'quarterly' : 'monthly'})`,
       amount: Number(order.amount) / 100,
       currency: order.currency,
       status: 'PAID',
@@ -234,8 +295,12 @@ export async function verifyCheckoutPayment(workspaceId, { orderId, paymentId, s
     },
   });
 
+  // Cycle length comes from the order's own notes, so a quarterly purchase
+  // gets a 90-day period. runBillingCycleSweep() rolls forward by whatever
+  // this period's length is, so quarterly renewals stay quarterly.
+  const cycleDays = order.notes?.cycle === 'quarterly' ? 90 : 30;
   const periodStart = new Date();
-  const periodEnd = new Date(periodStart.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const periodEnd = new Date(periodStart.getTime() + cycleDays * 24 * 60 * 60 * 1000);
   await prisma.subscription.update({
     where: { workspaceId },
     data: {

@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { getPlanLimits, listPlans, createCheckoutOrder, verifyCheckoutPayment } from '../services/subscription.service.js';
+import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 
 export async function getSummary(req, res) {
   const workspaceId = req.params.workspaceId;
@@ -9,8 +10,13 @@ export async function getSummary(req, res) {
   res.json({
     plan: {
       key: plan.key, name: plan.name, priceMonthly: plan.priceMonthly,
+      priceQuarterly: plan.priceQuarterly, currency: plan.currency,
       messageQuota: plan.messageQuota, contactLimit: plan.contactLimit, memberLimit: plan.memberLimit,
-      apiKeyLimit: plan.apiKeyLimit, overageRatePerMsg: plan.overageRatePerMsg, features: plan.features,
+      apiKeyLimit: plan.apiKeyLimit, overageRatePerMsg: plan.overageRatePerMsg,
+      // Null means the plan charges the shared cost rates; resolve them here so
+      // the UI always has concrete numbers to show.
+      overageRates: plan.overageRates ?? MESSAGE_CATEGORY_RATES,
+      features: plan.features,
     },
     usage: { messagesUsed: usage.messagesUsed, periodStart: usage.periodStart, periodEnd: usage.periodEnd },
     remainingQuota: remainingQuota === Infinity ? -1 : remainingQuota,
@@ -27,9 +33,9 @@ export async function getPlans(req, res) {
 }
 
 export async function createCheckout(req, res) {
-  const { planId } = req.body;
+  const { planId, cycle } = req.body;
   if (!planId) { const e = new Error('planId is required'); e.status = 400; throw e; }
-  const order = await createCheckoutOrder(req.params.workspaceId, planId);
+  const order = await createCheckoutOrder(req.params.workspaceId, planId, cycle);
   res.json(order);
 }
 

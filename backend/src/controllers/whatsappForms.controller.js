@@ -1,5 +1,13 @@
 // WhatsApp Forms controller
 import * as whatsappFormsService from '../services/whatsappForms.service.js';
+import { listFormTemplates } from '../data/formTemplates.js';
+
+// Starter question sets + the category vocabulary the builder offers. Static
+// data, but served from the API so the presets and the field types the
+// runtime accepts cannot drift apart.
+export async function listTemplates(req, res) {
+  res.json(listFormTemplates());
+}
 
 export async function listForms(req, res) {
   try {
