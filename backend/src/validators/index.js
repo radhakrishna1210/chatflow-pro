@@ -96,6 +96,8 @@ export const campaignSchemas = {
   estimate: z.object({
     contactIds: z.array(id).max(10_000).optional(),
     campaignId: id.optional(),
+    // Drives per-category message pricing before the campaign row exists.
+    templateId: id.optional(),
   }).refine((v) => (v.contactIds && v.contactIds.length > 0) || v.campaignId, {
     message: 'Provide contactIds or a campaignId',
     path: ['contactIds'],
@@ -247,6 +249,8 @@ export const whatsappFormSchemas = {
     // `schema` is the real field list; the old numeric `fields` is derived from
     // it server-side and no longer accepted from the client.
     schema: z.array(formField).max(50).optional(),
+    // Display-only tags; deduplicated and capped server-side.
+    categories: z.array(z.string().trim().max(40)).max(10).optional(),
     keyword: z.string().trim().max(80).optional(),
     completionMessage: meaningfulText(z.string().trim().min(1).max(1000), 'Completion message').optional(),
     status: z.enum(['Draft', 'Active']).optional(),
@@ -254,6 +258,7 @@ export const whatsappFormSchemas = {
   update: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Form name').optional(),
     schema: z.array(formField).max(50).optional(),
+    categories: z.array(z.string().trim().max(40)).max(10).optional(),
     keyword: z.string().trim().max(80).optional(),
     completionMessage: meaningfulText(z.string().trim().min(1).max(1000), 'Completion message').optional(),
     status: z.enum(['Draft', 'Active']).optional(),
@@ -341,6 +346,13 @@ export const userSchemas = {
   }).refine((v) => v.newPassword !== v.currentPassword, {
     message: 'New password must be different from your current password',
     path: ['newPassword'],
+  }),
+  // Password for ordinary accounts; confirmEmail for Google accounts, which
+  // have no password to re-authenticate against. The service decides which
+  // one it requires — both are optional here.
+  deleteAccount: z.object({
+    password: z.string().max(128).optional(),
+    confirmEmail: z.string().trim().max(200).optional(),
   }),
 };
 

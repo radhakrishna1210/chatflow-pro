@@ -31,53 +31,66 @@ async function initializeSubscriptions() {
       key: 'FREE',
       name: 'Free',
       priceMonthly: 0,
+      priceQuarterly: null,
+      currency: 'INR',
       messageQuota: 100,
       contactLimit: 100,
       memberLimit: 1,
       campaignLimit: null,
       apiKeyLimit: 1,
+      // Flat rate for a send with no template category (an inbox reply).
       overageRatePerMsg: 0.02,
+      // Free pays a markup on over-quota template sends — 2x cost, mirroring
+      // the 2x ratio Free already carried against the paid tiers. Basic and
+      // Growth leave this null and are charged cost (lib/messagePricing.js).
+      overageRates: { MARKETING: 2.18, UTILITY: 0.32, AUTHENTICATION: 0.26 },
       // Keep in sync with scripts/seed-plans.js — this list is upserted on
       // every boot, so a change made only there would be overwritten.
       features: { automation: true, workflows: true },
     },
+    // Basic carries the former Pro limits and features; Growth carries the
+    // former Enterprise ones. STARTER/PRO/ENTERPRISE are retired below.
     {
-      key: 'STARTER',
-      name: 'Starter',
-      priceMonthly: 29,
-      messageQuota: 2000,
-      contactLimit: 2000,
-      memberLimit: 3,
-      campaignLimit: null,
-      apiKeyLimit: 3,
-      overageRatePerMsg: 0.015,
-      features: { automation: true, workflows: true },
-    },
-    {
-      key: 'PRO',
-      name: 'Pro',
-      priceMonthly: 99,
+      key: 'BASIC',
+      name: 'Basic',
+      priceMonthly: 1500,
+      priceQuarterly: 3500,
+      currency: 'INR',
       messageQuota: 10000,
       contactLimit: null,
       memberLimit: 10,
       campaignLimit: null,
       apiKeyLimit: 10,
       overageRatePerMsg: 0.01,
+      // null = charge cost: the shared per-category rates.
+      overageRates: null,
       features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
     },
     {
-      key: 'ENTERPRISE',
-      name: 'Enterprise',
-      priceMonthly: 299,
+      key: 'GROWTH',
+      name: 'Growth',
+      priceMonthly: 2500,
+      priceQuarterly: 7500,
+      currency: 'INR',
       messageQuota: -1,
       contactLimit: null,
       memberLimit: null,
       campaignLimit: null,
       apiKeyLimit: null,
       overageRatePerMsg: 0.008,
+      overageRates: null,
       features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
     },
   ];
+
+  // Plans the catalog no longer sells. They are deactivated rather than
+  // deleted because Subscription.planId still references them, and any
+  // workspace left on one is moved onto its successor so nobody is stranded
+  // on a plan that can no longer be renewed or displayed. Each retired tier
+  // maps to the plan that inherited its limits and features, so the move
+  // costs no capability.
+  const RETIRED_PLAN_SUCCESSOR = { STARTER: 'BASIC', PRO: 'BASIC', ENTERPRISE: 'GROWTH' };
+  const RETIRED_PLAN_KEYS = Object.keys(RETIRED_PLAN_SUCCESSOR);
 
   try {
     const planByKey = new Map();
@@ -96,6 +109,40 @@ async function initializeSubscriptions() {
     if (!freePlan) {
       console.error('[Init] FREE plan not found.');
       return;
+    }
+
+    // Retire the old paid tiers: move their subscribers onto the successor
+    // plan first, so no subscription is left pointing at an inactive plan,
+    // then deactivate.
+    const retired = await prisma.plan.findMany({
+      where: { key: { in: RETIRED_PLAN_KEYS } },
+      select: { id: true, key: true },
+    });
+    if (retired.length > 0) {
+      const movedPerPlan = [];
+      for (const oldPlan of retired) {
+        const successor = planByKey.get(RETIRED_PLAN_SUCCESSOR[oldPlan.key]);
+        if (!successor) continue;
+        const moved = await prisma.subscription.updateMany({
+          where: { planId: oldPlan.id },
+          data: { planId: successor.id },
+        });
+        if (moved.count > 0) movedPerPlan.push(`${moved.count} ${oldPlan.key}→${successor.key}`);
+      }
+
+      const retiredIds = retired.map((p) => p.id);
+      // A scheduled change to a retired plan can never be applied either.
+      const clearedPending = await prisma.subscription.updateMany({
+        where: { pendingPlanId: { in: retiredIds } },
+        data: { pendingPlanId: null },
+      });
+      await prisma.plan.updateMany({
+        where: { id: { in: retiredIds }, isActive: true },
+        data: { isActive: false },
+      });
+      if (movedPerPlan.length > 0 || clearedPending.count > 0) {
+        console.log(`[Init] Retired ${retired.map((p) => p.key).join(', ')} — moved ${movedPerPlan.join(', ') || 'none'}, cleared ${clearedPending.count} pending change(s).`);
+      }
     }
 
     const workspaces = await prisma.workspace.findMany({

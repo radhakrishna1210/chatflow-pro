@@ -5,7 +5,7 @@ import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
 import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
-import { consumeMessageCredit } from '../services/subscription.service.js';
+import { consumeMessageCredit, releaseMessageCredit } from '../services/subscription.service.js';
 import { runFallbackForRecipient } from '../services/fallback.service.js';
 import { handleRecipientFailure, checkAndCompleteCampaign } from '../services/retry.service.js';
 import { settleCampaignRefund } from '../services/campaigns.service.js';
@@ -132,11 +132,19 @@ async function processRetryJob(job) {
   const accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
   const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
 
+  // Declared outside the try so the catch below knows which kind of credit to
+  // hand back when the retry send fails.
+  let creditSource = null;
+  let creditAmount = null;
   try {
     const credit = await consumeMessageCredit(workspaceId, {
       reason: 'Campaign retry attempt',
       prepaid: !!campaign.chargedAt,
+      // Overage is priced by the template's category, same as the launch charge.
+      messageCategory: campaign.template?.category ?? null,
     });
+    creditSource = credit.ok ? credit.source : null;
+    creditAmount = credit.ok ? (credit.amount ?? null) : null;
     if (!credit.ok) {
       console.warn(`[CampaignRetry] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
       await handleRecipientFailure(campaign, recipient, 'Quota and wallet balance exhausted', null);
@@ -216,6 +224,9 @@ async function processRetryJob(job) {
     const reason = describeMetaError(metaErr, err.message);
     console.error(`[CampaignRetry] Retry failed for ${recipient.contact.phoneNumber}:`, reason);
 
+    // Nothing went out, so the retry's credit goes back — otherwise every
+    // retry attempt would burn quota for a message that never arrived.
+    await releaseMessageCredit(workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
     await handleRecipientFailure(campaign, { ...recipient, retryCount: attempt }, reason, metaErr?.code);
   }
 }
@@ -232,7 +243,14 @@ async function processCampaign(job) {
     include: { template: true, waNumber: true },
   });
 
-  if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
+  // A deleted campaign can never come back, so throwing here only bought
+  // three pointless BullMQ retries per orphaned job and a wall of
+  // "Campaign … not found" in the log. Treated as a no-op instead, which is
+  // how processRetryJob already handles the same case.
+  if (!campaign) {
+    console.log(`[CampaignWorker] Campaign ${campaignId} no longer exists — discarding job`);
+    return;
+  }
   // Cancellation may have happened while the job sat in the queue. Never
   // resurrect a cancelled/completed campaign.
   if (campaign.status !== 'DRAFT' && campaign.status !== 'SCHEDULED' && campaign.status !== 'RUNNING') {
@@ -277,6 +295,10 @@ async function processCampaign(job) {
       continue;
     }
 
+    // Declared outside the try so the catch below knows which kind of credit
+    // to hand back when the send fails.
+    let creditSource = null;
+    let creditAmount = null;
     try {
       // Campaigns are paid for in full at launch (campaigns.service.js), so
       // the per-send call only meters quota here — charging again would
@@ -284,7 +306,11 @@ async function processCampaign(job) {
       const credit = await consumeMessageCredit(campaign.workspaceId, {
         reason: 'Campaign overage',
         prepaid: !!campaign.chargedAt,
+        // Only used when this send is not prepaid; prices overage by category.
+        messageCategory: campaign.template?.category ?? null,
       });
+      creditSource = credit.ok ? credit.source : null;
+      creditAmount = credit.ok ? (credit.amount ?? null) : null;
       if (!credit.ok) {
         console.warn(`[CampaignWorker] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
         await prisma.campaignRecipient.update({
@@ -361,6 +387,9 @@ async function processCampaign(job) {
       const metaErr = err.response?.data?.error;
       const reason = describeMetaError(metaErr, err.message);
       console.error(`[CampaignWorker] send failed for ${recipient.contact.phoneNumber}:`, reason, metaErr || '');
+      // The credit was claimed before the send that just failed — give it
+      // back so a message nobody received doesn't count against the quota.
+      await releaseMessageCredit(campaign.workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
       await handleRecipientFailure(campaign, recipient, reason, metaErr?.code);
     }
 

@@ -5,6 +5,7 @@ import { normalizeRetryConfig } from '../lib/retry.js';
 import { credit, debit } from './wallet.service.js';
 import { getOptedOutPhoneSet, normalizePhone } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
+import { rateForCategory } from '../lib/messagePricing.js';
 
 const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
@@ -163,7 +164,18 @@ async function analyseAudience(workspaceId, contacts) {
   return { valid, duplicates, blocked, invalid };
 }
 
-async function priceAudience(workspaceId, contacts) {
+// Resolves the per-message rate for a campaign's template category, falling
+// back to the workspace rate when the category is missing/unrecognised.
+async function resolveTemplateCategory(workspaceId, templateId) {
+  if (!templateId) return null;
+  const template = await prisma.template.findFirst({
+    where: { id: templateId, workspaceId },
+    select: { category: true },
+  });
+  return template?.category ?? null;
+}
+
+async function priceAudience(workspaceId, contacts, templateCategory = null) {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { walletBalance: true, costPerMessage: true },
@@ -171,7 +183,7 @@ async function priceAudience(workspaceId, contacts) {
   if (!workspace) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
 
   const { valid, duplicates, blocked, invalid } = await analyseAudience(workspaceId, contacts);
-  const costPerMessage = Number(workspace.costPerMessage);
+  const costPerMessage = rateForCategory(templateCategory, workspace.costPerMessage);
   const totalCost = money(valid.length * costPerMessage);
   const walletBalance = Number(workspace.walletBalance);
 
@@ -181,6 +193,7 @@ async function priceAudience(workspaceId, contacts) {
     duplicateContacts: duplicates.length,
     blockedContacts: blocked.length,
     invalidContacts: invalid.length,
+    messageCategory: templateCategory ?? null,
     costPerMessage,
     totalCost,
     walletBalance,
@@ -194,18 +207,27 @@ async function priceAudience(workspaceId, contacts) {
 // Pre-launch summary (Part 4 of the spec). Accepts either a list of contact
 // ids (the create-campaign wizard, before the campaign row exists) or an
 // existing draft campaign id.
-export async function estimateCampaignCost(workspaceId, { contactIds, campaignId } = {}) {
+export async function estimateCampaignCost(workspaceId, { contactIds, campaignId, templateId } = {}) {
   let contacts = [];
+  // Pricing depends on the template's category. An existing campaign carries
+  // its own template; the wizard estimates before the campaign row exists and
+  // so passes the template it has selected.
+  let category = null;
 
   if (campaignId) {
-    const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId }, select: { id: true } });
+    const campaign = await prisma.campaign.findFirst({
+      where: { id: campaignId, workspaceId },
+      select: { id: true, template: { select: { category: true } } },
+    });
     if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
+    category = campaign.template?.category ?? null;
     const recipients = await prisma.campaignRecipient.findMany({
       where: { campaignId, status: 'PENDING' },
       include: { contact: true },
     });
     contacts = recipients.map((r) => r.contact).filter(Boolean);
   } else {
+    category = await resolveTemplateCategory(workspaceId, templateId);
     const ids = Array.isArray(contactIds) ? contactIds.filter(Boolean) : [];
     if (ids.length === 0) { const e = new Error('Select at least one contact to estimate a campaign'); e.status = 400; throw e; }
     if (ids.length > 10_000) { const e = new Error('A campaign can target at most 10,000 contacts at a time'); e.status = 400; throw e; }
@@ -216,16 +238,19 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
     contacts = ids.map((cid) => byId.get(cid)).filter(Boolean);
     const missing = ids.length - contacts.length;
     if (missing > 0) {
-      const summary = await priceAudience(workspaceId, contacts);
+      const summary = await priceAudience(workspaceId, contacts, category);
       return { ...summary, totalContacts: ids.length, invalidContacts: summary.invalidContacts + missing };
     }
   }
 
-  return priceAudience(workspaceId, contacts);
+  return priceAudience(workspaceId, contacts, category);
 }
 
 export async function launchCampaign(workspaceId, campaignId, scheduledAt, retryConfig, user = null) {
-  const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, workspaceId },
+    include: { template: { select: { category: true } } },
+  });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
   if (campaign.status !== 'DRAFT') {
     const e = new Error('Campaign is not in DRAFT status'); e.status = 400; throw e;
@@ -291,7 +316,10 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     where: { id: workspaceId },
     select: { walletBalance: true, costPerMessage: true },
   });
-  const costPerMessage = Number(workspace.costPerMessage);
+  // Priced by the template's category (marketing/utility/authentication), with
+  // the workspace rate as the fallback. Persisted onto the campaign below, so
+  // refunds and the campaign detail view keep using the rate actually charged.
+  const costPerMessage = rateForCategory(campaign.template?.category, workspace.costPerMessage);
   const totalCost = money(valid.length * costPerMessage);
   const walletBefore = Number(workspace.walletBalance);
 
@@ -538,18 +566,15 @@ export async function settleCampaignRefund(campaignId, reason = 'Refund for unse
   if (!(perMessage > 0) || !(totalCost > 0)) return null;
 
   const paidFor = Math.round(totalCost / perMessage);
+  // Only a message that actually went out is billable. This used to count any
+  // recipient with `failedAt` set as consumed, so a send Meta rejected
+  // outright — an unreachable phone number ID, an expired token, a number
+  // that isn't on WhatsApp — was charged for in full despite never reaching
+  // anyone. Meta itself bills on delivery, so a failure has no cost to pass
+  // on. SENT/DELIVERED/READ are exactly the recipients a message left for;
+  // FAILED, SKIPPED, PENDING and RETRYING are all refunded.
   const consumed = await prisma.campaignRecipient.count({
-    where: {
-      campaignId,
-      AND: [
-        // retryStatus is NULL for every recipient the retry engine never
-        // touched — i.e. the ordinary successful sends. A bare `notIn` drops
-        // those rows (SQL: NULL NOT IN (…) is NULL, not true), which would
-        // score every campaign as "nothing sent" and refund it in full.
-        { OR: [{ retryStatus: null }, { retryStatus: { notIn: ['INVALID_NUMBER', 'SKIPPED'] } }] },
-        { OR: [{ sentAt: { not: null } }, { failedAt: { not: null } }] },
-      ],
-    },
+    where: { campaignId, status: { in: ['SENT', 'DELIVERED', 'READ'] } },
   });
 
   const refundable = Math.min(money(Math.max(0, paidFor - consumed) * perMessage), totalCost);

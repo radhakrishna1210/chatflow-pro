@@ -76,6 +76,101 @@ export default function AnalyticsView() {
   const maxBar = delivery.length ? Math.max(...delivery.map(d => d.sent)) : 1;
   const BAR_H  = 100;
 
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  // Wrap in quotes and double any embedded quote — campaign and agent names
+  // routinely contain commas, which would otherwise shift every later column.
+  const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+  const downloadCsv = () => {
+    const rows = [
+      ['Section', 'Metric', 'Value'],
+      ['Overview', 'Messages Sent', kpi?.messagesSent ?? 0],
+      ['Overview', 'Delivery Rate (%)', kpi?.deliveryRate ?? 0],
+      ['Overview', 'Opt-out Rate (%)', kpi?.optOutRate ?? 0],
+      ['Overview', 'Total Contacts', kpi?.totalContacts ?? 0],
+      [],
+      ['7-Day Delivery', 'Day', 'Sent', 'Delivered', 'Delivery Rate (%)'],
+      ...delivery.map(d => ['7-Day Delivery', d.date, d.sent, d.delivered, d.rate]),
+      [],
+      ['Campaign Performance', 'Campaign', 'Sent', 'Delivered', 'Read', 'Failed', 'Recipients'],
+      ...campaigns.map(c => ['Campaign Performance', c.name, c.sent, c.delivered, c.read, c.failed, c.totalContacts]),
+      [],
+      ['Agent Performance', 'Agent', 'Chats Handled'],
+      ...agents.map(a => ['Agent Performance', a.name, a.chatsHandled]),
+    ];
+    const csv = rows.map(r => r.map(csvCell).join(',')).join('\n');
+    // BOM so Excel opens UTF-8 names (and the ₹ sign) correctly.
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `analytics-${today()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Same approach the invoice download already uses (settings.service.js):
+  // build a print-styled document and let the browser's Print → Save as PDF
+  // produce the file, rather than pulling in a PDF library.
+  const downloadPdf = () => {
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
+    const win = window.open('', '_blank');
+    if (!win) return; // popup blocked — nothing we can do from here
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8">
+<title>ChatFlow Pro — Analytics ${esc(today())}</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color:#111827; margin:0; padding:32px; }
+  h1 { font-size:20px; margin:0 0 4px; letter-spacing:-.02em; }
+  h2 { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#6b7280; margin:28px 0 8px; }
+  .muted { color:#6b7280; font-size:13px; margin:0 0 8px; }
+  .kpis { display:flex; gap:12px; flex-wrap:wrap; margin-top:16px; }
+  .kpi { border:1px solid #e5e7eb; border-radius:10px; padding:12px 16px; min-width:130px; }
+  .kpi span { display:block; font-size:11px; color:#6b7280; text-transform:uppercase; letter-spacing:.06em; }
+  .kpi strong { font-size:22px; }
+  table { width:100%; border-collapse:collapse; margin-top:4px; }
+  th, td { padding:8px 10px; text-align:left; font-size:13px; border-bottom:1px solid #e5e7eb; }
+  th { background:#f9fafb; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; }
+  td.n, th.n { text-align:right; }
+  .foot { margin-top:28px; font-size:12px; color:#6b7280; }
+  @media print { body { padding:0; } }
+</style></head><body>
+  <h1>ChatFlow Pro — Analytics</h1>
+  <p class="muted">Generated ${esc(new Date().toLocaleString('en-IN'))}</p>
+  <div class="kpis">
+    <div class="kpi"><span>Messages Sent</span><strong>${esc((kpi?.messagesSent ?? 0).toLocaleString())}</strong></div>
+    <div class="kpi"><span>Delivery Rate</span><strong>${esc(kpi?.deliveryRate ?? 0)}%</strong></div>
+    <div class="kpi"><span>Opt-out Rate</span><strong>${esc(kpi?.optOutRate ?? 0)}%</strong></div>
+    <div class="kpi"><span>Total Contacts</span><strong>${esc((kpi?.totalContacts ?? 0).toLocaleString())}</strong></div>
+  </div>
+
+  <h2>7-Day Message Delivery</h2>
+  <table><thead><tr><th>Day</th><th class="n">Sent</th><th class="n">Delivered</th><th class="n">Rate</th></tr></thead><tbody>
+    ${delivery.map(d => `<tr><td>${esc(d.date)}</td><td class="n">${esc(d.sent)}</td><td class="n">${esc(d.delivered)}</td><td class="n">${esc(d.rate)}%</td></tr>`).join('') || '<tr><td colspan="4">No sends in the last 7 days.</td></tr>'}
+  </tbody></table>
+
+  <h2>Campaign Performance</h2>
+  <table><thead><tr><th>Campaign</th><th class="n">Sent</th><th class="n">Delivered</th><th class="n">Read</th><th class="n">Failed</th></tr></thead><tbody>
+    ${campaigns.map(c => `<tr><td>${esc(c.name)}</td><td class="n">${esc(c.sent)}</td><td class="n">${esc(c.delivered)}</td><td class="n">${esc(c.read)}</td><td class="n">${esc(c.failed)}</td></tr>`).join('') || '<tr><td colspan="5">No campaigns yet.</td></tr>'}
+  </tbody></table>
+
+  <h2>Agent Performance</h2>
+  <table><thead><tr><th>Agent</th><th class="n">Chats Handled</th></tr></thead><tbody>
+    ${agents.map(a => `<tr><td>${esc(a.name)}</td><td class="n">${esc(a.chatsHandled)}</td></tr>`).join('') || '<tr><td colspan="2">No agent activity yet.</td></tr>'}
+  </tbody></table>
+
+  <p class="foot">Choose Print → Save as PDF to keep a copy.</p>
+</body></html>`);
+    win.document.close();
+    win.focus();
+    // Let the document lay out before the print dialog measures it.
+    setTimeout(() => win.print(), 250);
+  };
+
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
       <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
@@ -163,7 +258,7 @@ export default function AnalyticsView() {
               <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>7-Day Message Delivery Rate</h3>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Daily breakdown of delivery performance</p>
             </div>
-            <Btn variant="outline" size="sm">
+            <Btn variant="outline" size="sm" onClick={downloadCsv}>
               <I n="download" s={13} c="var(--t2)" />
               CSV
             </Btn>
@@ -229,7 +324,7 @@ export default function AnalyticsView() {
           <div style={{ ...card, overflow:'hidden' }}>
             <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
               <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)' }}>Agent Performance</h3>
-              <Btn variant="outline" size="sm">
+              <Btn variant="outline" size="sm" onClick={downloadPdf}>
                 <I n="download" s={13} c="var(--t2)" />
                 PDF
               </Btn>

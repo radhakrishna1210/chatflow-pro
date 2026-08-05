@@ -89,6 +89,9 @@ export default function SettingsView() {
   const [invitations, setInvitations] = useState([]);
   const [resendingId, setResendingId] = useState(null);
   const [resentId, setResentId] = useState(null);
+  // Link for the invite just created/resent, so it can be shared by hand.
+  const [lastInvite, setLastInvite] = useState(null);
+  const [copiedInvite, setCopiedInvite] = useState(false);
   const [memberRoles, setMemberRoles] = useState({});
   const [usagePerc, setUsagePerc] = useState(0);
 
@@ -187,6 +190,9 @@ export default function SettingsView() {
       const data = await r.json();
       if (!r.ok) { setInviteError(data.error || 'Could not send invite'); return; }
       setInvitations(p => [data, ...p]);
+      // Keep the link around so the admin can share it directly — the invite
+      // is useless to the invitee if the email never arrives.
+      setLastInvite({ email: data.email, url: data.inviteUrl, emailQueued: data.emailQueued });
       setInviteEmail(''); setInviteRole('CLIENT'); setShowInvite(false);
     } catch (e) {
       setInviteError(e.message);
@@ -209,6 +215,9 @@ export default function SettingsView() {
       const data = await r.json();
       if (!r.ok) return;
       setInvitations(p => p.map(i => i.id === id ? data : i));
+      // Resending rotates the token, so the old link stops working — show the
+      // new one rather than leaving a stale link on screen.
+      setLastInvite({ email: data.email, url: data.inviteUrl, emailQueued: data.emailQueued });
       setResentId(id);
       setTimeout(() => setResentId(prev => prev === id ? null : prev), 2500);
     } catch {} finally {
@@ -295,6 +304,31 @@ export default function SettingsView() {
                 <Btn size="sm" onClick={sendInvite} disabled={sendingInvite}>{sendingInvite ? 'Sending…' : 'Send Invite'}</Btn>
               </div>
               {inviteError && <p style={{ fontSize:12, color:'#f87171' }}>{inviteError}</p>}
+            </div>
+          )}
+          {lastInvite && (
+            <div style={{ marginBottom:14, padding:'12px 14px', borderRadius:10, border:`1px solid ${lastInvite.emailQueued ? 'var(--gbd)' : 'rgba(245,158,11,0.3)'}`, background: lastInvite.emailQueued ? 'var(--gbg)' : 'rgba(245,158,11,0.08)' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:8 }}>
+                <p style={{ fontSize:12.5, color: lastInvite.emailQueued ? 'var(--green)' : '#fbbf24', fontWeight:600 }}>
+                  {lastInvite.emailQueued
+                    ? `Invite email sent to ${lastInvite.email}.`
+                    : `Invitation created for ${lastInvite.email}, but no email was sent.`}
+                </p>
+                <button onClick={()=>{ setLastInvite(null); setCopiedInvite(false); }}
+                  style={{ background:'none', border:'none', color:'var(--t3)', cursor:'pointer', fontSize:14, lineHeight:1, padding:0 }}>×</button>
+              </div>
+              <p style={{ fontSize:11.5, color:'var(--t2)', marginBottom:8 }}>
+                {lastInvite.emailQueued
+                  ? 'If it does not arrive, share this link directly — it works the same way.'
+                  : 'Check the email settings below, or share this link directly so they can still join.'}
+              </p>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <input readOnly value={lastInvite.url || ''} onFocus={e=>e.target.select()}
+                  style={{ flex:1, minWidth:0, padding:'8px 10px', borderRadius:7, background:'rgba(0,0,0,0.25)', border:'1px solid var(--bd)', color:'var(--t2)', fontSize:11.5, fontFamily:'ui-monospace, monospace', outline:'none' }} />
+                <Btn size="sm" variant="outline" onClick={async ()=>{
+                  try { await navigator.clipboard.writeText(lastInvite.url); setCopiedInvite(true); setTimeout(()=>setCopiedInvite(false), 2000); } catch {}
+                }}>{copiedInvite ? 'Copied ✓' : 'Copy link'}</Btn>
+              </div>
             </div>
           )}
           {invitations.length > 0 && (

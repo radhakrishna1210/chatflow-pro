@@ -17,6 +17,7 @@ export async function estimate(req, res) {
   const summary = await campaignsService.estimateCampaignCost(req.params.workspaceId, {
     contactIds: req.body?.contactIds,
     campaignId: req.body?.campaignId,
+    templateId: req.body?.templateId,
   });
   res.json(summary);
 }

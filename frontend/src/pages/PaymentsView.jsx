@@ -78,6 +78,9 @@ export default function PaymentsView({ initialTab } = {}) {
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
   const [invoiceError, setInvoiceError] = useState('');
 
+  // Billing cycle the plan catalog is priced in ('monthly' | 'quarterly')
+  const [billingCycle, setBillingCycle] = useState('monthly');
+
   // Insights state
   const [insights, setInsights] = useState(null);
   const [loadingInsights, setLoadingInsights] = useState(false);
@@ -132,6 +135,24 @@ export default function PaymentsView({ initialTab } = {}) {
       .then(data => setPlans(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
+
+  // The Paid Messages Insights tab had state and a renderer but no loader, so
+  // every card read 0 and the chart stayed empty regardless of real sends.
+  // Fetched lazily: only the insights tab needs it, and it is the one call
+  // here that scans campaign recipients.
+  useEffect(() => {
+    if (activeSubTab !== 'insights' || insights || loadingInsights) return;
+    setLoadingInsights(true);
+    setInsightsError('');
+    wFetch('/analytics/paid-messages?days=7')
+      .then(async r => {
+        if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `Request failed (${r.status})`);
+        return r.json();
+      })
+      .then(data => setInsights(data))
+      .catch(err => setInsightsError(err.message || 'Could not load insights'))
+      .finally(() => setLoadingInsights(false));
+  }, [activeSubTab]);
 
   // Real Razorpay top-up (test mode) — order created server-side (amount
   // validated + capped there too), credited only after signature verification.
@@ -205,8 +226,11 @@ export default function PaymentsView({ initialTab } = {}) {
   // full new quota right away instead of waiting for the next renewal.
   const handleBuyPlan = async (plan) => {
     setCheckoutError(''); setCheckoutMessage(''); setCheckoutPlanId(plan.id);
+    // A plan with no quarterly price is monthly-only; the server rejects a
+    // quarterly order for it, so send the cycle it actually supports.
+    const cycle = billingCycle === 'quarterly' && plan.priceQuarterly != null ? 'quarterly' : 'monthly';
     try {
-      const orderRes = await wFetch('/subscription/checkout', { method: 'POST', body: JSON.stringify({ planId: plan.id }) });
+      const orderRes = await wFetch('/subscription/checkout', { method: 'POST', body: JSON.stringify({ planId: plan.id, cycle }) });
       const order = await orderRes.json();
       if (!orderRes.ok) { setCheckoutError(order.error || 'Could not start checkout'); setCheckoutPlanId(null); return; }
 
@@ -532,7 +556,10 @@ export default function PaymentsView({ initialTab } = {}) {
             </div>
             {!unlimited && usagePct >= 100 && (
               <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
-                Quota exhausted — further messages bill from your wallet at ₹{Number(subscription?.plan?.overageRatePerMsg || 0).toFixed(3)}/message.
+                Quota exhausted — further messages bill from your wallet by category:
+                {' '}Marketing ₹{Number(subscription?.plan?.overageRates?.MARKETING ?? 1.09).toFixed(2)},
+                {' '}Utility ₹{Number(subscription?.plan?.overageRates?.UTILITY ?? 0.16).toFixed(2)},
+                {' '}Authentication ₹{Number(subscription?.plan?.overageRates?.AUTHENTICATION ?? 0.13).toFixed(2)}.
               </p>
             )}
           </div>
@@ -551,7 +578,20 @@ export default function PaymentsView({ initialTab } = {}) {
 
         {/* Plan catalog */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h4 style={{ fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Plans</h4>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <h4 style={{ fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Plans</h4>
+            <div style={{ display: 'flex', padding: 3, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
+              {[['monthly', 'Monthly'], ['quarterly', 'Quarterly']].map(([id, label]) => (
+                <button key={id} onClick={() => setBillingCycle(id)}
+                  style={{ padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                           fontFamily: "'Plus Jakarta Sans',sans-serif",
+                           background: billingCycle === id ? 'var(--green)' : 'transparent',
+                           color: billingCycle === id ? '#060A10' : 'var(--t2)' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
             {plans.map(plan => {
@@ -559,6 +599,12 @@ export default function PaymentsView({ initialTab } = {}) {
               const isPending = subscription?.pendingPlan?.key === plan.key;
               const isFree = Number(plan.priceMonthly) === 0;
               const busy = checkoutPlanId === plan.id;
+              // Quarterly pricing is optional per plan — fall back to monthly
+              // rather than showing a blank price.
+              const quarterly = billingCycle === 'quarterly' && plan.priceQuarterly != null;
+              const shownPrice = quarterly ? plan.priceQuarterly : plan.priceMonthly;
+              const perMonth = quarterly ? Number(plan.priceQuarterly) / 3 : null;
+              const quarterlySaving = quarterly ? Number(plan.priceMonthly) * 3 - Number(plan.priceQuarterly) : 0;
               return (
                 <div key={plan.id} style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 12, border: isCurrent ? '1px solid var(--gbd)' : '1px solid var(--bd)' }}>
                   <div>
@@ -569,9 +615,20 @@ export default function PaymentsView({ initialTab } = {}) {
                       )}
                     </div>
                     <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)' }}>
-                      {isFree ? 'Free' : `₹${Number(plan.priceMonthly).toLocaleString('en-IN')}`}
-                      {!isFree && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--t3)' }}>/month</span>}
+                      {isFree ? 'Free' : `₹${Number(shownPrice).toLocaleString('en-IN')}`}
+                      {!isFree && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--t3)' }}>{quarterly ? '/quarter' : '/month'}</span>}
                     </p>
+                    {!isFree && quarterly && (
+                      <p style={{ fontSize: 11, color: quarterlySaving > 0 ? 'var(--green)' : 'var(--t3)', marginTop: 2 }}>
+                        ₹{perMonth.toLocaleString('en-IN', { maximumFractionDigits: 0 })}/mo effective
+                        {/* Only claim a saving when the quarterly price is
+                            actually below 3× monthly — it is not on every plan. */}
+                        {quarterlySaving > 0 && ` · save ₹${quarterlySaving.toLocaleString('en-IN')}`}
+                      </p>
+                    )}
+                    {!isFree && !quarterly && billingCycle === 'quarterly' && (
+                      <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Monthly billing only</p>
+                    )}
                   </div>
                   <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'var(--t2)', padding: 0, margin: 0 }}>
                     <li>{plan.messageQuota === -1 ? 'Unlimited' : plan.messageQuota.toLocaleString()} messages/cycle</li>

@@ -10,6 +10,8 @@ const router = Router({ mergeParams: true });
 
 router.use(authenticate, workspaceContext);
 
+// Must precede '/:id/...' style routes so "templates" isn't read as an id.
+router.get('/templates', authorize('ADMIN'), whatsappFormsController.listTemplates);
 router.get('/', authorize('ADMIN'), whatsappFormsController.listForms);
 router.get('/:id/submissions', authorize('ADMIN'), whatsappFormsController.listSubmissions);
 router.post('/', authorize('ADMIN'), validate({ body: whatsappFormSchemas.create }), whatsappFormsController.createForm);

@@ -45,6 +45,19 @@ const normalizeKeyword = (k) => {
   return trimmed || null;
 };
 
+// Categories are display-only tags. Deduplicated and capped so the list UI
+// can't be broken by a caller sending hundreds of them.
+export function normalizeCategories(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const seen = new Set();
+  for (const entry of list) {
+    const value = String(entry || '').trim().slice(0, 40);
+    if (value) seen.add(value);
+    if (seen.size >= 10) break;
+  }
+  return [...seen];
+}
+
 async function assertKeywordAvailable(workspaceId, keyword, excludeId) {
   if (!keyword) return;
   const existing = await prisma.whatsappForm.findFirst({
@@ -61,7 +74,7 @@ export async function listForms(workspaceId) {
   return prisma.whatsappForm.findMany({ where: { workspaceId }, orderBy: { createdAt: 'desc' } });
 }
 
-export async function createForm(workspaceId, { name, schema, keyword, completionMessage, status }) {
+export async function createForm(workspaceId, { name, schema, keyword, completionMessage, status, categories }) {
   const fields = normalizeSchema(schema);
   const kw = normalizeKeyword(keyword);
   await assertKeywordAvailable(workspaceId, kw);
@@ -71,6 +84,7 @@ export async function createForm(workspaceId, { name, schema, keyword, completio
       workspaceId,
       name,
       schema: fields,
+      categories: normalizeCategories(categories),
       // Kept in sync with the schema so the list UI's "N Fields" column can't
       // disagree with what the form actually asks.
       fields: Math.max(fields.length, 1),
@@ -87,6 +101,7 @@ export async function updateForm(workspaceId, formId, updates) {
 
   const data = {};
   if (updates.name !== undefined) data.name = updates.name;
+  if (updates.categories !== undefined) data.categories = normalizeCategories(updates.categories);
   if (updates.status !== undefined) data.status = updates.status === 'Active' ? 'Active' : 'Draft';
   if (updates.completionMessage !== undefined) data.completionMessage = updates.completionMessage;
   if (updates.schema !== undefined) {

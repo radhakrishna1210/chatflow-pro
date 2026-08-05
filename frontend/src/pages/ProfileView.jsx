@@ -229,6 +229,138 @@ const ChangePasswordModal = ({ onClose, onSuccess }) => {
   );
 };
 
+// ─── Delete Account modal ───────────────────────────────────────────────────
+// Deletion is irreversible and can take whole workspaces with it, so the
+// server is asked up front exactly what would be destroyed and that is shown
+// before the user can confirm.
+const DeleteAccountModal = ({ onClose }) => {
+  const [preview, setPreview] = useState(null);
+  const [password, setPassword] = useState('');
+  const [confirmEmail, setConfirmEmail] = useState('');
+  const [ack, setAck] = useState('');
+  const [err, setErr] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    const onEsc = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onEsc);
+    return () => document.removeEventListener('keydown', onEsc);
+  }, [onClose]);
+
+  useEffect(() => {
+    apiFetch('/api/v1/users/me/deletion-preview')
+      .then(async r => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { setErr(d.error || 'Could not load account details'); return; }
+        setPreview(d);
+      })
+      .catch(e => setErr(e.message || 'Could not load account details'));
+  }, []);
+
+  const submit = async () => {
+    setErr(null);
+    if (ack !== 'DELETE') return setErr('Type DELETE to confirm');
+    if (preview?.requiresPassword && !password) return setErr('Enter your password');
+    if (!preview?.requiresPassword && !confirmEmail) return setErr('Type your email address to confirm');
+    setDeleting(true);
+    try {
+      const res = await apiFetch('/api/v1/users/me', {
+        method: 'DELETE',
+        body: JSON.stringify(preview?.requiresPassword ? { password } : { confirmEmail }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(data.error || 'Could not delete your account'); return; }
+      // The account is gone — drop every local trace and restart at the login
+      // screen rather than leaving the SPA holding a dead session.
+      localStorage.clear();
+      window.location.href = '/';
+    } catch (e) {
+      setErr(e.message || 'Could not delete your account');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const blocked = preview && !preview.canDelete;
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 470, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid rgba(239,68,68,0.35)' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: '#f87171' }}>Delete Account</p>
+          <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <I n="x" s={11} c="var(--t2)" />
+          </button>
+        </div>
+
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
+          {!preview && !err && <p style={{ fontSize: 13, color: 'var(--t2)' }}>Loading account details…</p>}
+
+          {preview && (
+            <>
+              <p style={{ fontSize: 13, color: 'var(--t1)', lineHeight: 1.6 }}>
+                This permanently deletes <strong>{preview.email}</strong>. It cannot be undone.
+              </p>
+
+              {preview.workspacesToDelete?.length > 0 && (
+                <div style={{ padding: '11px 13px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: '#f87171', marginBottom: 5 }}>
+                    {preview.workspacesToDelete.length} workspace{preview.workspacesToDelete.length > 1 ? 's' : ''} will also be deleted
+                  </p>
+                  <p style={{ fontSize: 11.5, color: 'var(--t2)', lineHeight: 1.55 }}>
+                    You are the only member of {preview.workspacesToDelete.map(w => `"${w.name}"`).join(', ')}. Their campaigns, contacts, conversations, templates and billing history go with them.
+                  </p>
+                </div>
+              )}
+
+              {preview.workspacesToLeave?.length > 0 && (
+                <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.55 }}>
+                  You will be removed from {preview.workspacesToLeave.map(w => `"${w.name}"`).join(', ')}, which will keep running for their other members.
+                </p>
+              )}
+
+              {blocked && (
+                <div style={{ padding: '11px 13px', borderRadius: 8, background: 'rgba(245,158,11,0.09)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                  <p style={{ fontSize: 12, color: '#fbbf24', lineHeight: 1.55 }}>
+                    You are the only admin of {preview.blockedBy.map(w => `"${w.name}"`).join(', ')}. Promote another member to admin there before deleting your account.
+                  </p>
+                </div>
+              )}
+
+              {!blocked && (
+                <>
+                  {preview.requiresPassword ? (
+                    <Field label="Confirm your password">
+                      <FInput type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+                    </Field>
+                  ) : (
+                    <Field label="Type your email address to confirm">
+                      <FInput value={confirmEmail} onChange={e => setConfirmEmail(e.target.value)} placeholder={preview.email} />
+                    </Field>
+                  )}
+                  <Field label='Type DELETE to confirm'>
+                    <FInput value={ack} onChange={e => setAck(e.target.value)} placeholder="DELETE" />
+                  </Field>
+                </>
+              )}
+            </>
+          )}
+
+          {err && <p style={{ fontSize: 12, color: '#f87171' }}>{err}</p>}
+        </div>
+
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--bd)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <Btn variant="ghost" size="sm" onClick={onClose} disabled={deleting}>Cancel</Btn>
+          <Btn size="sm" onClick={submit} disabled={deleting || !preview || blocked || ack !== 'DELETE'}
+            style={{ background: '#ef4444', color: '#fff' }}>
+            {deleting ? 'Deleting…' : 'Delete my account'}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Manage Sessions modal ──────────────────────────────────────────────────
 const ManageSessionsModal = ({ onClose, onChanged }) => {
   const [sessions, setSessions] = useState(null);
@@ -332,6 +464,7 @@ export default function ProfileView() {
 
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showSessionsModal, setShowSessionsModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [toasts, setToasts] = useState([]);
 
   const personalCardRef = useRef(null);
@@ -578,6 +711,20 @@ export default function ProfileView() {
                     <StaticField label="Plan" value={profile.workspacePlan} />
                   </div>
                 </SectionCard>
+
+                <div style={{ ...card, padding: 20, border: '1px solid rgba(239,68,68,0.28)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+                    <I n="alertt" s={15} c="#f87171" />
+                    <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14, color: '#f87171' }}>Danger Zone</p>
+                  </div>
+                  <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.6, marginBottom: 14 }}>
+                    Permanently delete your account and personal data. Any workspace where you are the only member is deleted with it. This cannot be undone.
+                  </p>
+                  <Btn size="sm" variant="outline" onClick={() => setShowDeleteModal(true)}
+                    style={{ borderColor: 'rgba(239,68,68,0.4)', color: '#f87171' }}>
+                    Delete Account
+                  </Btn>
+                </div>
               </div>
             </div>
           </div>
@@ -596,6 +743,7 @@ export default function ProfileView() {
           onChanged={() => { load(); pushToast('success', 'Signed out of other sessions'); }}
         />
       )}
+      {showDeleteModal && <DeleteAccountModal onClose={() => setShowDeleteModal(false)} />}
 
       <ToastStack toasts={toasts} />
     </div>

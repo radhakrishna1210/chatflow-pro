@@ -36,9 +36,15 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
     key: src.key || '',
     name: src.name || '',
     priceMonthly: numOrBlank(src.priceMonthly ?? 0),
-    currency: src.currency || 'USD',
+    // Blank = plan is sold monthly only.
+    priceQuarterly: numOrBlank(src.priceQuarterly),
+    currency: src.currency || 'INR',
     messageQuota: numOrBlank(src.messageQuota ?? 0),
     overageRatePerMsg: numOrBlank(src.overageRatePerMsg ?? 0),
+    // Blank = charge cost (the shared per-category rates).
+    ovMarketing: numOrBlank(src.overageRates?.MARKETING),
+    ovUtility: numOrBlank(src.overageRates?.UTILITY),
+    ovAuth: numOrBlank(src.overageRates?.AUTHENTICATION),
     contactLimit: numOrBlank(src.contactLimit),
     memberLimit: numOrBlank(src.memberLimit),
     campaignLimit: numOrBlank(src.campaignLimit),
@@ -63,9 +69,19 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
     const body = {
       name: f.name.trim(),
       priceMonthly: Number(f.priceMonthly || 0),
+      // null clears the quarterly option rather than pricing it at zero.
+      priceQuarterly: String(f.priceQuarterly).trim() === '' ? null : Number(f.priceQuarterly),
       currency: f.currency.trim().toUpperCase(),
       messageQuota: Number(f.messageQuota),
       overageRatePerMsg: Number(f.overageRatePerMsg || 0),
+      // All three blank -> null, i.e. this plan charges cost.
+      overageRates: (String(f.ovMarketing).trim() === '' && String(f.ovUtility).trim() === '' && String(f.ovAuth).trim() === '')
+        ? null
+        : {
+            MARKETING: Number(f.ovMarketing || 0),
+            UTILITY: Number(f.ovUtility || 0),
+            AUTHENTICATION: Number(f.ovAuth || 0),
+          },
       contactLimit: toLimit(f.contactLimit),
       memberLimit: toLimit(f.memberLimit),
       campaignLimit: toLimit(f.campaignLimit),
@@ -111,15 +127,34 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
 
           <div>
             <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Pricing</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14 }}>
               <Field label="Monthly price">
                 <TInput type="number" min="0" step="0.01" value={f.priceMonthly} onChange={e => set('priceMonthly', e.target.value)} />
+              </Field>
+              <Field label="Quarterly price" hint="Blank = monthly only">
+                <TInput type="number" min="0" step="0.01" value={f.priceQuarterly} onChange={e => set('priceQuarterly', e.target.value)} />
               </Field>
               <Field label="Currency">
                 <TInput value={f.currency} onChange={e => set('currency', e.target.value.toUpperCase())} />
               </Field>
-              <Field label="Overage / msg" hint="Charged past quota">
+              <Field label="Service msg" hint="No-template sends past quota">
                 <TInput type="number" min="0" step="0.0001" value={f.overageRatePerMsg} onChange={e => set('overageRatePerMsg', e.target.value)} />
+              </Field>
+            </div>
+
+            {/* Per-category message pricing. Leaving all three blank means the
+                plan charges cost, so it tracks the shared rates automatically. */}
+            <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', margin: '16px 0 4px' }}>Message rates past quota</p>
+            <p style={{ fontSize: 11.5, color: 'var(--t3)', marginBottom: 10 }}>Leave blank to charge cost — Marketing 1.09, Utility 0.16, Auth 0.13.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+              <Field label="Marketing / msg" hint="Blank = cost">
+                <TInput type="number" min="0" step="0.0001" value={f.ovMarketing} placeholder="1.09" onChange={e => set('ovMarketing', e.target.value)} />
+              </Field>
+              <Field label="Utility / msg" hint="Blank = cost">
+                <TInput type="number" min="0" step="0.0001" value={f.ovUtility} placeholder="0.16" onChange={e => set('ovUtility', e.target.value)} />
+              </Field>
+              <Field label="Auth / msg" hint="Blank = cost">
+                <TInput type="number" min="0" step="0.0001" value={f.ovAuth} placeholder="0.13" onChange={e => set('ovAuth', e.target.value)} />
               </Field>
             </div>
           </div>
@@ -1188,7 +1223,10 @@ export default function SuperAdminView({ tab }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'var(--t2)', borderTop: '1px solid var(--bd)', paddingTop: 12 }}>
                     {[
                       ['Messages / cycle', fmtQuota(p.messageQuota)],
-                      ['Overage / msg', `${p.currency} ${Number(p.overageRatePerMsg)}`],
+                      ['Marketing / msg', `${p.currency} ${Number(p.overageRates?.MARKETING ?? 1.09)}`],
+                      ['Utility / msg', `${p.currency} ${Number(p.overageRates?.UTILITY ?? 0.16)}`],
+                      ['Auth / msg', `${p.currency} ${Number(p.overageRates?.AUTHENTICATION ?? 0.13)}`],
+                      ['Service msg', `${p.currency} ${Number(p.overageRatePerMsg)}`],
                       ['Contacts', fmtLimit(p.contactLimit)],
                       ['Members', fmtLimit(p.memberLimit)],
                       ['Campaigns', fmtLimit(p.campaignLimit)],

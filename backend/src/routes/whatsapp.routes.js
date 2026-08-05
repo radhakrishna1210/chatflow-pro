@@ -21,6 +21,6 @@ router.get('/numbers/:id/subscription', whatsappController.checkSubscription);
 // campaigns and template history are all preserved). Connecting and
 // onboarding a new number stay admin-only, since those provision billable
 // resources against the business account.
-router.delete('/numbers/:id', authorize('CLIENT'), whatsappController.disconnect);
+router.delete('/numbers/:id', authorize('ADMIN'), whatsappController.disconnect);
 
 export default router;

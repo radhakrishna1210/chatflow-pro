@@ -27,3 +27,15 @@ export async function revokeOtherSessions(req, res) {
   const result = await usersService.revokeOtherSessions(req.user.id, typeof keepToken === 'string' ? keepToken : null);
   res.json(result);
 }
+
+export async function deletionPreview(req, res) {
+  const result = await usersService.previewAccountDeletion(req.user.id);
+  res.json(result);
+}
+
+export async function deleteMe(req, res) {
+  // Refresh tokens cascade from the User row, so every session dies with the
+  // account — the client just needs to clear its own local copy.
+  const result = await usersService.deleteAccount(req.user.id, req.body || {});
+  res.json(result);
+}

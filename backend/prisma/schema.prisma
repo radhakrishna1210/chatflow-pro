@@ -508,6 +508,9 @@ model WhatsappForm {
   // The actual field definitions the form collects:
   // [{ key, label, type: text|email|phone|number|choice, required, options[] }]
   schema      Json?
+  // Free-form organisational tags, e.g. ["Feedback","Survey"]. Used to filter
+  // the forms list; carries no runtime behaviour.
+  categories  Json?
   // Keyword that starts the form over WhatsApp, e.g. "SURVEY".
   keyword     String?
   // Sent once every field has been answered.
@@ -719,16 +722,26 @@ model EmailOtp {
 
 model Plan {
   id                String         @id @default(cuid())
-  key               String         @unique // "FREE" | "STARTER" | "PRO" | "ENTERPRISE" | ...
+  key               String         @unique // "FREE" | "BASIC" | "GROWTH" (legacy: STARTER/PRO/ENTERPRISE)
   name              String
   priceMonthly      Decimal        @db.Decimal(10, 2)
-  currency          String         @default("USD")
+  // Discounted three-month price. Null on plans sold monthly only (and on the
+  // free plan); checkout falls back to the monthly cycle when it is absent.
+  priceQuarterly    Decimal?       @db.Decimal(10, 2)
+  currency          String         @default("INR")
   messageQuota      Int // included messages per billing cycle; 0 = none, -1 = unlimited
   contactLimit      Int? // null = unlimited
   memberLimit       Int?
   campaignLimit     Int?
   apiKeyLimit       Int?
+  // Charged per message once messageQuota is exhausted, for a send with no
+  // template category (an inbox reply). Category sends use overageRates.
   overageRatePerMsg Decimal        @db.Decimal(10, 4)
+  // Optional per-plan override of the per-category message rates, e.g.
+  // { "MARKETING": 2.18, "UTILITY": 0.32, "AUTHENTICATION": 0.26 }.
+  // Null means "charge cost" — the shared rates in lib/messagePricing.js,
+  // which is also what campaign launches are billed at.
+  overageRates      Json?
   features          Json           @default("{}")
   isActive          Boolean        @default(true)
   createdAt         DateTime       @default(now())

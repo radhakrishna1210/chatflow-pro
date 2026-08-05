@@ -815,8 +815,21 @@ const Step6 = ({ initial = null, onRetryToggle, onSaved }) => {
   const [saved, setSaved] = useState(false);
 
   const toggle = (v) => { setActive(v); onRetryToggle?.(v); };
+  const buildConfig = () => ({ active, endDate, pattern, noRetryStart: `${sH}:${sM} ${sAp}`, noRetryEnd: `${eH}:${eM} ${eAp}` });
+
+  // The config used to reach the parent only on "Save Retry Config". Turning
+  // retries on and moving to the next step therefore launched the campaign
+  // with retryConfig: null, and handleRecipientFailure() marked every
+  // retryable failure permanent instead of scheduling a retry — while Step 8
+  // still disabled fallbacks because `retriesActive` tracks the toggle
+  // separately. Lifting every change keeps the launch payload honest; the
+  // button stays purely as confirmation.
+  useEffect(() => {
+    onSaved?.(buildConfig());
+  }, [active, endDate, pattern, sH, sM, sAp, eH, eM, eAp]);
+
   const commit = () => {
-    onSaved?.({ active, endDate, pattern, noRetryStart: `${sH}:${sM} ${sAp}`, noRetryEnd: `${eH}:${eM} ${eAp}` });
+    onSaved?.(buildConfig());
     setSaved(true); setTimeout(() => setSaved(false), 1800);
   };
 
@@ -1192,7 +1205,9 @@ export default function CreateCampaign({ onBack }) {
     setEstimating(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await wFetch('/campaigns/estimate', { method: 'POST', body: JSON.stringify({ contactIds: ids }) });
+        // templateId drives per-category pricing (marketing/utility/auth), so
+        // the quote matches what the launch will actually charge.
+        const res = await wFetch('/campaigns/estimate', { method: 'POST', body: JSON.stringify({ contactIds: ids, templateId: selectedTemplateId }) });
         const data = await res.json().catch(() => ({}));
         if (seq !== estimateSeq.current) return; // a newer selection won
         if (!res.ok) { setEstimateError(data.error || 'Could not calculate the campaign cost'); setEstimate(null); return; }
@@ -1206,7 +1221,7 @@ export default function CreateCampaign({ onBack }) {
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [selectedContactIds]);
+  }, [selectedContactIds, selectedTemplateId]);
 
   const isLocked = n => {
     if (n === 2) return !step1Done;

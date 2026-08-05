@@ -530,8 +530,10 @@ const UseCases = () => {
 
 const Pricing = ({ onNav }) => {
   const plans = [
-    { name: 'Starter', price: '₹799', per: '/mo', desc: 'For small businesses getting started.', popular: false, features: ['1 WhatsApp number', 'Up to 5 team members', '1,000 conversations/mo', 'Basic chatbot builder', 'Team inbox', 'Template manager', 'Email support'] },
-    { name: 'Growth', price: '₹2,499', per: '/mo', desc: 'For growing teams needing full automation.', popular: true, features: ['2 WhatsApp numbers', 'Unlimited team members', '5,000 conversations/mo', 'AI Smart Replies & Copilot', 'Campaign A/B testing', 'Visual flow builder', 'Revenue attribution', 'RCS fallback', 'Priority support'] },
+    // Prices must match the Plan catalog seeded in backend/src/server.js —
+    // advertising a price the checkout cannot sell is worse than no price.
+    { name: 'Basic', price: '₹1,500', per: '/mo', note: 'or ₹3,500/quarter', desc: 'For small businesses getting started.', popular: false, features: ['1 WhatsApp number', 'Up to 10 team members', '10,000 messages/cycle', 'Basic chatbot builder', 'Team inbox', 'Template manager', 'Email support'] },
+    { name: 'Growth', price: '₹2,500', per: '/mo', note: 'or ₹7,500/quarter', desc: 'For growing teams needing full automation.', popular: true, features: ['Unlimited WhatsApp numbers', 'Unlimited team members', 'Unlimited messages', 'AI Smart Replies & Copilot', 'Campaign A/B testing', 'Visual flow builder', 'Revenue attribution', 'RCS fallback', 'Priority support'] },
     { name: 'Enterprise', price: 'Custom', per: '', desc: 'For large teams with complex requirements.', popular: false, features: ['Unlimited numbers & team', 'Custom conversation volume', 'Custom AI model training', 'Dedicated account manager', 'SSO & audit logs', 'Custom integrations', 'SLA guarantee'] },
   ];
   return (
@@ -550,10 +552,11 @@ const Pricing = ({ onNav }) => {
               {p.popular && <div style={{ position: 'absolute', top: '-13px', left: '50%', transform: 'translateX(-50%)', padding: '4px 14px', borderRadius: '20px', background: 'var(--green)', fontSize: '11px', fontWeight: 700, color: '#060913', whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(30,191,94,0.3)' }}>Most Popular</div>}
               <h3 style={{ fontWeight: 700, fontSize: '18px', color: 'var(--t1)', marginBottom: '6px', letterSpacing: '-.02em' }}>{p.name}</h3>
               <p style={{ fontSize: '13px', color: 'var(--t2)', marginBottom: '22px', lineHeight: 1.55 }}>{p.desc}</p>
-              <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'baseline', gap: '3px' }}>
+              <div style={{ marginBottom: p.note ? '6px' : '24px', display: 'flex', alignItems: 'baseline', gap: '3px' }}>
                 <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '42px', color: 'var(--t1)', letterSpacing: '-.04em' }}>{p.price}</span>
                 <span style={{ fontSize: '13px', color: 'var(--t2)' }}>{p.per}</span>
               </div>
+              {p.note && <p style={{ fontSize: '12px', color: 'var(--t2)', marginBottom: '24px' }}>{p.note}</p>}
               <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '28px' }}>
                 {p.features.map(f => (
                   <li key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', fontSize: '13px', color: 'var(--t2)' }}>

@@ -1515,6 +1515,70 @@ const VoiceAITab = () => {
 // ─────────────────────────────────────────────
 const FIELD_TYPES = [['text', 'Text'], ['email', 'Email'], ['phone', 'Phone'], ['number', 'Number'], ['choice', 'Multiple choice']];
 
+// Live rendering of what the customer sees while filling the form in the
+// chat. The runtime asks one question per inbound message, so the preview
+// walks the same cursor — the progress bar is the real question count, not
+// decoration.
+const FormPreview = ({ name, schema }) => {
+  const fields = (schema || []).filter(f => String(f.label || '').trim());
+  const [step, setStep] = useState(0);
+  const active = Math.min(step, Math.max(0, fields.length - 1));
+  const field = fields[active];
+
+  useEffect(() => { if (step > fields.length - 1) setStep(Math.max(0, fields.length - 1)); }, [fields.length, step]);
+
+  return (
+    <div style={{ ...card, padding:16, display:'flex', flexDirection:'column', gap:12, minWidth:270 }}>
+      <p style={{ fontSize:12, fontWeight:700, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.07em' }}>Preview</p>
+      <div style={{ border:'1px solid var(--bd)', borderRadius:14, background:'rgba(255,255,255,0.02)', overflow:'hidden', display:'flex', flexDirection:'column', minHeight:300 }}>
+        <div style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', gap:8 }}>
+          <span style={{ color:'var(--t3)', fontSize:13 }}>✕</span>
+          <span style={{ flex:1, textAlign:'center', fontSize:12.5, fontWeight:600, color:'var(--t1)' }}>{name?.trim() || 'Untitled form'}</span>
+        </div>
+
+        {/* one segment per question — fills as the customer answers */}
+        <div style={{ display:'flex', gap:4, padding:'10px 14px 0' }}>
+          {(fields.length ? fields : [null]).map((_, i) => (
+            <div key={i} style={{ flex:1, height:3, borderRadius:2, background: i <= active && fields.length ? 'var(--green)' : 'rgba(255,255,255,0.10)' }} />
+          ))}
+        </div>
+
+        <div style={{ padding:'14px', flex:1, display:'flex', flexDirection:'column', gap:10 }}>
+          {fields.length === 0 ? (
+            <p style={{ fontSize:12, color:'var(--t3)' }}>Add a question to see the preview.</p>
+          ) : (
+            <>
+              <p style={{ fontSize:11, color:'var(--t3)' }}>Question {active + 1} of {fields.length}</p>
+              <p style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)', lineHeight:1.45 }}>{field.label}</p>
+              {field.type === 'choice' && (field.options || []).length > 0 ? (
+                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                  {(field.options || []).map((o, i) => (
+                    <div key={i} style={{ padding:'8px 11px', borderRadius:8, border:'1px solid var(--bd)', background:'rgba(255,255,255,0.03)', fontSize:12, color:'var(--t2)' }}>{o}</div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ padding:'9px 11px', borderRadius:8, border:'1px solid var(--bd)', background:'rgba(255,255,255,0.03)', fontSize:12, color:'var(--t3)' }}>
+                  {{ email:'name@example.com', phone:'+91 98765 43210', number:'Enter a number' }[field.type] || 'Type your answer…'}
+                </div>
+              )}
+              {field.required === false && <span style={{ fontSize:10.5, color:'var(--t3)' }}>Optional — they can skip this</span>}
+            </>
+          )}
+        </div>
+
+        <div style={{ padding:'10px 14px', borderTop:'1px solid var(--bd)', display:'flex', gap:8 }}>
+          <button disabled={active === 0} onClick={() => setStep(s => Math.max(0, s - 1))}
+            style={{ padding:'8px 12px', borderRadius:8, border:'1px solid var(--bd)', background:'transparent', color:'var(--t2)', fontSize:12, cursor: active === 0 ? 'not-allowed' : 'pointer', opacity: active === 0 ? 0.45 : 1 }}>Back</button>
+          <button disabled={active >= fields.length - 1} onClick={() => setStep(s => Math.min(fields.length - 1, s + 1))}
+            style={{ flex:1, padding:'8px 12px', borderRadius:8, border:'none', background:'var(--green)', color:'#060913', fontSize:12, fontWeight:700, cursor: active >= fields.length - 1 ? 'not-allowed' : 'pointer', opacity: active >= fields.length - 1 ? 0.45 : 1 }}>Next</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const FORM_NAME_MAX = 20;
+
 const WhatsAppFormsTab = () => {
   const [forms, setForms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1525,6 +1589,12 @@ const WhatsAppFormsTab = () => {
   const [saving, setSaving] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [submissions, setSubmissions] = useState([]);
+  // 'create' mirrors the builder tab, 'list' the saved forms.
+  const [view, setView] = useState('list');
+  const [templates, setTemplates] = useState([]);
+  const [categoryOpts, setCategoryOpts] = useState([]);
+  const [pickedTemplate, setPickedTemplate] = useState(null);
+  const [catOpen, setCatOpen] = useState(false);
 
   const load = useCallback(async () => {
     const r = await wJson('/whatsapp-forms');
@@ -1535,34 +1605,72 @@ const WhatsAppFormsTab = () => {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Presets and the category vocabulary come from the server so they can't
+  // drift from the field types the form runtime accepts.
+  useEffect(() => {
+    wJson('/whatsapp-forms/templates').then(r => {
+      if (!r.ok || !r.data) return;
+      setTemplates(Array.isArray(r.data.templates) ? r.data.templates : []);
+      setCategoryOpts(Array.isArray(r.data.categories) ? r.data.categories : []);
+    });
+  }, []);
+
+  const blankDraft = () => ({
+    name:'', keyword:'', status:'Draft', categories:[],
+    completionMessage:"Thanks! We've recorded your response.",
+    schema:[{ label:'', type:'text', required:true, options:[] }],
+  });
+
   const openCreate = () => {
     setEditing(null);
-    setDraft({ name:'', keyword:'', status:'Draft', completionMessage:"Thanks! We've recorded your response.", schema:[{ label:'', type:'text', required:true, options:[] }] });
+    setPickedTemplate(null);
+    setDraft(blankDraft());
+    setView('create');
   };
+
+  // Applying a template replaces the questions wholesale, but never discards a
+  // name the user has already typed.
+  const applyTemplate = (tpl) => {
+    setPickedTemplate(tpl.id);
+    setDraft(d => ({
+      ...(d || blankDraft()),
+      keyword: tpl.keyword || '',
+      categories: Array.isArray(tpl.categories) ? [...tpl.categories] : [],
+      completionMessage: tpl.completionMessage || "Thanks! We've recorded your response.",
+      schema: (tpl.schema || []).map(f => ({ ...f, options: [...(f.options || [])] })),
+    }));
+  };
+
   const openEdit = f => {
     setEditing(f);
+    setPickedTemplate(null);
     setDraft({
       name: f.name, keyword: f.keyword || '', status: f.status,
+      categories: Array.isArray(f.categories) ? f.categories : [],
       completionMessage: f.completionMessage || '',
       schema: Array.isArray(f.schema) && f.schema.length ? f.schema : [{ label:'', type:'text', required:true, options:[] }],
     });
+    setView('create');
   };
 
   const setField = (idx, patchField) =>
     setDraft(d => ({ ...d, schema: d.schema.map((f, i) => i === idx ? { ...f, ...patchField } : f) }));
 
-  const save = async () => {
+  // `status` is passed explicitly so "Save as Draft" and "Publish" are two
+  // deliberate actions rather than a dropdown the user has to remember to set.
+  const save = async (status) => {
     const nameError = validateMeaningfulText(draft.name, 'Form name');
     if (nameError) { setBanner({ tone:'error', text:nameError }); return; }
     const cleanSchema = draft.schema.filter(f => String(f.label || '').trim());
     if (cleanSchema.length === 0) { setBanner({ tone:'error', text:'Add at least one question.' }); return; }
-    if (draft.status === 'Active' && !String(draft.keyword || '').trim()) {
+    if (status === 'Active' && !String(draft.keyword || '').trim()) {
       setBanner({ tone:'error', text:'An active form needs a keyword so customers can start it.' });
       return;
     }
     setSaving(true);
     const payload = {
-      name: draft.name, keyword: draft.keyword || '', status: draft.status,
+      name: draft.name, keyword: draft.keyword || '', status,
+      categories: draft.categories || [],
       completionMessage: draft.completionMessage, schema: cleanSchema,
     };
     const r = editing
@@ -1570,7 +1678,9 @@ const WhatsAppFormsTab = () => {
       : await wJson('/whatsapp-forms', { method:'POST', body: JSON.stringify(payload) });
     setSaving(false);
     if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
-    setDraft(null); setEditing(null); setBanner(null);
+    setDraft(null); setEditing(null); setPickedTemplate(null);
+    setBanner({ tone:'success', text: status === 'Active' ? 'Form published — customers can start it with its keyword.' : 'Saved as draft.' });
+    setView('list');
     load();
   };
 
@@ -1641,32 +1751,123 @@ const WhatsAppFormsTab = () => {
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <TabHeader icon="note" color="var(--t2)" bg="rgba(255,255,255,0.04)"
         title="WhatsApp Forms" subtitle="Collect structured answers one question at a time, right inside the chat">
-        <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060913"/> Create Form</Btn>
+        {view === 'list' && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060913"/> Create Form</Btn>}
       </TabHeader>
 
-      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
-      <Banner>A customer starts a form by sending its keyword. Each answer is validated, and they can send “cancel” to stop at any point.</Banner>
+      {/* Create New Form / View All Forms */}
+      <div style={{ display:'flex', gap:4, borderBottom:'1px solid var(--bd)' }}>
+        {[['create', editing ? 'Edit Form' : 'Create New Form'], ['list', `View All Forms (${forms.length})`]].map(([id, label]) => (
+          <button key={id} onClick={() => { if (id === 'create' && !draft) openCreate(); else setView(id); }}
+            style={{ padding:'9px 14px', background:'none', border:'none', borderBottom:`2px solid ${view === id ? 'var(--green)' : 'transparent'}`,
+                     color: view === id ? 'var(--t1)' : 'var(--t2)', fontSize:13, fontWeight:600, cursor:'pointer',
+                     fontFamily:"'Plus Jakarta Sans',sans-serif", marginBottom:-1 }}>
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {draft && (
-        <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
-          <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Form' : 'Create New Form'}</p>
+      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
+      {view === 'list' && <Banner>A customer starts a form by sending its keyword. Each answer is validated, and they can send “cancel” to stop at any point.</Banner>}
+
+      {view === 'create' && draft && (
+        <div style={{ display:'flex', gap:16, alignItems:'flex-start', flexWrap:'wrap' }}>
+        <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14, flex:1, minWidth:340 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+            <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Form' : 'Create WhatsApp Form'}</p>
+            <div style={{ display:'flex', gap:8 }}>
+              <Btn variant="ghost" onClick={() => save('Draft')} disabled={saving}>{saving ? 'Saving…' : 'Save as Draft'}</Btn>
+              <Btn onClick={() => save('Active')} disabled={saving} style={{ boxShadow:'var(--glow)' }}>{editing ? 'Update & Publish' : 'Publish'}</Btn>
+            </div>
+          </div>
+
+          {/* Templates — prefill the question set */}
+          {!editing && templates.length > 0 && (
+            <div>
+              <label style={labelStyle}>Templates</label>
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                {templates.map(t => (
+                  <label key={t.id} onClick={() => applyTemplate(t)}
+                    style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'9px 11px', borderRadius:8, cursor:'pointer',
+                             border:`1px solid ${pickedTemplate === t.id ? 'var(--gbd)' : 'var(--bd)'}`,
+                             background: pickedTemplate === t.id ? 'var(--gbg)' : 'rgba(255,255,255,0.02)' }}>
+                    <span style={{ width:14, height:14, borderRadius:'50%', flexShrink:0, marginTop:2,
+                                   border:`1.5px solid ${pickedTemplate === t.id ? 'var(--green)' : 'var(--bd)'}`,
+                                   background: pickedTemplate === t.id ? 'var(--green)' : 'transparent' }} />
+                    <span style={{ minWidth:0 }}>
+                      <span style={{ display:'block', fontSize:12.5, fontWeight:600, color:'var(--t1)' }}>{t.title}</span>
+                      <span style={{ display:'block', fontSize:11.5, color:'var(--t3)' }}>{t.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
             <div style={{ flex:1, minWidth:220 }}>
               <label style={labelStyle}>Form name</label>
-              <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="e.g. Customer Feedback" style={inputStyle} />
+              <div style={{ position:'relative' }}>
+                {/* No maxLength/slice: a form saved before this limit existed
+                    (the API allows 120) would otherwise be silently truncated
+                    the moment its name was edited. Growth past the limit is
+                    blocked; an existing longer name stays and can be shortened. */}
+                <input value={draft.name}
+                  onChange={e => setDraft(d => {
+                    const next = e.target.value;
+                    const current = d.name || '';
+                    if (next.length <= FORM_NAME_MAX || next.length < current.length) return { ...d, name: next };
+                    return d;
+                  })}
+                  placeholder="e.g. Customer Feedback" style={{ ...inputStyle, paddingRight:52 }} />
+                <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', fontSize:11,
+                               color: (draft.name || '').length >= FORM_NAME_MAX ? '#fbbf24' : 'var(--t3)' }}>
+                  {(draft.name || '').length}/{FORM_NAME_MAX}
+                </span>
+              </div>
             </div>
             <div style={{ minWidth:180 }}>
               <label style={labelStyle}>Start keyword</label>
               <input value={draft.keyword} onChange={e => setDraft(d => ({ ...d, keyword: e.target.value.toUpperCase() }))}
                 placeholder="e.g. FEEDBACK" style={{ ...inputStyle, fontFamily:'monospace', color:'var(--green)' }} />
             </div>
-            <div style={{ minWidth:140 }}>
-              <label style={labelStyle}>Status</label>
-              <select value={draft.status} onChange={e => setDraft(d => ({ ...d, status: e.target.value }))} style={inputStyle}>
-                <option value="Draft" style={{ background:'#07090F' }}>Draft</option>
-                <option value="Active" style={{ background:'#07090F' }}>Active</option>
-              </select>
+          </div>
+
+          {/* Categories — display-only tags used to filter the forms list */}
+          <div>
+            <label style={labelStyle}>Categories</label>
+            <div style={{ position:'relative' }}>
+              <button onClick={() => setCatOpen(o => !o)}
+                style={{ ...inputStyle, width:'100%', textAlign:'left', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+                <span style={{ color: (draft.categories || []).length ? 'var(--t1)' : 'var(--t3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {(draft.categories || []).length ? draft.categories.join(', ') : 'Select categories'}
+                </span>
+                <span style={{ color:'var(--t3)', fontSize:10 }}>▼</span>
+              </button>
+              {catOpen && (
+                <div style={{ position:'absolute', zIndex:20, top:'calc(100% + 4px)', left:0, right:0, borderRadius:9,
+                              border:'1px solid var(--bd)', background:'#07090F', boxShadow:'0 12px 30px rgba(0,0,0,0.5)', padding:6,
+                              maxHeight:220, overflowY:'auto' }}>
+                  {categoryOpts.map(cat => {
+                    const on = (draft.categories || []).includes(cat);
+                    return (
+                      <label key={cat} onClick={() => setDraft(d => ({
+                        ...d,
+                        categories: on ? d.categories.filter(c => c !== cat) : [...(d.categories || []), cat],
+                      }))}
+                        style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 9px', borderRadius:6, cursor:'pointer',
+                                 background: on ? 'var(--gbg)' : 'transparent', fontSize:12.5, color:'var(--t1)' }}>
+                        <span style={{ width:14, height:14, borderRadius:4, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
+                                       border:`1.5px solid ${on ? 'var(--green)' : 'var(--bd)'}`, background: on ? 'var(--green)' : 'transparent' }}>
+                          {on && <I n="check" s={9} c="#060913" w={3} />}
+                        </span>
+                        {cat}
+                      </label>
+                    );
+                  })}
+                  <button onClick={() => setCatOpen(false)}
+                    style={{ width:'100%', marginTop:4, padding:'7px', borderRadius:6, border:'1px solid var(--bd)', background:'transparent', color:'var(--t2)', fontSize:11.5, cursor:'pointer' }}>Done</button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1710,28 +1911,40 @@ const WhatsAppFormsTab = () => {
           </div>
 
           <div style={{ display:'flex', gap:8 }}>
-            <Btn onClick={save} disabled={saving} style={{ boxShadow:'var(--glow)' }}>{saving ? 'Saving…' : editing ? 'Update Form' : 'Create Form'}</Btn>
-            <Btn variant="ghost" onClick={() => { setDraft(null); setEditing(null); }}>Cancel</Btn>
+            <Btn variant="ghost" onClick={() => { setDraft(null); setEditing(null); setPickedTemplate(null); setView('list'); }}>Cancel</Btn>
           </div>
+        </div>
+
+        <FormPreview name={draft.name} schema={draft.schema} />
         </div>
       )}
 
+      {view === 'list' && (
       <div style={{ ...card, overflowX:'auto' }}>
         <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left', minWidth:600 }}>
           <thead>
             <tr style={{ borderBottom:'1px solid var(--bd)' }}>
-              {['Form Name','Keyword','Questions','Submissions','Status',''].map(h => (
+              {['Form Name','Categories','Keyword','Questions','Submissions','Status',''].map(h => (
                 <th key={h} style={{ padding:'12px 18px', fontSize:11, fontWeight:600, color:'var(--t3)', textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {forms.length === 0 && (
-              <tr><td colSpan="6" style={{ padding:32, textAlign:'center', color:'var(--t2)', fontSize:13 }}>No forms yet. Create one above.</td></tr>
+              <tr><td colSpan="7" style={{ padding:32, textAlign:'center', color:'var(--t2)', fontSize:13 }}>No forms yet. Create one from the Create New Form tab.</td></tr>
             )}
             {forms.map((f, i) => (
               <tr key={f.id} style={{ borderBottom: i < forms.length-1 ? '1px solid var(--bd)' : 'none' }}>
                 <td style={{ padding:'14px 18px', fontSize:13, fontWeight:600, color:'var(--t1)' }}>{f.name}</td>
+                <td style={{ padding:'14px 18px' }}>
+                  {Array.isArray(f.categories) && f.categories.length ? (
+                    <span style={{ display:'inline-flex', gap:5, flexWrap:'wrap' }}>
+                      {f.categories.map(c => (
+                        <span key={c} style={{ padding:'2px 8px', borderRadius:11, fontSize:10.5, fontWeight:600, background:'rgba(255,255,255,0.05)', border:'1px solid var(--bd)', color:'var(--t2)', whiteSpace:'nowrap' }}>{c}</span>
+                      ))}
+                    </span>
+                  ) : <span style={{ fontSize:12.5, color:'var(--t3)' }}>—</span>}
+                </td>
                 <td style={{ padding:'14px 18px', fontSize:12.5, fontFamily:'monospace', color: f.keyword ? 'var(--green)' : 'var(--t3)' }}>{f.keyword || '—'}</td>
                 <td style={{ padding:'14px 18px', fontSize:13, color:'var(--t2)' }}>{Array.isArray(f.schema) ? f.schema.length : f.fields}</td>
                 <td style={{ padding:'14px 18px', fontSize:13, color:'var(--t2)' }}>
@@ -1755,6 +1968,7 @@ const WhatsAppFormsTab = () => {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 };

@@ -111,7 +111,16 @@ async function handleTemplateStatusUpdate(wabaId, value) {
 async function handleInboundMessage(value, msg) {
   const phoneNumberId = value.metadata?.phone_number_id;
   const fromPhone = msg.from;
-  const messageBody = msg.text?.body || '';
+  let messageBody = '';
+  if (msg.text?.body) {
+    messageBody = msg.text.body;
+  } else if (msg.button?.text) {
+    messageBody = msg.button.text;
+  } else if (msg.interactive?.button_reply?.title) {
+    messageBody = msg.interactive.button_reply.title;
+  } else if (msg.interactive?.list_reply?.title) {
+    messageBody = msg.interactive.list_reply.title;
+  }
 
   console.log(`[Inbound] from=${fromPhone} phone_number_id=${phoneNumberId} body="${messageBody}"`);
 
