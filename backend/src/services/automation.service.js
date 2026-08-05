@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { normalizeBusinessHours, DEFAULT_BUSINESS_HOURS } from './businessHours.service.js';
+import { detectUrl, analyseWebsite } from './websiteAnalysis.service.js';
 
 // Lazily initialised: constructing the client at import time crashes startup
 // when GEMINI_API_KEY is not configured (it's optional in the env schema).
@@ -281,6 +282,12 @@ export async function generateWorkflowPreview(workspaceId, prompt) {
     throw e;
   }
 
+  // A bare URL means "study this business and suggest workflows for it".
+  // Anything else — including a description that merely mentions a domain —
+  // keeps the original single-workflow behaviour untouched.
+  const url = detectUrl(cleanPrompt);
+  if (url) return analyseWebsite(url);
+
   if (!env.GEMINI_API_KEY) {
     return { ...fallbackWorkflowPreview(cleanPrompt), provider: 'fallback' };
   }
@@ -297,7 +304,7 @@ Rules:
 
   try {
     const response = await getAi().models.generateContent({
-      model: "gemini-2.5-flash",
+      model: env.GEMINI_MODEL,
       contents: `${systemPrompt}\n\nUser request: ${cleanPrompt}`,
       config: {
         temperature: 0.3,

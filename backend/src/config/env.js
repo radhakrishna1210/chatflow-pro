@@ -81,6 +81,11 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   GOOGLE_CALLBACK_URL: z.string().url().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  // Pinned model ids get retired — `gemini-2.5-flash` started rejecting new
+  // API keys with a 404 ("no longer available to new users"), which silently
+  // broke every AI feature. The `-latest` alias tracks the current Flash model
+  // instead; override this only to pin a specific version deliberately.
+  GEMINI_MODEL: z.string().default('gemini-flash-latest'),
   OLLAMA_URL: z.string().url().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('phi3'),
 

@@ -494,6 +494,138 @@ const IconBtn = ({ icon, onClick, danger = false, title }) => (
 // ─────────────────────────────────────────────
 const blankTrigger = () => ({ id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'ORDER' });
 
+// Renders the result of analysing a business website: what the AI understood
+// about the business, and the workflows it proposes for it.
+const InsightList = ({ label, items }) => {
+  if (!items?.length) return null;
+  return (
+    <div>
+      <p style={{ fontSize:10.5, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:6 }}>{label}</p>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+        {items.map((t, i) => (
+          <span key={i} style={{ padding:'3px 9px', borderRadius:11, fontSize:11.5, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)' }}>{t}</span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const COMPLEXITY_TONE = { Low:'var(--green)', Medium:'#fbbf24', High:'#f87171' };
+
+const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit }) => {
+  const [openId, setOpenId] = useState(null);
+  const a = data.analysis || {};
+  const wfs = data.recommendedWorkflows || [];
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+      {/* Business summary + detected industry */}
+      <div style={{ border:'1px solid var(--gbd)', background:'var(--gbg)', borderRadius:10, padding:'14px 16px' }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+          <div style={{ minWidth:0 }}>
+            <h4 style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:800, color:'var(--t1)' }}>{data.business?.name}</h4>
+            <a href={data.sourceUrl} target="_blank" rel="noreferrer noopener"
+              style={{ fontSize:11.5, color:'var(--t3)', textDecoration:'none', wordBreak:'break-all' }}>{data.sourceUrl}</a>
+          </div>
+          <span style={{ padding:'4px 11px', borderRadius:12, fontSize:11.5, fontWeight:700, background:'rgba(30,191,94,0.14)', border:'1px solid var(--gbd)', color:'var(--green)', whiteSpace:'nowrap' }}>
+            {data.business?.industry}
+          </span>
+        </div>
+        {data.business?.summary && (
+          <p style={{ fontSize:12.5, color:'var(--t2)', lineHeight:1.6, marginTop:9 }}>{data.business.summary}</p>
+        )}
+        {data.pagesAnalysed?.length > 0 && (
+          <p style={{ fontSize:11, color:'var(--t3)', marginTop:8 }}>Analysed {data.pagesAnalysed.length} page{data.pagesAnalysed.length === 1 ? '' : 's'}</p>
+        )}
+      </div>
+
+      {data.partial && data.notes?.length > 0 && (
+        <Banner tone="warn">{data.notes.join(' ')} The workflows below are based on what could be read.</Banner>
+      )}
+
+      {/* Business insights */}
+      <div style={{ border:'1px solid var(--bd)', borderRadius:10, background:'rgba(255,255,255,0.02)', padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
+        <p style={{ fontSize:12.5, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>Business insights</p>
+        <InsightList label="Primary services" items={a.primaryServices} />
+        <InsightList label="Products" items={a.products} />
+        <InsightList label="Target customers" items={a.targetCustomers} />
+        <InsightList label="Customer pain points" items={a.painPoints} />
+        <InsightList label="Common customer intents" items={a.commonIntents} />
+        <InsightList label="Lead sources" items={a.leadSources} />
+        <InsightList label="Sales funnel" items={a.salesFunnel} />
+        <InsightList label="Marketing opportunities" items={a.marketingOpportunities} />
+        <InsightList label="Retention opportunities" items={a.retentionOpportunities} />
+        {(a.bookingFlow || a.supportFlow) && (
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            {a.bookingFlow && <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.55 }}><strong style={{ color:'var(--t1)' }}>Booking: </strong>{a.bookingFlow}</p>}
+            {a.supportFlow && <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.55 }}><strong style={{ color:'var(--t1)' }}>Support: </strong>{a.supportFlow}</p>}
+          </div>
+        )}
+        {a.faqs?.length > 0 && (
+          <div>
+            <p style={{ fontSize:10.5, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:6 }}>Likely FAQs</p>
+            <ul style={{ margin:0, paddingLeft:16, display:'flex', flexDirection:'column', gap:3 }}>
+              {a.faqs.map((q, i) => <li key={i} style={{ fontSize:12, color:'var(--t2)', lineHeight:1.5 }}>{q}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Recommended workflows */}
+      <div>
+        <p style={{ fontSize:12.5, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif", marginBottom:9 }}>
+          Recommended workflows ({wfs.length})
+        </p>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(290px, 1fr))', gap:10 }}>
+          {wfs.map(wf => {
+            const saved = savedWfIds.has(wf.id);
+            const busy = savingWfId === wf.id;
+            const open = openId === wf.id;
+            return (
+              <div key={wf.id} style={{ border:`1px solid ${saved ? 'var(--gbd)' : 'var(--bd)'}`, borderRadius:10, background: saved ? 'var(--gbg)' : 'rgba(255,255,255,0.02)', padding:'13px 14px', display:'flex', flexDirection:'column', gap:8 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'flex-start' }}>
+                  <h5 style={{ fontSize:13.5, fontWeight:700, color:'var(--t1)' }}>{wf.title}</h5>
+                  <span style={{ fontSize:10, fontWeight:700, color:COMPLEXITY_TONE[wf.complexity] || 'var(--t3)', whiteSpace:'nowrap', border:`1px solid ${COMPLEXITY_TONE[wf.complexity] || 'var(--bd)'}33`, borderRadius:9, padding:'2px 7px' }}>
+                    {wf.complexity}
+                  </span>
+                </div>
+                {wf.description && <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.5 }}>{wf.description}</p>}
+                {wf.benefit && (
+                  <p style={{ fontSize:11.5, color:'var(--green)', lineHeight:1.45 }}>↑ {wf.benefit}</p>
+                )}
+                <p style={{ fontSize:11, color:'var(--t3)' }}>{wf.trigger} · {wf.nodes.length} steps</p>
+
+                <button onClick={() => setOpenId(open ? null : wf.id)}
+                  style={{ alignSelf:'flex-start', background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--t2)', fontSize:11.5, fontWeight:600, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+                  {open ? 'Hide steps' : 'Preview steps'}
+                </button>
+                {open && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:5, borderTop:'1px solid var(--bd)', paddingTop:8 }}>
+                    {wf.nodes.map((n, i) => (
+                      <div key={i} style={{ fontSize:11.5, color:'var(--t2)', lineHeight:1.45 }}>
+                        <span style={{ color: n.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:700 }}>{n.subtype}</span>
+                        {n.value ? ` — ${n.value}` : ''}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display:'flex', gap:6, marginTop:2, flexWrap:'wrap' }}>
+                  <Btn size="sm" onClick={() => onGenerate(wf)} disabled={busy || saved}
+                    style={saved ? {} : { boxShadow:'var(--glow)' }}>
+                    {busy ? 'Generating…' : saved ? 'Created ✓' : 'Generate Workflow'}
+                  </Btn>
+                  <Btn size="sm" variant="ghost" onClick={() => onEdit(wf)} disabled={busy}>Edit in builder</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const WorkflowsTab = () => {
   const [workflows, setWorkflows] = useState([]);
   const [runs, setRuns] = useState([]);
@@ -509,6 +641,11 @@ const WorkflowsTab = () => {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiPreview, setAiPreview] = useState(null);
+  // Website-analysis result, when the input was a URL. Kept separate from
+  // aiPreview so the single-workflow path is unaffected.
+  const [aiSite, setAiSite] = useState(null);
+  const [savingWfId, setSavingWfId] = useState(null);
+  const [savedWfIds, setSavedWfIds] = useState(new Set());
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSaving, setAiSaving] = useState(false);
   const [aiError, setAiError] = useState('');
@@ -602,12 +739,40 @@ const WorkflowsTab = () => {
   };
 
   const generateAiPreview = async () => {
-    if (validateMeaningfulText(aiPrompt, 'Prompt')) { setAiError('Describe the workflow you want AI to create.'); return; }
-    setAiLoading(true); setAiError(''); setAiPreview(null);
-    const r = await wJson('/automation/workflows/ai-preview', { method:'POST', body: JSON.stringify({ prompt: aiPrompt }) });
+    // A bare URL is a valid input now, and would fail the prose check below.
+    const looksLikeUrl = /^(https?:\/\/)?[^\s]+\.[a-z]{2,}(\/\S*)?$/i.test(aiPrompt.trim());
+    if (!looksLikeUrl && validateMeaningfulText(aiPrompt, 'Prompt')) {
+      setAiError('Describe the workflow you want, or paste your website URL.'); return;
+    }
+    setAiLoading(true); setAiError(''); setAiPreview(null); setAiSite(null);
+    const r = await wJson('/automation/workflows/ai-preview', { method:'POST', body: JSON.stringify({ prompt: aiPrompt.trim() }) });
     setAiLoading(false);
     if (!r.ok) { setAiError(r.error); return; }
-    setAiPreview(r.data);
+    // The endpoint answers in one of two shapes: a single editable workflow
+    // (a described automation) or a whole business analysis (a URL).
+    if (r.data?.mode === 'website') setAiSite(r.data);
+    else setAiPreview(r.data);
+  };
+
+  // One-click generate from a recommended workflow. The nodes already arrive
+  // in the builder's shape, so this is a straight save with no second call.
+  const saveRecommended = async (wf) => {
+    setSavingWfId(wf.id); setAiError('');
+    const r = await wJson('/workflows', {
+      method: 'POST',
+      body: JSON.stringify({ name: wf.title, isActive: true, nodes: wf.nodes, edges: wf.edges || [] }),
+    });
+    setSavingWfId(null);
+    if (!r.ok) { setAiError(r.error); return; }
+    setSavedWfIds(s => new Set([...s, wf.id]));
+    await fetchWorkflows();
+  };
+
+  const editRecommendedInBuilder = (wf) => {
+    setName(wf.title);
+    setSteps(wf.nodes?.length ? wf.nodes : [blankTrigger()]);
+    setEditing(null); setError(''); setCreating(true);
+    setAiOpen(false); setAiSite(null); setAiPreview(null); setAiPrompt('');
   };
 
   const saveAiPreview = async () => {
@@ -653,7 +818,7 @@ const WorkflowsTab = () => {
         title="Workflows" subtitle="Multi-step automations that run on incoming messages">
         {!creating && !aiOpen && (
           <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
-            <Btn variant="outline" onClick={() => { setAiPrompt(''); setAiPreview(null); setAiError(''); setAiOpen(true); }}>
+            <Btn variant="outline" onClick={() => { setAiPrompt(''); setAiPreview(null); setAiSite(null); setSavedWfIds(new Set()); setAiError(''); setAiOpen(true); }}>
               <I n="spark" s={14} c="var(--green)" /> Create with AI
             </Btn>
             <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Create Workflow</Btn>
@@ -668,14 +833,14 @@ const WorkflowsTab = () => {
           <div style={{ padding:'22px 24px 14px', display:'flex', justifyContent:'space-between', gap:16 }}>
             <div>
               <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:18, fontWeight:800, color:'var(--t1)', marginBottom:6 }}>Create Workflow with AI</h3>
-              <p style={{ fontSize:13, color:'var(--t2)' }}>Describe the automation in plain English and edit the result before saving.</p>
+              <p style={{ fontSize:13, color:'var(--t2)' }}>Describe the automation in plain English &mdash; or paste your website URL and AI will study the business and suggest workflows built for it.</p>
             </div>
-            <IconBtn icon="x" onClick={() => { if (!aiLoading && !aiSaving) { setAiOpen(false); setAiPreview(null); } }} />
+            <IconBtn icon="x" onClick={() => { if (!aiLoading && !aiSaving) { setAiOpen(false); setAiPreview(null); setAiSite(null); setSavedWfIds(new Set()); } }} />
           </div>
 
           <div style={{ padding:'0 24px 18px', display:'flex', flexDirection:'column', gap:14 }}>
             <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} rows={3}
-              placeholder="e.g. When someone asks about a refund, ask for their order ID, wait 5 minutes, then assign it to the support team."
+              placeholder="Describe a workflow, e.g. When someone asks about a refund, ask for their order ID, wait 5 minutes, then assign to support.&#10;&#10;Or paste a website: https://your-business.com"
               style={{ ...inputStyle, resize:'vertical', fontSize:14 }} />
 
             <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
@@ -683,6 +848,7 @@ const WorkflowsTab = () => {
                 ['Refund support flow', 'When someone asks about refund, reply asking for order ID, wait 5 minutes, then assign to support team.'],
                 ['Abandoned cart follow-up', 'When a customer says cart or checkout, send a helpful checkout reminder and tag them as cart lead.'],
                 ['Demo booking workflow', 'When someone asks for a demo, ask for their preferred time and assign the lead to sales.'],
+                ['Analyse a website', 'https://example.com'],
               ].map(([label, prompt]) => (
                 <button key={label} onClick={() => setAiPrompt(prompt)}
                   style={{ padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', cursor:'pointer', fontSize:12.5, fontWeight:600 }}>
@@ -695,6 +861,16 @@ const WorkflowsTab = () => {
               <Banner tone="warn">No Gemini key on the server — this preview came from the built-in template generator.</Banner>
             )}
             {aiError && <Banner tone="error">{aiError}</Banner>}
+
+            {aiSite && (
+              <WebsiteAnalysisPanel
+                data={aiSite}
+                savingWfId={savingWfId}
+                savedWfIds={savedWfIds}
+                onGenerate={saveRecommended}
+                onEdit={editRecommendedInBuilder}
+              />
+            )}
 
             {aiPreview && (
               <div style={{ border:'1px solid var(--bd)', borderRadius:10, background:'rgba(255,255,255,0.02)', overflow:'hidden' }}>
@@ -722,9 +898,11 @@ const WorkflowsTab = () => {
           <div style={{ padding:'12px 24px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap' }}>
             {aiPreview && <Btn variant="ghost" onClick={useAiPreviewInBuilder} disabled={aiLoading || aiSaving}>Edit in builder</Btn>}
             {aiPreview && <Btn onClick={saveAiPreview} disabled={aiLoading || aiSaving} style={{ boxShadow:'var(--glow)' }}>{aiSaving ? 'Saving…' : 'Save Workflow'}</Btn>}
-            <Btn variant={aiPreview ? 'outline' : 'primary'} onClick={generateAiPreview} disabled={aiLoading || aiSaving}
-              style={aiPreview ? {} : { boxShadow:'var(--glow)' }}>
-              {aiLoading ? 'Generating…' : aiPreview ? 'Regenerate' : 'Generate'}
+            {/* In website mode each card saves itself, so only the analyse
+                action belongs here. */}
+            <Btn variant={(aiPreview || aiSite) ? 'outline' : 'primary'} onClick={generateAiPreview} disabled={aiLoading || aiSaving}
+              style={(aiPreview || aiSite) ? {} : { boxShadow:'var(--glow)' }}>
+              {aiLoading ? (aiSite ? 'Analysing…' : 'Generating…') : (aiPreview || aiSite) ? 'Regenerate' : 'Generate'}
             </Btn>
           </div>
         </div>
