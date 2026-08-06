@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
 import { headerImageComponent } from '../services/templateImage.service.js';
+import { templateHasVariables, bodyExamples, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
 import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
 import { consumeMessageCredit, releaseMessageCredit } from '../services/subscription.service.js';
@@ -44,7 +45,11 @@ async function skipOptedOutRecipient(campaignId, recipient) {
 // through unchanged so nothing is hidden.
 const describeMetaError = (metaErr, fallback) => {
   if (!metaErr) return fallback;
-  const raw = `${metaErr.message} (code ${metaErr.code}${metaErr.error_subcode ? `/${metaErr.error_subcode}` : ''})`;
+  // error_data.details is the only part of a Meta error that names the actual
+  // offender ("buttons: Button at index 0 of type Url requires a parameter");
+  // the top-level message is generic to the point of being unactionable.
+  const details = metaErr.error_data?.details;
+  const raw = `${metaErr.message}${details ? ` — ${details}` : ''} (code ${metaErr.code}${metaErr.error_subcode ? `/${metaErr.error_subcode}` : ''})`;
   const code = Number(metaErr.code);
   const sub = Number(metaErr.error_subcode);
 
@@ -59,50 +64,38 @@ const describeMetaError = (metaErr, fallback) => {
   return raw;
 };
 
-const templateHasVariables = (components) => {
-  if (!Array.isArray(components)) return false;
-  return components.some((c) => /\{\{\d+\}\}/.test(c?.text || ''));
-};
-
-const countVariables = (text) => {
-  const nums = [...String(text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
-  return nums.length ? Math.max(...nums) : 0;
-};
-
-// Builds the `components` array Meta expects for a template send, with a
-// `parameters` entry for every {{n}} placeholder in each component's text.
-// Contacts only carry name/phone/email — {{1}} is filled with the contact's
+// Contacts only carry name/phone/email, so {{1}} is filled with the contact's
 // name (the convention used everywhere else templates are authored, e.g.
-// data/templateLibrary.js); any further placeholders reuse it since there's
-// no per-recipient custom-field data to draw from. Sending the right *count*
-// of parameters is what matters to Meta — an empty/short components array
-// caused error 132000 (param count mismatch).
-const buildTemplateComponents = (components, contact) => {
+// data/templateLibrary.js). There is no per-recipient data behind {{2}} and up,
+// so those fall back to the sample the template was approved with: repeating
+// the name there turned "Hi Priya, {{2}}% off" into "Priya% off" on delivery.
+const contactResolver = (contact) => {
   const name = (contact?.name || '').trim() || 'there';
-  return (components || [])
-    .filter((c) => /\{\{\d+\}\}/.test(c?.text || ''))
-    .map((c) => ({
-      type: String(c.type || 'body').toLowerCase(),
-      parameters: Array.from({ length: countVariables(c.text) }, () => ({ type: 'text', text: name })),
-    }));
+  return (index, component) => {
+    if (index === 0) return name;
+    // A parameter Meta receives as an empty string fails the send, so an absent
+    // example falls back to the name rather than to nothing.
+    return String(bodyExamples(component)[index] ?? '').trim() || name;
+  };
 };
 
 // The full `template` object for one recipient's send.
 //
-// An image header has no {{n}} placeholders, so the text-variable check above
-// misses it entirely — that is why an approved image template used to go out
-// with no picture (and, because Meta counts header parameters, often failed
-// outright with 132000). The header component is resolved first and the text
-// parameters appended after it, which is also the order Meta expects.
+// Neither an image header nor a parameterised button has {{n}} placeholders in
+// a `text` field, so the text-variable check above misses both — that is why an
+// approved image template used to go out with no picture (failing with 132000),
+// and why a link button failed with 131008. Each is resolved on its own and the
+// pieces assembled header → body → buttons, the order Meta expects.
 const buildTemplatePayload = async (template, contact, { phoneNumberId, accessToken }) => {
   const payload = { name: template.name, language: { code: template.language } };
 
   const header = await headerImageComponent(template, { phoneNumberId, accessToken });
   const textComponents = templateHasVariables(template.components)
-    ? buildTemplateComponents(template.components, contact)
+    ? buildTextComponents(template.components, contactResolver(contact))
     : [];
+  const buttonComponents = buildButtonComponents(template.components);
 
-  const components = [...(header ? [header] : []), ...textComponents];
+  const components = [...(header ? [header] : []), ...textComponents, ...buttonComponents];
   if (components.length) payload.components = components;
   return payload;
 };

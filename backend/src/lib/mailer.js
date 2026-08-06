@@ -9,6 +9,11 @@ function getTransporter() {
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,
       secure: env.SMTP_SECURE,
+      // Without this the connection goes to whichever address DNS returns
+      // first, which for smtp.gmail.com is IPv6 — and on a host with no IPv6
+      // route every send dies as `connect ENETUNREACH 2607:f8b0:...:587`
+      // (or times out) long before the credentials are ever offered.
+      ...(env.SMTP_IP_FAMILY ? { family: env.SMTP_IP_FAMILY } : {}),
       auth: {
         user: env.SMTP_USER,
         pass: env.SMTP_PASSWORD,

@@ -4,6 +4,8 @@ import { queueApiKeyCreatedEmail } from './email.service.js';
 import { assertWithinLimit } from './subscription.service.js';
 import { assertNotOptedOut, normalizePhone } from './optout.service.js';
 import { decrypt } from '../lib/encryption.js';
+import { countVariables, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
+import { headerImageComponent } from './templateImage.service.js';
 
 function generateKey() {
   const raw = 'cfp_' + randomBytes(32).toString('hex');
@@ -51,28 +53,6 @@ export async function revokeApiKey(workspaceId, id) {
   const key = await prisma.apiKey.findFirst({ where: { id, workspaceId } });
   if (!key) { const e = new Error('API key not found'); e.status = 404; throw e; }
   await prisma.apiKey.update({ where: { id }, data: { revokedAt: new Date() } });
-}
-
-// Highest {{n}} placeholder index in a piece of template text — that is how
-// many parameters Meta expects for that component.
-const countVariables = (text) => {
-  const nums = [...String(text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
-  return nums.length ? Math.max(...nums) : 0;
-};
-
-// Builds the `components` payload Meta wants, filling each {{n}} from the
-// caller-supplied `variables` array (1-indexed to match {{1}}). Only HEADER
-// and BODY take text parameters in this flow.
-function buildTemplateComponents(components, variables) {
-  return (components || [])
-    .filter((c) => /\{\{\d+\}\}/.test(c?.text || ''))
-    .map((c) => ({
-      type: String(c.type || 'body').toLowerCase(),
-      parameters: Array.from({ length: countVariables(c.text) }, (_, i) => ({
-        type: 'text',
-        text: String(variables[i] ?? '').trim() || ' ',
-      })),
-    }));
 }
 
 // Powers the "Send Test Message" button in the API Playground. Sends a real
@@ -127,8 +107,25 @@ export async function sendTestMessage(workspaceId, { to, templateId, message, va
         throw e;
       }
 
+      // Assembled exactly like a campaign send (lib/templateParams.js), because
+      // a playground test that skips the image header or a link button's
+      // parameter fails on Meta for a reason the template itself never shows —
+      // and then "it worked in the playground" stops meaning anything.
       const payload = { name: template.name, language: { code: template.language } };
-      if (required > 0) payload.components = buildTemplateComponents(components, supplied);
+      const header = await headerImageComponent(template, {
+        phoneNumberId: waNumber.metaPhoneNumberId,
+        accessToken,
+      });
+      const parts = [
+        ...(header ? [header] : []),
+        ...(required > 0
+          ? buildTextComponents(components, (i) => String(supplied[i] ?? '').trim() || ' ')
+          : []),
+        // Button values come from the template's own examples, so the caller
+        // never has to supply them.
+        ...buildButtonComponents(components),
+      ];
+      if (parts.length) payload.components = parts;
 
       const result = await sendWhatsAppMessage(waNumber.metaPhoneNumberId, accessToken, recipient, payload);
       return { ok: true, messageId: result?.messages?.[0]?.id ?? null };
