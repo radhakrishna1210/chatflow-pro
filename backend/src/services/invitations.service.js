@@ -13,6 +13,51 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // the raw token exists transiently to build the emailed link.
 const hashToken = (token) => createHash('sha256').update(String(token)).digest('hex');
 
+// A shareable invite: no address, reusable, and anyone who opens it joins with
+// whatever account they have. Kept in the same table as email invites so
+// revoke/expire/list/accept and the seat limit all work identically — the only
+// differences are that nothing is emailed and accept skips the address check.
+export async function createLinkInvitation(workspaceId, { role, maxUses = null }, inviterId) {
+  const inviter = await prisma.user.findUnique({ where: { id: inviterId }, select: { id: true, name: true } });
+  if (!inviter) { const e = new Error('Inviter not found'); e.status = 404; throw e; }
+
+  await assertWithinLimit(workspaceId, 'member');
+
+  // Only one live link per role at a time: a second one silently invalidates
+  // nothing, so admins would otherwise accumulate shared links they can no
+  // longer tell apart or recall.
+  await prisma.invitation.updateMany({
+    where: { workspaceId, kind: 'LINK', role, status: 'PENDING' },
+    data: { status: 'REVOKED', revokedAt: new Date() },
+  });
+
+  const rawToken = randomBytes(32).toString('hex');
+  const invitation = await prisma.invitation.create({
+    data: {
+      workspaceId,
+      email: null,
+      role,
+      kind: 'LINK',
+      maxUses: Number.isInteger(maxUses) && maxUses > 0 ? maxUses : null,
+      tokenHash: hashToken(rawToken),
+      invitedByUserId: inviter.id,
+      expiresAt: new Date(Date.now() + INVITE_TTL_MS),
+    },
+  });
+
+  notifyUser(inviter.id, {
+    type: 'WORKSPACE_INVITE_SENT',
+    workspaceId,
+    title: 'Invite link created',
+    body: `Anyone with the link joins as ${role === 'ADMIN' ? 'an admin' : 'a member'}. It expires in 7 days.`,
+    link: 'settings',
+    meta: { invitationId: invitation.id },
+  }).catch(() => {});
+
+  const { tokenHash: _omit, ...safe } = invitation;
+  return { ...safe, inviteUrl: buildInviteUrl(rawToken) };
+}
+
 export async function createInvitation(workspaceId, { email, role }, inviterId) {
   const normalizedEmail = String(email).trim().toLowerCase();
   // req.user (from the JWT) only ever carries id/workspaceId/role/superAdmin
@@ -126,6 +171,9 @@ export async function resendInvitation(workspaceId, invitationId, inviterId) {
   const invitation = await prisma.invitation.findFirst({ where: { id: invitationId, workspaceId } });
   if (!invitation) { const e = new Error('Invitation not found'); e.status = 404; throw e; }
   if (invitation.status !== 'PENDING') { const e = new Error('Invitation is no longer pending'); e.status = 409; throw e; }
+  if (invitation.kind === 'LINK') {
+    const e = new Error('An invite link has no address to resend to. Create a new link instead.'); e.status = 400; throw e;
+  }
 
   const inviter = await prisma.user.findUnique({ where: { id: inviterId }, select: { id: true, name: true } });
   const rawToken = randomBytes(32).toString('hex');
@@ -179,18 +227,29 @@ export async function getInvitationByToken(rawToken) {
     invitation.status = 'EXPIRED';
   }
 
+  // A link invite is exhausted once it hits its cap, even if a concurrent
+  // accept hasn't flipped the status yet.
+  if (invitation.kind === 'LINK' && invitation.maxUses && invitation.useCount >= invitation.maxUses) {
+    invitation.status = 'ACCEPTED';
+  }
+
   // Lets the accept-invite page steer a logged-out visitor toward "Log in"
-  // vs. "Create account" instead of showing both with no guidance.
-  const existingUser = await prisma.user.findUnique({ where: { email: invitation.email }, select: { id: true } });
+  // vs. "Create account" instead of showing both with no guidance. A link
+  // invite has no address to look up, so the page offers both.
+  const existingUser = invitation.email
+    ? await prisma.user.findUnique({ where: { email: invitation.email }, select: { id: true } })
+    : null;
 
   return {
     email: invitation.email,
+    kind: invitation.kind,
     role: invitation.role,
     status: invitation.status,
     workspaceName: invitation.workspace.name,
     inviterName: invitation.invitedBy.name,
     expiresAt: invitation.expiresAt,
     hasAccount: !!existingUser,
+    usesLeft: invitation.maxUses ? Math.max(0, invitation.maxUses - invitation.useCount) : null,
   };
 }
 
@@ -209,16 +268,26 @@ export async function acceptInvitation(rawToken, userId) {
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
-  if (user.email.toLowerCase() !== invitation.email.toLowerCase()) {
+  // A LINK invite is deliberately not bound to an address — that is the whole
+  // point of a shareable link — so only EMAIL invites check who is accepting.
+  if (invitation.kind === 'EMAIL' && user.email.toLowerCase() !== String(invitation.email).toLowerCase()) {
     const e = new Error(`This invite was sent to ${invitation.email}`);
     e.status = 403;
     e.code = 'EMAIL_MISMATCH';
     throw e;
   }
-
   let member = await prisma.workspaceMember.findUnique({
     where: { userId_workspaceId: { userId, workspaceId: invitation.workspaceId } },
   });
+  // Someone re-opening a link they already joined through is a no-op: they
+  // keep their membership, no use is burned, and the seat cap doesn't apply
+  // to them. Checked before the cap so the last person to join can revisit
+  // their own link without being told it's exhausted.
+  const alreadyMember = !!member;
+
+  if (!alreadyMember && invitation.kind === 'LINK' && invitation.maxUses && invitation.useCount >= invitation.maxUses) {
+    const e = new Error('This invite link has been used the maximum number of times'); e.status = 410; throw e;
+  }
 
   if (!member) {
     // This invitation is still PENDING here — exclude it so it isn't counted
@@ -246,10 +315,32 @@ export async function acceptInvitation(rawToken, userId) {
   // Guarded by status so a concurrent request that already flipped this to
   // ACCEPTED (or the token being reused after expiry raced it to EXPIRED)
   // doesn't get clobbered back — this update is a no-op if so, not an error.
-  await prisma.invitation.updateMany({
-    where: { id: invitation.id, status: 'PENDING' },
-    data: { status: 'ACCEPTED', acceptedAt: new Date() },
-  });
+  if (invitation.kind === 'LINK') {
+    if (!alreadyMember) {
+      // A link stays PENDING and keeps working until it runs out of uses,
+      // expires, or is revoked. The increment is done in the same guarded
+      // update so two people accepting at once can't share one use.
+      const { count } = await prisma.invitation.updateMany({
+        where: {
+          id: invitation.id,
+          status: 'PENDING',
+          ...(invitation.maxUses ? { useCount: { lt: invitation.maxUses } } : {}),
+        },
+        data: { useCount: { increment: 1 } },
+      });
+      if (count && invitation.maxUses && invitation.useCount + 1 >= invitation.maxUses) {
+        await prisma.invitation.updateMany({
+          where: { id: invitation.id, status: 'PENDING', useCount: { gte: invitation.maxUses } },
+          data: { status: 'ACCEPTED', acceptedAt: new Date() },
+        });
+      }
+    }
+  } else {
+    await prisma.invitation.updateMany({
+      where: { id: invitation.id, status: 'PENDING' },
+      data: { status: 'ACCEPTED', acceptedAt: new Date(), useCount: { increment: 1 } },
+    });
+  }
 
   return { workspaceId: invitation.workspaceId, role: member.role };
 }
@@ -264,14 +355,25 @@ export async function consumeInvitationAtomically(tx, rawToken, userEmail, userI
     if (!invitation) return null;
     if (invitation.status !== 'PENDING') return null;
     if (invitation.expiresAt < new Date()) return null;
-    if (invitation.email.toLowerCase() !== String(userEmail).trim().toLowerCase()) return null;
+    // Signing up through a shared link is the expected path for someone with
+    // no account yet, so only an email invite pins the address.
+    if (invitation.kind === 'EMAIL' && String(invitation.email).toLowerCase() !== String(userEmail).trim().toLowerCase()) return null;
+    if (invitation.kind === 'LINK' && invitation.maxUses && invitation.useCount >= invitation.maxUses) return null;
 
     // Best-effort limit check inside the transaction — if it throws
     // (plan full), fall through to the catch below and skip joining.
     await assertWithinLimit(invitation.workspaceId, 'member', { ignoreInvitationId: invitation.id });
 
     await tx.workspaceMember.create({ data: { userId, workspaceId: invitation.workspaceId, role: invitation.role } });
-    await tx.invitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED', acceptedAt: new Date() } });
+    // A link keeps working for the next person unless this use exhausts it.
+    const exhausts = invitation.kind === 'EMAIL' || (invitation.maxUses && invitation.useCount + 1 >= invitation.maxUses);
+    await tx.invitation.update({
+      where: { id: invitation.id },
+      data: {
+        useCount: { increment: 1 },
+        ...(exhausts ? { status: 'ACCEPTED', acceptedAt: new Date() } : {}),
+      },
+    });
 
     const workspace = await tx.workspace.findUnique({ where: { id: invitation.workspaceId }, select: { id: true, name: true } });
     return { workspaceId: invitation.workspaceId, role: invitation.role, workspace };

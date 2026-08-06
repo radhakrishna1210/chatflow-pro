@@ -86,6 +86,7 @@ export default function SettingsView() {
   const [showInvite, setShowInvite]   = useState(false);
   const [inviteError, setInviteError] = useState(null);
   const [sendingInvite, setSendingInvite] = useState(false);
+  const [creatingLink, setCreatingLink] = useState(false);
   const [invitations, setInvitations] = useState([]);
   const [resendingId, setResendingId] = useState(null);
   const [resentId, setResentId] = useState(null);
@@ -201,6 +202,26 @@ export default function SettingsView() {
     }
   };
 
+  // Creates a shareable link instead of emailing one person. Useful when the
+  // admin doesn't have the address, or is onboarding several people at once.
+  const createInviteLink = async () => {
+    setInviteError(null); setCreatingLink(true);
+    try {
+      const r = await wFetch('/invitations/link', { method:'POST', body:JSON.stringify({ role: inviteRole }) });
+      const data = await r.json();
+      if (!r.ok) { setInviteError(data.error || 'Could not create an invite link'); return; }
+      // Creating a link supersedes any previous one for the same role, so drop
+      // the stale row rather than showing two links that can't both work.
+      setInvitations(p => [data, ...p.filter(i => !(i.kind === 'LINK' && i.role === data.role))]);
+      setLastInvite({ email: null, url: data.inviteUrl, emailQueued: false, kind: 'LINK', role: data.role });
+      setShowInvite(false);
+    } catch (e) {
+      setInviteError(e.message);
+    } finally {
+      setCreatingLink(false);
+    }
+  };
+
   const revokeInvite = async id => {
     const prev = invitations;
     setInvitations(p=>p.filter(i=>i.id!==id));
@@ -303,24 +324,41 @@ export default function SettingsView() {
                 </select>
                 <Btn size="sm" onClick={sendInvite} disabled={sendingInvite}>{sendingInvite ? 'Sending…' : 'Send Invite'}</Btn>
               </div>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <div style={{ flex:1, height:1, background:'var(--bd)' }} />
+                <span style={{ fontSize:10.5, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.07em' }}>or</span>
+                <div style={{ flex:1, height:1, background:'var(--bd)' }} />
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                <Btn size="sm" variant="outline" onClick={createInviteLink} disabled={creatingLink}>
+                  {creatingLink ? 'Creating…' : 'Create invite link'}
+                </Btn>
+                <span style={{ fontSize:11.5, color:'var(--t3)' }}>
+                  Anyone with the link joins as {inviteRole === 'ADMIN' ? 'an Admin' : 'a Member'}. No email needed.
+                </span>
+              </div>
               {inviteError && <p style={{ fontSize:12, color:'#f87171' }}>{inviteError}</p>}
             </div>
           )}
           {lastInvite && (
             <div style={{ marginBottom:14, padding:'12px 14px', borderRadius:10, border:`1px solid ${lastInvite.emailQueued ? 'var(--gbd)' : 'rgba(245,158,11,0.3)'}`, background: lastInvite.emailQueued ? 'var(--gbg)' : 'rgba(245,158,11,0.08)' }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:8 }}>
-                <p style={{ fontSize:12.5, color: lastInvite.emailQueued ? 'var(--green)' : '#fbbf24', fontWeight:600 }}>
-                  {lastInvite.emailQueued
-                    ? `Invite email sent to ${lastInvite.email}.`
-                    : `Invitation created for ${lastInvite.email}, but no email was sent.`}
+                <p style={{ fontSize:12.5, color: lastInvite.kind === 'LINK' ? 'var(--green)' : lastInvite.emailQueued ? 'var(--green)' : '#fbbf24', fontWeight:600 }}>
+                  {lastInvite.kind === 'LINK'
+                    ? `Invite link ready — anyone who opens it joins as ${lastInvite.role === 'ADMIN' ? 'an Admin' : 'a Member'}.`
+                    : lastInvite.emailQueued
+                      ? `Invite email sent to ${lastInvite.email}.`
+                      : `Invitation created for ${lastInvite.email}, but no email was sent.`}
                 </p>
                 <button onClick={()=>{ setLastInvite(null); setCopiedInvite(false); }}
                   style={{ background:'none', border:'none', color:'var(--t3)', cursor:'pointer', fontSize:14, lineHeight:1, padding:0 }}>×</button>
               </div>
               <p style={{ fontSize:11.5, color:'var(--t2)', marginBottom:8 }}>
-                {lastInvite.emailQueued
-                  ? 'If it does not arrive, share this link directly — it works the same way.'
-                  : 'Check the email settings below, or share this link directly so they can still join.'}
+                {lastInvite.kind === 'LINK'
+                  ? 'Share it however you like. It expires in 7 days, and you can revoke it below at any time.'
+                  : lastInvite.emailQueued
+                    ? 'If it does not arrive, share this link directly — it works the same way.'
+                    : 'Check the email settings below, or share this link directly so they can still join.'}
               </p>
               <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                 <input readOnly value={lastInvite.url || ''} onFocus={e=>e.target.select()}
@@ -339,13 +377,23 @@ export default function SettingsView() {
               {invitations.map((inv,i) => (
                 <div key={inv.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'9px 12px', borderBottom: i < invitations.length-1 ? '1px solid var(--bd)' : 'none' }}>
                   <div style={{ minWidth:0, flex:1 }}>
-                    <span style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)' }}>{inv.email}</span>
-                    <span style={{ fontSize:11, color:'var(--t3)', marginLeft:8 }}>{inv.role === 'ADMIN' ? 'Admin' : 'Member'} · expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
+                    <span style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)' }}>
+                      {inv.kind === 'LINK' ? 'Shareable link' : inv.email}
+                    </span>
+                    <span style={{ fontSize:11, color:'var(--t3)', marginLeft:8 }}>
+                      {inv.role === 'ADMIN' ? 'Admin' : 'Member'}
+                      {inv.kind === 'LINK' && ` · ${inv.useCount || 0} joined`}
+                      {' · expires '}{new Date(inv.expiresAt).toLocaleDateString()}
+                    </span>
                   </div>
                   <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                    {/* A link has no address to resend to — revoking and
+                        creating a new one is the equivalent action. */}
+                    {inv.kind !== 'LINK' && (
                     <button onClick={()=>resendInvite(inv.id)} disabled={resendingId===inv.id} style={{ padding:'4px 10px', borderRadius:6, background: resentId===inv.id ? 'var(--gbg)' : 'rgba(255,255,255,0.04)', border: `1px solid ${resentId===inv.id ? 'var(--gbd)' : 'var(--bd)'}`, cursor: resendingId===inv.id ? 'not-allowed' : 'pointer', fontSize:11.5, fontWeight:600, color: resentId===inv.id ? 'var(--green)' : 'var(--t2)', opacity: resendingId===inv.id ? 0.6 : 1 }}>
                       {resendingId===inv.id ? 'Sending…' : resentId===inv.id ? 'Sent ✓' : 'Resend'}
                     </button>
+                    )}
                     <button onClick={()=>revokeInvite(inv.id)} style={{ padding:'4px 10px', borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.18)', cursor:'pointer', fontSize:11.5, fontWeight:600, color:'#f87171' }}>
                       Revoke
                     </button>

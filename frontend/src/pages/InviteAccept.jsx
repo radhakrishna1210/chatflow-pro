@@ -40,7 +40,10 @@ export default function InviteAccept() {
         setInvite(data);
         const user = getStoredUser();
         if (isAuthed() && user) {
-          setState(user.email?.toLowerCase() === data.email.toLowerCase() ? 'ready' : 'mismatch');
+          // A LINK invite isn't bound to an address, so any signed-in account
+          // can accept it — only an EMAIL invite can be the "wrong account".
+          const bound = data.kind !== 'LINK' && data.email;
+          setState(!bound || user.email?.toLowerCase() === data.email.toLowerCase() ? 'ready' : 'mismatch');
         } else {
           setState('logged-out');
         }
@@ -121,12 +124,19 @@ export default function InviteAccept() {
     );
   }
 
+  const isLink = invite?.kind === 'LINK';
   const inviteSummary = invite && (
     <div style={{ width: '100%', padding: '14px 16px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', textAlign: 'left' }}>
       <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.6 }}>
-        <strong style={{ color: 'var(--t1)' }}>{invite.inviterName}</strong> invited <strong style={{ color: 'var(--t1)' }}>{invite.email}</strong> to join{' '}
+        <strong style={{ color: 'var(--t1)' }}>{invite.inviterName}</strong>
+        {isLink ? ' shared a link to join ' : <> invited <strong style={{ color: 'var(--t1)' }}>{invite.email}</strong> to join </>}
         <strong style={{ color: 'var(--t1)' }}>{invite.workspaceName}</strong> as {invite.role === 'ADMIN' ? 'an Admin' : 'a Member'}.
       </p>
+      {isLink && invite.usesLeft !== null && (
+        <p style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 6 }}>
+          {invite.usesLeft} {invite.usesLeft === 1 ? 'seat' : 'seats'} left on this link.
+        </p>
+      )}
     </div>
   );
 
@@ -152,11 +162,20 @@ export default function InviteAccept() {
         <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--t1)' }}>You're invited!</p>
         {inviteSummary}
         <p style={{ fontSize: 12.5, color: 'var(--t3)', lineHeight: 1.5 }}>
-          {hasAccount
-            ? <>An account already exists for <strong style={{ color: 'var(--t2)' }}>{invite.email}</strong> — log in to accept.</>
-            : <>No account exists for <strong style={{ color: 'var(--t2)' }}>{invite.email}</strong> yet — create one to accept.</>}
+          {/* A shared link has no address to reason about, so neither path is
+              steered — the visitor picks whichever applies to them. */}
+          {isLink
+            ? <>Sign in with any account to join, or create one if you don't have one yet.</>
+            : hasAccount
+              ? <>An account already exists for <strong style={{ color: 'var(--t2)' }}>{invite.email}</strong> — log in to accept.</>
+              : <>No account exists for <strong style={{ color: 'var(--t2)' }}>{invite.email}</strong> yet — create one to accept.</>}
         </p>
-        {hasAccount ? (
+        {isLink ? (
+          <>
+            <button onClick={() => navigate(`/login?invite=${encodeURIComponent(token)}`)} style={btnStyle(true)}>Log in to join</button>
+            <button onClick={() => navigate(`/register?invite=${encodeURIComponent(token)}`)} style={btnStyle(false)}>Create an account</button>
+          </>
+        ) : hasAccount ? (
           <>
             <button onClick={() => navigate(`/login?invite=${encodeURIComponent(token)}`)} style={btnStyle(true)}>Log in to accept</button>
             <button onClick={() => navigate(`/register?invite=${encodeURIComponent(token)}`)} style={btnStyle(false)}>Use a different account instead</button>

@@ -858,7 +858,11 @@ const WorkflowsTab = () => {
             </div>
 
             {aiPreview?.provider === 'fallback' && (
-              <Banner tone="warn">No Gemini key on the server — this preview came from the built-in template generator.</Banner>
+              <Banner tone="warn">
+                {aiPreview.fallbackReason === 'error'
+                  ? 'Gemini could not be reached — this preview came from the built-in template generator.'
+                  : 'No Gemini key on the server — this preview came from the built-in template generator.'}
+              </Banner>
             )}
             {aiError && <Banner tone="error">{aiError}</Banner>}
 

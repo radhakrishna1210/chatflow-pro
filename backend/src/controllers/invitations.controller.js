@@ -6,6 +6,11 @@ export async function create(req, res) {
   res.status(201).json(invitation);
 }
 
+export async function createLink(req, res) {
+  const invitation = await invitationsService.createLinkInvitation(req.params.workspaceId, req.body, req.user.id);
+  res.status(201).json(invitation);
+}
+
 export async function list(req, res) {
   res.json(await invitationsService.listInvitations(req.params.workspaceId));
 }

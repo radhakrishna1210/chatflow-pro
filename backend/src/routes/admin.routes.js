@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as adminController from '../controllers/admin.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireSuperAdmin } from '../middleware/authorize.js';
+import { validate, invitationSchemas } from '../validators/index.js';
 
 const router = Router();
 
@@ -48,6 +49,11 @@ router.get('/platform/campaigns',                adminController.listAllCampaign
 router.get('/platform/revenue',                  adminController.revenueOverview);
 router.get('/platform/workspaces/analytics',     adminController.workspaceAnalytics);
 router.get('/platform/workspaces/:id/members',   adminController.workspaceMembers);
+// Invite into any workspace from the platform console — by email, or by a
+// shareable link for people whose address the admin doesn't have.
+router.post('/platform/workspaces/:id/invitations',      validate({ body: invitationSchemas.create }),     adminController.workspaceInvite);
+router.post('/platform/workspaces/:id/invitations/link', validate({ body: invitationSchemas.createLink }), adminController.workspaceInviteLink);
+router.delete('/platform/workspaces/:id/invitations/:invitationId',                                        adminController.workspaceRevokeInvite);
 router.get('/platform/payments',                 adminController.paymentsAnalysis);
 
 // User management — search across every workspace, plus impersonation

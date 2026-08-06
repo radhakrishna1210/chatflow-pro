@@ -157,6 +157,10 @@ export const templateSchemas = {
     language: z.string().trim().min(2).max(10),
     components: z.array(z.record(z.any())).min(1),
     waNumberId: id.optional(),
+    // Stored bytes of the header image, so a campaign can re-send the picture
+    // after approval. Zod strips unknown keys, so it has to be declared here
+    // or it never reaches the service.
+    headerAssetId: id.optional(),
   }).superRefine((v, ctx) => checkBodyText(v.components, ctx)),
   update: z.object({
     name: z.string().trim().regex(/^[a-z0-9_]{1,64}$/).optional(),
@@ -324,6 +328,12 @@ export const invitationSchemas = {
   create: z.object({
     email: z.string().trim().email(),
     role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+  }),
+  // A shareable link takes no address. maxUses caps how many people can join
+  // through it; omitted means unlimited until it expires or is revoked.
+  createLink: z.object({
+    role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+    maxUses: z.coerce.number().int().positive().max(500).optional(),
   }),
 };
 

@@ -1,5 +1,6 @@
 import * as adminService from '../services/admin.service.js';
 import * as authService from '../services/auth.service.js';
+import * as invitationsService from '../services/invitations.service.js';
 
 export async function getPool(req, res) {
   const result = await adminService.getPoolSummary();
@@ -122,6 +123,26 @@ export async function paymentsAnalysis(req, res) {
 
 export async function workspaceMembers(req, res) {
   res.json(await adminService.getWorkspaceMembers(req.params.id));
+}
+
+// Super admins can invite into any workspace without being a member of it, so
+// these reuse the same invitation service the workspace's own admins use —
+// same tokens, seat limits, expiry and revoke semantics, just reached through
+// the platform console. `req.user.id` is the super admin, who is recorded as
+// the inviter.
+export async function workspaceInvite(req, res) {
+  const invitation = await invitationsService.createInvitation(req.params.id, req.body, req.user.id);
+  res.status(201).json(invitation);
+}
+
+export async function workspaceInviteLink(req, res) {
+  const invitation = await invitationsService.createLinkInvitation(req.params.id, req.body, req.user.id);
+  res.status(201).json(invitation);
+}
+
+export async function workspaceRevokeInvite(req, res) {
+  await invitationsService.revokeInvitation(req.params.id, req.params.invitationId);
+  res.status(204).send();
 }
 
 export async function listUsers(req, res) {

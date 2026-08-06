@@ -40,6 +40,122 @@ export async function createMetaTemplate(wabaId, templateData, accessToken) {
   return data;
 }
 
+// Media formats Meta accepts in a template header, with its published size
+// caps. Anything else is rejected before a byte is uploaded.
+export const TEMPLATE_MEDIA_FORMATS = {
+  'image/jpeg':      { format: 'IMAGE',    maxBytes: 5 * 1024 * 1024 },
+  'image/png':       { format: 'IMAGE',    maxBytes: 5 * 1024 * 1024 },
+  'video/mp4':       { format: 'VIDEO',    maxBytes: 16 * 1024 * 1024 },
+  'application/pdf': { format: 'DOCUMENT', maxBytes: 100 * 1024 * 1024 },
+};
+
+// Uploads a header sample to Meta and returns the opaque handle a template
+// must carry as example.header_handle.
+//
+// A template with an IMAGE header cannot be created from a URL — Meta requires
+// a handle produced by the Resumable Upload API, which is a two-step dance
+// against the *app* (not the WABA): open a session, then post the bytes to
+// that session. The second call authenticates with `OAuth <token>` rather than
+// the usual Bearer, which is a quirk of this endpoint specifically.
+export async function uploadTemplateMedia({ buffer, mimeType, fileName, accessToken }) {
+  const spec = TEMPLATE_MEDIA_FORMATS[mimeType];
+  if (!spec) {
+    const e = new Error(`Unsupported file type "${mimeType}". Use a JPG or PNG image, an MP4 video, or a PDF.`);
+    e.status = 400; throw e;
+  }
+  if (buffer.length > spec.maxBytes) {
+    const e = new Error(`That file is ${(buffer.length / 1024 / 1024).toFixed(1)} MB — the limit for ${spec.format.toLowerCase()} headers is ${spec.maxBytes / 1024 / 1024} MB.`);
+    e.status = 400; throw e;
+  }
+
+  const token = accessToken || env.META_SYSTEM_USER_TOKEN;
+
+  // 1. Open an upload session against the app.
+  let sessionId;
+  try {
+    const { data } = await axios.post(`${BASE}/${env.META_APP_ID}/uploads`, null, {
+      params: {
+        file_name: fileName || 'header',
+        file_length: buffer.length,
+        file_type: mimeType,
+        access_token: token,
+      },
+    });
+    sessionId = data?.id;
+  } catch (err) {
+    throw describeUploadError(err, 'could not start the upload');
+  }
+  if (!sessionId) {
+    const e = new Error('Meta did not return an upload session'); e.status = 502; throw e;
+  }
+
+  // 2. Post the bytes to the session. Note the OAuth scheme, not Bearer.
+  try {
+    const { data } = await axios.post(`${BASE}/${sessionId}`, buffer, {
+      headers: {
+        Authorization: `OAuth ${token}`,
+        file_offset: '0',
+        'Content-Type': 'application/octet-stream',
+      },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    if (!data?.h) {
+      const e = new Error('Meta accepted the upload but returned no media handle'); e.status = 502; throw e;
+    }
+    return { handle: data.h, format: spec.format };
+  } catch (err) {
+    // Same axios-sets-status caveat as uploadPhoneMedia below: without the
+    // isAxiosError check a failed header upload reported only "Request failed
+    // with status code 400" instead of what Meta objected to.
+    if (err.status && !err.isAxiosError) throw err;
+    throw describeUploadError(err, 'the upload failed');
+  }
+}
+
+// Uploads media to a phone number and returns the id a *message* send uses.
+//
+// This is a different endpoint and a different id from uploadTemplateMedia
+// above: that one produces a `header_handle`, which Meta accepts only as the
+// review sample when the template is created and rejects at send time. A
+// template with a media header must name real media on every send, which is
+// what this returns. The id is scoped to `phoneNumberId` and expires after
+// roughly 30 days.
+export async function uploadPhoneMedia({ phoneNumberId, accessToken, buffer, mimeType, fileName }) {
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', mimeType);
+  form.append('file', new Blob([buffer], { type: mimeType }), fileName || 'header');
+
+  try {
+    const { data } = await axios.post(`${BASE}/${phoneNumberId}/media`, form, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    if (!data?.id) {
+      const e = new Error('Meta accepted the media but returned no id'); e.status = 502; throw e;
+    }
+    return data.id;
+  } catch (err) {
+    // `err.status` alone can't tell the two apart: axios ≥1.x sets it on its
+    // own errors too, so testing it would rethrow the raw "Request failed with
+    // status code 400" and discard Meta's actual reason.
+    if (err.status && !err.isAxiosError) throw err;
+    throw describeUploadError(err, 'could not accept the header image');
+  }
+}
+
+function describeUploadError(err, what) {
+  const m = err.response?.data?.error;
+  const detail = m
+    ? `${m.message}${m.error_user_msg ? ' — ' + m.error_user_msg : ''} (code ${m.code}${m.error_subcode ? '/' + m.error_subcode : ''})`
+    : err.message;
+  const e = new Error(`Meta ${what}: ${detail}`);
+  e.status = err.response?.status || 502;
+  return e;
+}
+
 export async function deleteMetaTemplate(wabaId, templateId, accessToken) {
   const client = accessToken ? metaClient(accessToken) : systemClient;
   const { data } = await client.delete(`/${wabaId}/message_templates`, {

@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { llmText, llmJson } from '../lib/llm.js';
+import { generateTemplateDraft } from '../services/templateAi.service.js';
 import { createWorkflow } from '../services/workflow.service.js';
 import { hasFeature } from '../services/subscription.service.js';
 
@@ -34,6 +35,30 @@ CREATE_TEMPLATE, CREATE_CAMPAIGN, CREATE_WORKFLOW, GENERAL. Respond with only th
   return 'GENERAL';
 }
 
+// Full template draft — name, category, header, body, footer and variable
+// samples — using the same service the Templates tab's "Create with AI" uses,
+// so the agent and the builder cannot drift apart on category rules or copy
+// style. Returns the shape templateAi.service.js defines.
+async function draftTemplate(prompt) {
+  return generateTemplateDraft(prompt);
+}
+
+// Turns a draft into the Meta component array, header included. A media header
+// is deliberately NOT set here: Meta needs a real sample file uploaded before
+// it will approve one, and the chat agent has no file to upload — the draft
+// only records that an image would help, and the user adds it in the builder.
+function draftToComponents(draft) {
+  const components = [];
+  if (draft.headerText) components.push({ type: 'HEADER', format: 'TEXT', text: draft.headerText });
+  const body = { type: 'BODY', text: draft.body };
+  if (draft.variables?.length) {
+    body.example = { body_text: [draft.variables.map((v) => v.example)] };
+  }
+  components.push(body);
+  if (draft.footer) components.push({ type: 'FOOTER', text: draft.footer });
+  return components;
+}
+
 // Generate a WhatsApp template body from the user's real prompt. Falls back to a
 // context-aware (not generic) draft when no LLM is configured.
 async function generateTemplateBody(prompt) {
@@ -56,22 +81,51 @@ async function generateTemplateBody(prompt) {
   return `Hi {{1}}, ${prompt.trim()}. Reply STOP to opt out.`;
 }
 
+// The only subtypes workflowEngine understands. Anything else is saved as an
+// ACTIVE workflow that can never fire — triggerFires() returns false for an
+// unknown trigger subtype, and an unknown action is skipped at run time — so
+// the model's output is clamped to these rather than trusted.
+const ALLOWED_TRIGGER_SUBTYPES = new Set(['keyword', 'welcome', 'missed']);
+const ALLOWED_ACTION_SUBTYPES = new Set(['message', 'delay', 'tag', 'agent']);
+
 // Build a workflow (trigger + action steps) from the user's description.
 async function generateWorkflowSpec(prompt) {
   const system = `Design a simple WhatsApp automation as JSON: {"name": string, "nodes": [{"type":"trigger"|"action","subtype":string,"value":string}]}.
 trigger subtypes: keyword, welcome, missed. action subtypes: message, delay, tag, agent.
+Use those subtype words exactly — no other values are accepted.
+A "keyword" trigger's value is ONE uppercase word a customer would actually send (HELP, BOOK, PRICE); "welcome" and "missed" take an empty value.
 Start with exactly one trigger, then 1-3 actions. Reply with ONLY the JSON.`;
   const spec = await llmJson(`Automation for: ${prompt}`, system);
-  if (spec?.nodes?.length) {
-    return {
-      name: String(spec.name || 'AI Workflow').slice(0, 80),
-      nodes: spec.nodes.slice(0, 5).map((n, i) => ({
-        id: `step_${i + 1}`,
-        type: n.type === 'trigger' ? 'trigger' : 'action',
-        subtype: String(n.subtype || (n.type === 'trigger' ? 'keyword' : 'message')).toLowerCase(),
-        value: String(n.value || '').trim(),
-      })),
-    };
+  const nodes = Array.isArray(spec?.nodes) ? spec.nodes : [];
+
+  // A trigger with no action after it isn't a workflow, so fall through to the
+  // deterministic build rather than saving a stub.
+  const triggerRaw = nodes.find((n) => n?.type === 'trigger');
+  const actionsRaw = nodes.filter((n) => n?.type !== 'trigger');
+  if (triggerRaw && actionsRaw.length) {
+    let triggerSubtype = String(triggerRaw.subtype || 'keyword').toLowerCase();
+    if (!ALLOWED_TRIGGER_SUBTYPES.has(triggerSubtype)) triggerSubtype = 'keyword';
+
+    const built = [{
+      id: 'step_1',
+      type: 'trigger',
+      subtype: triggerSubtype,
+      value: triggerSubtype === 'keyword'
+        ? (String(triggerRaw.value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20)
+           || prompt.match(/\b([a-z]{3,})\b/i)?.[1]?.toUpperCase() || 'HELP')
+        : '',
+    }];
+
+    for (const n of actionsRaw) {
+      if (built.length >= 5) break;
+      let subtype = String(n?.subtype || 'message').toLowerCase();
+      if (!ALLOWED_ACTION_SUBTYPES.has(subtype)) subtype = 'message';
+      const value = String(n?.value || '').trim().slice(0, 900);
+      if (!value) continue;
+      built.push({ id: `step_${built.length + 1}`, type: 'action', subtype, value });
+    }
+
+    if (built.length >= 2) return { name: String(spec.name || 'AI Workflow').slice(0, 80), nodes: built };
   }
 
   // Deterministic fallback: keyword trigger → auto reply.
@@ -84,6 +138,54 @@ Start with exactly one trigger, then 1-3 actions. Reply with ONLY the JSON.`;
       { id: 'step_2', type: 'action', subtype: 'message', value: body },
     ],
   };
+}
+
+// ─── Campaign planning ────────────────────────────────────────────────────────
+
+const bodyOf = (components) =>
+  (Array.isArray(components) ? components : []).find((c) => String(c?.type).toUpperCase() === 'BODY')?.text || '';
+
+// Picks which approved template a campaign should send and names the campaign
+// after the user's own words. This used to grab whichever template happened to
+// be created first and call the campaign `campaign_<timestamp>` — with several
+// templates in a workspace that is a coin flip, and the wrong template goes to
+// every recipient. Falls back to a word-overlap match so the flow still works
+// without a key.
+async function planCampaign(prompt, templates) {
+  const list = templates
+    .map((t, i) => `${i + 1}. ${t.name} [${t.category}] — ${bodyOf(t.components).slice(0, 140)}`)
+    .join('\n');
+
+  const system = `You plan a WhatsApp broadcast campaign. Given the user's request and the templates they already have approved, choose the single best template and name the campaign.
+Reply with ONLY JSON: {"choice": number, "name": string, "why": string}
+- "choice" is the number of the best template from the list, or 0 if none fit.
+- "name" is a short human campaign name in the user's own words, max 60 chars, e.g. "Diwali sale blast".
+- "why" is one short sentence on why that template fits.`;
+  const plan = await llmJson(`Request: "${prompt}"\n\nTemplates:\n${list}`, system);
+
+  const n = Number(plan?.choice);
+  if (Number.isInteger(n) && n >= 1 && n <= templates.length) {
+    return {
+      template: templates[n - 1],
+      name: String(plan.name || '').trim().slice(0, 60) || `${templates[n - 1].name} campaign`,
+      why: String(plan?.why || '').trim().slice(0, 160),
+      picked: 'ai',
+    };
+  }
+
+  // Deterministic fallback: score each template's name and body against the
+  // request, and derive the campaign name from the request itself.
+  const words = new Set(String(prompt).toLowerCase().match(/[a-z]{3,}/g) || []);
+  let best = templates[0];
+  let bestScore = -1;
+  for (const t of templates) {
+    const hay = `${t.name} ${bodyOf(t.components)}`.toLowerCase();
+    let score = 0;
+    for (const w of words) if (hay.includes(w)) score++;
+    if (score > bestScore) { best = t; bestScore = score; }
+  }
+  const derived = String(prompt).trim().replace(/\s+/g, ' ').slice(0, 60);
+  return { template: best, name: derived || `${best.name} campaign`, why: '', picked: 'fallback' };
 }
 
 // ─── Main chat handler ────────────────────────────────────────────────────────
@@ -156,21 +258,26 @@ export const chatWithAi = async (req, res) => {
 
       if (intent === 'CREATE_TEMPLATE') {
         if (guided === false) {
-          const body = await generateTemplateBody(text);
+          const draft = await draftTemplate(text);
+          const imageHint = draft.suggestImage
+            ? ` It would work better with an image header — ${draft.imageIdea || 'add a relevant photo'}. Open it in Templates to upload one.`
+            : '';
           if (numberCount === 0) {
             responseText = "I've drafted your template copy below, but you need to connect a WhatsApp number before it can be saved and submitted to Meta.";
-            card = { title: 'Template Draft (not saved)', icon: '📝', details: { preview: body } };
+            card = { title: 'Template Draft (not saved)', icon: '📝', details: { name: draft.name, category: draft.category, preview: draft.body } };
           } else {
             const tpl = await prisma.template.create({
               data: {
                 workspaceId,
                 waNumberId: (await prisma.waNumber.findFirst({ where: { workspaceId }, orderBy: { createdAt: 'asc' } }))?.id,
-                name: `template_${Date.now()}`, category: 'MARKETING', language: 'en_US',
-                status: 'PENDING', aiGenerated: true, components: [{ type: 'BODY', text: body }],
+                // Category comes from the draft now: saving a UTILITY message
+                // as MARKETING is a common Meta rejection reason.
+                name: draft.name, category: draft.category, language: draft.language,
+                status: 'PENDING', aiGenerated: true, components: draftToComponents(draft),
               },
             });
-            responseText = "I've drafted your template and saved it as PENDING. Submit it to Meta from the Templates page to get it approved before use.";
-            card = { title: 'Template Drafted', icon: '📝', details: { name: tpl.name, status: 'PENDING', preview: body } };
+            responseText = `I've drafted your template and saved it as PENDING (category ${draft.category}). Submit it to Meta from the Templates page to get it approved before use.${imageHint}`;
+            card = { title: 'Template Drafted', icon: '📝', details: { name: tpl.name, category: draft.category, status: 'PENDING', preview: draft.body, ...(draft.suggestImage ? { suggestedHeader: 'Image' } : {}) } };
           }
           state = { step: 'IDLE' };
           await save();
@@ -180,15 +287,21 @@ export const chatWithAi = async (req, res) => {
         responseText = "Great — let's create a WhatsApp template. What should we name it? (e.g. appointment_reminder)";
       } else if (intent === 'CREATE_CAMPAIGN') {
         if (guided === false) {
-          const template = await prisma.template.findFirst({ where: { workspaceId } });
-          if (!template) {
+          const templates = await prisma.template.findMany({
+            where: { workspaceId },
+            select: { id: true, name: true, category: true, components: true, waNumberId: true },
+            orderBy: { createdAt: 'desc' },
+            take: 40,
+          });
+          if (templates.length === 0) {
             responseText = "You don't have any templates yet. Say 'create a template' first, then I can build a campaign around it.";
           } else {
+            const plan = await planCampaign(text, templates);
             const campaign = await prisma.campaign.create({
-              data: { workspaceId, name: `campaign_${Date.now()}`, templateId: template.id, waNumberId: template.waNumberId, status: 'DRAFT', aiGenerated: true },
+              data: { workspaceId, name: plan.name, templateId: plan.template.id, waNumberId: plan.template.waNumberId, status: 'DRAFT', aiGenerated: true },
             });
-            responseText = "I've created your campaign as a draft. Open it from the Campaigns page to pick recipients and launch it.";
-            card = { title: 'Campaign Drafted', icon: '🚀', details: { name: campaign.name, status: 'DRAFT' } };
+            responseText = `I've drafted the "${campaign.name}" campaign using your "${plan.template.name}" template${plan.why ? ` — ${plan.why}` : ''}. Open it from the Campaigns page to pick recipients and launch it.`;
+            card = { title: 'Campaign Drafted', icon: '🚀', details: { name: campaign.name, template: plan.template.name, status: 'DRAFT' } };
           }
           state = { step: 'IDLE' };
           await save();
@@ -216,22 +329,32 @@ export const chatWithAi = async (req, res) => {
       responseText = `Got it — "${state.templateName}". What should the message say? (I can also draft it — just describe the goal, e.g. "abandoned cart reminder".) Use {{1}} for the name.`;
     }
     else if (state.step === 'TEMPLATE_GATHER_BODY') {
-      // If they describe a goal rather than paste copy, generate it.
-      const body = text.includes('{{') || text.length > 120 ? text : await generateTemplateBody(text);
+      // Pasted copy is used verbatim; a described goal gets a full draft.
+      const pasted = text.includes('{{') || text.length > 120;
+      const draft = pasted ? null : await draftTemplate(text);
+      const body = pasted ? text : draft.body;
+      // The name they already chose wins over the drafted one.
+      const components = pasted ? [{ type: 'BODY', text: body }] : draftToComponents(draft);
+      const category = pasted ? 'MARKETING' : draft.category;
+      const language = pasted ? 'en_US' : draft.language;
+      const imageHint = draft?.suggestImage
+        ? ` An image header would suit this one — ${draft.imageIdea || 'add a relevant photo'}. You can upload it from the Templates page.`
+        : '';
+
       if (numberCount === 0) {
         responseText = "I've drafted the copy, but connect a WhatsApp number first to save and submit it to Meta.";
-        card = { title: 'Template Draft (not saved)', icon: '📝', details: { name: state.templateName, preview: body } };
+        card = { title: 'Template Draft (not saved)', icon: '📝', details: { name: state.templateName, category, preview: body } };
       } else {
         const tpl = await prisma.template.create({
           data: {
             workspaceId,
             waNumberId: (await prisma.waNumber.findFirst({ where: { workspaceId }, orderBy: { createdAt: 'asc' } }))?.id,
-            name: state.templateName, category: 'MARKETING', language: 'en_US',
-            status: 'PENDING', aiGenerated: true, components: [{ type: 'BODY', text: body }],
+            name: state.templateName, category, language,
+            status: 'PENDING', aiGenerated: true, components,
           },
         });
-        responseText = "Saved as a PENDING draft. Submit it to Meta from the Templates page to get it approved.";
-        card = { title: 'Template Drafted', icon: '📝', details: { name: tpl.name, status: 'PENDING', preview: body } };
+        responseText = `Saved as a PENDING draft (category ${category}). Submit it to Meta from the Templates page to get it approved.${imageHint}`;
+        card = { title: 'Template Drafted', icon: '📝', details: { name: tpl.name, category, status: 'PENDING', preview: body, ...(draft?.suggestImage ? { suggestedHeader: 'Image' } : {}) } };
       }
       state = { step: 'IDLE' };
     }
@@ -247,13 +370,30 @@ export const chatWithAi = async (req, res) => {
       }
     }
     else if (state.step === 'CAMPAIGN_GATHER_TEMPLATE') {
-      const template = await prisma.template.findFirst({ where: { workspaceId, name: { contains: text, mode: 'insensitive' } } });
+      // Exact-ish name match first — when the user typed a real template name
+      // there is nothing to interpret. Only a miss goes to the model, so a
+      // description ("the one about the sale") still lands on a template
+      // instead of dead-ending on "I couldn't find a template matching…".
+      let template = await prisma.template.findFirst({ where: { workspaceId, name: { contains: text, mode: 'insensitive' } } });
+      let why = '';
+      if (!template) {
+        const templates = await prisma.template.findMany({
+          where: { workspaceId },
+          select: { id: true, name: true, category: true, components: true, waNumberId: true },
+          orderBy: { createdAt: 'desc' },
+          take: 40,
+        });
+        if (templates.length) {
+          const plan = await planCampaign(`${state.campaignName || ''} ${text}`.trim(), templates);
+          if (plan.picked === 'ai') { template = plan.template; why = plan.why; }
+        }
+      }
       if (template) {
         const campaign = await prisma.campaign.create({
           data: { workspaceId, name: state.campaignName, templateId: template.id, waNumberId: template.waNumberId, status: 'DRAFT', aiGenerated: true },
         });
-        responseText = "Your campaign is saved as a draft. Add recipients and launch it from the Campaigns page.";
-        card = { title: 'Campaign Drafted', icon: '🚀', details: { name: campaign.name, status: 'DRAFT' } };
+        responseText = `Your campaign is saved as a draft using the "${template.name}" template${why ? ` — ${why}` : ''}. Add recipients and launch it from the Campaigns page.`;
+        card = { title: 'Campaign Drafted', icon: '🚀', details: { name: campaign.name, template: template.name, status: 'DRAFT' } };
       } else {
         responseText = `I couldn't find a template matching "${text}". Please try again.`;
       }
