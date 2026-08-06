@@ -211,37 +211,60 @@ async function main() {
     process.exit(1);
   }
 
+  // Redis backs every queue, so production must not start without it — a
+  // server that accepts campaign launches it can never process is worse than
+  // one that refuses to boot. Locally it is routine not to have Redis running,
+  // and hard-exiting there means the whole app is unusable for UI and API work
+  // that needs no queue at all. So development degrades instead, loudly.
+  let redisReady = false;
   try {
     await assertRedisHealthy();
+    redisReady = true;
     console.log('[Redis] Connected');
   } catch (err) {
     console.error('[Redis] Health check failed:', err.message);
-    console.error('[Redis] Campaign and email queues will NOT work until Redis is reachable.');
-    process.exit(1);
+    if (env.NODE_ENV === 'production') {
+      console.error('[Redis] Campaign and email queues will NOT work until Redis is reachable.');
+      process.exit(1);
+    }
+    console.warn('');
+    console.warn('  ┌─ DEGRADED START ────────────────────────────────────────────┐');
+    console.warn('  │ Redis is unreachable, so no background workers are running.  │');
+    console.warn('  │                                                              │');
+    console.warn('  │ Disabled: campaign sending, retries, emails (incl. invites   │');
+    console.warn('  │ and OTPs), workflow execution and billing-cycle sweeps.      │');
+    console.warn('  │ Launching a campaign will queue nothing and send nothing.    │');
+    console.warn('  │                                                              │');
+    console.warn(`  │ REDIS_URL = ${String(env.REDIS_URL || '').replace(/:[^:@/]*@/, ':****@').padEnd(48).slice(0, 48)} │`);
+    console.warn('  │ Start a Redis on that address to enable them.                │');
+    console.warn('  └──────────────────────────────────────────────────────────────┘');
+    console.warn('');
   }
 
-  campaignWorker = startCampaignWorker();
-  console.log('[Worker] Campaign worker started');
-  emailWorker = startEmailWorker();
-  console.log('[Worker] Email worker started');
-  billingWorker = startBillingWorker();
-  console.log('[Worker] Billing worker started');
-  workflowWorker = startWorkflowWorker();
-  console.log('[Worker] Workflow worker started');
+  if (redisReady) {
+    campaignWorker = startCampaignWorker();
+    console.log('[Worker] Campaign worker started');
+    emailWorker = startEmailWorker();
+    console.log('[Worker] Email worker started');
+    billingWorker = startBillingWorker();
+    console.log('[Worker] Billing worker started');
+    workflowWorker = startWorkflowWorker();
+    console.log('[Worker] Workflow worker started');
 
-  // Re-queue SCHEDULED campaigns whose jobs were lost (server/Redis restart).
-  try {
-    const recovered = await recoverScheduledCampaigns();
-    if (recovered > 0) console.log(`[Recovery] Re-queued ${recovered} scheduled campaign(s)`);
-  } catch (err) {
-    console.error('[Recovery] Scheduled-campaign recovery failed:', err.message);
-  }
+    // Re-queue SCHEDULED campaigns whose jobs were lost (server/Redis restart).
+    try {
+      const recovered = await recoverScheduledCampaigns();
+      if (recovered > 0) console.log(`[Recovery] Re-queued ${recovered} scheduled campaign(s)`);
+    } catch (err) {
+      console.error('[Recovery] Scheduled-campaign recovery failed:', err.message);
+    }
 
-  // Register the daily repeatable billing-cycle job (no-op if already registered).
-  try {
-    await scheduleBillingCycleJob();
-  } catch (err) {
-    console.error('[Billing] Failed to schedule the daily cycle-reset job:', err.message);
+    // Register the daily repeatable billing-cycle job (no-op if already registered).
+    try {
+      await scheduleBillingCycleJob();
+    } catch (err) {
+      console.error('[Billing] Failed to schedule the daily cycle-reset job:', err.message);
+    }
   }
 
   // Run the overdue-subscription sweep once immediately on boot, so cycles

@@ -289,7 +289,7 @@ export async function generateWorkflowPreview(workspaceId, prompt) {
   if (url) return analyseWebsite(url);
 
   if (!env.GEMINI_API_KEY) {
-    return { ...fallbackWorkflowPreview(cleanPrompt), provider: 'fallback' };
+    return { ...fallbackWorkflowPreview(cleanPrompt), provider: 'fallback', fallbackReason: 'no_key' };
   }
 
   const systemPrompt = `Convert a plain-English WhatsApp automation request into JSON only.
@@ -320,6 +320,6 @@ Rules:
     };
   } catch (err) {
     console.error('[Automation] Gemini workflow preview error:', err);
-    return { ...fallbackWorkflowPreview(cleanPrompt), provider: 'fallback' };
+    return { ...fallbackWorkflowPreview(cleanPrompt), provider: 'fallback', fallbackReason: 'error' };
   }
 }

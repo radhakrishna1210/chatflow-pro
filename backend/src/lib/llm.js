@@ -36,7 +36,11 @@ async function callGemini(prompt, system, { json = false } = {}) {
   try {
     const contents = system ? `${system}\n\n${prompt}` : prompt;
     const res = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      // Must stay on env.GEMINI_MODEL like every other Gemini caller. This was
+      // pinned to `gemini-1.5-flash`, which Google retired — every call 404'd,
+      // so the onboarding chat, the AI agent, intent matching and voice all
+      // silently dropped to their deterministic fallbacks even with a valid key.
+      model: env.GEMINI_MODEL,
       contents,
       config: {
         httpOptions: { timeout: GEMINI_TIMEOUT_MS },

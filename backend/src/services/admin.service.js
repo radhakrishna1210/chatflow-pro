@@ -607,6 +607,18 @@ export async function getWorkspaceMembers(workspaceId) {
     include: { user: { select: { id: true, name: true, email: true, googleId: true, createdAt: true } } },
   });
 
+  // Pending invites belong in this view too: without them an admin can't tell
+  // "nobody was invited" from "three people were invited and haven't accepted",
+  // and would re-invite people who already have a live link.
+  const invitations = await prisma.invitation.findMany({
+    where: { workspaceId, status: 'PENDING' },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true, email: true, role: true, kind: true, maxUses: true, useCount: true,
+      expiresAt: true, createdAt: true,
+    },
+  });
+
   return {
     workspace,
     members: members.map((m) => ({
@@ -614,6 +626,7 @@ export async function getWorkspaceMembers(workspaceId) {
       authMethod: m.user.googleId ? 'Google' : 'Password',
       accountCreatedAt: m.user.createdAt,
     })),
+    invitations,
   };
 }
 

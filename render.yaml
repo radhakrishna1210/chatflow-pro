@@ -103,6 +103,8 @@ services:
       # --- Optional integrations (leave unset to disable) ---
       - key: GEMINI_API_KEY
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
 
       # Voice AI (Automation > Voice AI). Point the Twilio number's voice
       # webhook at /api/v1/voice/incoming and its status callback at

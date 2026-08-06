@@ -8,8 +8,22 @@ import { env } from '../config/env.js';
 const LOG_INTERVAL_MS = 30_000;
 const lastLogged = new Map();
 
+// A failed connection surfaces as an AggregateError whose own message is
+// empty, so the log line read just "[Redis:shared] AggregateError". Pull the
+// first underlying cause out so it says what actually went wrong and where.
+function describeRedisError(err) {
+  const direct = err?.message || '';
+  if (direct) return direct;
+  const inner = Array.isArray(err?.errors) ? err.errors[0] : err?.cause;
+  if (inner) {
+    const where = inner.address ? ` ${inner.address}:${inner.port}` : '';
+    return `${inner.code || inner.message || 'connection failed'}${where}`;
+  }
+  return String(err);
+}
+
 export function logRedisError(label, err) {
-  const msg = err?.message || String(err);
+  const msg = describeRedisError(err);
   const key = `${label}|${msg.slice(0, 80)}`;
   const now = Date.now();
   const prev = lastLogged.get(key);
@@ -34,11 +48,27 @@ export function logRedisError(label, err) {
   }
 }
 
+// Production retries forever: a Redis outage is transient and the queues must
+// pick up again by themselves. Development gives up after a few attempts —
+// with no Redis running locally the endless reconnect loop buries every other
+// log line, and the server is designed to run degraded there anyway.
+const GIVE_UP_AFTER = 8;
+function retryStrategy(times) {
+  if (env.NODE_ENV !== 'production' && times > GIVE_UP_AFTER) {
+    if (times === GIVE_UP_AFTER + 1) {
+      console.warn(`[Redis] Gave up reconnecting after ${GIVE_UP_AFTER} attempts (development). Restart the server once Redis is up.`);
+    }
+    return null; // stop retrying
+  }
+  return Math.min(times * 200, 5000);
+}
+
 // Shared connection for general-purpose commands (one-time codes, OAuth state).
 export const redis = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   lazyConnect: false,
+  retryStrategy,
 });
 
 redis.on('error', (err) => logRedisError('shared', err));
@@ -49,6 +79,7 @@ export function createBullConnection(label = 'bullmq') {
   const conn = new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
+    retryStrategy,
   });
   conn.on('error', (err) => logRedisError(label, err));
   return conn;

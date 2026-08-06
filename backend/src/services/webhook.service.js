@@ -6,6 +6,7 @@ import { handleRecipientFailure } from './retry.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { runWorkflowsForInbound, runWillSendMessage } from './workflowEngine.service.js';
 import { handleFormInbound } from './whatsappForms.service.js';
+import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import { isWithinBusinessHours } from './businessHours.service.js';
 import { matchOptOutKeyword, recordOptOut } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
@@ -22,6 +23,14 @@ export async function processWebhook(body) {
 
       if (change.field === 'message_template_status_update') {
         await handleTemplateStatusUpdate(entry.id, value);
+        continue;
+      }
+
+      // Meta re-reviews approved templates and can move them between
+      // categories. Nothing consumed this before, so the stored category went
+      // stale and campaigns kept quoting the old per-message price.
+      if (change.field === 'message_template_category_update') {
+        await handleTemplateCategoryUpdate(entry.id, value);
         continue;
       }
 
@@ -105,6 +114,80 @@ async function handleTemplateStatusUpdate(wabaId, value) {
         }).catch(() => {});
       }
     }
+  }
+}
+
+// Imported rather than re-declared: a second copy of the per-category prices
+// would drift from the ones campaigns are actually billed at.
+const CATEGORY_RATES = MESSAGE_CATEGORY_RATES;
+
+// Meta moved a template to a different category. Records the change and warns
+// the workspace when it costs them more, since the per-message price is set by
+// the category (lib/messagePricing.js).
+async function handleTemplateCategoryUpdate(wabaId, value) {
+  const metaTemplateId = value.message_template_id ? String(value.message_template_id) : null;
+  const templateName = value.message_template_name;
+  const templateLang = value.message_template_language;
+  const previous = String(value.previous_category || '').toUpperCase() || null;
+  const next = String(value.new_category || '').toUpperCase();
+
+  if (!next || !CATEGORY_RATES[next]) {
+    console.warn(`[Template] category update with unusable new_category "${value.new_category}" — ignoring.`);
+    return;
+  }
+
+  // Same resolution order as the status handler: id first, then name+language
+  // scoped to whichever workspaces own this WABA.
+  let where;
+  if (metaTemplateId) {
+    where = { metaTemplateId };
+  } else if (templateName) {
+    const waNumbers = await prisma.waNumber.findMany({ where: { wabaId }, select: { workspaceId: true } });
+    const wsIds = [...new Set(waNumbers.map((n) => n.workspaceId))];
+    if (wsIds.length === 0) {
+      console.warn(`[Template] No workspace owns WABA ${wabaId} — dropping category update.`);
+      return;
+    }
+    where = { workspaceId: { in: wsIds }, name: templateName, language: templateLang };
+  } else {
+    console.warn('[Template] category update lacked id and name — ignoring.');
+    return;
+  }
+
+  const affected = await prisma.template.findMany({ where, select: { id: true, workspaceId: true, name: true, category: true } });
+  if (affected.length === 0) {
+    console.warn(`[Template] category update matched no local template (name="${templateName}").`);
+    return;
+  }
+
+  await prisma.template.updateMany({
+    where,
+    data: {
+      category: next,
+      // Prefer Meta's stated previous category; fall back to what we had.
+      previousCategory: previous || affected[0].category || null,
+      categoryUpdatedAt: new Date(),
+    },
+  });
+  console.log(`[Template] Re-categorised ${affected.length} row(s): ${previous || affected[0].category} -> ${next}`);
+
+  const before = CATEGORY_RATES[previous || affected[0].category] ?? null;
+  const after = CATEGORY_RATES[next];
+  const dearer = before != null && after > before;
+
+  const seen = new Set();
+  for (const t of affected) {
+    if (seen.has(t.workspaceId)) continue;
+    seen.add(t.workspaceId);
+    notifyWorkspace(t.workspaceId, {
+      type: 'TEMPLATE_RECATEGORISED',
+      title: `Meta moved "${t.name}" to ${next}`,
+      body: dearer
+        ? `Each message now costs \u20b9${after.toFixed(2)} instead of \u20b9${before.toFixed(2)}. Open the template to generate a utility-compliant rewrite.`
+        : `This template is now billed as ${next} at \u20b9${after.toFixed(2)} per message.`,
+      link: 'templates',
+      meta: { templateId: t.id, previousCategory: previous || t.category, newCategory: next },
+    }).catch(() => {});
   }
 }
 

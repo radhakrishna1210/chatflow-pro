@@ -145,6 +145,9 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **yes** | — | Google OAuth 2.0 ("Sign in with Google") |
 | `GOOGLE_CALLBACK_URL` | no | `{APP_URL}/api/v1/auth/google/callback` | |
 | `GEMINI_API_KEY` | no | — | Enables Gemini for AI onboarding / workflow generation; falls back to Ollama, then a deterministic canned-response generator if absent |
+| `OPENAI_API_KEY` | no | — | Enables OpenAI for AI template **header images**. Preferred over Gemini for images, because image models are not on the Gemini free tier at all. Text generation still uses Gemini |
+| `OPENAI_IMAGE_MODEL` | no | `gpt-image-1` | `gpt-image-1` needs a verified OpenAI org; use `dall-e-3` if verification is the blocker |
+| `OPENAI_IMAGE_QUALITY` | no | `medium` | `low`/`medium`/`high` on gpt-image-1, `standard`/`hd` on dall-e-3 |
 | `OLLAMA_URL` | no | `http://127.0.0.1:11434` | Local LLM fallback |
 | `OLLAMA_MODEL` | no | `phi3` | |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASSWORD` | no | `SMTP_PORT=587`, `SMTP_SECURE=false` | Transactional email (welcome, OTP, invites, campaign-complete, etc.) — email sending is skipped gracefully if unconfigured |

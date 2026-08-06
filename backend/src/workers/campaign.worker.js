@@ -3,6 +3,7 @@ import { createBullConnection, logRedisError } from '../lib/redis.js';
 import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
+import { headerImageComponent } from '../services/templateImage.service.js';
 import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
 import { consumeMessageCredit, releaseMessageCredit } from '../services/subscription.service.js';
@@ -85,6 +86,26 @@ const buildTemplateComponents = (components, contact) => {
     }));
 };
 
+// The full `template` object for one recipient's send.
+//
+// An image header has no {{n}} placeholders, so the text-variable check above
+// misses it entirely — that is why an approved image template used to go out
+// with no picture (and, because Meta counts header parameters, often failed
+// outright with 132000). The header component is resolved first and the text
+// parameters appended after it, which is also the order Meta expects.
+const buildTemplatePayload = async (template, contact, { phoneNumberId, accessToken }) => {
+  const payload = { name: template.name, language: { code: template.language } };
+
+  const header = await headerImageComponent(template, { phoneNumberId, accessToken });
+  const textComponents = templateHasVariables(template.components)
+    ? buildTemplateComponents(template.components, contact)
+    : [];
+
+  const components = [...(header ? [header] : []), ...textComponents];
+  if (components.length) payload.components = components;
+  return payload;
+};
+
 async function processRetryJob(job) {
   const { campaignId, workspaceId, recipientId, attempt = 1 } = job.data;
   console.log(`[CampaignRetry] Retry started for recipient ${recipientId} (attempt #${attempt})`);
@@ -151,13 +172,11 @@ async function processRetryJob(job) {
       return;
     }
 
-    const templatePayload = {
-      name: campaign.template.name,
-      language: { code: campaign.template.language },
-    };
-    if (templateHasVariables(campaign.template.components)) {
-      templatePayload.components = buildTemplateComponents(campaign.template.components, recipient.contact);
-    }
+    const templatePayload = await buildTemplatePayload(
+      campaign.template,
+      recipient.contact,
+      { phoneNumberId, accessToken },
+    );
 
     const result = await sendWhatsAppMessage(
       phoneNumberId,
@@ -325,15 +344,13 @@ async function processCampaign(job) {
         continue;
       }
 
-      const templatePayload = {
-        name: campaign.template.name,
-        language: { code: campaign.template.language },
-      };
-      // Only include `components` if the template has variables to substitute.
-      // Sending the template's own definition (type:BODY/text:...) causes Meta to reject.
-      if (templateHasVariables(campaign.template.components)) {
-        templatePayload.components = buildTemplateComponents(campaign.template.components, recipient.contact);
-      }
+      // Only carries `components` when there is something to substitute — the
+      // template's own definition (type:BODY/text:...) causes Meta to reject.
+      const templatePayload = await buildTemplatePayload(
+        campaign.template,
+        recipient.contact,
+        { phoneNumberId, accessToken },
+      );
 
       const result = await sendWhatsAppMessage(
         phoneNumberId,

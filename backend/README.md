@@ -40,6 +40,7 @@ See `.env.example` for all required variables. Key ones:
 | `META_APP_SECRET` | Facebook app secret for webhook HMAC verification |
 | `META_SYSTEM_USER_TOKEN` | Long-lived Meta system user token for admin operations |
 | `GEMINI_API_KEY` | Optional Gemini API key for AI workflow generation |
+| `OPENAI_API_KEY` | Optional OpenAI API key — generates template header images (Gemini has no free image tier) |
 
 AI workflow generation is available from the Automation > Workflows tab. Add this to your backend `.env` when you are ready to use Gemini:
 

@@ -117,6 +117,7 @@ model Workspace {
   voiceCalls                   VoiceCall[]
   optOuts                      OptOut[]
   notifications                Notification[]
+  templateAssets               TemplateAsset[]
 }
 
 model WorkspaceMember {
@@ -133,8 +134,16 @@ model WorkspaceMember {
 model Invitation {
   id              String           @id @default(cuid())
   workspaceId     String
-  email           String
+  // Null for a shareable LINK invite: it is not bound to an address, so
+  // whoever opens it joins with their own account.
+  email           String?
   role            Role             @default(CLIENT)
+  kind            InviteKind       @default(EMAIL)
+  // LINK invites are reusable — that is the point of sharing one. Null means
+  // unlimited until the invite expires or is revoked. EMAIL invites are
+  // always single-use and leave this null.
+  maxUses         Int?
+  useCount        Int              @default(0)
   tokenHash       String           @unique
   status          InvitationStatus @default(PENDING)
   invitedByUserId String
@@ -154,6 +163,11 @@ enum InvitationStatus {
   ACCEPTED
   REVOKED
   EXPIRED
+}
+
+enum InviteKind {
+  EMAIL
+  LINK
 }
 
 model WaNumber {
@@ -200,12 +214,54 @@ model Template {
   language       String
   components     Json
   status         TemplateStatus @default(PENDING)
+  // Meta re-reviews templates and can move them between categories after
+  // approval — most often UTILITY → MARKETING, which is a ~7x price rise per
+  // message. These record that it happened so the app can flag it and offer a
+  // utility-compliant rewrite instead of silently costing more.
+  previousCategory  String?
+  categoryUpdatedAt DateTime?
   aiGenerated    Boolean        @default(false)
+  // The image sent as this template's media header. Meta's `header_handle` is
+  // only a *sample* for review — it cannot be sent — so every send has to
+  // supply the real media again. Keeping the bytes here is what lets a
+  // campaign re-send the same picture months after approval.
+  headerAssetId  String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @default(now()) @updatedAt
   campaigns      Campaign[]
   workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   waNumber       WaNumber?      @relation(fields: [waNumberId], references: [id], onDelete: Cascade)
+  headerAsset    TemplateAsset? @relation(fields: [headerAssetId], references: [id], onDelete: SetNull)
+
+  @@index([headerAssetId])
+}
+
+// Bytes of a template header image, kept because Meta's template `header_handle`
+// is review-only and each send needs the media supplied again. Stored in the
+// database rather than on disk: the app runs on ephemeral containers, and a
+// header that vanishes on redeploy would break every campaign using it.
+model TemplateAsset {
+  id          String   @id @default(cuid())
+  workspaceId String
+  mimeType    String
+  bytes       Bytes
+  sizeBytes   Int
+  // What the image was generated from, so the builder can show it and the user
+  // can regenerate with the same intent. Null for a hand-uploaded file.
+  prompt      String?
+  source      String   @default("upload") // 'upload' | 'openai' | 'gemini'
+  // A WhatsApp media id is scoped to the phone number that uploaded it and
+  // expires after ~30 days, so it is treated as a cache, not the source of
+  // truth — re-minted from `bytes` whenever it is missing, stale, or belongs
+  // to a different number.
+  metaMediaId       String?
+  metaMediaNumberId String?
+  metaMediaAt       DateTime?
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  templates   Template[]
+
+  @@index([workspaceId])
 }
 
 model Contact {

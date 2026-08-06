@@ -953,12 +953,45 @@ function PaymentsTab({ workspaces }) {
 function WorkspaceMembersModal({ workspaceId, onClose }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('CLIENT');
+  const [busy, setBusy] = useState(null);        // 'email' | 'link'
+  const [inviteErr, setInviteErr] = useState(null);
+  const [issued, setIssued] = useState(null);    // { url, kind, email, role, emailQueued }
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
+  const load = () =>
     adminFetch(`/platform/workspaces/${workspaceId}/members`)
       .then(async (r) => { if (r.ok) setData(await r.json()); else setErr((await r.json().catch(() => ({}))).error || 'Failed to load members'); })
       .catch((e) => setErr(e.message));
-  }, [workspaceId]);
+
+  useEffect(() => { load(); }, [workspaceId]);
+
+  // Both invite paths hit the same service the workspace's own admins use, so
+  // seat limits, expiry and revoke behave identically from here.
+  const invite = async (kind) => {
+    setInviteErr(null); setBusy(kind); setCopied(false);
+    try {
+      const res = await adminFetch(
+        `/platform/workspaces/${workspaceId}/invitations${kind === 'link' ? '/link' : ''}`,
+        { method: 'POST', body: JSON.stringify(kind === 'link' ? { role } : { email: email.trim(), role }) },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setInviteErr(body.error || 'Could not create the invitation'); return; }
+      setIssued({ url: body.inviteUrl, kind: body.kind, email: body.email, role: body.role, emailQueued: body.emailQueued });
+      if (kind === 'email') setEmail('');
+      load();
+    } catch (e) {
+      setInviteErr(e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const revokeInvite = async (id) => {
+    await adminFetch(`/platform/workspaces/${workspaceId}/invitations/${id}`, { method: 'DELETE' }).catch(() => {});
+    load();
+  };
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
@@ -984,6 +1017,73 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {err && <div style={{ margin: 18, padding: '10px 14px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 12.5 }}>{err}</div>}
           {!data && !err && <div style={{ textAlign: 'center', padding: 40, color: 'var(--t2)', fontSize: 13 }}>Loading members…</div>}
+
+          {data && (
+            <div style={{ margin: 18, padding: 14, borderRadius: 10, border: '1px solid var(--bd)', background: 'rgba(255,255,255,0.02)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em' }}>Invite to this workspace</span>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="colleague@company.com" type="email"
+                  style={{ flex: 1, minWidth: 190, padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none' }} />
+                <select value={role} onChange={(e) => setRole(e.target.value)}
+                  style={{ padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none', colorScheme: 'dark' }}>
+                  <option value="CLIENT" style={{ background: '#07090F' }}>Member</option>
+                  <option value="ADMIN" style={{ background: '#07090F' }}>Admin</option>
+                </select>
+                <button onClick={() => invite('email')} disabled={!email.trim() || busy}
+                  style={{ padding: '9px 14px', borderRadius: 8, background: 'var(--green)', border: 'none', color: '#07090F', fontSize: 12.5, fontWeight: 700, cursor: !email.trim() || busy ? 'not-allowed' : 'pointer', opacity: !email.trim() || busy ? 0.6 : 1, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+                  {busy === 'email' ? 'Sending…' : 'Send invite'}
+                </button>
+                <button onClick={() => invite('link')} disabled={!!busy}
+                  style={{ padding: '9px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 12.5, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+                  {busy === 'link' ? 'Creating…' : 'Create link'}
+                </button>
+              </div>
+
+              {inviteErr && <p style={{ fontSize: 12, color: '#f87171' }}>{inviteErr}</p>}
+
+              {issued && (
+                <div style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)' }}>
+                  <p style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600, marginBottom: 6 }}>
+                    {issued.kind === 'LINK'
+                      ? `Link ready — anyone who opens it joins as ${issued.role === 'ADMIN' ? 'an Admin' : 'a Member'}.`
+                      : issued.emailQueued
+                        ? `Invite emailed to ${issued.email}. Share the link too if it doesn't arrive.`
+                        : `Invite created for ${issued.email}, but no email went out — share this link instead.`}
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input readOnly value={issued.url || ''} onFocus={(e) => e.target.select()}
+                      style={{ flex: 1, minWidth: 0, padding: '7px 10px', borderRadius: 7, background: 'rgba(0,0,0,0.25)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 11.5, fontFamily: 'ui-monospace, monospace', outline: 'none' }} />
+                    <button onClick={async () => { try { await navigator.clipboard.writeText(issued.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} }}
+                      style={{ padding: '7px 12px', borderRadius: 7, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      {copied ? 'Copied ✓' : 'Copy link'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {data.invitations?.length > 0 && (
+                <div style={{ borderTop: '1px solid var(--bd)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em' }}>Pending</span>
+                  {data.invitations.map((inv) => (
+                    <div key={inv.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <span style={{ fontSize: 12, color: 'var(--t2)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <strong style={{ color: 'var(--t1)' }}>{inv.kind === 'LINK' ? 'Shareable link' : inv.email}</strong>
+                        {' · '}{inv.role === 'ADMIN' ? 'Admin' : 'Member'}
+                        {inv.kind === 'LINK' && ` · ${inv.useCount || 0} joined`}
+                        {' · expires '}{new Date(inv.expiresAt).toLocaleDateString('en-IN')}
+                      </span>
+                      <button onClick={() => revokeInvite(inv.id)}
+                        style={{ padding: '3px 10px', borderRadius: 6, background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.18)', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: '#f87171', flexShrink: 0 }}>
+                        Revoke
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {data && (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>

@@ -1,7 +1,9 @@
 import { prisma } from '../lib/prisma.js';
-import { createMetaTemplate, deleteMetaTemplate, getWabaTemplates } from '../lib/meta.js';
+import { createMetaTemplate, deleteMetaTemplate, getWabaTemplates, uploadTemplateMedia } from '../lib/meta.js';
 import { decrypt } from '../lib/encryption.js';
 import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.js';
+import { normalizeButtonsInComponents } from '../lib/templateButtons.js';
+import { storeAsset } from './templateImage.service.js';
 
 // Resolve which WhatsApp number a template operation targets. Templates are
 // private per number, so:
@@ -106,17 +108,44 @@ async function removeTemplatesMissingFromMeta(workspaceId, waNumberId, seenMetaI
   return stale.length;
 }
 
-export async function createTemplate(workspaceId, { name, category, language, components, waNumberId }) {
+// Uploads a header image/video/document sample and returns the handle the
+// template must carry. Done as its own step (rather than inside createTemplate)
+// so the builder can show a preview and validate the file before the user
+// commits to submitting the template to Meta.
+export async function uploadHeaderMedia(workspaceId, { buffer, mimeType, fileName, waNumberId, prompt = null, source = 'upload', existingAssetId = null }) {
+  if (!buffer?.length) { const e = new Error('No file was uploaded'); e.status = 400; throw e; }
+  const waNumber = await resolveWaNumber(workspaceId, waNumberId);
+  const accessToken = decrypt(waNumber.encryptedAccessToken);
+  const { handle, format } = await uploadTemplateMedia({ buffer, mimeType, fileName, accessToken });
+
+  // The handle Meta just returned is review-only and cannot be sent, so an
+  // IMAGE header also keeps its bytes — that copy is what every later campaign
+  // send re-uploads as real media. Videos and PDFs are review-only headers in
+  // this product and aren't re-sent, so they aren't stored.
+  let assetId = existingAssetId;
+  if (format === 'IMAGE' && !assetId) {
+    const asset = await storeAsset(workspaceId, { buffer, mimeType, prompt, source });
+    assetId = asset.id;
+  }
+
+  return { handle, format, assetId, fileName: fileName || null, sizeBytes: buffer.length };
+}
+
+export async function createTemplate(workspaceId, { name, category, language, components, waNumberId, headerAssetId }) {
   if (!name || !category || !language || !Array.isArray(components) || components.length === 0) {
     const e = new Error('name, category, language and components are required'); e.status = 400; throw e;
   }
+  // Meta rejects the whole template over one bad button, and reports it hours
+  // later as an opaque review failure — so the rules are enforced up front.
+  const safeComponents = normalizeButtonsInComponents(components);
+
   const waNumber = await resolveWaNumber(workspaceId, waNumberId);
   const wabaId = waNumber.wabaId;
   const accessToken = decrypt(waNumber.encryptedAccessToken);
 
   let metaResult;
   try {
-    metaResult = await createMetaTemplate(wabaId, { name, category, language, components }, accessToken);
+    metaResult = await createMetaTemplate(wabaId, { name, category, language, components: safeComponents }, accessToken);
   } catch (err) {
     const m = err.response?.data?.error;
     const reason = m ? `${m.message}${m.error_user_msg ? ' — ' + m.error_user_msg : ''} (code ${m.code}${m.error_subcode ? '/' + m.error_subcode : ''})` : err.message;
@@ -125,8 +154,23 @@ export async function createTemplate(workspaceId, { name, category, language, co
     throw e;
   }
 
+  // Only bind an asset this workspace actually owns — the id arrives from the
+  // client alongside the components.
+  let assetId = null;
+  if (headerAssetId) {
+    const owned = await prisma.templateAsset.findFirst({
+      where: { id: headerAssetId, workspaceId },
+      select: { id: true },
+    });
+    assetId = owned?.id ?? null;
+  }
+
   return prisma.template.create({
-    data: { workspaceId, waNumberId: waNumber.id, name, category, language, components, metaTemplateId: metaResult?.id, status: 'PENDING' },
+    data: {
+      workspaceId, waNumberId: waNumber.id, name, category, language,
+      components: safeComponents, metaTemplateId: metaResult?.id, status: 'PENDING',
+      headerAssetId: assetId,
+    },
   });
 }
 

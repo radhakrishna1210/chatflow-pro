@@ -1040,17 +1040,347 @@ const statusLabel = s => {
   return m[s.toUpperCase()] ?? s;
 };
 
+// ─── Utility rewrite after a Meta re-categorisation ────────────
+// Meta re-reviews approved templates and often moves UTILITY to MARKETING,
+// which on this workspace's rates is a ~7x price rise per message. A rewrite
+// is the only route back, so this drafts one to review — the original is
+// never overwritten.
+const UtilityVariantModal = ({ template, onClose, onUseDraft }) => {
+  const [variant, setVariant] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr]         = useState(null);
+
+  useEffect(() => {
+    wFetch(`/templates/${template.id}/utility-variant`, { method: 'POST' })
+      .then(async r => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { setErr(d.error || 'Could not produce a rewrite'); return; }
+        setVariant(d);
+      })
+      .catch(e => setErr(e.message))
+      .finally(() => setLoading(false));
+  }, [template.id]);
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', width:'100%', maxWidth:600, maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
+          <div>
+            <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:17, fontWeight:800, color:'var(--t1)', marginBottom:4 }}>Utility rewrite</h3>
+            <p style={{ fontSize:12.5, color:'var(--t2)' }}>
+              Rewrites <code style={{ fontFamily:'monospace', color:'var(--green)' }}>{template.name}</code> to read as UTILITY, so it bills at ₹0.16 instead of ₹1.09 per message.
+            </p>
+          </div>
+          <button onClick={onClose} style={{ width:26, height:26, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', color:'var(--t2)', flexShrink:0 }}>x</button>
+        </div>
+
+        <div style={{ padding:'18px 24px', overflowY:'auto', display:'flex', flexDirection:'column', gap:13 }}>
+          {loading && <p style={{ fontSize:13, color:'var(--t2)' }}>Rewriting…</p>}
+          {err && <p style={{ fontSize:12.5, color:'#f87171' }}>{err}</p>}
+
+          {variant && (
+            <>
+              <div style={{ background:'#ECE5DD', borderRadius:9, padding:12 }}>
+                <div style={{ background:'#fff', borderRadius:'0 8px 8px 8px', padding:'10px 12px', boxShadow:'0 1px 3px rgba(0,0,0,0.1)' }}>
+                  {variant.headerText && <p style={{ fontSize:12.5, fontWeight:700, color:'#111', margin:'0 0 4px' }}>{variant.headerText}</p>}
+                  <p style={{ fontSize:12, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', margin:0 }}>{variant.body}</p>
+                  {variant.footer && <p style={{ fontSize:10.5, color:'#888', marginTop:6 }}>{variant.footer}</p>}
+                  {variant.buttons?.length > 0 && (
+                    <div style={{ marginTop:8, borderTop:'1px solid #e4e0d8' }}>
+                      {variant.buttons.map((b, i) => (
+                        <div key={i} style={{ textAlign:'center', padding:'7px 4px', fontSize:12, color:'#00a5f4', fontWeight:500, borderTop: i > 0 ? '1px solid #e4e0d8' : 'none' }}>{b.text}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {variant.changes?.length > 0 && (
+                <div>
+                  <p style={{ fontSize:10.5, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:6 }}>What changed</p>
+                  <ul style={{ margin:0, paddingLeft:16, display:'flex', flexDirection:'column', gap:3 }}>
+                    {variant.changes.map((c, i) => <li key={i} style={{ fontSize:12, color:'var(--t2)', lineHeight:1.5 }}>{c}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {variant.caveat && (
+                <div style={{ padding:'11px 13px', borderRadius:8, background:'rgba(245,158,11,0.09)', border:'1px solid rgba(245,158,11,0.25)' }}>
+                  <p style={{ fontSize:12, color:'#fbbf24', lineHeight:1.55 }}>{variant.caveat}</p>
+                </div>
+              )}
+
+              <p style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.5 }}>
+                This is saved as a new template for Meta to review. Your original is left untouched.
+              </p>
+            </>
+          )}
+        </div>
+
+        <div style={{ padding:'13px 24px', borderTop:'1px solid var(--bd)', display:'flex', justifyContent:'flex-end', gap:8 }}>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          {variant && <Btn onClick={() => onUseDraft(variant)} style={{ boxShadow:'var(--glow)' }}>Open in builder</Btn>}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Draft a template with AI ──────────────────────────────────
+// Produces an editable draft rather than saving directly: Meta reviews every
+// template and rejects mis-categorised or spammy copy, so the user has to see
+// and adjust it first. "Open in builder" hands the draft to TemplateModal.
+const TemplateAiPanel = ({ onClose, onUseDraft }) => {
+  const [prompt, setPrompt]         = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [draft, setDraft]           = useState(null);
+  const [loading, setLoading]       = useState(false);
+  const [err, setErr]               = useState(null);
+  // The generated header image: { assetId, dataUri }. Held separately from the
+  // draft because it is generated on its own request — image generation is
+  // separately billed and can fail while the copy is perfectly good.
+  const [image, setImage]           = useState(null);
+  const [imgLoading, setImgLoading] = useState(false);
+  const [imgErr, setImgErr]         = useState(null);
+  // Whether this template should carry an image header at all. Seeded from the
+  // model's own judgement, then owned by the user.
+  const [wantImage, setWantImage]   = useState(false);
+
+  useEffect(() => {
+    wFetch('/templates/ai/suggestions')
+      .then(r => r.ok && r.json())
+      .then(d => { if (Array.isArray(d?.suggestions)) setSuggestions(d.suggestions); })
+      .catch(() => {});
+  }, []);
+
+  const generate = async (text) => {
+    const p = (text ?? prompt).trim();
+    if (!p) { setErr('Describe the template you want.'); return; }
+    setPrompt(p); setLoading(true); setErr(null); setDraft(null);
+    setImage(null); setImgErr(null);
+    try {
+      const res = await wFetch('/templates/ai/draft', { method: 'POST', body: JSON.stringify({ prompt: p }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(data.error || 'Could not draft that template'); return; }
+      setDraft(data);
+      // AUTHENTICATION templates may not carry a header at all.
+      setWantImage(data.category !== 'AUTHENTICATION' && !!data.suggestImage);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateImage = async () => {
+    if (!draft) return;
+    setImgLoading(true); setImgErr(null);
+    try {
+      const res = await wFetch('/templates/ai/image', {
+        method: 'POST',
+        body: JSON.stringify({ imageIdea: draft.imageIdea, body: draft.body, category: draft.category }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setImgErr(data.error || 'Could not generate that image'); return; }
+      setImage({ assetId: data.assetId, dataUri: data.dataUri });
+    } catch (e) {
+      setImgErr(e.message);
+    } finally {
+      setImgLoading(false);
+    }
+  };
+
+  // Generate once automatically when the model asked for an image, so the
+  // common case is a finished preview rather than another button to find.
+  useEffect(() => {
+    if (draft && wantImage && !image && !imgLoading && !imgErr) generateImage();
+  }, [draft, wantImage]);
+
+  const catTone = { MARKETING: '#f59e0b', UTILITY: '#38bdf8', AUTHENTICATION: '#a78bfa' };
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', width:'100%', maxWidth:620, maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
+          <div>
+            <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:17, fontWeight:800, color:'var(--t1)', marginBottom:4 }}>Create Template with AI</h3>
+            <p style={{ fontSize:12.5, color:'var(--t2)' }}>Describe the message. AI writes the copy, picks the category and suggests variables.</p>
+          </div>
+          <button onClick={onClose} style={{ width:26, height:26, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', color:'var(--t2)', flexShrink:0 }}>x</button>
+        </div>
+
+        <div style={{ padding:'18px 24px', overflowY:'auto', display:'flex', flexDirection:'column', gap:14 }}>
+          <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={3}
+            placeholder="e.g. Remind a customer their dental appointment is tomorrow and let them confirm or reschedule."
+            style={{ width:'100%', padding:'10px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13.5, outline:'none', resize:'vertical', fontFamily:"'Plus Jakarta Sans',sans-serif", lineHeight:1.55 }} />
+
+          {suggestions.length > 0 && !draft && (
+            <div>
+              <p style={{ fontSize:11, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:8 }}>Start from a common one</p>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                {suggestions.map(sg => (
+                  <button key={sg.label} onClick={() => generate(sg.prompt)} disabled={loading}
+                    style={{ padding:'7px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', cursor: loading ? 'wait' : 'pointer', fontSize:12.5, fontWeight:600, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+                    {sg.label}
+                    <span style={{ marginLeft:7, fontSize:10, color: catTone[sg.category] || 'var(--t3)' }}>{sg.category[0] + sg.category.slice(1).toLowerCase()}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {err && <p style={{ fontSize:12.5, color:'#f87171' }}>{err}</p>}
+          {draft?.provider === 'fallback' && (
+            <p style={{ fontSize:12, color:'#fbbf24' }}>
+              {draft.fallbackReason === 'error'
+                ? 'Gemini could not be reached — this draft came from a built-in pattern. It is still fully editable.'
+                : 'No AI key on the server — this draft came from a built-in pattern. It is still fully editable.'}
+            </p>
+          )}
+
+          {draft && (
+            <div style={{ border:'1px solid var(--bd)', borderRadius:10, background:'rgba(255,255,255,0.02)', padding:'14px 16px', display:'flex', flexDirection:'column', gap:11 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                <span style={{ fontFamily:'monospace', fontSize:12.5, color:'var(--green)' }}>{draft.name}</span>
+                <span style={{ padding:'2px 9px', borderRadius:10, fontSize:10.5, fontWeight:700, color: catTone[draft.category], border:`1px solid ${catTone[draft.category]}44` }}>
+                  {draft.category} · {draft.language}
+                </span>
+              </div>
+
+              <div style={{ background:'#ECE5DD', borderRadius:9, padding:12 }}>
+                <div style={{ background:'#fff', borderRadius:'0 8px 8px 8px', padding:'10px 12px', boxShadow:'0 1px 3px rgba(0,0,0,0.1)' }}>
+                  {wantImage && (
+                    image ? (
+                      <img src={image.dataUri} alt="Generated header"
+                        style={{ width:'100%', borderRadius:6, marginBottom:7, display:'block', objectFit:'cover', maxHeight:180 }} />
+                    ) : (
+                      <div style={{ width:'100%', height:120, borderRadius:6, marginBottom:7, background:'#d9d2c9', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10.5, color:'#7a736b', textAlign:'center', padding:6 }}>
+                        {imgLoading ? 'Generating image…' : imgErr ? 'No image — add one in the builder' : 'Image header'}
+                      </div>
+                    )
+                  )}
+                  {draft.headerText && <p style={{ fontSize:12.5, fontWeight:700, color:'#111', margin:'0 0 4px' }}>{draft.headerText}</p>}
+                  <p style={{ fontSize:12, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', margin:0 }}>{draft.body}</p>
+                  {draft.footer && <p style={{ fontSize:10.5, color:'#888', marginTop:6 }}>{draft.footer}</p>}
+                  {draft.buttons?.length > 0 && (
+                    <div style={{ marginTop:8, borderTop:'1px solid #e4e0d8' }}>
+                      {draft.buttons.map((b, i) => (
+                        <div key={i} style={{ textAlign:'center', padding:'7px 4px', fontSize:12, color:'#00a5f4', fontWeight:500, borderTop: i > 0 ? '1px solid #e4e0d8' : 'none' }}>
+                          {b.text}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {draft.variables?.length > 0 && (
+                <div>
+                  <p style={{ fontSize:10.5, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.07em', marginBottom:5 }}>Variables</p>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                    {draft.variables.map(v => (
+                      <span key={v.index} style={{ padding:'3px 9px', borderRadius:10, fontSize:11.5, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)' }}>
+                        <code style={{ color:'var(--green)', fontFamily:'monospace' }}>{`{{${v.index}}}`}</code> {v.meaning} — {v.example}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {draft.category !== 'AUTHENTICATION' && (
+                <div style={{ borderTop:'1px solid var(--bd)', paddingTop:11, display:'flex', flexDirection:'column', gap:8 }}>
+                  <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, color:'var(--t1)', cursor:'pointer' }}>
+                    <input type="checkbox" checked={wantImage}
+                      onChange={e => { setWantImage(e.target.checked); if (!e.target.checked) { setImage(null); setImgErr(null); } }}
+                      style={{ accentColor:'var(--green)', width:15, height:15, cursor:'pointer' }} />
+                    Add an image header
+                    {draft.suggestImage && <span style={{ fontSize:10.5, color:'var(--t3)' }}>· recommended for this message</span>}
+                  </label>
+
+                  {wantImage && draft.imageIdea && (
+                    <p style={{ fontSize:11.5, color:'var(--t2)', lineHeight:1.5 }}>
+                      <strong style={{ color:'var(--t1)' }}>Image idea: </strong>{draft.imageIdea}
+                    </p>
+                  )}
+
+                  {wantImage && (
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+                      <Btn variant="outline" onClick={generateImage} disabled={imgLoading}>
+                        {imgLoading ? 'Generating…' : image ? 'Regenerate image' : 'Generate image'}
+                      </Btn>
+                      {image && <span style={{ fontSize:11.5, color:'var(--t3)' }}>This exact image is what recipients receive.</span>}
+                    </div>
+                  )}
+
+                  {imgErr && <p style={{ fontSize:11.5, color:'#fbbf24', lineHeight:1.5 }}>{imgErr}</p>}
+                </div>
+              )}
+              {draft.buttonNote && <p style={{ fontSize:11.5, color:'#fbbf24', lineHeight:1.5 }}>{draft.buttonNote}</p>}
+              {draft.buttonWarnings?.map((w, i) => (
+                <p key={i} style={{ fontSize:11.5, color:'#fbbf24', lineHeight:1.5 }}>{w}</p>
+              ))}
+              {draft.rationale && <p style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.5 }}>{draft.rationale}</p>}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding:'13px 24px', borderTop:'1px solid var(--bd)', display:'flex', justifyContent:'flex-end', gap:8, flexWrap:'wrap' }}>
+          <Btn variant="ghost" onClick={onClose} disabled={loading}>Cancel</Btn>
+          <Btn variant={draft ? 'outline' : 'primary'} onClick={() => generate()} disabled={loading}
+            style={draft ? {} : { boxShadow:'var(--glow)' }}>
+            {loading ? 'Drafting...' : draft ? 'Regenerate' : 'Draft with AI'}
+          </Btn>
+          {draft && (
+            <Btn onClick={() => onUseDraft({ ...draft, image: wantImage ? image : null })} style={{ boxShadow:'var(--glow)' }}>Open in builder</Btn>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── New Template Dialog ───────────────────────────────────────
-const TemplateModal = ({ onClose, onSaved, template = null }) => {
+const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
   const isEdit = !!template;
-  const initialBody   = isEdit ? (Array.isArray(template.components) ? (template.components.find(c => (c.type || '').toUpperCase() === 'BODY')?.text ?? '') : '') : '';
-  const initialFooter = isEdit ? (Array.isArray(template.components) ? (template.components.find(c => (c.type || '').toUpperCase() === 'FOOTER')?.text ?? '') : '') : '';
-  const [name, setName]         = useState(isEdit ? template.name : '');
-  const [category, setCategory] = useState(isEdit ? template.category : 'MARKETING');
-  const [language, setLanguage] = useState(isEdit ? template.language : 'en');
+  const comps = isEdit && Array.isArray(template.components) ? template.components : [];
+  const findComp = (t) => comps.find(c => (c.type || '').toUpperCase() === t);
+  const initialBody   = isEdit ? (findComp('BODY')?.text ?? '') : (seed?.body ?? '');
+  const initialFooter = isEdit ? (findComp('FOOTER')?.text ?? '') : (seed?.footer ?? '');
+  const initialHeader = isEdit ? findComp('HEADER') : null;
+  // A generated image wins over drafted header text — Meta allows only one
+  // header, and the user explicitly asked for the picture.
+  const initialHeaderKind = initialHeader
+    ? ((initialHeader.format || 'TEXT').toUpperCase() === 'TEXT' ? 'text' : 'image')
+    : (seed?.image ? 'image' : seed?.headerText ? 'text' : 'none');
+
+  const [name, setName]         = useState(isEdit ? template.name : (seed?.name ?? ''));
+  const [category, setCategory] = useState(isEdit ? template.category : (seed?.category ?? 'MARKETING'));
+  const [language, setLanguage] = useState(isEdit ? template.language : (seed?.language ?? 'en'));
   const [body, setBody]         = useState(initialBody);
   const [footer, setFooter]     = useState(initialFooter);
-  const [examples, setExamples] = useState({});
+  // Header: 'none' | 'text' | 'image'. Meta allows at most one header, and a
+  // media header needs a sample uploaded to Meta before the template can be
+  // submitted — headerMedia holds the handle that upload returns.
+  const [headerKind, setHeaderKind] = useState(initialHeaderKind);
+  const [headerText, setHeaderText] = useState(initialHeader?.text ?? seed?.headerText ?? '');
+  // Holds Meta's review handle once the image is uploaded, plus the assetId of
+  // the stored bytes the send path re-uploads later. A generated image starts
+  // with only the assetId — the handle is minted on save, so a draft the user
+  // abandons never touches Meta.
+  const [headerMedia, setHeaderMedia] = useState(seed?.image?.assetId ? { assetId: seed.image.assetId } : null);
+  // Buttons component. Meta caps these at 2 URL, 1 phone, 1 copy-code and
+  // 10 total, and quick replies must stay grouped — enforced on save.
+  const [buttons, setButtons] = useState(() => {
+    const existing = isEdit ? findComp('BUTTONS')?.buttons : seed?.buttons;
+    return Array.isArray(existing) ? existing.map(b => ({ ...b })) : [];
+  });
+  const [headerPreview, setHeaderPreview] = useState(seed?.image?.dataUri ?? null);
+  const [uploading, setUploading] = useState(false);
+  const [examples, setExamples] = useState(() => {
+    const out = {};
+    for (const v of seed?.variables || []) out[v.index] = v.example || '';
+    return out;
+  });
   const [saving, setSaving]     = useState(false);
   const [err, setErr]           = useState(null);
   // Templates are private per WhatsApp number. When a workspace has more than
@@ -1067,6 +1397,24 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
       }
     }).catch(() => {});
   }, []);
+
+  // Show the image an existing template actually sends. Pulled as a blob
+  // rather than pointed at with <img src> because every API route requires the
+  // Authorization header (same reason wDownload exists).
+  useEffect(() => {
+    if (!isEdit || !template?.headerAssetId) return;
+    let url = null;
+    let cancelled = false;
+    wFetch(`/templates/media/${template.headerAssetId}`)
+      .then(r => r.ok ? r.blob() : null)
+      .then(blob => {
+        if (!blob || cancelled) return;
+        url = URL.createObjectURL(blob);
+        setHeaderPreview(url);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [isEdit, template?.headerAssetId]);
 
   const langs = [
     { code:'en',    label:'English' },
@@ -1096,6 +1444,34 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
   const slug = name.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 64);
   const nameValid = /^[a-z0-9_]{1,64}$/.test(slug) && slug.length > 0;
 
+  // Meta will not approve a media header without a sample file, so the image
+  // is uploaded to Meta up front and only the returned handle is submitted
+  // with the template. The preview is a local object URL — the bytes are
+  // never stored on our side.
+  const pickHeaderImage = async (file) => {
+    if (!file) return;
+    setErr(null);
+    const okTypes = ['image/jpeg', 'image/png', 'video/mp4', 'application/pdf'];
+    if (!okTypes.includes(file.type)) { setErr('Use a JPG or PNG image, an MP4 video, or a PDF.'); return; }
+    if (file.type.startsWith('image/') && file.size > 5 * 1024 * 1024) { setErr('Images must be 5 MB or smaller.'); return; }
+
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (waNumberId) fd.append('waNumberId', waNumberId);
+      const res = await wFetch('/templates/media', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(data.error || 'Could not upload that file'); return; }
+      setHeaderMedia({ ...data, name: file.name });
+      setHeaderPreview(file.type.startsWith('image/') ? URL.createObjectURL(file) : null);
+    } catch (e) {
+      setErr(e.message || 'Could not upload that file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const submit = async () => {
     setErr(null);
     if (!nameValid) { setErr('Name must contain only lowercase letters, numbers and underscores.'); return; }
@@ -1105,7 +1481,48 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
       if (!examples[n]?.trim()) { setErr(`Provide an example value for variable {{${n}}}.`); return; }
     }
 
+    if (headerKind === 'image' && !headerMedia && !isEdit) {
+      setErr('Upload a header image, or set the header to None.'); return;
+    }
+    if (!isEdit && numbers.length > 1 && !waNumberId) { setErr('Select which WhatsApp number this template belongs to.'); return; }
+
+    // A generated image has stored bytes but no Meta review handle yet — it is
+    // uploaded here rather than at generation time so a draft the user
+    // abandons never reaches Meta.
+    let media = headerMedia;
+    if (headerKind === 'image' && media?.assetId && !media.handle) {
+      setSaving(true);
+      try {
+        const res = await wFetch('/templates/media', {
+          method: 'POST',
+          body: JSON.stringify({ assetId: media.assetId, ...(waNumberId ? { waNumberId } : {}) }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { setErr(data.error || 'Could not send the header image to Meta'); return; }
+        media = { ...media, ...data };
+        setHeaderMedia(media);
+      } catch (e) {
+        setErr(e.message); return;
+      } finally {
+        setSaving(false);
+      }
+    }
+    if (headerKind === 'text' && !headerText.trim()) {
+      setErr('Enter the header text, or set the header to None.'); return;
+    }
+
     const components = [];
+    // Meta requires HEADER first, then BODY, then FOOTER.
+    if (headerKind === 'text') {
+      components.push({ type:'HEADER', format:'TEXT', text: headerText.trim() });
+    } else if (headerKind === 'image') {
+      const header = { type:'HEADER', format: media?.format || 'IMAGE' };
+      // The handle is Meta's sample for review. Editing without re-uploading
+      // keeps whatever the stored component already had.
+      if (media?.handle) header.example = { header_handle: [media.handle] };
+      else if (initialHeader?.example) header.example = initialHeader.example;
+      components.push(header);
+    }
     const bodyComp = { type:'BODY', text: body.trim() };
     if (vars.length > 0) {
       bodyComp.example = { body_text: [vars.map(n => examples[n].trim())] };
@@ -1113,7 +1530,18 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
     components.push(bodyComp);
     if (footer.trim()) components.push({ type:'FOOTER', text: footer.trim() });
 
-    if (!isEdit && numbers.length > 1 && !waNumberId) { setErr('Select which WhatsApp number this template belongs to.'); return; }
+    // BUTTONS goes last. The server re-validates against Meta's rules, so a
+    // bad set is caught before the template is submitted for review.
+    const cleanButtons = buttons
+      .filter(b => String(b.text || '').trim())
+      .map(b => {
+        const out = { type: b.type, text: String(b.text).trim() };
+        if (b.type === 'URL') { out.url = String(b.url || '').trim(); if (b.example) out.example = String(b.example).trim(); }
+        if (b.type === 'PHONE_NUMBER') out.phone_number = String(b.phone_number || '').trim();
+        if (b.type === 'COPY_CODE') out.example = String(b.example || '').trim();
+        return out;
+      });
+    if (cleanButtons.length) components.push({ type:'BUTTONS', buttons: cleanButtons });
 
     setSaving(true);
     try {
@@ -1124,7 +1552,13 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
           })
         : await wFetch('/templates', {
             method:'POST',
-            body: JSON.stringify({ name: slug, category, language, components, ...(waNumberId ? { waNumberId } : {}) }),
+            body: JSON.stringify({
+              name: slug, category, language, components,
+              ...(waNumberId ? { waNumberId } : {}),
+              // Binds the stored bytes to the template so campaign sends can
+              // re-upload the picture — Meta's review handle cannot be sent.
+              ...(headerKind === 'image' && media?.assetId ? { headerAssetId: media.assetId } : {}),
+            }),
           });
       const data = await res.json();
       if (!res.ok) { setErr(data.error || `Error ${res.status}`); return; }
@@ -1205,6 +1639,60 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
             </select>
           </div>
 
+          {/* Header (optional) */}
+          <div>
+            <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>
+              Header <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional)</span>
+            </label>
+            <div style={{ display:'flex', gap:6, marginBottom: headerKind === 'none' ? 0 : 10 }}>
+              {[['none','None'],['text','Text'],['image','Image / Media']].map(([id, label]) => (
+                <button key={id} type="button" onClick={() => { setHeaderKind(id); setErr(null); }}
+                  style={{ padding:'7px 13px', borderRadius:8, cursor:'pointer', fontSize:12.5, fontWeight:600,
+                           fontFamily:"'Plus Jakarta Sans',sans-serif",
+                           border:`1px solid ${headerKind === id ? 'var(--gbd)' : 'var(--bd)'}`,
+                           background: headerKind === id ? 'var(--gbg)' : 'rgba(255,255,255,0.04)',
+                           color: headerKind === id ? 'var(--green)' : 'var(--t2)' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {headerKind === 'text' && (
+              <input value={headerText} maxLength={60} onChange={e => setHeaderText(e.target.value)}
+                placeholder="e.g. Your order is on the way" style={inputBase} />
+            )}
+
+            {headerKind === 'image' && (
+              <div style={{ border:'1px dashed var(--bd)', borderRadius:10, padding:14, display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+                {headerPreview ? (
+                  <img src={headerPreview} alt="Header preview"
+                    style={{ width:72, height:72, objectFit:'cover', borderRadius:8, border:'1px solid var(--bd)' }} />
+                ) : (
+                  <div style={{ width:72, height:72, borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <I n="file" s={22} c="var(--t3)" />
+                  </div>
+                )}
+                <div style={{ flex:1, minWidth:190 }}>
+                  <input type="file" accept="image/jpeg,image/png,video/mp4,application/pdf" disabled={uploading}
+                    onChange={e => pickHeaderImage(e.target.files?.[0])}
+                    style={{ fontSize:12, color:'var(--t2)', maxWidth:'100%' }} />
+                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:6, lineHeight:1.5 }}>
+                    {uploading ? 'Uploading to Meta…'
+                      : headerMedia ? `Uploaded ${headerMedia.name} — ${headerMedia.format} header ready.`
+                      : isEdit && initialHeader ? 'This template already has a media header. Upload a new file only to replace it.'
+                      : 'JPG or PNG up to 5 MB (also MP4 or PDF). Meta needs this sample to review the template.'}
+                  </p>
+                  {headerMedia && (
+                    <button type="button" onClick={() => { setHeaderMedia(null); setHeaderPreview(null); }}
+                      style={{ marginTop:6, background:'none', border:'none', padding:0, cursor:'pointer', color:'#f87171', fontSize:11.5, fontWeight:600 }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Body */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Body Text <span style={{ color:'#f87171' }}>*</span></label>
@@ -1244,16 +1732,106 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
               placeholder="Reply STOP to unsubscribe" style={inputBase} />
           </div>
 
+          {/* Buttons (optional) */}
+          <div>
+            <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>
+              Buttons <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional)</span>
+            </label>
+
+            {buttons.length > 0 && (
+              <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:10 }}>
+                {buttons.map((b, i) => (
+                  <div key={i} style={{ border:'1px solid var(--bd)', borderRadius:9, padding:'10px 12px', background:'rgba(255,255,255,0.02)', display:'flex', flexDirection:'column', gap:8 }}>
+                    <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                      <span style={{ fontSize:10.5, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', minWidth:76 }}>
+                        {{ QUICK_REPLY:'Quick reply', URL:'Link', PHONE_NUMBER:'Call', COPY_CODE:'Copy code' }[b.type]}
+                      </span>
+                      <input value={b.text || ''} maxLength={25}
+                        onChange={e => setButtons(list => list.map((x, j) => j === i ? { ...x, text: e.target.value } : x))}
+                        placeholder="Button label" style={{ ...inputBase, flex:1, minWidth:130 }} />
+                      <span style={{ fontSize:10.5, color: (b.text || '').length >= 25 ? '#fbbf24' : 'var(--t3)' }}>{(b.text || '').length}/25</span>
+                      <button type="button" onClick={() => setButtons(list => list.filter((_, j) => j !== i))}
+                        style={{ padding:'5px 9px', borderRadius:6, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Remove</button>
+                    </div>
+                    {b.type === 'URL' && (
+                      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                        <input value={b.url || ''}
+                          onChange={e => setButtons(list => list.map((x, j) => j === i ? { ...x, url: e.target.value } : x))}
+                          placeholder="https://example.com/orders/{{1}}" style={{ ...inputBase, flex:2, minWidth:190 }} />
+                        {/\{\{\d+\}\}/.test(b.url || '') && (
+                          <input value={b.example || ''}
+                            onChange={e => setButtons(list => list.map((x, j) => j === i ? { ...x, example: e.target.value } : x))}
+                            placeholder="Example for {{1}}" style={{ ...inputBase, flex:1, minWidth:130 }} />
+                        )}
+                      </div>
+                    )}
+                    {b.type === 'PHONE_NUMBER' && (
+                      <input value={b.phone_number || ''}
+                        onChange={e => setButtons(list => list.map((x, j) => j === i ? { ...x, phone_number: e.target.value } : x))}
+                        placeholder="+91 98765 43210" style={inputBase} />
+                    )}
+                    {b.type === 'COPY_CODE' && (
+                      <input value={b.example || ''}
+                        onChange={e => setButtons(list => list.map((x, j) => j === i ? { ...x, example: e.target.value } : x))}
+                        placeholder="Example code, e.g. SAVE20" style={inputBase} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              {[
+                ['QUICK_REPLY',  'Quick reply', b => b.filter(x => x.type === 'QUICK_REPLY').length >= 10],
+                ['URL',          'Link',        b => b.filter(x => x.type === 'URL').length >= 2],
+                ['PHONE_NUMBER', 'Call',        b => b.some(x => x.type === 'PHONE_NUMBER')],
+                ['COPY_CODE',    'Copy code',   b => b.some(x => x.type === 'COPY_CODE')],
+              ].map(([type, label, atLimit]) => {
+                const disabled = buttons.length >= 10 || atLimit(buttons);
+                return (
+                  <button key={type} type="button" disabled={disabled}
+                    onClick={() => setButtons(list => [...list, { type, text:'' }])}
+                    style={{ padding:'7px 12px', borderRadius:8, background:'transparent', border:'1px solid var(--bd)',
+                             color: disabled ? 'var(--t3)' : 'var(--green)', cursor: disabled ? 'not-allowed' : 'pointer',
+                             fontSize:12, fontWeight:600, opacity: disabled ? 0.5 : 1, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+                    + {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p style={{ fontSize:11, color:'var(--t3)', marginTop:6, lineHeight:1.5 }}>
+              Up to 2 links, 1 call and 1 copy-code button. More than 3 buttons are hidden on WhatsApp desktop.
+              {buttons.length > 3 && <span style={{ color:'#fbbf24' }}> This template has {buttons.length}.</span>}
+            </p>
+          </div>
+
           {/* Preview */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Preview</label>
             <div style={{ background:'#ECE5DD', borderRadius:10, padding:14, minHeight:60 }}>
               <div style={{ background:'#fff', borderRadius:'0 8px 8px 8px', padding:'10px 12px', maxWidth:'88%', boxShadow:'0 1px 3px rgba(0,0,0,0.1)', display:'inline-block' }}>
+                {headerKind === 'image' && (
+                  headerPreview
+                    ? <img src={headerPreview} alt="" style={{ display:'block', width:'100%', maxWidth:220, borderRadius:6, marginBottom:7 }} />
+                    : <div style={{ width:220, height:110, borderRadius:6, marginBottom:7, background:'#d9d2c9', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#7a736b' }}>Image header</div>
+                )}
+                {headerKind === 'text' && headerText && (
+                  <p style={{ fontSize:12.5, fontWeight:700, color:'#111', margin:'0 0 4px', lineHeight:1.4 }}>{headerText}</p>
+                )}
                 <p style={{ fontSize:12, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word', fontFamily:'system-ui,-apple-system,sans-serif', margin:0 }}>
                   {body || <span style={{ color:'#999', fontStyle:'italic' }}>Body preview…</span>}
                 </p>
                 {footer && (
                   <p style={{ fontSize:10.5, color:'#888', marginTop:6, lineHeight:1.4 }}>{footer}</p>
+                )}
+                {buttons.filter(b => (b.text || '').trim()).length > 0 && (
+                  <div style={{ marginTop:8, borderTop:'1px solid #e4e0d8', paddingTop:2 }}>
+                    {buttons.filter(b => (b.text || '').trim()).map((b, i) => (
+                      <div key={i} style={{ textAlign:'center', padding:'7px 4px', fontSize:12, color:'#00a5f4', fontWeight:500, borderTop: i > 0 ? '1px solid #e4e0d8' : 'none' }}>
+                        {{ URL:'\u2197 ', PHONE_NUMBER:'\u2706 ', COPY_CODE:'\u29c9 ' }[b.type] || ''}{b.text}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
@@ -1288,6 +1866,11 @@ const TemplatesView = () => {
   const [syncing, setSyncing]     = useState(false);
   const [syncMsg, setSyncMsg]     = useState(null);
   const [newOpen, setNewOpen]     = useState(false);
+  const [aiOpen, setAiOpen]       = useState(false);
+  // Template whose Meta re-categorisation we are rewriting.
+  const [variantTpl, setVariantTpl] = useState(null);
+  // Draft handed from the AI panel to TemplateModal as its initial values.
+  const [aiSeed, setAiSeed]       = useState(null);
   const [tab, setTab]             = useState('my');         // 'my' | 'library'
   const [hasNumber, setHasNumber] = useState(null);          // null = unknown, true/false
   // Library installs and Meta syncs are per-number — when a workspace has
@@ -1509,9 +2092,14 @@ const TemplatesView = () => {
               <I n="refresh" s={13} c={syncing ? 'var(--t3)' : 'var(--green)'} />
               {syncing ? 'Syncing from Meta…' : 'Sync from Meta'}
             </Btn>
-            <Btn onClick={() => setNewOpen(true)} style={{ boxShadow: 'var(--glow)' }}>
-              <I n="file" s={14} c="#060A10" /> New Template
-            </Btn>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              <Btn variant="outline" onClick={() => setAiOpen(true)}>
+                <I n="spark" s={14} c="var(--green)" /> Create with AI
+              </Btn>
+              <Btn onClick={() => setNewOpen(true)} style={{ boxShadow: 'var(--glow)' }}>
+                <I n="file" s={14} c="#060A10" /> New Template
+              </Btn>
+            </div>
           </div>
         )}
 
@@ -1561,6 +2149,15 @@ const TemplatesView = () => {
                       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
                         <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '5px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)' }}>{t.category}</span>
                         <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '5px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t3)' }}>{t.language}</span>
+                        {/* Meta moved this template's category after approval.
+                            Worth flagging because the per-message price follows
+                            the category. */}
+                        {t.previousCategory && t.previousCategory !== t.category && (
+                          <span title={`Meta moved this from ${t.previousCategory} on ${t.categoryUpdatedAt ? new Date(t.categoryUpdatedAt).toLocaleDateString() : 'a recent review'}`}
+                            style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'5px', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.3)', color:'#fbbf24' }}>
+                            was {t.previousCategory}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <StatusBadge s={statusLabel(t.status)} />
@@ -1570,6 +2167,20 @@ const TemplatesView = () => {
                       {bodyText || <span style={{ color:'var(--t3)', fontStyle:'italic' }}>No body text</span>}
                     </p>
                   </div>
+                  {/* Meta re-categorised this to MARKETING, which is ~7x the
+                      utility rate per message. Offer the rewrite that gets it
+                      back rather than leaving them to absorb the price. */}
+                  {isAdmin && t.category === 'MARKETING' && t.previousCategory === 'UTILITY' && (
+                    <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:8, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.25)' }}>
+                      <p style={{ fontSize:11.5, color:'#fbbf24', lineHeight:1.5, marginBottom:7 }}>
+                        Meta moved this to Marketing — now ₹1.09 per message instead of ₹0.16.
+                      </p>
+                      <button onClick={() => setVariantTpl(t)}
+                        style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--green)', fontSize:11.5, fontWeight:700, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+                        Generate a utility rewrite →
+                      </button>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: '8px' }}>
                     {isAdmin && <Btn variant="ghost" size="sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setEditTpl(t)}>Edit</Btn>}
                     <Btn variant="outline" size="sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setPreviewTpl(t)}>Preview</Btn>
@@ -1587,10 +2198,26 @@ const TemplatesView = () => {
         )}
       </div>
 
+      {variantTpl && (
+        <UtilityVariantModal
+          template={variantTpl}
+          onClose={() => setVariantTpl(null)}
+          onUseDraft={(v) => { setVariantTpl(null); setAiSeed(v); setNewOpen(true); }}
+        />
+      )}
+
+      {aiOpen && (
+        <TemplateAiPanel
+          onClose={() => setAiOpen(false)}
+          onUseDraft={(draft) => { setAiSeed(draft); setAiOpen(false); setNewOpen(true); }}
+        />
+      )}
+
       {newOpen && (
         <TemplateModal
-          onClose={() => setNewOpen(false)}
-          onSaved={() => { setNewOpen(false); loadTemplates(); setSyncMsg({ ok:true, created:1, updated:0, total:1 }); }}
+          seed={aiSeed}
+          onClose={() => { setNewOpen(false); setAiSeed(null); }}
+          onSaved={() => { setNewOpen(false); setAiSeed(null); loadTemplates(); setSyncMsg({ ok:true, created:1, updated:0, total:1 }); }}
         />
       )}
 

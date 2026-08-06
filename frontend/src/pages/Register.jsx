@@ -42,7 +42,10 @@ export default function Register({ onNav }) {
         if (!r.ok) { setInviteWarning('This invite link could not be found — you can still create an account.'); return; }
         if (data.status === 'PENDING') {
           setInviteInfo(data);
-          setForm((f) => ({ ...f, email: data.email }));
+          // A shared LINK invite names no address, so there is nothing to
+          // prefill or lock — the visitor signs up with whatever email they
+          // want and still joins the workspace.
+          if (data.email) setForm((f) => ({ ...f, email: data.email }));
         } else {
           setInviteWarning(INVITE_STATUS_MESSAGES[data.status] || 'This invite link is no longer valid.');
         }
@@ -186,7 +189,9 @@ export default function Register({ onNav }) {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--t1)', marginBottom: '7px' }}>Email address</label>
-                  <input type="email" name="email" placeholder="you@company.com" value={form.email} onChange={change} style={{ ...inp('email'), ...(inviteInfo ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }} onFocus={() => setFocus('email')} onBlur={() => setFocus('')} readOnly={!!inviteInfo} required />
+                  {/* Locked only when the invite names an address. A shared
+                      link doesn't, so the field stays editable. */}
+                  <input type="email" name="email" placeholder="you@company.com" value={form.email} onChange={change} style={{ ...inp('email'), ...(inviteInfo?.email ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }} onFocus={() => setFocus('email')} onBlur={() => setFocus('')} readOnly={!!inviteInfo?.email} required />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--t1)', marginBottom: '7px' }}>Password</label>

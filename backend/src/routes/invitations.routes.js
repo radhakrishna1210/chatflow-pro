@@ -19,6 +19,8 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.post('/', inviteLimiter, authorize('ADMIN'), validate({ body: invitationSchemas.create }), controller.create);
+// Literal path before '/:id' routes so it isn't read as an invitation id.
+router.post('/link', inviteLimiter, authorize('ADMIN'), validate({ body: invitationSchemas.createLink }), controller.createLink);
 router.get('/', authorize('ADMIN'), controller.list);
 router.post('/:id/resend', inviteLimiter, authorize('ADMIN'), controller.resend);
 router.delete('/:id', authorize('ADMIN'), controller.revoke);
