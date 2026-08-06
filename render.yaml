@@ -18,7 +18,7 @@
 services:
   - type: keyvalue
     name: chatflow-redis
-    plan: free # 25 MB, no persistence, expires after 30 days -> `starter` to keep it
+    plan: starter # 25 MB, no persistence, expires after 30 days -> `starter` to keep it
     # BullMQ loses jobs if Redis evicts keys under memory pressure.
     maxmemoryPolicy: noeviction
     ipAllowList: [] # private network only

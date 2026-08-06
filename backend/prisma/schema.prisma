@@ -342,11 +342,39 @@ model CampaignRecipient {
   nextRetryAt       DateTime?
   lastFailureReason String?
   retryStatus       String?
+  // What the very first send attempt produced, kept separate from `status`
+  // (which tracks the *current* state). Without it a recipient delivered on
+  // retry #3 is indistinguishable from one that succeeded first time, so
+  // "how many needed retrying" could not be answered after the fact.
+  initialStatus     String?
+  // One entry per attempt: { attempt, at, ok, reason, metaCode }. Bounded to
+  // the last 10 so a 24-hour hourly retry pattern cannot grow the row without
+  // limit.
+  retryHistory      Json?
+  // ─── Billing ledger ────────────────────────────────────────────────────
+  // The recipient is the unit of billing, not the send attempt. A message
+  // that took four attempts to deliver is charged once; one that never
+  // delivered is charged nothing. `billedAt` is the idempotency guard —
+  // written in the same conditional update that claims the charge, so a
+  // duplicate retry job, a replayed webhook or a worker restart cannot
+  // double-charge. Nothing here is ever rewritten once set.
+  billedAt          DateTime?
+  billedAmount      Decimal?                @db.Decimal(10, 4)
+  // 'CHARGED' once billed, 'NOT_CHARGED' for a recipient that reached a
+  // terminal state without ever delivering. Null means undecided.
+  billingStatus     String?
+  // Snapshotted from the template at send time. The template's category can
+  // be changed by Meta afterwards (see webhook.service.js), which would
+  // otherwise silently re-price messages that were already billed.
+  messageCategory   String?
   campaign          Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact     Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
   messages    Message[]
 
   @@unique([campaignId, contactId])
+  // Drives the restart-recovery sweep, which looks for RETRYING rows whose
+  // nextRetryAt has passed because their delayed job died with Redis.
+  @@index([status, nextRetryAt])
 }
 
 model Conversation {

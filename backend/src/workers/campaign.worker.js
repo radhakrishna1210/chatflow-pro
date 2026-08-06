@@ -4,12 +4,14 @@ import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
 import { headerImageComponent } from '../services/templateImage.service.js';
+import { templateHasVariables, bodyExamples, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
 import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
 import { consumeMessageCredit, releaseMessageCredit } from '../services/subscription.service.js';
 import { runFallbackForRecipient } from '../services/fallback.service.js';
 import { handleRecipientFailure, checkAndCompleteCampaign } from '../services/retry.service.js';
 import { settleCampaignRefund } from '../services/campaigns.service.js';
+import { claimRecipientCharge, markRecipientNotCharged, recordAttempt } from '../services/campaignBilling.service.js';
 import { isOptedOut } from '../services/optout.service.js';
 import { notifyWorkspace } from '../services/notification.service.js';
 
@@ -43,7 +45,11 @@ async function skipOptedOutRecipient(campaignId, recipient) {
 // through unchanged so nothing is hidden.
 const describeMetaError = (metaErr, fallback) => {
   if (!metaErr) return fallback;
-  const raw = `${metaErr.message} (code ${metaErr.code}${metaErr.error_subcode ? `/${metaErr.error_subcode}` : ''})`;
+  // error_data.details is the only part of a Meta error that names the actual
+  // offender ("buttons: Button at index 0 of type Url requires a parameter");
+  // the top-level message is generic to the point of being unactionable.
+  const details = metaErr.error_data?.details;
+  const raw = `${metaErr.message}${details ? ` — ${details}` : ''} (code ${metaErr.code}${metaErr.error_subcode ? `/${metaErr.error_subcode}` : ''})`;
   const code = Number(metaErr.code);
   const sub = Number(metaErr.error_subcode);
 
@@ -58,50 +64,38 @@ const describeMetaError = (metaErr, fallback) => {
   return raw;
 };
 
-const templateHasVariables = (components) => {
-  if (!Array.isArray(components)) return false;
-  return components.some((c) => /\{\{\d+\}\}/.test(c?.text || ''));
-};
-
-const countVariables = (text) => {
-  const nums = [...String(text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
-  return nums.length ? Math.max(...nums) : 0;
-};
-
-// Builds the `components` array Meta expects for a template send, with a
-// `parameters` entry for every {{n}} placeholder in each component's text.
-// Contacts only carry name/phone/email — {{1}} is filled with the contact's
+// Contacts only carry name/phone/email, so {{1}} is filled with the contact's
 // name (the convention used everywhere else templates are authored, e.g.
-// data/templateLibrary.js); any further placeholders reuse it since there's
-// no per-recipient custom-field data to draw from. Sending the right *count*
-// of parameters is what matters to Meta — an empty/short components array
-// caused error 132000 (param count mismatch).
-const buildTemplateComponents = (components, contact) => {
+// data/templateLibrary.js). There is no per-recipient data behind {{2}} and up,
+// so those fall back to the sample the template was approved with: repeating
+// the name there turned "Hi Priya, {{2}}% off" into "Priya% off" on delivery.
+const contactResolver = (contact) => {
   const name = (contact?.name || '').trim() || 'there';
-  return (components || [])
-    .filter((c) => /\{\{\d+\}\}/.test(c?.text || ''))
-    .map((c) => ({
-      type: String(c.type || 'body').toLowerCase(),
-      parameters: Array.from({ length: countVariables(c.text) }, () => ({ type: 'text', text: name })),
-    }));
+  return (index, component) => {
+    if (index === 0) return name;
+    // A parameter Meta receives as an empty string fails the send, so an absent
+    // example falls back to the name rather than to nothing.
+    return String(bodyExamples(component)[index] ?? '').trim() || name;
+  };
 };
 
 // The full `template` object for one recipient's send.
 //
-// An image header has no {{n}} placeholders, so the text-variable check above
-// misses it entirely — that is why an approved image template used to go out
-// with no picture (and, because Meta counts header parameters, often failed
-// outright with 132000). The header component is resolved first and the text
-// parameters appended after it, which is also the order Meta expects.
+// Neither an image header nor a parameterised button has {{n}} placeholders in
+// a `text` field, so the text-variable check above misses both — that is why an
+// approved image template used to go out with no picture (failing with 132000),
+// and why a link button failed with 131008. Each is resolved on its own and the
+// pieces assembled header → body → buttons, the order Meta expects.
 const buildTemplatePayload = async (template, contact, { phoneNumberId, accessToken }) => {
   const payload = { name: template.name, language: { code: template.language } };
 
   const header = await headerImageComponent(template, { phoneNumberId, accessToken });
   const textComponents = templateHasVariables(template.components)
-    ? buildTemplateComponents(template.components, contact)
+    ? buildTextComponents(template.components, contactResolver(contact))
     : [];
+  const buttonComponents = buildButtonComponents(template.components);
 
-  const components = [...(header ? [header] : []), ...textComponents];
+  const components = [...(header ? [header] : []), ...textComponents, ...buttonComponents];
   if (components.length) payload.components = components;
   return payload;
 };
@@ -145,10 +139,20 @@ async function processRetryJob(job) {
     return;
   }
 
-  await prisma.campaignRecipient.update({
-    where: { id: recipientId },
+  // Claim the attempt atomically. BullMQ can redeliver a job whose worker
+  // stalled, and the DELIVERED/READ check above cannot catch a duplicate that
+  // is still mid-flight — both copies would pass it and both would send. Only
+  // the writer that flips RETRYING to IN_PROGRESS proceeds; the loser returns
+  // without sending. The status guard also rejects a stale job for a recipient
+  // that has since been failed off or skipped.
+  const claimed = await prisma.campaignRecipient.updateMany({
+    where: { id: recipientId, status: 'RETRYING', retryStatus: { not: 'IN_PROGRESS' } },
     data: { retryStatus: 'IN_PROGRESS', lastRetryAt: new Date(), retryCount: attempt },
   });
+  if (claimed.count === 0) {
+    console.log('[CampaignRetry] Attempt #' + attempt + ' for ' + recipientId + ' is already claimed elsewhere - skipping duplicate');
+    return;
+  }
 
   const accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
   const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
@@ -201,6 +205,12 @@ async function processRetryJob(job) {
       },
     });
 
+    // First attempt that actually reached Meta claims the charge. If the
+    // initial send already billed this recipient, this is a no-op — never a
+    // second charge for the same person.
+    await claimRecipientCharge(campaign, recipient);
+    await recordAttempt(recipient.id, { attempt, ok: true });
+
     await prisma.campaign.update({
       where: { id: campaignId },
       data: {
@@ -246,6 +256,7 @@ async function processRetryJob(job) {
     // Nothing went out, so the retry's credit goes back — otherwise every
     // retry attempt would burn quota for a message that never arrived.
     await releaseMessageCredit(workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
+    await recordAttempt(recipient.id, { attempt, ok: false, reason, metaCode: metaErr?.code ?? null });
     await handleRecipientFailure(campaign, { ...recipient, retryCount: attempt }, reason, metaErr?.code);
   }
 }
@@ -334,8 +345,14 @@ async function processCampaign(job) {
         console.warn(`[CampaignWorker] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
         await prisma.campaignRecipient.update({
           where: { id: recipient.id },
-          data: { status: 'FAILED', failedAt: new Date(), failReason: 'Quota and wallet balance exhausted' },
+          data: {
+            status: 'FAILED', failedAt: new Date(),
+            failReason: 'Quota and wallet balance exhausted',
+            initialStatus: 'FAILED',
+          },
         });
+        // Nothing was sent, so nothing is owed for this recipient.
+        await markRecipientNotCharged(recipient.id);
         await prisma.campaign.update({
           where: { id: campaignId },
           data: { failed: { increment: 1 } },
@@ -363,8 +380,14 @@ async function processCampaign(job) {
 
       await prisma.campaignRecipient.update({
         where: { id: recipient.id },
-        data: { status: 'SENT', sentAt: new Date() },
+        data: { status: 'SENT', sentAt: new Date(), initialStatus: 'SENT' },
       });
+
+      // The message reached Meta, so this recipient claims its share of the
+      // launch reservation — once, no matter how many attempts follow. What
+      // is never claimed here is refunded at settlement.
+      await claimRecipientCharge(campaign, recipient);
+      await recordAttempt(recipient.id, { attempt: 0, ok: true });
 
       await prisma.campaign.update({
         where: { id: campaignId },
@@ -407,6 +430,12 @@ async function processCampaign(job) {
       // The credit was claimed before the send that just failed — give it
       // back so a message nobody received doesn't count against the quota.
       await releaseMessageCredit(campaign.workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
+      // No charge is claimed on a failed send — the recipient stays unbilled
+      // until an attempt actually reaches Meta.
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id }, data: { initialStatus: 'FAILED' },
+      }).catch(() => {});
+      await recordAttempt(recipient.id, { attempt: 0, ok: false, reason, metaCode: metaErr?.code ?? null });
       await handleRecipientFailure(campaign, recipient, reason, metaErr?.code);
     }
 

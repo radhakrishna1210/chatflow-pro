@@ -4,6 +4,7 @@ import { Btn } from '../components/Btn.jsx';
 import CreateCampaign from './CreateCampaign.jsx';
 import { wFetch, apiFetch } from '../lib/api.js';
 import { validateMeaningfulText } from '../lib/validation.js';
+import { useMessageRates, inr as inrRate } from '../lib/pricing.js';
 import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 import ContactsView from './ContactsView.jsx';
 import InboxView from './InboxView.jsx';
@@ -1046,6 +1047,9 @@ const statusLabel = s => {
 // is the only route back, so this drafts one to review — the original is
 // never overwritten.
 const UtilityVariantModal = ({ template, onClose, onUseDraft }) => {
+  // Quoted from the API so this pitch can never advertise a price the billing
+  // code does not charge.
+  const rates = useMessageRates();
   const [variant, setVariant] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr]         = useState(null);
@@ -1068,7 +1072,8 @@ const UtilityVariantModal = ({ template, onClose, onUseDraft }) => {
           <div>
             <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:17, fontWeight:800, color:'var(--t1)', marginBottom:4 }}>Utility rewrite</h3>
             <p style={{ fontSize:12.5, color:'var(--t2)' }}>
-              Rewrites <code style={{ fontFamily:'monospace', color:'var(--green)' }}>{template.name}</code> to read as UTILITY, so it bills at ₹0.16 instead of ₹1.09 per message.
+              Rewrites <code style={{ fontFamily:'monospace', color:'var(--green)' }}>{template.name}</code> to read as UTILITY
+              {rates ? `, so it bills at ${inrRate(rates.UTILITY)} instead of ${inrRate(rates.MARKETING)} per message.` : ', which bills at a much lower per-message rate.'}
             </p>
           </div>
           <button onClick={onClose} style={{ width:26, height:26, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', color:'var(--t2)', flexShrink:0 }}>x</button>
@@ -1860,6 +1865,7 @@ const CATEGORY_FILTERS = [
 ];
 
 const TemplatesView = () => {
+  const rates = useMessageRates();
   const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -2173,7 +2179,7 @@ const TemplatesView = () => {
                   {isAdmin && t.category === 'MARKETING' && t.previousCategory === 'UTILITY' && (
                     <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:8, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.25)' }}>
                       <p style={{ fontSize:11.5, color:'#fbbf24', lineHeight:1.5, marginBottom:7 }}>
-                        Meta moved this to Marketing — now ₹1.09 per message instead of ₹0.16.
+                        Meta moved this to Marketing{rates ? ` — now ${inrRate(rates.MARKETING)} per message instead of ${inrRate(rates.UTILITY)}.` : ' — it now bills at the higher marketing rate.'}
                       </p>
                       <button onClick={() => setVariantTpl(t)}
                         style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--green)', fontSize:11.5, fontWeight:700, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>

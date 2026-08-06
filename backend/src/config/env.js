@@ -126,6 +126,11 @@ const envSchema = z.object({
   SMTP_SECURE: z.string().default('false').transform((v) => v === 'true'),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
+  // Node resolves smtp.gmail.com to IPv6 first, and a host with no IPv6 route
+  // fails every send with `connect ENETUNREACH 2607:f8b0:...:587` before the
+  // login is even attempted. Pinning to IPv4 is the fix; set this to 6 on an
+  // IPv6-only host, or 0 to let Node choose.
+  SMTP_IP_FAMILY: z.coerce.number().default(4),
   EMAIL_FROM_NAME: z.string().default('ChatFlow Pro'),
   EMAIL_FROM: z.string().optional(),
   APP_URL: z.string().url().optional(),
