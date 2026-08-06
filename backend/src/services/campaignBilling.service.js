@@ -19,6 +19,13 @@
 // So the net charge equals the number of recipients that were actually sent,
 // and every rule holds: failures cost nothing, permanent failures cost
 // nothing, and no recipient is ever charged twice.
+//
+// Reserving at launch rather than charging on delivery is a deliberate choice,
+// reaffirmed 2026-08-06: it is what guarantees a campaign cannot strand
+// mid-flight for lack of funds. The visible cost is that a wallet dips at
+// launch and partially returns at completion, which reads like a bug but is
+// not. Switching to charge-on-delivery is a small change now that this ledger
+// exists — the reservation and the settlement are the only two pieces to drop.
 
 import { prisma } from '../lib/prisma.js';
 import { rateForCategory } from '../lib/messagePricing.js';
