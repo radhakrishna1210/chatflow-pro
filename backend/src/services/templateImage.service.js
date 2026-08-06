@@ -215,6 +215,14 @@ async function generateWithOpenAi(prompt) {
   return { buffer: Buffer.from(b64, 'base64'), mimeType };
 }
 
+// The error body arrives as a Buffer because the request asked for binary.
+function bodyText(body) {
+  if (!body) return '';
+  try {
+    return Buffer.isBuffer(body) ? body.toString('utf8') : typeof body === 'string' ? body : JSON.stringify(body);
+  } catch { return ''; }
+}
+
 // Workers AI answers with a JSON error body even when the request asked for
 // binary, so the buffer is decoded before being read.
 function describeCloudflareImageError(err) {
@@ -253,15 +261,18 @@ function describeCloudflareImageError(err) {
 // the model — flux-1-schnell puts base64 inside JSON, the SDXL models stream
 // raw image bytes — so the response is taken as an ArrayBuffer and worked out
 // afterwards. That way changing CLOUDFLARE_IMAGE_MODEL needs no code change.
-async function generateWithCloudflare(prompt) {
+async function generateWithCloudflare(prompt, { withDimensions = true } = {}) {
   const url = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/run/${env.CLOUDFLARE_IMAGE_MODEL}`;
   let res;
   try {
     res = await axios.post(
       url,
-      // steps is capped at 8 for flux-1-schnell and ignored by models that
-      // don't take it; 4 is the quality/latency sweet spot for a small header.
-      { prompt, steps: 4 },
+      // Without width/height these models default to a 1024x1024 square, which
+      // WhatsApp then crops to its wide header card — losing the top and bottom
+      // of the subject. 1280x768 matches the card's shape. steps is capped at 8
+      // for flux-1-schnell and ignored by models that don't take it; 4 is the
+      // quality/latency sweet spot for an image this small.
+      withDimensions ? { prompt, steps: 4, width: 1280, height: 768 } : { prompt, steps: 4 },
       {
         headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, 'Content-Type': 'application/json' },
         responseType: 'arraybuffer',
@@ -269,6 +280,15 @@ async function generateWithCloudflare(prompt) {
       },
     );
   } catch (err) {
+    // Workers AI has intermittently rejected width/height as "additional
+    // properties not allowed" for a model that accepts them seconds later —
+    // a schema-validation wobble on their side. A square header that gets
+    // cropped beats no header at all, so retry once without them.
+    const raw = bodyText(err?.response?.data);
+    if (withDimensions && /width|height|Bad input|not allowed/i.test(raw)) {
+      console.warn('[TemplateImage] Cloudflare rejected width/height — retrying at the default size');
+      return generateWithCloudflare(prompt, { withDimensions: false });
+    }
     console.error('[TemplateImage] Cloudflare generation failed:', err?.message);
     throw describeCloudflareImageError(err);
   }
