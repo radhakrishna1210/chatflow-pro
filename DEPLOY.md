@@ -95,6 +95,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Cloud Console → Credentials |
 
 Optional — leave blank to disable that feature: `GEMINI_API_KEY`, `OPENAI_API_KEY`,
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`,
 `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `SMTP_*`, `EMAIL_FROM`.
 
 4. **Apply**. First build takes ~5 min (two `npm ci` runs + a Vite build +

@@ -27,11 +27,39 @@ function getAi() {
   return _ai;
 }
 
-// OpenAI is preferred when configured: Gemini's image models are not offered
-// on its free tier at all, so a key that generates copy perfectly well still
-// reports "limit: 0" for pictures. Gemini stays as the fallback rather than
-// being replaced, so this is reversible by unsetting one variable.
-const imageProvider = () => (env.OPENAI_API_KEY ? 'openai' : env.GEMINI_API_KEY ? 'gemini' : null);
+// Providers are tried in order, falling through when one is billing-blocked or
+// unreachable — because both paid providers can be dead at the same time.
+// OpenAI bills every image with no free allowance, and Gemini's image models
+// are not on its free tier at all (it reports "limit: 0"). Cloudflare Workers
+// AI sits last precisely because it is the leg that still works when there is
+// no credit anywhere, so the feature degrades instead of disappearing.
+const PROVIDER_ORDER = ['openai', 'cloudflare', 'gemini'];
+
+const providerConfigured = {
+  openai: () => Boolean(env.OPENAI_API_KEY),
+  cloudflare: () => Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN),
+  gemini: () => Boolean(env.GEMINI_API_KEY),
+};
+
+function providerChain() {
+  if (env.IMAGE_PROVIDER !== 'auto') {
+    return providerConfigured[env.IMAGE_PROVIDER]?.() ? [env.IMAGE_PROVIDER] : [];
+  }
+  return PROVIDER_ORDER.filter((name) => providerConfigured[name]());
+}
+
+// 402 means "this provider wants money", 503 "not configured", 502 "gave us
+// nothing usable" — all worth trying the next provider for. A 422 is a content
+// refusal, which is a decision to respect rather than shop around for.
+const shouldFallThrough = (err) => [402, 502, 503].includes(err?.status);
+
+// Cloudflare's models don't declare their output format, so it is read from the
+// bytes. This doubles as proof that what came back is an image at all.
+function sniffImageType(buffer) {
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
+  if (buffer.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') return 'image/png';
+  return null;
+}
 
 // WhatsApp caps header images at 5 MB and renders them in a small, wide card,
 // so a photographic 4:3 is both cheaper and closer to what the customer sees
@@ -116,9 +144,9 @@ function describeOpenAiImageError(err) {
     e.status = 402;
     return e;
   }
-  if (status === 429 || /quota|billing|insufficient/i.test(raw)) {
+  if (status === 429 || /quota|billing|insufficient|credit/i.test(raw)) {
     const e = new Error(
-      /quota|billing|insufficient/i.test(raw)
+      /quota|billing|insufficient|credit/i.test(raw)
         ? 'The OpenAI account has no credit left for image generation. Add credit at platform.openai.com → Billing. You can still upload a header image yourself.'
         : 'OpenAI is rate limiting image requests right now. Wait a moment and try again.',
     );
@@ -187,6 +215,93 @@ async function generateWithOpenAi(prompt) {
   return { buffer: Buffer.from(b64, 'base64'), mimeType };
 }
 
+// Workers AI answers with a JSON error body even when the request asked for
+// binary, so the buffer is decoded before being read.
+function describeCloudflareImageError(err) {
+  const status = err?.response?.status;
+  let raw = String(err?.message || '');
+  const body = err?.response?.data;
+  if (body) {
+    try {
+      const text = Buffer.isBuffer(body) ? body.toString('utf8') : typeof body === 'string' ? body : JSON.stringify(body);
+      const parsed = JSON.parse(text);
+      raw = parsed?.errors?.[0]?.message || parsed?.error || raw;
+    } catch { /* not JSON — keep the axios message */ }
+  }
+
+  if (status === 401 || status === 403) {
+    const e = new Error('Cloudflare rejected the API token. It needs the "Workers AI: Read" permission — check CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.');
+    e.status = 502;
+    return e;
+  }
+  if (status === 429 || /limit|exceeded/i.test(raw)) {
+    const e = new Error('The Cloudflare Workers AI free daily allowance is used up. It resets each day, or you can upload a header image yourself.');
+    e.status = 402;
+    return e;
+  }
+  if (status === 404) {
+    const e = new Error(`Cloudflare does not have the model "${env.CLOUDFLARE_IMAGE_MODEL}". Set CLOUDFLARE_IMAGE_MODEL to one from the Workers AI catalogue.`);
+    e.status = 502;
+    return e;
+  }
+  const e = new Error(`Cloudflare could not generate the image${raw ? ` (${raw})` : ''}. Try again, or upload a header image yourself.`);
+  e.status = 502;
+  return e;
+}
+
+// The free leg of the chain. Workers AI returns one of two shapes depending on
+// the model — flux-1-schnell puts base64 inside JSON, the SDXL models stream
+// raw image bytes — so the response is taken as an ArrayBuffer and worked out
+// afterwards. That way changing CLOUDFLARE_IMAGE_MODEL needs no code change.
+async function generateWithCloudflare(prompt) {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/run/${env.CLOUDFLARE_IMAGE_MODEL}`;
+  let res;
+  try {
+    res = await axios.post(
+      url,
+      // steps is capped at 8 for flux-1-schnell and ignored by models that
+      // don't take it; 4 is the quality/latency sweet spot for a small header.
+      { prompt, steps: 4 },
+      {
+        headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, 'Content-Type': 'application/json' },
+        responseType: 'arraybuffer',
+        timeout: 120000,
+      },
+    );
+  } catch (err) {
+    console.error('[TemplateImage] Cloudflare generation failed:', err?.message);
+    throw describeCloudflareImageError(err);
+  }
+
+  let buffer = Buffer.from(res.data);
+  const isJson = String(res.headers?.['content-type'] || '').includes('json');
+  if (isJson) {
+    let parsed;
+    try { parsed = JSON.parse(buffer.toString('utf8')); } catch {
+      const e = new Error('Cloudflare returned a response that could not be read as an image.');
+      e.status = 502;
+      throw e;
+    }
+    // A failure can arrive as HTTP 200 with success:false.
+    if (parsed?.success === false) throw describeCloudflareImageError({ response: { status: 200, data: buffer } });
+    const b64 = parsed?.result?.image;
+    if (!b64) {
+      const e = new Error('Cloudflare did not return an image. Try again.');
+      e.status = 502;
+      throw e;
+    }
+    buffer = Buffer.from(b64, 'base64');
+  }
+
+  const mimeType = sniffImageType(buffer);
+  if (!mimeType) {
+    const e = new Error('Cloudflare returned data that is not a JPEG or PNG image.');
+    e.status = 502;
+    throw e;
+  }
+  return { buffer, mimeType };
+}
+
 async function generateWithGemini(prompt) {
   const ai = getAi();
   let response;
@@ -222,29 +337,58 @@ async function generateWithGemini(prompt) {
 // Generates the image and returns raw bytes. Does not persist — the caller
 // decides whether a draft the user may discard is worth a row.
 export async function generateHeaderImage({ imageIdea, body, category }) {
-  const provider = imageProvider();
-  if (!provider) {
-    const e = new Error('Image generation needs OPENAI_API_KEY (or GEMINI_API_KEY) on the server. Upload a header image instead.');
+  const chain = providerChain();
+  if (chain.length === 0) {
+    const e = new Error(
+      env.IMAGE_PROVIDER === 'auto'
+        ? 'Image generation is not configured. Set OPENAI_API_KEY, or CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN for the free tier. You can upload a header image instead.'
+        : `IMAGE_PROVIDER is pinned to "${env.IMAGE_PROVIDER}", but that provider has no credentials configured.`,
+    );
     e.status = 503;
     throw e;
   }
 
   const prompt = buildImagePrompt({ imageIdea, body, category });
-  const { buffer, mimeType } =
-    provider === 'openai' ? await generateWithOpenAi(prompt) : await generateWithGemini(prompt);
+  const generators = { openai: generateWithOpenAi, cloudflare: generateWithCloudflare, gemini: generateWithGemini };
 
-  if (!SENDABLE_IMAGE_TYPES.has(mimeType)) {
-    const e = new Error(`The generated image is an unsupported type (${mimeType}). WhatsApp headers must be JPEG or PNG.`);
-    e.status = 502;
-    throw e;
-  }
-  if (buffer.length > MAX_IMAGE_BYTES) {
-    const e = new Error(`The generated image is ${(buffer.length / 1024 / 1024).toFixed(1)} MB — WhatsApp headers must be 5 MB or smaller.`);
-    e.status = 502;
-    throw e;
+  const failures = [];
+  for (const provider of chain) {
+    try {
+      const { buffer, mimeType } = await generators[provider](prompt);
+
+      // Validated per provider rather than once at the end, so a provider that
+      // returns something unsendable falls through to the next one instead of
+      // failing the whole request.
+      if (!SENDABLE_IMAGE_TYPES.has(mimeType)) {
+        const e = new Error(`${provider} returned an unsupported image type (${mimeType}). WhatsApp headers must be JPEG or PNG.`);
+        e.status = 502;
+        throw e;
+      }
+      if (buffer.length > MAX_IMAGE_BYTES) {
+        const e = new Error(`The generated image is ${(buffer.length / 1024 / 1024).toFixed(1)} MB — WhatsApp headers must be 5 MB or smaller.`);
+        e.status = 502;
+        throw e;
+      }
+
+      if (provider !== chain[0]) console.warn(`[TemplateImage] generated with ${provider} after ${chain[0]} was unavailable`);
+      return { buffer, mimeType, prompt, provider };
+    } catch (err) {
+      if (!shouldFallThrough(err)) throw err;
+      failures.push({ provider, err });
+      console.warn(`[TemplateImage] ${provider} unavailable (${err.status}): ${err.message}`);
+    }
   }
 
-  return { buffer, mimeType, prompt, provider };
+  // Every provider failed. Reporting only the last one is actively misleading:
+  // the chain ends on Gemini, so a Cloudflare token typo would surface as
+  // "Gemini has no quota". Each reason is listed instead, in the order tried.
+  const e = new Error(
+    failures.length === 1
+      ? failures[0].err.message
+      : `No image provider could generate this. ${failures.map((f) => `${f.provider}: ${f.err.message}`).join(' ')}`,
+  );
+  e.status = failures[0].err.status;
+  throw e;
 }
 
 // Persists bytes so they can be re-sent long after the template is approved.

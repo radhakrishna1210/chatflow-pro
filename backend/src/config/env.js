@@ -100,6 +100,19 @@ const envSchema = z.object({
   // 'low' | 'medium' | 'high' on gpt-image-1; 'standard' | 'hd' on dall-e-3.
   // Medium is the cost/quality balance that suits a small WhatsApp header.
   OPENAI_IMAGE_QUALITY: z.string().default('medium'),
+  // Cloudflare Workers AI is the free leg of the image chain: OpenAI and
+  // Gemini both bill per image with no free allowance, so without this a
+  // workspace with no credit gets no picture at all. Free daily allowance,
+  // account + token only, no card.
+  CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
+  CLOUDFLARE_API_TOKEN: z.string().optional(),
+  // flux-1-schnell is fast and returns base64 JSON; the SDXL models return raw
+  // bytes instead. Both are handled — the image type is sniffed, not assumed.
+  CLOUDFLARE_IMAGE_MODEL: z.string().default('@cf/black-forest-labs/flux-1-schnell'),
+  // 'auto' tries each configured provider in order and falls through when one
+  // is billing-blocked or unreachable. Naming a provider pins it, which is what
+  // you want when diagnosing which one is actually failing.
+  IMAGE_PROVIDER: z.enum(['auto', 'openai', 'cloudflare', 'gemini']).default('auto'),
   OLLAMA_URL: z.string().url().default('http://127.0.0.1:11434'),
   OLLAMA_MODEL: z.string().default('phi3'),
 

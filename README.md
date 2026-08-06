@@ -148,6 +148,9 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `OPENAI_API_KEY` | no | — | Enables OpenAI for AI template **header images**. Preferred over Gemini for images, because image models are not on the Gemini free tier at all. Text generation still uses Gemini |
 | `OPENAI_IMAGE_MODEL` | no | `gpt-image-1` | `gpt-image-1` needs a verified OpenAI org; use `dall-e-3` if verification is the blocker |
 | `OPENAI_IMAGE_QUALITY` | no | `medium` | `low`/`medium`/`high` on gpt-image-1, `standard`/`hd` on dall-e-3 |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | no | — | Cloudflare Workers AI — the **free** leg of the image chain. OpenAI and Gemini both bill per image with no free allowance, so this is what keeps header generation working when there is no credit. The token needs the `Workers AI: Read` permission |
+| `CLOUDFLARE_IMAGE_MODEL` | no | `@cf/black-forest-labs/flux-1-schnell` | Any Workers AI text-to-image model; both base64-JSON and raw-bytes responses are handled |
+| `IMAGE_PROVIDER` | no | `auto` | `auto` tries openai → cloudflare → gemini, falling through on billing or availability failures. Pin to one name to diagnose a single provider |
 | `OLLAMA_URL` | no | `http://127.0.0.1:11434` | Local LLM fallback |
 | `OLLAMA_MODEL` | no | `phi3` | |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASSWORD` | no | `SMTP_PORT=587`, `SMTP_SECURE=false` | Transactional email (welcome, OTP, invites, campaign-complete, etc.) — email sending is skipped gracefully if unconfigured |
