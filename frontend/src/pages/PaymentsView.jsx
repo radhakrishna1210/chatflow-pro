@@ -31,6 +31,45 @@ const SUB_TABS = [
   { id: 'invoices',     label: 'Invoices',               icon: 'note'    },
 ];
 
+// The three WhatsApp conversation categories, in the order Meta lists them.
+// Only the *labels* live here — every rate comes from the API, which reads
+// backend/src/lib/messagePricing.js. Hardcoding a number in the frontend is
+// what lets the displayed price drift from the price actually billed.
+const PRICING_CATEGORIES = [
+  ['MARKETING',      'Marketing'],
+  ['UTILITY',        'Utility'],
+  ['AUTHENTICATION', 'Authentication'],
+];
+
+const inrRate = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v).toFixed(2));
+
+// Per-message pricing for one plan. `rates` is the plan's messagePricing (or
+// the workspace's resolved overageRates); a plan whose rates haven't loaded
+// yet renders nothing rather than a wrong number.
+function MessagePricing({ rates, compact = false }) {
+  const rows = PRICING_CATEGORIES
+    .map(([key, label]) => [label, inrRate(rates?.[key])])
+    .filter(([, rate]) => rate !== null);
+  if (!rows.length) return null;
+
+  return (
+    <div style={{ marginTop: compact ? 8 : 12, paddingTop: compact ? 8 : 12, borderTop: '1px solid var(--bd)' }}>
+      <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 6 }}>
+        WhatsApp message pricing
+      </p>
+      {rows.map(([label, rate]) => (
+        <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, color: 'var(--t2)', marginBottom: 3 }}>
+          <span>{label}</span>
+          <span style={{ color: 'var(--t1)', fontWeight: 600 }}>₹{rate}<span style={{ color: 'var(--t3)', fontWeight: 400 }}> / msg</span></span>
+        </div>
+      ))}
+      <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 5, lineHeight: 1.45 }}>
+        Charged per message beyond the plan quota. Meta prices by template category.
+      </p>
+    </div>
+  );
+}
+
 export default function PaymentsView({ initialTab } = {}) {
   const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
   const [activeSubTab, setActiveSubTab] = useState(() => SUB_TABS.some(t => t.id === initialTab) ? initialTab : 'wallet');
@@ -557,9 +596,11 @@ export default function PaymentsView({ initialTab } = {}) {
             {!unlimited && usagePct >= 100 && (
               <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
                 Quota exhausted — further messages bill from your wallet by category:
-                {' '}Marketing ₹{Number(subscription?.plan?.overageRates?.MARKETING ?? 1.09).toFixed(2)},
-                {' '}Utility ₹{Number(subscription?.plan?.overageRates?.UTILITY ?? 0.16).toFixed(2)},
-                {' '}Authentication ₹{Number(subscription?.plan?.overageRates?.AUTHENTICATION ?? 0.13).toFixed(2)}.
+                {' '}{PRICING_CATEGORIES
+                  .map(([key, label]) => [label, inrRate(subscription?.plan?.overageRates?.[key])])
+                  .filter(([, rate]) => rate !== null)
+                  .map(([label, rate]) => `${label} ₹${rate}`)
+                  .join(', ')}.
               </p>
             )}
           </div>
@@ -638,6 +679,10 @@ export default function PaymentsView({ initialTab } = {}) {
                     <li>{plan.memberLimit == null ? 'Unlimited' : plan.memberLimit} team members + owner</li>
                     <li>{plan.apiKeyLimit == null ? 'Unlimited' : plan.apiKeyLimit} API keys</li>
                   </ul>
+                  {/* Rates come from the plan payload, which the API resolves
+                      from lib/messagePricing.js — so what is quoted here is
+                      the same number the billing code charges. */}
+                  <MessagePricing rates={plan.messagePricing} compact />
                   {isAdmin ? (
                     <Btn
                       variant={isCurrent ? 'outline' : 'primary'}

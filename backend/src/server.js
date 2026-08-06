@@ -11,6 +11,7 @@ import { startEmailWorker } from './workers/email.worker.js';
 import { startBillingWorker } from './workers/billing.worker.js';
 import { startWorkflowWorker } from './workers/workflow.worker.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
+import { recoverPendingRetries } from './services/retry.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
 import { campaignQueue } from './queues/campaign.queue.js';
 import { emailQueue } from './queues/email.queue.js';
@@ -257,6 +258,16 @@ async function main() {
       if (recovered > 0) console.log(`[Recovery] Re-queued ${recovered} scheduled campaign(s)`);
     } catch (err) {
       console.error('[Recovery] Scheduled-campaign recovery failed:', err.message);
+    }
+
+    // Delayed retry jobs live only in Redis, which has no persistence on the
+    // deployed plan — without this, every retry waiting at restart is lost and
+    // its campaign hangs in RUNNING, unsettled, forever.
+    try {
+      const retries = await recoverPendingRetries();
+      if (retries > 0) console.log(`[Recovery] Re-queued ${retries} pending retry job(s)`);
+    } catch (err) {
+      console.error('[Recovery] Pending-retry recovery failed:', err.message);
     }
 
     // Register the daily repeatable billing-cycle job (no-op if already registered).

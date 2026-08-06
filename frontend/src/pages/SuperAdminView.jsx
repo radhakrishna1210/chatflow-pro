@@ -2,8 +2,16 @@ import { useState, useEffect, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { adminFetch } from '../lib/api.js';
+import { useMessageRates } from '../lib/pricing.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14 };
+
+// A plan's own override if it has one, otherwise the shared cost rate from the
+// API. Shows a dash rather than a guessed number while the rates load.
+const rateLabel = (plan, costRates, key) => {
+  const value = plan?.overageRates?.[key] ?? costRates?.[key];
+  return value == null ? '—' : `${plan.currency} ${Number(value)}`;
+};
 
 const inputStyle = {
   width: '100%', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)',
@@ -29,6 +37,10 @@ const TInput = (props) => (
 // and "edit" (plan === the existing record). Limits left blank mean unlimited;
 // messageQuota of -1 means unlimited messages.
 function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
+  // The cost rates shown as placeholders come from the API, so an admin can
+  // never be told "blank = 1.09" while the server actually charges something
+  // else.
+  const costRates = useMessageRates();
   const isNew = plan === 'new';
   const src = isNew ? {} : plan;
   const numOrBlank = (v) => (v === null || v === undefined ? '' : String(v));
@@ -145,16 +157,19 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
             {/* Per-category message pricing. Leaving all three blank means the
                 plan charges cost, so it tracks the shared rates automatically. */}
             <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', margin: '16px 0 4px' }}>Message rates past quota</p>
-            <p style={{ fontSize: 11.5, color: 'var(--t3)', marginBottom: 10 }}>Leave blank to charge cost — Marketing 1.09, Utility 0.16, Auth 0.13.</p>
+            <p style={{ fontSize: 11.5, color: 'var(--t3)', marginBottom: 10 }}>
+              Leave blank to charge cost
+              {costRates ? ` — Marketing ${costRates.MARKETING}, Utility ${costRates.UTILITY}, Auth ${costRates.AUTHENTICATION}.` : '.'}
+            </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
               <Field label="Marketing / msg" hint="Blank = cost">
-                <TInput type="number" min="0" step="0.0001" value={f.ovMarketing} placeholder="1.09" onChange={e => set('ovMarketing', e.target.value)} />
+                <TInput type="number" min="0" step="0.0001" value={f.ovMarketing} placeholder={costRates ? String(costRates.MARKETING) : 'cost'} onChange={e => set('ovMarketing', e.target.value)} />
               </Field>
               <Field label="Utility / msg" hint="Blank = cost">
-                <TInput type="number" min="0" step="0.0001" value={f.ovUtility} placeholder="0.16" onChange={e => set('ovUtility', e.target.value)} />
+                <TInput type="number" min="0" step="0.0001" value={f.ovUtility} placeholder={costRates ? String(costRates.UTILITY) : 'cost'} onChange={e => set('ovUtility', e.target.value)} />
               </Field>
               <Field label="Auth / msg" hint="Blank = cost">
-                <TInput type="number" min="0" step="0.0001" value={f.ovAuth} placeholder="0.13" onChange={e => set('ovAuth', e.target.value)} />
+                <TInput type="number" min="0" step="0.0001" value={f.ovAuth} placeholder={costRates ? String(costRates.AUTHENTICATION) : 'cost'} onChange={e => set('ovAuth', e.target.value)} />
               </Field>
             </div>
           </div>
@@ -1125,6 +1140,9 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
 // from the per-workspace analytics regular users see. `tab` is controlled by
 // the main sidebar (each section is its own top-level nav item there).
 export default function SuperAdminView({ tab }) {
+  // Cost rates for plans that define no override of their own — read from the
+  // API so the plan table never quotes a rate the server doesn't charge.
+  const costRates = useMessageRates();
   const [stats, setStats] = useState(null);
   const [workspaces, setWorkspaces] = useState([]);
   const [tickets, setTickets] = useState([]);
@@ -1323,9 +1341,9 @@ export default function SuperAdminView({ tab }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'var(--t2)', borderTop: '1px solid var(--bd)', paddingTop: 12 }}>
                     {[
                       ['Messages / cycle', fmtQuota(p.messageQuota)],
-                      ['Marketing / msg', `${p.currency} ${Number(p.overageRates?.MARKETING ?? 1.09)}`],
-                      ['Utility / msg', `${p.currency} ${Number(p.overageRates?.UTILITY ?? 0.16)}`],
-                      ['Auth / msg', `${p.currency} ${Number(p.overageRates?.AUTHENTICATION ?? 0.13)}`],
+                      ['Marketing / msg', rateLabel(p, costRates, 'MARKETING')],
+                      ['Utility / msg', rateLabel(p, costRates, 'UTILITY')],
+                      ['Auth / msg', rateLabel(p, costRates, 'AUTHENTICATION')],
                       ['Service msg', `${p.currency} ${Number(p.overageRatePerMsg)}`],
                       ['Contacts', fmtLimit(p.contactLimit)],
                       ['Members', fmtLimit(p.memberLimit)],

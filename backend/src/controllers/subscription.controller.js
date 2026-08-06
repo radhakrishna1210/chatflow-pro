@@ -29,7 +29,17 @@ export async function getSummary(req, res) {
 
 export async function getPlans(req, res) {
   const plans = await listPlans();
-  res.json(plans);
+  // The per-message rates travel with each plan so the plans page has one
+  // source for them instead of its own copy. A plan with its own overageRates
+  // advertises those; the rest advertise the shared cost rates.
+  res.json(plans.map((plan) => ({ ...plan, messagePricing: plan.overageRates ?? MESSAGE_CATEGORY_RATES })));
+}
+
+// The canonical per-message rates, for screens that talk about what a message
+// costs without being about a particular plan (template category warnings, the
+// utility-rewrite pitch). Plan-specific overrides ride on /plans instead.
+export async function getMessagePricing(req, res) {
+  res.json({ currency: 'INR', rates: MESSAGE_CATEGORY_RATES });
 }
 
 export async function createCheckout(req, res) {

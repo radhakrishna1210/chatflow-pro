@@ -10,6 +10,7 @@ import { consumeMessageCredit, releaseMessageCredit } from '../services/subscrip
 import { runFallbackForRecipient } from '../services/fallback.service.js';
 import { handleRecipientFailure, checkAndCompleteCampaign } from '../services/retry.service.js';
 import { settleCampaignRefund } from '../services/campaigns.service.js';
+import { claimRecipientCharge, markRecipientNotCharged, recordAttempt } from '../services/campaignBilling.service.js';
 import { isOptedOut } from '../services/optout.service.js';
 import { notifyWorkspace } from '../services/notification.service.js';
 
@@ -145,10 +146,20 @@ async function processRetryJob(job) {
     return;
   }
 
-  await prisma.campaignRecipient.update({
-    where: { id: recipientId },
+  // Claim the attempt atomically. BullMQ can redeliver a job whose worker
+  // stalled, and the DELIVERED/READ check above cannot catch a duplicate that
+  // is still mid-flight — both copies would pass it and both would send. Only
+  // the writer that flips RETRYING to IN_PROGRESS proceeds; the loser returns
+  // without sending. The status guard also rejects a stale job for a recipient
+  // that has since been failed off or skipped.
+  const claimed = await prisma.campaignRecipient.updateMany({
+    where: { id: recipientId, status: 'RETRYING', retryStatus: { not: 'IN_PROGRESS' } },
     data: { retryStatus: 'IN_PROGRESS', lastRetryAt: new Date(), retryCount: attempt },
   });
+  if (claimed.count === 0) {
+    console.log('[CampaignRetry] Attempt #' + attempt + ' for ' + recipientId + ' is already claimed elsewhere - skipping duplicate');
+    return;
+  }
 
   const accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
   const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
@@ -201,6 +212,12 @@ async function processRetryJob(job) {
       },
     });
 
+    // First attempt that actually reached Meta claims the charge. If the
+    // initial send already billed this recipient, this is a no-op — never a
+    // second charge for the same person.
+    await claimRecipientCharge(campaign, recipient);
+    await recordAttempt(recipient.id, { attempt, ok: true });
+
     await prisma.campaign.update({
       where: { id: campaignId },
       data: {
@@ -246,6 +263,7 @@ async function processRetryJob(job) {
     // Nothing went out, so the retry's credit goes back — otherwise every
     // retry attempt would burn quota for a message that never arrived.
     await releaseMessageCredit(workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
+    await recordAttempt(recipient.id, { attempt, ok: false, reason, metaCode: metaErr?.code ?? null });
     await handleRecipientFailure(campaign, { ...recipient, retryCount: attempt }, reason, metaErr?.code);
   }
 }
@@ -334,8 +352,14 @@ async function processCampaign(job) {
         console.warn(`[CampaignWorker] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
         await prisma.campaignRecipient.update({
           where: { id: recipient.id },
-          data: { status: 'FAILED', failedAt: new Date(), failReason: 'Quota and wallet balance exhausted' },
+          data: {
+            status: 'FAILED', failedAt: new Date(),
+            failReason: 'Quota and wallet balance exhausted',
+            initialStatus: 'FAILED',
+          },
         });
+        // Nothing was sent, so nothing is owed for this recipient.
+        await markRecipientNotCharged(recipient.id);
         await prisma.campaign.update({
           where: { id: campaignId },
           data: { failed: { increment: 1 } },
@@ -363,8 +387,14 @@ async function processCampaign(job) {
 
       await prisma.campaignRecipient.update({
         where: { id: recipient.id },
-        data: { status: 'SENT', sentAt: new Date() },
+        data: { status: 'SENT', sentAt: new Date(), initialStatus: 'SENT' },
       });
+
+      // The message reached Meta, so this recipient claims its share of the
+      // launch reservation — once, no matter how many attempts follow. What
+      // is never claimed here is refunded at settlement.
+      await claimRecipientCharge(campaign, recipient);
+      await recordAttempt(recipient.id, { attempt: 0, ok: true });
 
       await prisma.campaign.update({
         where: { id: campaignId },
@@ -407,6 +437,12 @@ async function processCampaign(job) {
       // The credit was claimed before the send that just failed — give it
       // back so a message nobody received doesn't count against the quota.
       await releaseMessageCredit(campaign.workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
+      // No charge is claimed on a failed send — the recipient stays unbilled
+      // until an attempt actually reaches Meta.
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id }, data: { initialStatus: 'FAILED' },
+      }).catch(() => {});
+      await recordAttempt(recipient.id, { attempt: 0, ok: false, reason, metaCode: metaErr?.code ?? null });
       await handleRecipientFailure(campaign, recipient, reason, metaErr?.code);
     }
 

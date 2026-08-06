@@ -9,6 +9,7 @@ router.use(authenticate, workspaceContext);
 
 router.get('/', controller.getSummary);
 router.get('/plans', controller.getPlans);
+router.get('/pricing', controller.getMessagePricing);
 // Changing/buying a plan is ADMIN-only (README §12.2 role table), same
 // restriction already used for wallet recharge.
 router.post('/checkout', authorize('ADMIN'), controller.createCheckout);

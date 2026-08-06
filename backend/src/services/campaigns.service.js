@@ -6,6 +6,7 @@ import { credit, debit } from './wallet.service.js';
 import { getOptedOutPhoneSet, normalizePhone } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { rateForCategory } from '../lib/messagePricing.js';
+import { billedCount } from './campaignBilling.service.js';
 
 const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
@@ -566,16 +567,15 @@ export async function settleCampaignRefund(campaignId, reason = 'Refund for unse
   if (!(perMessage > 0) || !(totalCost > 0)) return null;
 
   const paidFor = Math.round(totalCost / perMessage);
-  // Only a message that actually went out is billable. This used to count any
-  // recipient with `failedAt` set as consumed, so a send Meta rejected
-  // outright — an unreachable phone number ID, an expired token, a number
-  // that isn't on WhatsApp — was charged for in full despite never reaching
-  // anyone. Meta itself bills on delivery, so a failure has no cost to pass
-  // on. SENT/DELIVERED/READ are exactly the recipients a message left for;
-  // FAILED, SKIPPED, PENDING and RETRYING are all refunded.
-  const consumed = await prisma.campaignRecipient.count({
-    where: { campaignId, status: { in: ['SENT', 'DELIVERED', 'READ'] } },
-  });
+  // Only a message that actually went out is billable, and "went out" is now
+  // recorded explicitly: campaignBilling claims a charge on the recipient row
+  // the moment an attempt reaches Meta, exactly once however many retries it
+  // took. Counting those claims rather than re-deriving from delivery status
+  // is what makes the refund agree with what was charged by construction —
+  // the previous status-based count could drift from the ledger whenever a
+  // webhook moved a recipient between states after settlement was computed.
+  // Unbilled recipients (FAILED, SKIPPED, PENDING, RETRYING) are refunded.
+  const consumed = await billedCount(campaignId);
 
   const refundable = Math.min(money(Math.max(0, paidFor - consumed) * perMessage), totalCost);
   if (!(refundable > 0)) return null;
