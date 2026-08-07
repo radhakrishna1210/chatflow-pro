@@ -7,6 +7,8 @@ import { getOptedOutPhoneSet, normalizePhone } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { rateForCategory } from '../lib/messagePricing.js';
 import { billedCount } from './campaignBilling.service.js';
+import { getAgent } from './aiAgent.service.js';
+import { normalizeCtaLabel, buildCampaignContext, findCtaButton } from './campaignAi.service.js';
 
 const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
@@ -20,6 +22,48 @@ const isSendableNumber = (phone) => {
   const digits = normalizePhone(phone);
   return digits.length >= MIN_MSISDN_DIGITS && digits.length <= MAX_MSISDN_DIGITS;
 };
+
+// Turns the wizard's `aiAgent` block into the three columns the campaign
+// stores, or null when the caller didn't mention it (so an unrelated PATCH
+// can't quietly detach an agent).
+//
+// The agent id is validated against this workspace's own agent — an id from
+// the client is never written through unchecked — and an undeployed agent is
+// refused outright, because a campaign whose CTA leads nowhere is worse than
+// one with no CTA at all.
+async function resolveAiAgentConfig(workspaceId, aiAgent) {
+  if (aiAgent === undefined || aiAgent === null) return null;
+
+  if (aiAgent.enabled !== true) {
+    return { aiAgentEnabled: false, aiAgentId: null, aiAgentCtaLabel: null };
+  }
+
+  const agent = await getAgent(workspaceId, aiAgent.agentId ?? null);
+  if (!agent.deployed) {
+    const e = new Error('Deploy your WhatsApp AI Agent before attaching it to a campaign.');
+    e.status = 400; throw e;
+  }
+  return {
+    aiAgentEnabled: true,
+    aiAgentId: agent.id,
+    aiAgentCtaLabel: normalizeCtaLabel(aiAgent.ctaLabel),
+  };
+}
+
+// Non-fatal advice for the wizard: without a quick-reply button on the
+// approved template there is no button for Meta to render, so the CTA can only
+// be reached by the customer typing the label. Meta refuses buttons that were
+// not part of the approved template, so this cannot be fixed at send time.
+export function campaignCtaWarnings(template, ctaLabel) {
+  const button = findCtaButton(template?.components, ctaLabel);
+  if (!button) {
+    return [`"${template?.name || 'This template'}" has no quick-reply button, so WhatsApp cannot show a tappable CTA. Add a quick-reply button to the template (Meta must approve it), or tell customers to reply "${normalizeCtaLabel(ctaLabel)}".`];
+  }
+  if (button.text && normalizeCtaLabel(button.text) !== normalizeCtaLabel(ctaLabel)) {
+    return [`The template's quick-reply button reads "${button.text}", so that is what customers will tap — the CTA label is only used for replies typed by hand.`];
+  }
+  return [];
+}
 
 export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
@@ -39,7 +83,7 @@ export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) 
   return { data, total };
 }
 
-export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig }, user = null) {
+export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent }, user = null) {
   if (!name || !String(name).trim()) { const e = new Error('Campaign name is required'); e.status = 400; throw e; }
   // Plan's campaign cap (null = unlimited); reads the plan live so admin edits
   // in the Plans tab apply immediately.
@@ -61,10 +105,13 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
     const e = new Error('Selected template belongs to a different WhatsApp number'); e.status = 400; throw e;
   }
 
+  const aiConfig = await resolveAiAgentConfig(workspaceId, aiAgent);
+
   return prisma.campaign.create({
     data: {
       workspaceId, name: String(name).trim(), templateId, waNumberId: waNumber.id, status: 'DRAFT',
       createdByUserId: user?.id ?? null,
+      ...(aiConfig ?? {}),
       // Advanced wizard config (reply flows / retries / conversion tracking) is
       // persisted as JSON so it survives and can drive future execution.
       replyRules: replyRules ?? undefined,
@@ -75,7 +122,7 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
   });
 }
 
-export async function updateCampaign(workspaceId, campaignId, { name, replyRules, retryConfig, trackingConfig, fallbackConfig }) {
+export async function updateCampaign(workspaceId, campaignId, { name, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent }) {
   const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
   if (campaign.status !== 'DRAFT' && campaign.status !== 'SCHEDULED') {
@@ -87,6 +134,8 @@ export async function updateCampaign(workspaceId, campaignId, { name, replyRules
   if (retryConfig !== undefined) data.retryConfig = retryConfig ? normalizeRetryConfig(retryConfig) : null;
   if (trackingConfig !== undefined) data.trackingConfig = trackingConfig;
   if (fallbackConfig !== undefined) data.fallbackConfig = fallbackConfig;
+  const aiConfig = await resolveAiAgentConfig(workspaceId, aiAgent);
+  if (aiConfig) Object.assign(data, aiConfig);
 
   return prisma.campaign.update({ where: { id: campaignId }, data });
 }
@@ -250,7 +299,10 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
 export async function launchCampaign(workspaceId, campaignId, scheduledAt, retryConfig, user = null) {
   const campaign = await prisma.campaign.findFirst({
     where: { id: campaignId, workspaceId },
-    include: { template: { select: { category: true } } },
+    // The whole template, not just its category: a campaign carrying an AI
+    // agent snapshots its content below, and that snapshot is what the agent
+    // answers from for the life of every conversation this campaign starts.
+    include: { template: true },
   });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
   if (campaign.status !== 'DRAFT') {
@@ -383,6 +435,19 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     failed: invalid.length,
     ...(user?.id ? { createdByUserId: user.id } : {}),
     ...(normRetry !== undefined ? { retryConfig: normRetry } : {}),
+    // Frozen here, at the moment the campaign is paid for and committed. Each
+    // recipient re-snapshots its own personalised copy at send time; this is
+    // the fallback for anyone whose row is gone, and what the agent's test
+    // panel reads for a campaign that has already launched.
+    ...(campaign.aiAgentEnabled
+      ? {
+        aiAgentContext: buildCampaignContext({
+          campaign,
+          template: campaign.template,
+          ctaLabel: campaign.aiAgentCtaLabel,
+        }),
+      }
+      : {}),
   };
 
   try {
@@ -500,6 +565,11 @@ export async function getCampaign(workspaceId, campaignId) {
 
   return {
     ...campaign,
+    // Whether the CTA can actually be tapped, or only typed — the template's
+    // buttons decide that, and they can only change with Meta's approval.
+    aiAgentWarnings: campaign.aiAgentEnabled
+      ? campaignCtaWarnings(campaign.template, campaign.aiAgentCtaLabel)
+      : [],
     report: {
       totalContacts: totalRecipients || campaign.totalContacts,
       sent: (counts.SENT || 0) + (counts.DELIVERED || 0) + (counts.READ || 0),

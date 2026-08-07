@@ -178,6 +178,7 @@ All routes are mounted under `/api/v1` (see `backend/src/app.js` + `backend/src/
 | `/workspaces/:workspaceId/conversations` | `conversations.routes.js` | Inbox: list/read conversations, send/receive messages |
 | `/workspaces/:workspaceId/analytics` | `analytics.routes.js` | Workspace messaging/campaign analytics |
 | `/workspaces/:workspaceId/automation` | `automation.routes.js` | Keyword-triggered `AutomationTrigger` rules |
+| `/workspaces/:workspaceId/ai-agent` | `aiAgent.routes.js` | WhatsApp AI Agent config/deploy/test, AI intent matching, deployed-agent list (`GET /agents`) and campaign usage (`GET /campaigns`) |
 | `/workspaces/:workspaceId/workflows` | `workflow.routes.js` | Visual workflow builder (`Workflow.nodes`/`edges` JSON), AI-assisted generation, simulation |
 | `/workspaces/:workspaceId/settings` | `settings.routes.js` | Workspace settings, notification toggles, webhook config |
 | `/workspaces/:workspaceId/members` | `members.routes.js` | Invite/list/update-role/remove workspace members (ADMIN-only writes) |
@@ -205,8 +206,9 @@ Full schema: `backend/prisma/schema.prisma`. Key models and relationships:
 - **NumberPool** — platform-owned pool of numbers that can be assigned to workspaces (admin-managed onboarding path, alternative to a customer connecting their own number via Embedded Signup).
 - **Template** — a WhatsApp message template (`components` JSON matching Meta's template component schema), optionally scoped to a specific `WaNumber`, with approval `status`.
 - **Contact** — a workspace's WhatsApp contact (unique per `(workspaceId, phoneNumber)`), can belong to many `Segment`s.
-- **Campaign** — a bulk-send job against a `Template` + `WaNumber`, with `replyRules`/`retryConfig`/`trackingConfig` JSON columns and rollup counters (`sent`/`delivered`/`read`/`failed`).
-- **CampaignRecipient** — join row per `(campaignId, contactId)` tracking per-recipient delivery status; linked `Message`s let delivery/read webhooks update the right row.
+- **Campaign** — a bulk-send job against a `Template` + `WaNumber`, with `replyRules`/`retryConfig`/`trackingConfig` JSON columns and rollup counters (`sent`/`delivered`/`read`/`failed`). `aiAgentEnabled`/`aiAgentId`/`aiAgentCtaLabel` attach an AI agent to the campaign, and `aiAgentContext` is the copy of its content taken at launch.
+- **CampaignRecipient** — join row per `(campaignId, contactId)` tracking per-recipient delivery status; linked `Message`s let delivery/read webhooks update the right row. `aiContext` holds the message this contact was actually sent, with variables already resolved.
+- **CampaignAiSession** — one customer's "Ask Anything" chat: contact → campaign → recipient → conversation → agent, plus a frozen `campaignContext`. Owns that conversation's replies while `status = ACTIVE`, then expires.
 - **Conversation** / **Message** — the inbox: one `Conversation` per `(contactId, waNumberId)`, `Message.direction` is `INBOUND`/`OUTBOUND`, indexed on `metaMessageId` for webhook correlation.
 - **AutomationTrigger** — simple keyword → response-template auto-reply rules.
 - **Workflow** — visual automation builder state (`nodes`/`edges` JSON), can be AI-generated.
@@ -220,6 +222,19 @@ Full schema: `backend/prisma/schema.prisma`. Key models and relationships:
 - **RefreshToken** — persisted, single-use, revocable JWT refresh tokens.
 
 Enums: `Role` (ADMIN/CLIENT), `NumberPoolStatus`, `TemplateStatus`, `CampaignStatus`, `CampaignRecipientStatus`, `ConversationStatus`, `MessageDirection`.
+
+### Campaign AI Agent
+
+A campaign can carry the workspace's deployed WhatsApp AI Agent (step 5 of the campaign wizard). The customer taps the campaign's CTA — "Ask Anything", "Need Help?", or whatever label was chosen — and talks to that agent about *that campaign*, with no need to repeat what it said.
+
+- **The CTA rides on the template's quick-reply button.** Meta refuses buttons it did not approve with the template, so one cannot be added at send time. When the template has a quick reply, the send stamps it with a per-recipient payload (`cfp_campaign_ai:<recipientId>`), which comes straight back on the tap and names the exact message the customer is looking at. When it has none, the wizard says so, and the agent still opens if the customer types the label.
+- **The agent answers from a snapshot, not the live campaign.** `CampaignRecipient.aiContext` is written at send time with the message that contact received, variables resolved; `Campaign.aiAgentContext` is the launch-time fallback. Editing the campaign or re-syncing its template afterwards therefore cannot rewrite what a customer who already received it is told — a 50%-off recipient keeps hearing 50% after the offer is edited down to 30%.
+- **Context = system prompt + knowledge base + campaign snapshot + conversation so far.** Nothing about the campaign is parsed into categories: the whole message goes to the model, so prices, coupon codes, expiry dates, eligibility and anything else it mentions are all answerable. The prompt forbids inventing any of them and requires an explicit "I don't have that" instead.
+- **Priority.** An active `CampaignAiSession` is checked *first* on inbound, ahead of forms, workflows, keyword triggers, intent matching, welcome/OOO and the generic fallback agent — otherwise the fallback agent would answer campaign questions with no campaign in front of it. Everything else keeps its existing order. A session that would start over an in-progress form yields to the form.
+- **Exit.** Sessions expire after `SESSION_TTL_MINUTES` (30) of inactivity, refreshed on each turn, and end immediately on "exit"/"menu"/"stop chat". After that the customer is back in the normal automation order.
+- **Isolation.** Every lookup is scoped by `workspaceId`; the CTA payload arrives from the internet and is re-checked against the contact and workspace before anything opens. A campaign id from another tenant resolves to nothing.
+
+Configured from **Automation → WhatsApp AI Agent**, which also lists the campaigns using the agent and can test an answer against a chosen campaign's content before it is sent (`POST /ai-agent/test` with `mode: "campaign"`).
 
 ---
 
@@ -271,7 +286,7 @@ Both workers are started from `server.js` alongside the HTTP server and are shut
 
 (See `BUGS.md`, `BUGS-v2.md`, `STABILIZATION_REPORT.md`, `STABILIZATION_REPORT_V2.md` for the full history.) As of the latest stabilization pass:
 - Campaign wizard "fallback channels" step is explicitly unbuilt ("Coming Soon").
-- AI Intent Matching and WhatsApp AI Agent automation tabs are explicitly unbuilt ("Coming Soon"), not faked.
+- AI Intent Matching and the WhatsApp AI Agent are built and wired into the inbound path (see §6 → Campaign AI Agent); both degrade to deterministic behaviour when no LLM provider is configured. Answer quality depends on the model behind `GEMINI_API_KEY` — a free-tier key rate-limits at 5 requests/minute, which shows up as an occasional missed reply.
 - Wallet recharge is a **demo** flow — server-authoritative ledger, but no live payment gateway integration.
 - Voice AI (inbound calls) settings persist but there is no telephony engine behind them.
 - WhatsApp Forms have CRUD but no real form-rendering/submission backend yet.

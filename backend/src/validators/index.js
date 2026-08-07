@@ -68,6 +68,15 @@ export const workspaceSchemas = {
   }),
 };
 
+// The campaign's AI Agent block. `agentId` is only shape-checked here — it is
+// resolved against the workspace's own agent in campaigns.service.js, because
+// an id that parses is not the same as an id the caller is allowed to use.
+const aiAgentConfig = z.object({
+  enabled: z.boolean().default(false),
+  agentId: z.union([id, z.null()]).optional(),
+  ctaLabel: meaningfulText(z.string().trim().min(1).max(25), 'CTA label').optional(),
+}).strict();
+
 export const campaignSchemas = {
   create: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Campaign name'),
@@ -78,6 +87,7 @@ export const campaignSchemas = {
     retryConfig: z.any().optional(),
     trackingConfig: z.any().optional(),
     fallbackConfig: z.any().optional(),
+    aiAgent: aiAgentConfig.optional(),
   }).passthrough().refine((v) => v.numberId || v.whatsappNumberId, { message: 'numberId is required' }),
   addRecipients: z.object({ contactIds: z.array(id).min(1, 'At least one contact is required').max(10_000) }),
   update: z.object({
@@ -86,6 +96,7 @@ export const campaignSchemas = {
     retryConfig: z.any().optional(),
     trackingConfig: z.any().optional(),
     fallbackConfig: z.any().optional(),
+    aiAgent: aiAgentConfig.optional(),
   }).passthrough(),
   launch: z.object({
     scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),

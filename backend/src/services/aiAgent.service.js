@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
 import { hasMeaningfulText } from '../lib/textValidation.js';
+import { resolveCampaignContext, generateCampaignReply } from './campaignAi.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI Agent + AI Intent Matching
@@ -104,6 +105,69 @@ export async function setIntentMatching(workspaceId, { enabled, threshold }) {
   });
 }
 
+// ---- Agent directory ----------------------------------------------------------
+//
+// The agent is workspace-scoped configuration (aiAgent* on Workspace), so a
+// workspace has exactly one and its id *is* the workspace id. Campaigns still
+// store that id rather than a boolean, so the link keeps meaning something if a
+// workspace ever gains a second agent — and so the campaign can be checked
+// against the agent it actually names.
+
+export async function listAgents(workspaceId) {
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { aiAgentEnabled: true, aiAgentName: true, aiAgentPrompt: true, aiAgentModel: true, aiAgentDeployedAt: true },
+  });
+  if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
+  return [{
+    id: workspaceId,
+    name: ws.aiAgentName,
+    deployed: ws.aiAgentEnabled === true,
+    deployedAt: ws.aiAgentDeployedAt,
+    model: ws.aiAgentModel,
+    hasPrompt: Boolean(ws.aiAgentPrompt?.trim()),
+  }];
+}
+
+// Resolves an agent id supplied by a client. Never trusts it: an id that isn't
+// this workspace's agent is rejected rather than silently coerced, which is
+// what stops a campaign in one workspace naming another workspace's agent.
+export async function getAgent(workspaceId, agentId) {
+  const [agent] = await listAgents(workspaceId);
+  if (agentId && agentId !== agent.id) {
+    const e = new Error('That AI agent does not belong to this workspace'); e.status = 404; throw e;
+  }
+  return agent;
+}
+
+// Campaigns currently pointing at this workspace's agent, for the "Campaign
+// Usage" panel on the agent page.
+export async function listAgentCampaigns(workspaceId, agentId = null) {
+  if (agentId) await getAgent(workspaceId, agentId);
+  const campaigns = await prisma.campaign.findMany({
+    where: { workspaceId, aiAgentEnabled: true, ...(agentId ? { aiAgentId: agentId } : {}) },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    select: {
+      id: true, name: true, status: true, aiAgentCtaLabel: true, aiAgentId: true,
+      totalContacts: true, launchedAt: true, createdAt: true,
+    },
+  });
+
+  // How many people are talking to the agent about a campaign right now.
+  const live = await prisma.campaignAiSession.groupBy({
+    by: ['campaignId'],
+    where: { workspaceId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
+    _count: { _all: true },
+  }).catch(() => []);
+  const liveByCampaign = Object.fromEntries(live.map((row) => [row.campaignId, row._count._all]));
+
+  return {
+    total: campaigns.length,
+    campaigns: campaigns.map((c) => ({ ...c, activeSessions: liveByCampaign[c.id] ?? 0 })),
+  };
+}
+
 // ---- Intent matching ----------------------------------------------------------
 
 const STOPWORDS = new Set(['the','a','an','is','are','to','of','for','and','or','i','you','my','me','we','it','this','that','can','do','please','hi','hello','hey','want','need']);
@@ -191,7 +255,12 @@ export async function generateAgentReply(workspaceId, messageBody, { contactName
 
 // Preview endpoint for the UI "test" button — runs the agent against a sample
 // message without needing a real inbound webhook.
-export async function testAgent(workspaceId, sampleMessage) {
+//
+// `mode: 'campaign'` answers the way a customer who tapped that campaign's CTA
+// would be answered: same prompt, same knowledge base, same campaign snapshot,
+// same accuracy rules. That is the point — an admin has to be able to check the
+// answers before spending money sending the campaign.
+export async function testAgent(workspaceId, sampleMessage, { mode = 'general', campaignId = null } = {}) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { aiAgentPrompt: true, aiAgentKnowledge: true, aiAgentName: true },
@@ -200,6 +269,26 @@ export async function testAgent(workspaceId, sampleMessage) {
   if (!llmAvailable()) {
     return { ok: false, reason: 'No LLM provider configured (set GEMINI_API_KEY).', reply: null };
   }
+
+  if (mode === 'campaign') {
+    if (!campaignId) {
+      const e = new Error('Select a campaign to test with campaign context'); e.status = 400; throw e;
+    }
+    // Scoped to the workspace, so a campaign id from another tenant resolves
+    // to nothing rather than leaking its offer text.
+    const context = await resolveCampaignContext({ workspaceId, campaignId });
+    if (!context) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
+
+    const reply = await generateCampaignReply({
+      agent: { name: ws.aiAgentName, prompt: ws.aiAgentPrompt, knowledge: ws.aiAgentKnowledge },
+      context,
+      messageBody: sampleMessage,
+    });
+    return reply
+      ? { ok: true, reply, mode: 'campaign', context }
+      : { ok: false, reason: 'The model did not return a reply. Try again.', reply: null, mode: 'campaign', context };
+  }
+
   const system = [
     ws.aiAgentPrompt || 'You are a helpful support agent.',
     ws.aiAgentKnowledge ? `\nKnowledge base:\n${ws.aiAgentKnowledge}` : '',
@@ -207,6 +296,6 @@ export async function testAgent(workspaceId, sampleMessage) {
   ].join('');
   const reply = await llmText(`Customer: ${sampleMessage}\n\n${ws.aiAgentName || 'Assistant'}:`, system);
   return reply
-    ? { ok: true, reply: reply.replace(/^["']|["']$/g, '').trim() }
-    : { ok: false, reason: 'The model did not return a reply. Try again.', reply: null };
+    ? { ok: true, reply: reply.replace(/^["']|["']$/g, '').trim(), mode: 'general' }
+    : { ok: false, reason: 'The model did not return a reply. Try again.', reply: null, mode: 'general' };
 }

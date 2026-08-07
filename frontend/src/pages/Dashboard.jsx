@@ -869,6 +869,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
                   ['Template',       c.template?.name || '—'],
                   ['Send-from',      c.waNumber ? `${c.waNumber.phoneNumber}${c.waNumber.displayName ? ' · ' + c.waNumber.displayName : ''}` : '—'],
                   ['Recipients',     (c.totalContacts ?? 0).toLocaleString()],
+                  ['AI Agent',       c.aiAgentEnabled ? `On · CTA “${c.aiAgentCtaLabel || 'Ask Anything'}”` : 'Off'],
                 ].map(([k, v]) => (
                   <div key={k}>
                     <p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>{k}</p>
@@ -876,6 +877,16 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
                   </div>
                 ))}
               </div>
+
+              {/* Meta only renders buttons it approved with the template, so an
+                  agent-enabled campaign on a button-less template can only be
+                  reached by typing the CTA. The server works that out; this is
+                  where the campaign's owner finds out. */}
+              {Array.isArray(c.aiAgentWarnings) && c.aiAgentWarnings.map((warning, i) => (
+                <div key={i} style={{ padding:'11px 14px', borderRadius:8, background:'rgba(245,158,11,.06)', border:'1px solid rgba(245,158,11,.25)', fontSize:12, color:'#fbbf24', lineHeight:1.55 }}>
+                  {warning}
+                </div>
+              ))}
 
               {Array.isArray(c.recipients) && c.recipients.length > 0 && (
                 <div>

@@ -4,7 +4,8 @@ import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
 import { headerImageComponent } from '../services/templateImage.service.js';
-import { templateHasVariables, bodyExamples, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
+import { templateHasVariables, contactVariableResolver, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
+import { campaignCtaComponent, buildCampaignContext } from '../services/campaignAi.service.js';
 import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
 import { consumeMessageCredit, releaseMessageCredit } from '../services/subscription.service.js';
@@ -64,21 +65,6 @@ const describeMetaError = (metaErr, fallback) => {
   return raw;
 };
 
-// Contacts only carry name/phone/email, so {{1}} is filled with the contact's
-// name (the convention used everywhere else templates are authored, e.g.
-// data/templateLibrary.js). There is no per-recipient data behind {{2}} and up,
-// so those fall back to the sample the template was approved with: repeating
-// the name there turned "Hi Priya, {{2}}% off" into "Priya% off" on delivery.
-const contactResolver = (contact) => {
-  const name = (contact?.name || '').trim() || 'there';
-  return (index, component) => {
-    if (index === 0) return name;
-    // A parameter Meta receives as an empty string fails the send, so an absent
-    // example falls back to the name rather than to nothing.
-    return String(bodyExamples(component)[index] ?? '').trim() || name;
-  };
-};
-
 // The full `template` object for one recipient's send.
 //
 // Neither an image header nor a parameterised button has {{n}} placeholders in
@@ -86,18 +72,53 @@ const contactResolver = (contact) => {
 // approved image template used to go out with no picture (failing with 132000),
 // and why a link button failed with 131008. Each is resolved on its own and the
 // pieces assembled header → body → buttons, the order Meta expects.
-const buildTemplatePayload = async (template, contact, { phoneNumberId, accessToken }) => {
+//
+// `campaign` is passed so a campaign with an AI agent can stamp its CTA
+// quick-reply with the recipient's id: that payload comes straight back on the
+// tap, which is what lets the agent open on the right campaign.
+const buildTemplatePayload = async (template, contact, { phoneNumberId, accessToken, campaign = null, recipientId = null }) => {
   const payload = { name: template.name, language: { code: template.language } };
 
   const header = await headerImageComponent(template, { phoneNumberId, accessToken });
   const textComponents = templateHasVariables(template.components)
-    ? buildTextComponents(template.components, contactResolver(contact))
+    ? buildTextComponents(template.components, contactVariableResolver(contact))
     : [];
   const buttonComponents = buildButtonComponents(template.components);
+  const ctaComponent = campaign?.aiAgentEnabled
+    ? campaignCtaComponent(template.components, { ctaLabel: campaign.aiAgentCtaLabel, recipientId })
+    : null;
 
-  const components = [...(header ? [header] : []), ...textComponents, ...buttonComponents];
+  const components = [
+    ...(header ? [header] : []),
+    ...textComponents,
+    ...buttonComponents,
+    ...(ctaComponent ? [ctaComponent] : []),
+  ];
   if (components.length) payload.components = components;
   return payload;
+};
+
+// Records what this contact was actually sent, so the campaign AI agent can
+// answer from the message in front of the customer rather than from whatever
+// the template says by the time they ask. Best-effort: a failure here must
+// never turn a delivered message into a failed one.
+const snapshotRecipientContext = async (campaign, recipient) => {
+  if (!campaign?.aiAgentEnabled) return;
+  try {
+    await prisma.campaignRecipient.update({
+      where: { id: recipient.id },
+      data: {
+        aiContext: buildCampaignContext({
+          campaign,
+          template: campaign.template,
+          contact: recipient.contact,
+          ctaLabel: campaign.aiAgentCtaLabel,
+        }),
+      },
+    });
+  } catch (err) {
+    console.error(`[CampaignWorker] Could not snapshot AI context for ${recipient.id}:`, err.message);
+  }
 };
 
 async function processRetryJob(job) {
@@ -179,7 +200,7 @@ async function processRetryJob(job) {
     const templatePayload = await buildTemplatePayload(
       campaign.template,
       recipient.contact,
-      { phoneNumberId, accessToken },
+      { phoneNumberId, accessToken, campaign, recipientId: recipient.id },
     );
 
     const result = await sendWhatsAppMessage(
@@ -190,6 +211,8 @@ async function processRetryJob(job) {
     );
     const metaMessageId = result?.messages?.[0]?.id ?? null;
     console.log(`[CampaignRetry] Retry succeeded for recipient ${recipient.id} on attempt #${attempt}:`, metaMessageId);
+
+    await snapshotRecipientContext(campaign, recipient);
 
     const wasSent = Boolean(recipient.sentAt);
     await prisma.campaignRecipient.update({
@@ -366,7 +389,7 @@ async function processCampaign(job) {
       const templatePayload = await buildTemplatePayload(
         campaign.template,
         recipient.contact,
-        { phoneNumberId, accessToken },
+        { phoneNumberId, accessToken, campaign, recipientId: recipient.id },
       );
 
       const result = await sendWhatsAppMessage(
@@ -382,6 +405,8 @@ async function processCampaign(job) {
         where: { id: recipient.id },
         data: { status: 'SENT', sentAt: new Date(), initialStatus: 'SENT' },
       });
+
+      await snapshotRecipientContext(campaign, recipient);
 
       // The message reached Meta, so this recipient claims its share of the
       // launch reservation — once, no matter how many attempts follow. What

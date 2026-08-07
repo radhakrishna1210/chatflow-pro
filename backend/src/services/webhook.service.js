@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { findMatchingTrigger } from './automation.service.js';
 import { matchIntent, generateAgentReply } from './aiAgent.service.js';
+import { handleCampaignAiInbound } from './campaignAi.service.js';
 import { queueTemplateApprovedEmail, queueTemplateRejectedEmail } from './email.service.js';
 import { handleRecipientFailure } from './retry.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
@@ -205,6 +206,15 @@ async function handleInboundMessage(value, msg) {
     messageBody = msg.interactive.list_reply.title;
   }
 
+  // Tapping a template quick-reply delivers the payload the send attached to
+  // that button (msg.button.payload); an interactive reply carries it as the
+  // reply's id. Campaigns stamp the recipient's id there, so a CTA tap names
+  // the exact campaign message the customer is looking at.
+  const buttonPayload = msg.button?.payload
+    ?? msg.interactive?.button_reply?.id
+    ?? msg.interactive?.list_reply?.id
+    ?? null;
+
   console.log(`[Inbound] from=${fromPhone} phone_number_id=${phoneNumberId} body="${messageBody}"`);
 
   const waNumber = await prisma.waNumber.findFirst({ where: { metaPhoneNumberId: phoneNumberId } });
@@ -324,6 +334,29 @@ async function handleInboundMessage(value, msg) {
       businessHours: true,
     },
   });
+
+  // 0. Campaign AI Agent. A customer who tapped a campaign's "Ask Anything"
+  //    CTA is in a conversation *about that campaign*, and every message until
+  //    the session expires belongs to the agent that was attached to it.
+  //    Ahead of everything else on purpose: the generic fallback agent (step 5)
+  //    would otherwise answer campaign questions with no campaign in front of
+  //    it, and a keyword trigger would talk over a live chat. Returns false
+  //    unless a CTA was tapped or a session is live, so nothing changes for
+  //    workspaces that don't use the feature.
+  const consumedByCampaignAi = await handleCampaignAiInbound({
+    workspaceId,
+    conversation,
+    contact,
+    messageBody,
+    buttonPayload,
+  }).catch((err) => {
+    console.error('[Inbound] Campaign AI handling failed:', err);
+    return false;
+  });
+  if (consumedByCampaignAi) {
+    await scheduleDelayedResponse(workspace, conversation.id);
+    return;
+  }
 
   // 0. A form in progress owns the conversation until it finishes — the
   //    customer is answering a question, not starting a new automation.

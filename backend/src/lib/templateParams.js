@@ -47,6 +47,33 @@ export const buildTextComponents = (components, resolve) =>
       })),
     }));
 
+// Contacts only carry name/phone/email, so {{1}} is filled with the contact's
+// name (the convention used everywhere else templates are authored, e.g.
+// data/templateLibrary.js). There is no per-recipient data behind {{2}} and up,
+// so those fall back to the sample the template was approved with: repeating
+// the name there turned "Hi Priya, {{2}}% off" into "Priya% off" on delivery.
+//
+// Lives here rather than in the campaign worker because the campaign AI agent
+// has to reproduce the exact text a contact was sent — two copies of these
+// rules would eventually disagree about what the customer actually read.
+export const contactVariableResolver = (contact) => {
+  const name = (contact?.name || '').trim() || 'there';
+  return (index, component) => {
+    if (index === 0) return name;
+    // A parameter Meta receives as an empty string fails the send, so an absent
+    // example falls back to the name rather than to nothing.
+    return String(bodyExamples(component)[index] ?? '').trim() || name;
+  };
+};
+
+// Renders a component's text the way the recipient sees it, with {{n}}
+// replaced by the same values the send used.
+export const fillVariables = (text, component, resolve) =>
+  String(text || '').replace(/\{\{(\d+)\}\}/g, (match, n) => {
+    const value = resolve(parseInt(n, 10) - 1, component);
+    return value === undefined || value === null ? match : String(value);
+  });
+
 // A button's `example` is stored as a one-element array by templateButtons.js,
 // but a template synced from Meta can arrive with a bare string.
 const exampleValue = (button) => {

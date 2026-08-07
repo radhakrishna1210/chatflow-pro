@@ -11,6 +11,25 @@ const getBodyText = (components) => {
   return arr.find(c => c.type === 'BODY' || c.type === 'body')?.text ?? '';
 };
 
+const getComponents = (components) => {
+  if (!components) return [];
+  try {
+    const arr = Array.isArray(components) ? components : (typeof components === 'string' ? JSON.parse(components) : []);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+};
+
+// The quick-reply buttons the template was approved with. Meta refuses buttons
+// that were not part of the approved template, so this is exactly what the
+// customer can tap — the AI CTA has to ride on one of these or be typed.
+const quickReplyButtons = (components) =>
+  (getComponents(components).find(c => String(c?.type || '').toUpperCase() === 'BUTTONS')?.buttons ?? [])
+    .filter(b => String(b?.type || '').toUpperCase() === 'QUICK_REPLY')
+    .map(b => String(b?.text || '').trim())
+    .filter(Boolean);
+
+const ctaKey = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
 // ─── constants & helpers ───────────────────────────────────────
 const card = {
   background: 'var(--surf)',
@@ -623,6 +642,7 @@ const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, sum
             ['Contacts',      `${summary.contactCount} selected`],
             ['Send From',     summary.numberPhone  || '—'],
             ['Send Time',     scheduleType === 'immediately' ? 'Immediately' : (scheduledAt ? new Date(scheduledAt).toLocaleString() : 'Not set')],
+            ['AI Agent',      summary.aiAgent || 'Off'],
           ].map(([k, v]) => (
             <div key={k}>
               <div style={{ fontSize: '11px', color: 'var(--t3)', marginBottom: '2px' }}>{k}</div>
@@ -696,8 +716,114 @@ const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, sum
   );
 };
 
-// ─── Step 5 ───────────────────────────────────────────────────
-const Step5 = ({ initial, onSaved }) => {
+// ─── Step 5 · AI Agent ─────────────────────────────────────────
+// Attaches a deployed WhatsApp AI Agent to the campaign. Tapping the CTA on
+// the delivered message opens a chat with that agent, primed with the exact
+// message this campaign sent — so the customer can ask about anything in it
+// without repeating what it said.
+const CTA_PRESETS = ['Ask Anything', 'Have a Question?', 'Need Help?', 'Agent Support'];
+const CTA_MAX = 25;
+
+const StepAiAgent = ({ enabled, setEnabled, agents, agentId, setAgentId, ctaLabel, setCtaLabel, template, onNext }) => {
+  const deployed = agents.filter(a => a.deployed);
+  const quickReplies = quickReplyButtons(template?.components);
+  const matching = quickReplies.find(t => ctaKey(t) === ctaKey(ctaLabel));
+  const custom = ctaLabel.trim() && !CTA_PRESETS.some(p => ctaKey(p) === ctaKey(ctaLabel));
+
+  const openAgentSettings = () =>
+    window.dispatchEvent(new CustomEvent('app:nav', { detail: { section: 'automation', subTab: 'wa-agent' } }));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+        <div style={{ paddingTop: '2px' }}>
+          <Toggle on={enabled} onToggle={() => setEnabled(!enabled)} />
+        </div>
+        <div>
+          <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--t1)', marginBottom: '3px' }}>Enable AI Agent for this Campaign</p>
+          <p style={{ fontSize: '12px', color: 'var(--t2)', lineHeight: 1.55 }}>
+            Customers who tap the CTA start a chat with your agent, which already knows what this campaign said.
+          </p>
+        </div>
+      </div>
+
+      {enabled && (
+        <>
+          {deployed.length === 0 ? (
+            <div style={{ padding: '13px 16px', borderRadius: 8, background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.25)' }}>
+              <p style={{ fontSize: 12.5, color: '#fbbf24', lineHeight: 1.55 }}>
+                No deployed AI agent yet. Add a system prompt and knowledge base under
+                Automation → WhatsApp AI Agent, then deploy it.
+              </p>
+              <Btn size="sm" variant="outline" style={{ marginTop: 10 }} onClick={openAgentSettings}>Open AI Agent settings</Btn>
+            </div>
+          ) : (
+            <div>
+              <SLabel>Select AI Agent</SLabel>
+              <select value={agentId || ''} onChange={e => setAgentId(e.target.value || null)}
+                style={{ width: '100%', maxWidth: 380, padding: '10px 14px', borderRadius: 8, background: 'var(--surf)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none' }}>
+                <option value="">— Select an agent —</option>
+                {deployed.map(a => <option key={a.id} value={a.id}>{a.name} · deployed</option>)}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <SLabel>CTA Label</SLabel>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: 10 }}>
+              {CTA_PRESETS.map(p => {
+                const sel = ctaKey(p) === ctaKey(ctaLabel);
+                return (
+                  <div key={p} onClick={() => setCtaLabel(p)}
+                    style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${sel ? 'var(--green)' : 'var(--bd)'}`, background: sel ? 'var(--gbg)' : 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: sel ? 'var(--green)' : 'var(--t2)', transition: 'all .15s' }}>
+                    {p}
+                  </div>
+                );
+              })}
+            </div>
+            <input value={ctaLabel} onChange={e => setCtaLabel(e.target.value.slice(0, CTA_MAX))}
+              placeholder="Or type your own label"
+              style={{ width: '100%', maxWidth: 380, padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none' }} />
+            <p style={{ fontSize: '11px', color: 'var(--t3)', marginTop: 5 }}>
+              {custom ? 'Custom label · ' : ''}{ctaLabel.length}/{CTA_MAX} characters — WhatsApp's button limit.
+            </p>
+          </div>
+
+          {/* Whether the CTA is tappable is decided by the approved template:
+              Meta rejects buttons it never reviewed, so one cannot be bolted on
+              at send time. Better said here than discovered after launch. */}
+          {quickReplies.length === 0 ? (
+            <div style={{ padding: '11px 14px', borderRadius: 8, background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.25)', fontSize: 12.5, color: '#fbbf24', lineHeight: 1.55 }}>
+              This template has no quick-reply button, so WhatsApp can't render a tappable CTA. The agent
+              still starts when a customer replies “{ctaLabel || 'Ask Anything'}”. For a real button, add a
+              quick-reply button to the template and let Meta approve it.
+            </div>
+          ) : matching ? (
+            <InfoAlert>Customers tap <strong>{matching}</strong> on this template to start the chat.</InfoAlert>
+          ) : (
+            <div style={{ padding: '11px 14px', borderRadius: 8, background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.25)', fontSize: 12.5, color: '#fbbf24', lineHeight: 1.55 }}>
+              This template's quick-reply button reads “{quickReplies[0]}” — that is the button customers see,
+              and tapping it starts the agent. Match the CTA label to it, or leave it: typing
+              “{ctaLabel}” works too.
+            </div>
+          )}
+
+          <InfoAlert>
+            The agent answers from the exact message this campaign sends plus its own knowledge base, and is
+            told never to invent prices, dates or terms that aren't in either.
+          </InfoAlert>
+        </>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Btn onClick={onNext} disabled={enabled && (!agentId || !ctaLabel.trim())}>Save &amp; Next</Btn>
+      </div>
+    </div>
+  );
+};
+
+// ─── Step 6 · Reply Flows ───────────────────────────────────────────────────
+const StepReplyFlows = ({ initial, onSaved }) => {
   const [rules, setRules] = useState(initial && initial.length ? initial : DEFAULT_RULES);
   const [saved, setSaved] = useState(false);
 
@@ -780,7 +906,7 @@ const Step5 = ({ initial, onSaved }) => {
   );
 };
 
-// ─── Step 6 ───────────────────────────────────────────────────
+// ─── Step 7 · Retries ───────────────────────────────────────────────────
 const TpPicker = ({ label, h, m, ap, onH, onM, onAp }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
     <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em' }}>{label}</label>
@@ -804,7 +930,7 @@ const parseTimeSplit = (str, defH, defM, defAp) => {
   return [time[0] || defH, time[1] || defM, parts[1] || defAp];
 };
 
-const Step6 = ({ initial = null, onRetryToggle, onSaved }) => {
+const StepRetries = ({ initial = null, onRetryToggle, onSaved }) => {
   const [active, setActive]   = useState(initial?.active ?? false);
   const [endDate, setEndDate] = useState(initial?.endDate ?? '');
   const [pattern, setPattern] = useState(initial?.pattern ?? 'smart');
@@ -900,7 +1026,7 @@ const Step6 = ({ initial = null, onRetryToggle, onSaved }) => {
   );
 };
 
-// ─── Step 7 ───────────────────────────────────────────────────
+// ─── Step 8 · Conversion Tracking ───────────────────────────────────────────────────
 const CBox = ({ checked, onToggle, label }) => (
   <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
     <div style={{ width: '18px', height: '18px', borderRadius: '5px', border: `1.5px solid ${checked ? 'var(--green)' : 'var(--bd)'}`, background: checked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s', flexShrink: 0 }}>
@@ -910,7 +1036,7 @@ const CBox = ({ checked, onToggle, label }) => (
   </div>
 );
 
-const Step7 = ({ onSaved }) => {
+const StepTracking = ({ onSaved }) => {
   const [utmOn, setUtmOn]   = useState(false);
   const [evtOn, setEvtOn]   = useState(false);
   const [utm, setUtm]       = useState({ source: '', medium: '', campaign: '', content: '', term: '' });
@@ -965,8 +1091,8 @@ const Step7 = ({ onSaved }) => {
   );
 };
 
-// ─── Step 8 ───────────────────────────────────────────────────
-const Step8 = ({ retriesActive, onSaved }) => {
+// ─── Step 9 · Fallback Channels ───────────────────────────────────────────────────
+const StepFallback = ({ retriesActive, onSaved }) => {
   const [caps, setCaps]       = useState({ sms: false, email: false });
   const [smsEnabled, setSmsEnabled]     = useState(false);
   const [emailEnabled, setEmailEnabled] = useState(false);
@@ -1048,7 +1174,7 @@ const Step8 = ({ retriesActive, onSaved }) => {
 };
 
 // ─── Phone Preview ─────────────────────────────────────────────
-const PhonePreview = ({ templateBody }) => {
+const PhonePreview = ({ templateBody, ctaLabel = '' }) => {
   const [businessName, setBusinessName] = useState('ChatFlow Pro');
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -1085,15 +1211,27 @@ const PhonePreview = ({ templateBody }) => {
         {/* Chat area */}
         <div style={{ background: '#ECE5DD', minHeight: '220px', padding: '10px 8px', borderRadius: '0 0 22px 22px', backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' opacity='0.04'%3E%3Cpath d='M0 0L40 0L40 40L0 40Z' fill='%23000'/%3E%3C/svg%3E\")" }}>
           {templateBody ? (
-            <div style={{ background: 'white', borderRadius: '0 8px 8px 8px', padding: '8px 10px', maxWidth: '88%', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'inline-block' }}>
-              <p style={{ fontSize: '11px', color: '#111', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'system-ui, -apple-system, sans-serif', margin: 0 }}>{templateBody}</p>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '3px', marginTop: '4px' }}>
-                <span style={{ fontSize: '9px', color: '#9CA3AF' }}>{now}</span>
-                <svg width="13" height="9" viewBox="0 0 18 12" fill="none">
-                  <path d="M1 6l4 4L17 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M6 6l4 4L17 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+            <div style={{ maxWidth: '88%', display: 'inline-block' }}>
+              <div style={{ background: 'white', borderRadius: '0 8px 8px 8px', padding: '8px 10px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                <p style={{ fontSize: '11px', color: '#111', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'system-ui, -apple-system, sans-serif', margin: 0 }}>{templateBody}</p>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '3px', marginTop: '4px' }}>
+                  <span style={{ fontSize: '9px', color: '#9CA3AF' }}>{now}</span>
+                  <svg width="13" height="9" viewBox="0 0 18 12" fill="none">
+                    <path d="M1 6l4 4L17 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M6 6l4 4L17 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
               </div>
+              {/* The AI Agent CTA, drawn the way WhatsApp renders a quick-reply
+                  button: attached under the bubble, full width, its own tile. */}
+              {ctaLabel.trim() && (
+                <div style={{ marginTop: '2px', background: 'white', borderRadius: '8px', padding: '7px 8px', textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00A5F4" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                  </svg>
+                  <span style={{ fontSize: '11px', fontWeight: 500, color: '#00A5F4', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{ctaLabel}</span>
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '180px' }}>
@@ -1161,7 +1299,13 @@ export default function CreateCampaign({ onBack }) {
   const [launching, setLaunching]             = useState(false);
   const [launchError, setLaunchError]         = useState('');
   const [savingDraft, setSavingDraft]         = useState(false);
-  // Advanced wizard config (steps 5-7) — persisted to the campaign on launch.
+  // Campaign AI Agent (step 5) — sent with the campaign so the CTA on the
+  // delivered message opens a chat with the selected agent.
+  const [aiAgentEnabled, setAiAgentEnabled]   = useState(false);
+  const [aiAgentId, setAiAgentId]             = useState(null);
+  const [aiCtaLabel, setAiCtaLabel]           = useState('Ask Anything');
+  const [agents, setAgents]                   = useState([]);
+  // Advanced wizard config (steps 6-9) — persisted to the campaign on launch.
   const [replyRules, setReplyRules]           = useState(null);
   const [retryConfig, setRetryConfig]         = useState(null);
   const [trackingConfig, setTrackingConfig]   = useState(null);
@@ -1183,6 +1327,14 @@ export default function CreateCampaign({ onBack }) {
   useEffect(() => {
     wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setNumbers(d); }).catch(()=>{});
     wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t=>t.status==='APPROVED'||t.status==='Approved')); }).catch(()=>{});
+    // Deployed agents the campaign can be pointed at. One deployed agent is
+    // preselected so enabling the step is a single click.
+    wFetch('/ai-agent/agents').then(r=>r.ok&&r.json()).then(d=>{
+      if (!Array.isArray(d)) return;
+      setAgents(d);
+      const live = d.filter(a => a.deployed);
+      if (live.length === 1) setAiAgentId(live[0].id);
+    }).catch(()=>{});
     reloadContacts();
   }, []);
 
@@ -1242,6 +1394,12 @@ export default function CreateCampaign({ onBack }) {
     (scheduleType === 'immediately' || scheduledAt)
   );
 
+  // Only sent when the step was actually used — a campaign with the AI Agent
+  // off carries `enabled: false` so the server clears any stale link.
+  const aiAgentPayload = aiAgentEnabled && aiAgentId
+    ? { enabled: true, agentId: aiAgentId, ctaLabel: aiCtaLabel.trim() || 'Ask Anything' }
+    : { enabled: false };
+
   const parseError = async (res, fallback) => {
     try {
       const data = await res.json();
@@ -1273,7 +1431,7 @@ export default function CreateCampaign({ onBack }) {
 
       const res = await wFetch('/campaigns', {
         method: 'POST',
-        body: JSON.stringify({ name: campaignName, type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig, fallbackConfig }),
+        body: JSON.stringify({ name: campaignName, type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent: aiAgentPayload }),
       });
       if (!res.ok) throw new Error(await parseError(res, `Could not create campaign (${res.status})`));
       const campaign = await res.json();
@@ -1322,7 +1480,7 @@ export default function CreateCampaign({ onBack }) {
     try {
       const res = await wFetch('/campaigns', {
         method: 'POST',
-        body: JSON.stringify({ name: campaignName || 'Untitled Draft', type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig, fallbackConfig }),
+        body: JSON.stringify({ name: campaignName || 'Untitled Draft', type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent: aiAgentPayload }),
       });
       if (!res.ok) throw new Error(await parseError(res, `Could not save draft (${res.status})`));
       const campaign = await res.json();
@@ -1348,6 +1506,9 @@ export default function CreateCampaign({ onBack }) {
     templateName:  selectedTemplate?.name,
     contactCount:  selectedContactIds.size,
     numberPhone:   selectedNumber?.phoneNumber,
+    aiAgent: aiAgentEnabled && aiAgentId
+      ? `${agents.find(a => a.id === aiAgentId)?.name || 'Agent'} · “${aiCtaLabel}”`
+      : 'Off',
   };
 
   const STEPS = [
@@ -1355,10 +1516,11 @@ export default function CreateCampaign({ onBack }) {
     { n: 2, title: 'Message Template',                done: step2Done },
     { n: 3, title: 'Audience',                        done: step3Done },
     { n: 4, title: 'Schedule',                        done: step4Done },
-    { n: 5, title: 'Reply Flows',                     done: false },
-    { n: 6, title: 'Retries',                         done: false },
-    { n: 7, title: 'Conversion Tracking',             done: false },
-    { n: 8, title: 'Fallback Channels',               done: false },
+    { n: 5, title: 'AI Agent',                        done: aiAgentEnabled && !!aiAgentId },
+    { n: 6, title: 'Reply Flows',                     done: false },
+    { n: 7, title: 'Retries',                         done: false },
+    { n: 8, title: 'Conversion Tracking',             done: false },
+    { n: 9, title: 'Fallback Channels',               done: false },
   ];
 
   return (
@@ -1419,10 +1581,20 @@ export default function CreateCampaign({ onBack }) {
                   onLaunch={handleGoLive} launching={launching}
                 />
               )}
-              {s.n === 5 && <Step5 initial={replyRules} onSaved={setReplyRules} />}
-              {s.n === 6 && <Step6 initial={retryConfig} onRetryToggle={setRetriesActive} onSaved={setRetryConfig} />}
-              {s.n === 7 && <Step7 onSaved={setTrackingConfig} />}
-              {s.n === 8 && <Step8 retriesActive={retriesActive} onSaved={setFallbackConfig} />}
+              {s.n === 5 && (
+                <StepAiAgent
+                  enabled={aiAgentEnabled} setEnabled={setAiAgentEnabled}
+                  agents={agents}
+                  agentId={aiAgentId} setAgentId={setAiAgentId}
+                  ctaLabel={aiCtaLabel} setCtaLabel={setAiCtaLabel}
+                  template={selectedTemplate}
+                  onNext={() => setOpenStep(6)}
+                />
+              )}
+              {s.n === 6 && <StepReplyFlows initial={replyRules} onSaved={setReplyRules} />}
+              {s.n === 7 && <StepRetries initial={retryConfig} onRetryToggle={setRetriesActive} onSaved={setRetryConfig} />}
+              {s.n === 8 && <StepTracking onSaved={setTrackingConfig} />}
+              {s.n === 9 && <StepFallback retriesActive={retriesActive} onSaved={setFallbackConfig} />}
             </StepWrap>
           ))}
           <div style={{ height: '48px' }} />
@@ -1431,7 +1603,7 @@ export default function CreateCampaign({ onBack }) {
         {/* ── phone preview ── */}
         <div style={{ width: '296px', borderLeft: '1px solid var(--bd)', padding: '20px 18px', overflowY: 'auto', flexShrink: 0, background: 'rgba(5,8,20,0.5)' }}>
           <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '13px', color: 'var(--t1)', marginBottom: '16px' }}>Message Preview</p>
-          <PhonePreview templateBody={templateBody} />
+          <PhonePreview templateBody={templateBody} ctaLabel={aiAgentEnabled ? aiCtaLabel : ''} />
         </div>
       </div>
     </div>

@@ -7,6 +7,7 @@ import AuthCallback from './pages/AuthCallback.jsx';
 import WorkspaceSetup from './pages/WorkspaceSetup.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
+import { clearStoredSession } from './lib/api.js';
 
 // ─── Tiny history-based router ────────────────────────────────────────────────
 // Real URLs (/login, /register, /dashboard/campaigns, …) so browser
@@ -28,8 +29,40 @@ export function navigate(path, { replace = false } = {}) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
+// Seconds-since-epoch `exp` out of a JWT, or null when it can't be read. Not a
+// security check — the server verifies the signature — just enough to tell a
+// live session from the remains of an old one without a network round trip.
+function tokenExpiry(token) {
+  try {
+    const payload = JSON.parse(atob(String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+const alive = (token) => {
+  if (!token) return false;
+  const exp = tokenExpiry(token);
+  // Unreadable expiry: assume it's usable and let the server be the judge.
+  return exp === null || exp > Date.now();
+};
+
+// A leftover token in localStorage is not a session. Checking it here is what
+// keeps a visitor with an old, dead login on the landing page: without it the
+// router sent them to /dashboard, the first API call 401'd, and the app bounced
+// them to a login screen they never asked for — which looked like the site
+// opening on /login instead of the landing page.
 function isAuthed() {
-  return !!(localStorage.getItem('accessToken') && localStorage.getItem('user'));
+  const accessToken = localStorage.getItem('accessToken');
+  if (!accessToken || !localStorage.getItem('user')) return false;
+  if (alive(accessToken)) return true;
+  // An expired access token is still a session while a refresh token can renew
+  // it. When neither can, the session is over — drop it so the visitor gets a
+  // clean landing page rather than a redirect loop.
+  if (alive(localStorage.getItem('refreshToken'))) return true;
+  clearStoredSession();
+  return false;
 }
 
 // Users without a workspace (fresh signups) must create or join one before
@@ -54,12 +87,9 @@ function canAccessDashboard() {
   return hasWorkspace() || isSuperAdmin();
 }
 
-function clearSession() {
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
-  localStorage.removeItem('user');
-  sessionStorage.removeItem('impersonatorSession');
-}
+// Signing out from the UI. Shares one implementation with the API layer's
+// automatic logout so the two can't drift over which keys a session is made of.
+const clearSession = clearStoredSession;
 
 export default function App() {
   const [path, setPath] = useState(window.location.pathname);
