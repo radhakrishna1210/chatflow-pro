@@ -1212,6 +1212,18 @@ const AIIntentMatchingTab = () => {
 // ─────────────────────────────────────────────
 // 5. WHATSAPP AI AGENT
 // ─────────────────────────────────────────────
+
+// How a campaign's own status reads on the agent's usage list. Deliberately
+// the campaign's real status rather than a made-up on/off: a paused (cancelled)
+// campaign still has customers holding a message with a live CTA.
+const CAMPAIGN_TONE = {
+  RUNNING:   { label:'Active',    fg:'var(--green)', bg:'var(--gbg)',            bd:'var(--gbd)' },
+  SCHEDULED: { label:'Scheduled', fg:'#38bdf8',      bg:'rgba(56,189,248,.08)',  bd:'rgba(56,189,248,.25)' },
+  COMPLETED: { label:'Completed', fg:'var(--green)', bg:'var(--gbg)',            bd:'var(--gbd)' },
+  DRAFT:     { label:'Draft',     fg:'var(--t2)',    bg:'rgba(255,255,255,.05)', bd:'var(--bd)' },
+  CANCELLED: { label:'Paused',    fg:'#fbbf24',      bg:'rgba(245,158,11,.08)',  bd:'rgba(245,158,11,.25)' },
+  FAILED:    { label:'Failed',    fg:'#f87171',      bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.25)' },
+};
 const WhatsAppAIAgentTab = () => {
   const [cfg, setCfg] = useState(null);
   const [name, setName] = useState('');
@@ -1223,6 +1235,11 @@ const WhatsAppAIAgentTab = () => {
   const [testReply, setTestReply] = useState(null);
   const [testing, setTesting] = useState(false);
   const [banner, setBanner] = useState(null);
+  // Campaign usage + campaign-context testing.
+  const [usage, setUsage] = useState(null);
+  const [campaigns, setCampaigns] = useState([]);
+  const [testMode, setTestMode] = useState('general');
+  const [testCampaignId, setTestCampaignId] = useState('');
 
   const load = useCallback(() => wJson('/ai-agent/config').then(r => {
     if (!r.ok || !r.data) return;
@@ -1232,6 +1249,20 @@ const WhatsAppAIAgentTab = () => {
     setKnowledge(r.data.aiAgentKnowledge || '');
   }), []);
   useEffect(() => { load(); }, [load]);
+
+  const loadUsage = useCallback(() => wJson('/ai-agent/campaigns').then(r => {
+    if (r.ok && r.data) setUsage(r.data);
+  }), []);
+  useEffect(() => { loadUsage(); }, [loadUsage]);
+
+  // Every campaign, not only the ones already using the agent: the point of
+  // testing with campaign context is to check the answers *before* launching.
+  useEffect(() => {
+    wJson('/campaigns?limit=100').then(r => {
+      const list = Array.isArray(r.data) ? r.data : r.data?.data;
+      if (r.ok && Array.isArray(list)) setCampaigns(list);
+    });
+  }, []);
 
   const validateFields = () => {
     if (name.trim()) { const e = validateMeaningfulText(name, 'Agent name'); if (e) return e; }
@@ -1258,16 +1289,26 @@ const WhatsAppAIAgentTab = () => {
     const r = await wJson(cfg?.aiAgentEnabled ? '/ai-agent/undeploy' : '/ai-agent/deploy', { method:'POST' });
     setDeploying(false);
     if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
-    setBanner({ tone:'ok', text: r.data.aiAgentEnabled ? 'Agent deployed — it now answers inbound messages when no automation rule matches.' : 'Agent undeployed.' });
+    setBanner({ tone:'ok', text: r.data.aiAgentEnabled ? 'Agent deployed — it now answers inbound messages when no automation rule matches, and can be attached to campaigns.' : 'Agent undeployed.' });
     load();
   };
 
   const runTest = async () => {
     if (!testMsg.trim()) return;
+    if (testMode === 'campaign' && !testCampaignId) {
+      setTestReply({ error: 'Select a campaign to test against.' });
+      return;
+    }
     setTesting(true); setTestReply(null);
-    const r = await wJson('/ai-agent/test', { method:'POST', body: JSON.stringify({ message: testMsg }) });
+    const r = await wJson('/ai-agent/test', { method:'POST', body: JSON.stringify({
+      message: testMsg,
+      mode: testMode,
+      ...(testMode === 'campaign' ? { campaignId: testCampaignId } : {}),
+    }) });
     setTesting(false);
-    setTestReply(r.ok && r.data?.ok ? { ok: r.data.reply } : { error: r.data?.reason || r.error || 'Test failed' });
+    setTestReply(r.ok && r.data?.ok
+      ? { ok: r.data.reply, context: r.data.context }
+      : { error: r.data?.reason || r.data?.error || r.error || 'Test failed' });
   };
 
   const deployed = cfg?.aiAgentEnabled === true;
@@ -1276,7 +1317,7 @@ const WhatsAppAIAgentTab = () => {
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <TabHeader icon="bot" color="#38bdf8" bg="rgba(56,189,248,0.1)"
-        title="WhatsApp AI Agent" subtitle="Answers inbound messages when no automation rule matches"
+        title="WhatsApp AI Agent" subtitle="Answers campaign questions from its CTA, and inbound messages when no automation rule matches"
         badge={deployed && <Pill>Live</Pill>}>
         <Btn onClick={deploy} disabled={deploying || llmMissing}
           style={deployed ? { background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', boxShadow:'none' } : { boxShadow:'var(--glow)' }}>
@@ -1305,6 +1346,40 @@ const WhatsAppAIAgentTab = () => {
         <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
           <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, color:'var(--t1)' }}>Test the agent</h3>
           <p style={{ fontSize:12, color:'var(--t2)' }}>Runs your current prompt + knowledge against the model — exactly what a customer would get.</p>
+
+          {/* Campaign mode answers the way someone who tapped that campaign's
+              CTA would be answered, so the offer can be checked before it is
+              paid for and sent. */}
+          <div>
+            <label style={labelStyle}>Test mode</label>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {[['general', 'General Agent'], ['campaign', 'Campaign Context']].map(([id, label]) => (
+                <div key={id} onClick={() => { setTestMode(id); setTestReply(null); }}
+                  style={{ display:'flex', alignItems:'center', gap:7, padding:'7px 13px', borderRadius:8, cursor:'pointer', fontSize:12.5, fontWeight:500, border:`1px solid ${testMode === id ? 'var(--green)' : 'var(--bd)'}`, background: testMode === id ? 'var(--gbg)' : 'transparent', color: testMode === id ? 'var(--green)' : 'var(--t2)', transition:'all .15s' }}>
+                  <span style={{ width:12, height:12, borderRadius:'50%', border:`1.5px solid ${testMode === id ? 'var(--green)' : 'var(--bd)'}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    {testMode === id && <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--green)' }} />}
+                  </span>
+                  {label}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {testMode === 'campaign' && (
+            <div>
+              <label style={labelStyle}>Select campaign</label>
+              <select value={testCampaignId} onChange={e => { setTestCampaignId(e.target.value); setTestReply(null); }} style={inputStyle}>
+                <option value="">— Select a campaign —</option>
+                {campaigns.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}{c.aiAgentEnabled ? ' · agent attached' : ''}</option>
+                ))}
+              </select>
+              {campaigns.length === 0 && (
+                <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:6 }}>No campaigns yet — create one to test with its content.</p>
+              )}
+            </div>
+          )}
+
           <textarea value={testMsg} onChange={e => setTestMsg(e.target.value)} rows={3} style={{ ...inputStyle, resize:'vertical' }} />
           <Btn variant="outline" size="sm" onClick={runTest} disabled={testing || llmMissing} style={{ alignSelf:'flex-start' }}>
             {testing ? 'Asking…' : 'Run Test'}
@@ -1318,10 +1393,60 @@ const WhatsAppAIAgentTab = () => {
                   </div>}
             </div>
           )}
+          {testReply?.context && (
+            <details style={{ fontSize:11.5, color:'var(--t3)' }}>
+              <summary style={{ cursor:'pointer', color:'var(--t2)' }}>Campaign content the agent was given</summary>
+              <pre style={{ marginTop:8, whiteSpace:'pre-wrap', fontFamily:"'Plus Jakarta Sans',sans-serif", lineHeight:1.55 }}>
+                {[testReply.context.header, testReply.context.body, testReply.context.footer].filter(Boolean).join('\n\n') || '(no text content)'}
+              </pre>
+            </details>
+          )}
           <div style={{ marginTop:'auto', padding:'10px 14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:11.5, color:'var(--t3)', lineHeight:1.6 }}>
-            Reply order on inbound messages: form in progress → workflow → keyword trigger → AI intent match → welcome/out-of-office → <strong style={{ color:'var(--t2)' }}>this agent</strong>.
+            Reply order on inbound messages: <strong style={{ color:'var(--t2)' }}>active campaign AI chat</strong> → form in progress → workflow → keyword trigger → AI intent match → welcome/out-of-office → <strong style={{ color:'var(--t2)' }}>this agent</strong>.
           </div>
         </div>
+      </div>
+
+      {/* ── Campaign usage ── */}
+      <div style={{ ...card, padding:0 }}>
+        <div style={{ padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+          <div>
+            <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, color:'var(--t1)' }}>Campaign Usage</h3>
+            <p style={{ fontSize:12, color:'var(--t2)', marginTop:3 }}>
+              {usage === null ? 'Checking campaigns…'
+                : usage.total === 0 ? 'No campaign uses this agent yet — turn it on in step 5 of the campaign wizard.'
+                : `Used by ${usage.total} campaign${usage.total === 1 ? '' : 's'}`}
+            </p>
+          </div>
+          <Btn variant="outline" size="sm" onClick={loadUsage}>Refresh</Btn>
+        </div>
+
+        {usage?.campaigns?.length > 0 && (
+          <div style={{ borderTop:'1px solid var(--bd)' }}>
+            {usage.campaigns.map((c, i) => (
+              <div key={c.id} style={{ padding:'12px 20px', borderBottom: i < usage.campaigns.length - 1 ? '1px solid var(--bd)' : 'none', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                <div style={{ flex:1, minWidth:180 }}>
+                  <p style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{c.name}</p>
+                  <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:2 }}>
+                    CTA “{c.aiAgentCtaLabel || 'Ask Anything'}”
+                    {c.totalContacts ? ` · ${c.totalContacts} recipient${c.totalContacts === 1 ? '' : 's'}` : ''}
+                  </p>
+                </div>
+                {c.activeSessions > 0 && (
+                  <span style={{ fontSize:11, fontWeight:600, color:'var(--green)' }}>
+                    {c.activeSessions} chat{c.activeSessions === 1 ? '' : 's'} live
+                  </span>
+                )}
+                <span style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20, textTransform:'capitalize',
+                  color: CAMPAIGN_TONE[c.status]?.fg || 'var(--t2)',
+                  background: CAMPAIGN_TONE[c.status]?.bg || 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${CAMPAIGN_TONE[c.status]?.bd || 'var(--bd)'}` }}>
+                  {CAMPAIGN_TONE[c.status]?.label || c.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

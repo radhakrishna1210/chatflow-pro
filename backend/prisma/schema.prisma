@@ -118,6 +118,7 @@ model Workspace {
   optOuts                      OptOut[]
   notifications                Notification[]
   templateAssets               TemplateAsset[]
+  campaignAiSessions           CampaignAiSession[]
 }
 
 model WorkspaceMember {
@@ -277,6 +278,7 @@ model Contact {
   campaignRecipients CampaignRecipient[]
   workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations      Conversation[]
+  campaignAiSessions CampaignAiSession[]
   segments           Segment[]           @relation("ContactSegments")
   clusterContacts    ClusterContact[]
 
@@ -314,6 +316,19 @@ model Campaign {
   launchedAt     DateTime?
   completedAt    DateTime?
   aiGenerated    Boolean             @default(false)
+  // ─── Campaign AI Agent ─────────────────────────────────────────────────
+  // When on, the campaign's template CTA ("Ask Anything") hands the customer
+  // to the workspace's deployed WhatsApp AI Agent, primed with what this
+  // campaign actually said. `aiAgentId` names the agent (the workspace's own,
+  // see services/aiAgent.service.js listAgents) so the link survives even if
+  // more agents are added later.
+  aiAgentEnabled Boolean             @default(false)
+  aiAgentId      String?
+  aiAgentCtaLabel String?
+  // Snapshot of the campaign's content taken at launch. Editing the template
+  // afterwards must not change the answers a customer who received the old
+  // wording gets, so the agent reads this, never the live template.
+  aiAgentContext Json?
   queueJobId     String?
   replyRules     Json?
   retryConfig    Json?
@@ -325,6 +340,7 @@ model Campaign {
   waNumber       WaNumber?           @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
   workspace      Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   recipients     CampaignRecipient[]
+  aiSessions     CampaignAiSession[]
 }
 
 model CampaignRecipient {
@@ -367,14 +383,24 @@ model CampaignRecipient {
   // be changed by Meta afterwards (see webhook.service.js), which would
   // otherwise silently re-price messages that were already billed.
   messageCategory   String?
+  // What this contact was actually sent, written at send time when the
+  // campaign has an AI agent attached: the resolved body/header/footer text
+  // plus the buttons. This — not the template as it reads today — is the
+  // context the agent answers from, which is what makes "the offer was 50%"
+  // stay true after the admin edits the campaign down to 30%.
+  aiContext         Json?
   campaign          Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact     Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
   messages    Message[]
+  aiSessions  CampaignAiSession[]
 
   @@unique([campaignId, contactId])
   // Drives the restart-recovery sweep, which looks for RETRYING rows whose
   // nextRetryAt has passed because their delayed job died with Redis.
   @@index([status, nextRetryAt])
+  // "Which campaign did this customer most recently receive?" — asked on the
+  // inbound path when a typed CTA label has to be matched to a campaign.
+  @@index([contactId, sentAt])
 }
 
 model Conversation {
@@ -396,6 +422,44 @@ model Conversation {
   assignedTo    User?              @relation("ConversationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   messages      Message[]
   workflowRuns  WorkflowRun[]
+  aiSessions    CampaignAiSession[]
+}
+
+// One customer's "Ask Anything" conversation with the AI agent attached to a
+// campaign. Created when the customer taps the campaign's CTA, and it owns the
+// conversation's replies until it expires (see EXPIRY_MINUTES in
+// services/campaignAi.service.js) or the customer exits — after which inbound
+// messages fall back to the normal automation order.
+//
+// `campaignContext` is a copy, not a pointer: the campaign row can be edited,
+// its template re-synced from Meta, or the recipient deleted, and this session
+// must keep answering with what was actually sent.
+model CampaignAiSession {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  campaignId          String
+  campaignRecipientId String?
+  contactId           String
+  conversationId      String
+  // The agent that was selected on the campaign, resolved at activation.
+  agentId             String?
+  ctaLabel            String?
+  campaignContext     Json
+  // ACTIVE | EXPIRED | ENDED — ENDED is an explicit exit by the customer.
+  status              String    @default("ACTIVE")
+  turns               Int       @default(0)
+  activatedAt         DateTime  @default(now())
+  lastActivityAt      DateTime  @default(now())
+  expiresAt           DateTime
+  workspace           Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign            Campaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact             Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation        Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  campaignRecipient   CampaignRecipient? @relation(fields: [campaignRecipientId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, status])
+  @@index([workspaceId, status])
+  @@index([campaignId])
 }
 
 model Message {

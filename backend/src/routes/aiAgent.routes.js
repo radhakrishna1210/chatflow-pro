@@ -8,6 +8,10 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/config', ctrl.getConfig);
+// Deployed agents a campaign can be pointed at, and the campaigns already
+// using one. Readable by any member — the campaign wizard needs both.
+router.get('/agents', ctrl.agents);
+router.get('/campaigns', ctrl.campaignUsage);
 router.patch('/config', authorize('ADMIN'), ctrl.updateConfig);
 router.post('/deploy', authorize('ADMIN'), ctrl.deploy);
 router.post('/undeploy', authorize('ADMIN'), ctrl.undeploy);

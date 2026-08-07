@@ -15,7 +15,14 @@ export async function undeploy(req, res) {
 export async function test(req, res) {
   const sample = (req.body?.message || '').trim();
   if (!sample) return res.status(400).json({ error: 'message is required' });
-  res.json(await svc.testAgent(req.params.workspaceId, sample));
+  const mode = req.body?.mode === 'campaign' ? 'campaign' : 'general';
+  res.json(await svc.testAgent(req.params.workspaceId, sample, { mode, campaignId: req.body?.campaignId || null }));
+}
+export async function agents(req, res) {
+  res.json(await svc.listAgents(req.params.workspaceId));
+}
+export async function campaignUsage(req, res) {
+  res.json(await svc.listAgentCampaigns(req.params.workspaceId, req.query.agentId || null));
 }
 export async function setIntent(req, res) {
   res.json(await svc.setIntentMatching(req.params.workspaceId, req.body || {}));
