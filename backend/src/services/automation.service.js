@@ -7,9 +7,14 @@ import { detectUrl, analyseWebsite } from './websiteAnalysis.service.js';
 // Lazily initialised: constructing the client at import time crashes startup
 // when GEMINI_API_KEY is not configured (it's optional in the env schema).
 let _ai = null;
+let _aiKey = null;
 function getAi() {
-  if (!env.GEMINI_API_KEY) return null;
-  if (!_ai) _ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+  const key = env.GEMINI_API_KEY;
+  if (!key) return null;
+  if (!_ai || _aiKey !== key) {
+    _ai = new GoogleGenAI({ apiKey: key });
+    _aiKey = key;
+  }
   return _ai;
 }
 

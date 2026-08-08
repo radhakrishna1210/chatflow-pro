@@ -21,9 +21,14 @@ import { prisma } from '../lib/prisma.js';
 import { uploadPhoneMedia } from '../lib/meta.js';
 
 let _ai = null;
+let _aiKey = null;
 function getAi() {
-  if (!env.GEMINI_API_KEY) return null;
-  if (!_ai) _ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+  const key = env.GEMINI_API_KEY;
+  if (!key) return null;
+  if (!_ai || _aiKey !== key) {
+    _ai = new GoogleGenAI({ apiKey: key });
+    _aiKey = key;
+  }
   return _ai;
 }
 

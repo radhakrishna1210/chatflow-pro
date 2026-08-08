@@ -2,14 +2,22 @@ import Razorpay from 'razorpay';
 import { createHmac } from 'crypto';
 import { env } from '../config/env.js';
 
+// Keyed on the credentials, so keys rotated from the admin screen are picked
+// up on the next call rather than held until a restart.
 let client = null;
+let clientKeyId = null;
+let clientKeySecret = null;
 
 export function getRazorpayClient() {
-  if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) {
+  const keyId = env.RAZORPAY_KEY_ID;
+  const keySecret = env.RAZORPAY_KEY_SECRET;
+  if (!keyId || !keySecret) {
     const e = new Error('Razorpay is not configured on this server'); e.status = 503; throw e;
   }
-  if (!client) {
-    client = new Razorpay({ key_id: env.RAZORPAY_KEY_ID, key_secret: env.RAZORPAY_KEY_SECRET });
+  if (!client || clientKeyId !== keyId || clientKeySecret !== keySecret) {
+    client = new Razorpay({ key_id: keyId, key_secret: keySecret });
+    clientKeyId = keyId;
+    clientKeySecret = keySecret;
   }
   return client;
 }

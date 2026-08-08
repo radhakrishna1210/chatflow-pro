@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { getSystemSetting } from './settingsStore.js';
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(4000),
@@ -151,7 +152,19 @@ if (!process.env.DIRECT_URL) process.env.DIRECT_URL = base.DATABASE_URL;
 
 const backendBase = base.APP_URL ?? `http://localhost:${base.PORT}`;
 
-export const env = {
+// The environment as the app reads it, with database overrides layered on top.
+//
+// A platform credential (an API key, an SMTP password) can be changed from the
+// super-admin screen and takes effect on the next property read — no redeploy,
+// which on the hosted plan means minutes of downtime for a one-line change.
+// Everything else still comes from the process environment, and only the names
+// in settingsStore.js can be overridden at all.
+//
+// Reading through a Proxy rather than snapshotting is what makes this work:
+// modules capture `env` once at import time, so a static object would freeze
+// whatever was configured at boot.
+const baseEnv = {
+
   ...base,
   DIRECT_URL: base.DIRECT_URL ?? base.DATABASE_URL,
   GOOGLE_CALLBACK_URL:
@@ -169,3 +182,14 @@ export const env = {
     ...(base.CORS_EXTRA_ORIGINS ? base.CORS_EXTRA_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean) : []),
   ],
 };
+
+export const env = new Proxy(baseEnv, {
+  get(target, prop, receiver) {
+    const override = getSystemSetting(prop);
+    return override === undefined ? Reflect.get(target, prop, receiver) : override;
+  },
+  // Keep `in`, Object.keys and spreads honest about what is actually there.
+  has(target, prop) {
+    return getSystemSetting(prop) !== undefined || Reflect.has(target, prop);
+  },
+});

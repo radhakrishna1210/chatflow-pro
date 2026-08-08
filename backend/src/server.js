@@ -18,6 +18,7 @@ import { emailQueue } from './queues/email.queue.js';
 import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
 import { workflowQueue } from './queues/workflow.queue.js';
 import { prisma } from './lib/prisma.js';
+import { loadPlatformSettings } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
 
 let campaignWorker = null;
@@ -206,6 +207,9 @@ async function main() {
   try {
     await prisma.$connect();
     console.log('[DB] Connected to PostgreSQL');
+    // Before anything reads a credential: platform keys stored in the database
+    // override the environment, and every client below is built from `env`.
+    await loadPlatformSettings();
     await initializeSubscriptions();
   } catch (err) {
     console.error('[DB] Connection failed:', err.message);

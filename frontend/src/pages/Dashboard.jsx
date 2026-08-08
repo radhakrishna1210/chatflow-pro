@@ -2518,6 +2518,7 @@ const ADMIN_TABS = [
   { id: 'admin-numbers',      label: 'Numbers',      icon: 'phone'   },
   { id: 'admin-plans',        label: 'Plans',        icon: 'file'    },
   { id: 'admin-support',      label: 'Support',      icon: 'msg'     },
+  { id: 'admin-api-management', label: 'API Management', icon: 'key' },
 ];
 const SUPERADMIN_NAV = [...ADMIN_TABS, { id: 'settings', label: 'Settings', icon: 'cog' }];
 

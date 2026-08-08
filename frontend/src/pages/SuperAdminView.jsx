@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { adminFetch } from '../lib/api.js';
 import { useMessageRates } from '../lib/pricing.js';
+import ApiManagementTab from './ApiManagementTab.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14 };
 
@@ -1219,7 +1220,7 @@ export default function SuperAdminView({ tab }) {
   const TAB_LABELS = {
     overview: 'Overview', analytics: 'Analytics', revenue: 'Revenue', transactions: 'Transactions',
     payments: 'Payments', campaigns: 'Campaigns', workspaces: 'Workspaces', users: 'Users',
-    numbers: 'Numbers', plans: 'Plans', support: 'Support',
+    numbers: 'Numbers', plans: 'Plans', support: 'Support', 'api-management': 'API Management',
   };
   const openTicketCount = tickets.filter(t => t.status === 'OPEN').length;
 
@@ -1262,6 +1263,7 @@ export default function SuperAdminView({ tab }) {
         {!loading && tab === 'payments' && <PaymentsTab workspaces={workspaces} />}
         {!loading && tab === 'campaigns' && <CampaignsTab workspaces={workspaces} />}
         {!loading && tab === 'users' && <UsersTab />}
+        {!loading && tab === 'api-management' && <ApiManagementTab />}
         {!loading && tab === 'numbers' && <NumbersTab workspaces={workspaces} />}
 
         {!loading && tab === 'workspaces' && (

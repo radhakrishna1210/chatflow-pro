@@ -963,3 +963,17 @@ model ClusterContact {
 
   @@id([clusterId, contactId])
 }
+
+// Platform credentials the super admin can change without a redeploy.
+//
+// `value` is encrypted at rest with the same AES key as WhatsApp access tokens
+// (lib/encryption.js). Only the keys named in config/settingsStore.js may be
+// overridden — a row is a *substitute* for an environment variable, never a
+// way to introduce a new one, so nothing here can reach DATABASE_URL, the JWT
+// secrets or ENCRYPTION_KEY itself.
+model SystemSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
