@@ -2,9 +2,15 @@ import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 
 let _transporter = null;
+let _transporterKey = null;
 
 function getTransporter() {
-  if (!_transporter) {
+  // Rebuilt when any part of the SMTP configuration changes, so credentials
+  // edited from the admin screen do not keep failing against a pooled
+  // connection opened with the old ones.
+  const cacheKey = [env.SMTP_HOST, env.SMTP_PORT, env.SMTP_SECURE, env.SMTP_IP_FAMILY, env.SMTP_USER, env.SMTP_PASSWORD].join('|');
+  if (!_transporter || _transporterKey !== cacheKey) {
+    _transporterKey = cacheKey;
     _transporter = nodemailer.createTransport({
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,

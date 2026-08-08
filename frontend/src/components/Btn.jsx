@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { I } from './Icons.jsx';
 
-export const Btn = ({ children, variant = 'primary', size = 'md', onClick, style: ex = {}, disabled }) => {
+export const Btn = ({ children, variant = 'primary', size = 'md', onClick, style: ex = {}, disabled, type }) => {
   const [h, setH] = useState(false);
   const base = {
     display: 'inline-flex', alignItems: 'center', gap: '7px',
@@ -25,7 +25,7 @@ export const Btn = ({ children, variant = 'primary', size = 'md', onClick, style
     ...ex,
   };
   return (
-    <button style={base} onClick={onClick} disabled={disabled}
+    <button type={type} style={base} onClick={onClick} disabled={disabled}
       onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}>
       {children}
     </button>

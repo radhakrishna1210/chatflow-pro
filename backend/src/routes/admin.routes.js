@@ -17,6 +17,11 @@ router.patch('/numbers/pool/:id/reset', adminController.resetPoolEntry);
 router.patch('/numbers/pool/:id/ban',   adminController.banPoolEntry);
 router.patch('/numbers/pool/:id/unban', adminController.unbanPoolEntry);
 
+// Platform credentials (API Management). Super-admin only, via the
+// router.use(authenticate, requireSuperAdmin) above.
+router.get('/platform/settings',  adminController.getSystemSettings);
+router.post('/platform/settings', adminController.updateSystemSettings);
+
 // Workspaces (for admin assignment picker)
 router.get('/workspaces',               adminController.listWorkspaces);
 

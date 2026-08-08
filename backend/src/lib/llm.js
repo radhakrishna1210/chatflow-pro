@@ -7,10 +7,17 @@ import { env } from '../config/env.js';
 // hanging. This replaces the old onboarding controller's hard dependency on a
 // local Ollama server that never exists in production.
 
+// Rebuilt whenever the key changes, so a key rotated from the admin screen
+// takes effect on the next call instead of after a restart.
 let _gemini = null;
+let _geminiKey = null;
 function gemini() {
-  if (!env.GEMINI_API_KEY) return null;
-  if (!_gemini) _gemini = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+  const key = env.GEMINI_API_KEY;
+  if (!key) return null;
+  if (!_gemini || _geminiKey !== key) {
+    _gemini = new GoogleGenAI({ apiKey: key });
+    _geminiKey = key;
+  }
   return _gemini;
 }
 

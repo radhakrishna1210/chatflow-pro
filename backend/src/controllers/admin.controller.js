@@ -1,4 +1,5 @@
 import * as adminService from '../services/admin.service.js';
+import * as platformSettings from '../services/platformSettings.service.js';
 import * as authService from '../services/auth.service.js';
 import * as invitationsService from '../services/invitations.service.js';
 
@@ -169,4 +170,19 @@ export async function updatePlan(req, res) {
 
 export async function deletePlan(req, res) {
   res.json(await adminService.deletePlan(req.params.id));
+}
+
+// ── Platform credentials (API Management) ────────────────────────────────────
+//
+// Super-admin only (admin.routes.js gates the whole router). Values are
+// returned masked and never in full — the screen shows what is configured and
+// where it comes from, not what it is.
+
+export async function getSystemSettings(req, res) {
+  res.json(await platformSettings.getAllSettings());
+}
+
+export async function updateSystemSettings(req, res) {
+  const result = await platformSettings.updateSettings(req.body || {});
+  res.json({ success: true, ...result, settings: await platformSettings.getAllSettings() });
 }

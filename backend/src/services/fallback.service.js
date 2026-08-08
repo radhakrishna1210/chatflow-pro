@@ -15,9 +15,17 @@ import { sendMail } from '../lib/mailer.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 let _twilio = null;
+let _twilioSid = null;
+let _twilioToken = null;
 function twilioClient() {
-  if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) return null;
-  if (!_twilio) _twilio = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+  const sid = env.TWILIO_ACCOUNT_SID;
+  const token = env.TWILIO_AUTH_TOKEN;
+  if (!sid || !token) return null;
+  if (!_twilio || _twilioSid !== sid || _twilioToken !== token) {
+    _twilio = twilio(sid, token);
+    _twilioSid = sid;
+    _twilioToken = token;
+  }
   return _twilio;
 }
 

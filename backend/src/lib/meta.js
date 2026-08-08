@@ -10,7 +10,27 @@ export function metaClient(accessToken) {
   });
 }
 
-export const systemClient = metaClient(env.META_SYSTEM_USER_TOKEN);
+// Resolved per call rather than at import time: this module is loaded once at
+// boot, so a token captured here would outlive every rotation made from the
+// admin screen.
+let _systemClient = null;
+let _systemToken = null;
+function getSystemClient() {
+  const token = env.META_SYSTEM_USER_TOKEN;
+  if (!_systemClient || _systemToken !== token) {
+    _systemClient = metaClient(token);
+    _systemToken = token;
+  }
+  return _systemClient;
+}
+
+export const systemClient = new Proxy({}, {
+  get(target, prop) {
+    const value = getSystemClient()[prop];
+    // axios methods are unbound once read off the instance.
+    return typeof value === 'function' ? value.bind(getSystemClient()) : value;
+  },
+});
 
 export async function sendWhatsAppMessage(phoneNumberId, accessToken, to, template) {
   const client = metaClient(accessToken);
