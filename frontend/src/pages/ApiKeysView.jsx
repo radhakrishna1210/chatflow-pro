@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { canManage } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
@@ -37,7 +38,7 @@ const SecretInput = ({ prefix }) => {
 };
 
 export default function ApiKeysView() {
-  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
+  const isAdmin = canManage();
   const [keys, setKeys]         = useState([]);
   const [newKey, setNewKey]     = useState(null);
   const [newName, setNewName]   = useState('');

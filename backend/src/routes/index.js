@@ -33,10 +33,18 @@ import workspaceSwitchRoutes from './workspaceSwitch.routes.js';
 import usersRoutes from './users.routes.js';
 import notificationsRoutes from './notifications.routes.js';
 import optOutRoutes from './optout.routes.js';
+import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 
 const router = Router();
 
 router.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
+
+// Published rate card, unauthenticated: the marketing site quotes campaign
+// costs from this, so it quotes the same per-category rates campaigns are
+// actually billed at. Nothing here is workspace-specific — a hardcoded price
+// in the landing page is how a customer gets quoted a figure the billing code
+// will not honour.
+router.get('/pricing', (req, res) => res.json({ currency: 'INR', rates: MESSAGE_CATEGORY_RATES }));
 
 router.use('/auth', authRoutes);
 router.use('/public', publicRoutes);

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { canManage, canBill, canManageMembers } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
@@ -66,7 +67,11 @@ const statusBadge = s => {
 
 export default function SettingsView() {
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-  const isAdmin = currentUser.role === 'ADMIN';
+  // Settings covers three different powers: running the workspace (any
+  // member), managing who else is in it, and paying for it.
+  const isAdmin = canManage(currentUser);
+  const canInvite = canManageMembers(currentUser);
+  const canUpgrade = canBill(currentUser);
   const currentUserId = currentUser.id;
   const [settings, setSettings] = useState({});
   const [memberError, setMemberError] = useState(null);
@@ -99,7 +104,7 @@ export default function SettingsView() {
   useEffect(() => {
     wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{ if(d) { setSettings(d); if(d.webhookUrl) setWebhookUrl(d.webhookUrl); if(d.notifyNewConversation!=null) setNotifs({newConv:d.notifyNewConversation,tplApproved:d.notifyTemplateApproved,tplRejected:d.notifyTemplateRejected,campaignDone:d.notifyCampaignCompleted,highOptout:d.notifyHighOptout,rateLimitWarn:d.notifyRateLimit}); setEmailNotifs(Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id, d[o.id]!=null ? d[o.id] : o.default]))); }}).catch(()=>{});
     wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
-    if (isAdmin) wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(()=>{});
+    if (canInvite) wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(()=>{});
     wFetch('/settings/invoices').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvoices(d); }).catch(()=>{});
     wFetch('/analytics/chat?days=7').then(r=>r.ok&&r.json()).then(d=>{
       if (d && Array.isArray(d.dailyVolume)) {
@@ -305,7 +310,7 @@ export default function SettingsView() {
 
         {/* ── Team Members ── */}
         <SectionCard icon="users" title="Team Members">
-          {isAdmin && (
+          {canInvite && (
             <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
               <Btn size="sm" style={{ background:'rgba(30,191,94,0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={()=>setShowInvite(!showInvite)}>
                 <I n="plus" s={13} c="var(--green)" />
@@ -313,7 +318,7 @@ export default function SettingsView() {
               </Btn>
             </div>
           )}
-          {isAdmin && showInvite && (
+          {canInvite && showInvite && (
             <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:14, padding:14, borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
               <div style={{ display:'flex', gap:8 }}>
                 <FInput value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="colleague@company.com" style={{ flex:1 }} />
@@ -441,7 +446,7 @@ export default function SettingsView() {
                     </td>
                     <td style={{ padding:'10px 12px', fontSize:12, color:'var(--t2)' }}>{m.user.email}</td>
                     <td style={{ padding:'10px 12px' }}>
-                      {isAdmin ? (
+                      {canInvite ? (
                         <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                           <select value={memberRoles[m.userId] || m.role} onChange={e=>setRole(m.userId,e.target.value)}
                             disabled={lockRole} title={lockRole ? roleReason : undefined}
@@ -456,7 +461,7 @@ export default function SettingsView() {
                       )}
                     </td>
                     <td style={{ padding:'10px 12px' }}>
-                      {isAdmin && (
+                      {canInvite && (
                         <button onClick={()=>delMember(m)} disabled={lockDelete}
                           title={lockDelete ? 'The only admin cannot be removed — promote another member to admin first.' : 'Remove from workspace'}
                           style={{ width:28, height:28, borderRadius:6, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.18)', cursor: lockDelete ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', opacity: lockDelete ? 0.35 : 1 }}>
@@ -482,7 +487,7 @@ export default function SettingsView() {
               <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>Growth Plan</p>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Manage your subscription</p>
             </div>
-            {isAdmin && <Btn style={{ boxShadow:'var(--glow)' }}>Upgrade</Btn>}
+            {canUpgrade && <Btn style={{ boxShadow:'var(--glow)' }}>Upgrade</Btn>}
           </div>
           {invoiceError && <p style={{ fontSize:12, color:'#f87171', marginBottom:10 }}>{invoiceError}</p>}
           {invoices.length === 0 ? (
