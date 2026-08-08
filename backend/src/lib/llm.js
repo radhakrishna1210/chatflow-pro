@@ -30,9 +30,29 @@ const GEMINI_TIMEOUT_MS = 20000;
 // the request stalling.
 const OLLAMA_TIMEOUT_MS = 8000;
 
+// When Gemini answers 429 it also says how long to wait. Calling again before
+// then cannot succeed, and on a free-tier key (20 requests/day) each doomed
+// call spends part of a budget the app needs for real answers — so the client
+// stands down for exactly as long as Google asked, and callers fall through to
+// their own fallback immediately instead.
+let geminiCooldownUntil = 0;
+
+function noteGeminiFailure(err) {
+  const retryAfterSec = Number(
+    err?.message?.match(/"retryDelay"\s*:\s*"(\d+)s"/)?.[1]
+    ?? err?.message?.match(/retry in (\d+(?:\.\d+)?)s/)?.[1]
+    ?? 0,
+  );
+  if (retryAfterSec > 0) {
+    geminiCooldownUntil = Date.now() + retryAfterSec * 1000;
+    console.warn(`[llm] Gemini rate-limited — standing down for ${Math.round(retryAfterSec)}s.`);
+  }
+}
+
 async function callGemini(prompt, system, { json = false } = {}) {
   const ai = gemini();
   if (!ai) return null;
+  if (Date.now() < geminiCooldownUntil) return null;
   try {
     const contents = system ? `${system}\n\n${prompt}` : prompt;
     const res = await ai.models.generateContent({
@@ -50,6 +70,7 @@ async function callGemini(prompt, system, { json = false } = {}) {
     return (res.text || '').trim() || null;
   } catch (err) {
     console.error('[llm] Gemini error:', err.message);
+    noteGeminiFailure(err);
     return null;
   }
 }
