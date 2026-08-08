@@ -2,7 +2,6 @@ import { Router } from 'express';
 import * as optOutController from '../controllers/optout.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
-import { authorize } from '../middleware/authorize.js';
 import { validate, optOutSchemas } from '../validators/index.js';
 
 const router = Router({ mergeParams: true });
@@ -14,8 +13,8 @@ router.use(authenticate, workspaceContext);
 router.get('/', optOutController.list);
 router.get('/keywords', optOutController.keywords);
 router.get('/export', optOutController.exportCsv);
-router.post('/', authorize('ADMIN'), validate({ body: optOutSchemas.block }), optOutController.block);
-router.post('/unblock', authorize('ADMIN'), validate({ body: optOutSchemas.bulkUnblock }), optOutController.unblock);
-router.delete('/:id', authorize('ADMIN'), optOutController.unblock);
+router.post('/', validate({ body: optOutSchemas.block }), optOutController.block);
+router.post('/unblock', validate({ body: optOutSchemas.bulkUnblock }), optOutController.unblock);
+router.delete('/:id', optOutController.unblock);
 
 export default router;

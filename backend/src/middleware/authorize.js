@@ -3,6 +3,24 @@ import { env } from '../config/env.js';
 
 const ROLE_HIERARCHY = { CLIENT: 0, ADMIN: 1 };
 
+// What the two workspace roles actually mean here:
+//
+//   CLIENT ("Member") runs the workspace day to day — numbers, templates,
+//   campaigns, contacts, segments, automations, the AI agent, forms,
+//   integrations, API keys, opt-outs and settings. Nothing operational is
+//   withheld from them.
+//
+//   ADMIN additionally holds the two capabilities that are really one:
+//     • spending money — wallet recharge and plan checkout;
+//     • granting access — inviting members, changing roles, revoking invites.
+//   The second guards the first. A member who could change roles could make
+//   themselves an admin and then reach billing, which would leave "members
+//   cannot pay" true only until someone noticed.
+//
+// So `authorize('ADMIN')` now appears on exactly those routes. Anything else
+// needs only authenticate + workspaceContext, which already prove membership
+// of this workspace.
+
 // Require the user's *live DB* workspace role to be at least the highest role
 // listed (permissions are hierarchical: ADMIN ⊃ CLIENT). Using Math.max fixes
 // the old `authorize('ADMIN','CLIENT')` pattern which resolved to CLIENT.

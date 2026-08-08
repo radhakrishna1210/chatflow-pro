@@ -422,9 +422,17 @@ async function handleInboundMessage(value, msg) {
 
   // 5. AI Agent fallback — a deployed LLM agent answers free-form questions when
   //    nothing above matched. Only fires if explicitly deployed.
+  //
+  //    The conversation and the number are passed so the agent can read the
+  //    thread so far, name the business it answers for, and pick up the
+  //    campaign this conversation was about if there was one. Without them it
+  //    answered every message in isolation and offered a human whenever the
+  //    knowledge base fell short.
   if (!autoReplyText && !workflowWillReply && messageBody) {
     autoReplyText = await generateAgentReply(workspaceId, messageBody, {
       contactName: contact?.name,
+      conversationId: conversation.id,
+      waNumberId: waNumber.id,
     }).catch(() => null);
   }
 

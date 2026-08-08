@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { canBill } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
@@ -71,7 +72,8 @@ function MessagePricing({ rates, compact = false }) {
 }
 
 export default function PaymentsView({ initialTab } = {}) {
-  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
+  // Paying is the one thing members do not do.
+  const isAdmin = canBill();
   const [activeSubTab, setActiveSubTab] = useState(() => SUB_TABS.some(t => t.id === initialTab) ? initialTab : 'wallet');
   
   // Wallet state — server-authoritative. Balance and transactions come from the

@@ -12,8 +12,8 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext, requireFeature('automation'));
 
 router.get('/connection', ctrl.connection);
-router.post('/auth-url', authorize('ADMIN'), ctrl.authUrl);
-router.delete('/connection', authorize('ADMIN'), ctrl.disconnect);
+router.post('/auth-url', ctrl.authUrl);
+router.delete('/connection', ctrl.disconnect);
 
 router.get('/flows', ctrl.listFlows);
 router.post('/flows', authorize('CLIENT'), validate({ body: instagramSchemas.create }), ctrl.createFlow);
