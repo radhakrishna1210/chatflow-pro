@@ -1,382 +1,696 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 
+// ─── Landing page ────────────────────────────────────────────────────────────
+//
+// The page's job is to explain, in one screen, what this product does that a
+// reseller's WhatsApp dashboard does not: a campaign message that answers
+// questions about itself. So the hero is not a screenshot of the app — it is
+// the message a customer receives, the button they tap, and the conversation
+// that follows. Everything else on the page stays quiet around it.
+//
+// Surfaces are frosted (.glass in index.css) over a slowly drifting aurora, so
+// depth comes from layering rather than from borders. All motion is opt-out:
+// the reduced-motion block in index.css stops the drift and the reveals, and
+// the scripted conversation below jumps straight to its final state.
 
-const MiniSpark = ({ data, color = '#1EBF5E', w = 56, h = 22 }) => {
-  const max = Math.max(...data), min = Math.min(...data), r = (max - min) || 1;
-  const pts = data.map((v, i) => `${(i / (data.length - 1) * w).toFixed(1)},${(h - (v - min) / r * h * .78 - h * .11).toFixed(1)}`).join(' ');
+const MONO = 'var(--mono)';
+
+// ─── motion helpers ──────────────────────────────────────────────────────────
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined'
+  && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+
+// One observer shared by every <Reveal> on the page, created on first use.
+// Elements are unobserved once they fire — a reveal that replays on every
+// scroll past is a distraction, not an entrance.
+//
+// Each Reveal registers itself rather than the page sweeping for
+// [data-reveal] on mount: sections that appear later (the cost calculator
+// waits for its rates) would never be picked up by a one-time sweep, and an
+// element left at opacity 0 still occupies its space — an invisible section
+// with a page-height hole where it should be.
+let revealObserver = null;
+function observeReveal(el) {
+  if (typeof IntersectionObserver === 'undefined') { el.classList.add('in'); return () => {}; }
+  if (!revealObserver) {
+    revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add('in');
+        revealObserver.unobserve(entry.target);
+      });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.12 });
+  }
+  revealObserver.observe(el);
+  return () => revealObserver.unobserve(el);
+}
+
+// True once the element has been seen. Drives the hero conversation so it
+// plays when it is actually on screen rather than while the page is loading.
+function useInView(ref, { once = true } = {}) {
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !('IntersectionObserver' in window)) { setSeen(true); return undefined; }
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setSeen(true);
+        if (once) io.disconnect();
+      } else if (!once) setSeen(false);
+    }, { threshold: 0.35 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref, once]);
+  return seen;
+}
+
+// ─── shared pieces ───────────────────────────────────────────────────────────
+
+// Pointer position as CSS vars, so .glass-lit can put a highlight where the
+// cursor is. Cheap enough to attach per card: two custom properties, no state.
+const trackLight = (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
+  e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
+};
+
+const Glass = ({ as: Tag = 'div', className = '', lit = true, style, children, ...rest }) => (
+  <Tag
+    className={`glass${lit ? ' glass-lit glass-lift' : ''}${className ? ` ${className}` : ''}`}
+    onMouseMove={lit ? trackLight : undefined}
+    style={style}
+    {...rest}
+  >
+    {children}
+  </Tag>
+);
+
+const Reveal = ({ delay = 0, style, children, ...rest }) => {
+  const ref = useRef(null);
+  useEffect(() => (ref.current ? observeReveal(ref.current) : undefined), []);
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: 'visible' }}>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
+    <div ref={ref} data-reveal className="reveal" style={{ transitionDelay: `${delay}ms`, ...style }} {...rest}>
+      {children}
+    </div>
   );
 };
 
-const HeroPreview = () => {
-  const spark1 = [42, 55, 48, 62, 58, 74, 68, 82, 76, 90];
-  const spark2 = [30, 38, 32, 45, 40, 52, 48, 58, 54, 62];
-  const spark3 = [8, 12, 10, 16, 14, 20, 18, 22, 20, 24];
-  const spark4 = [95, 97, 96, 98, 97, 99, 98, 99, 98, 99];
-  const bars   = [40, 58, 45, 72, 65, 88, 80];
+// Section label. The double tick is the platform's own vocabulary for
+// "delivered" — the one bit of ornament, and it means something.
+const Eyebrow = ({ children }) => (
+  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: MONO, fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--green)' }}>
+    <svg width="15" height="10" viewBox="0 0 18 12" fill="none" aria-hidden="true">
+      <path d="M1 6l4 4L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6 6l4 4L17 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+    {children}
+  </div>
+);
+
+const SectionHead = ({ eyebrow, title, sub, align = 'center' }) => (
+  <div style={{ textAlign: align, marginBottom: 56, maxWidth: align === 'center' ? 620 : 'none', marginLeft: align === 'center' ? 'auto' : 0, marginRight: align === 'center' ? 'auto' : 0 }}>
+    <Reveal><Eyebrow>{eyebrow}</Eyebrow></Reveal>
+    <Reveal delay={60}>
+      <h2 style={{ fontSize: 'clamp(28px,3.6vw,48px)', fontWeight: 800, letterSpacing: '-.035em', margin: '16px 0 14px' }}>{title}</h2>
+    </Reveal>
+    {sub && (
+      <Reveal delay={120}>
+        <p style={{ fontSize: 16, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 520, margin: align === 'center' ? '0 auto' : 0 }}>{sub}</p>
+      </Reveal>
+    )}
+  </div>
+);
+
+const Aurora = () => (
+  <>
+    <div className="aurora-a" style={{ position: 'absolute', top: '-10%', left: '-5%', width: 620, height: 620, background: 'radial-gradient(circle, rgba(30,191,94,0.16), transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none', willChange: 'transform' }} />
+    <div className="aurora-b" style={{ position: 'absolute', top: '18%', right: '-12%', width: 680, height: 680, background: 'radial-gradient(circle, rgba(14,165,233,0.13), transparent 62%)', filter: 'blur(48px)', pointerEvents: 'none', willChange: 'transform' }} />
+  </>
+);
+
+// ─── the signature: a campaign message that answers for itself ───────────────
+
+const SCRIPT = [
+  { role: 'user',  text: 'Price?' },
+  { role: 'agent', text: 'The Premium Plan is ₹999/month.' },
+  { role: 'user',  text: 'Till when?' },
+  { role: 'agent', text: 'The 50% offer runs until 15 August.' },
+];
+
+const Bubble = ({ role, text, mono }) => {
+  const mine = role === 'user';
   return (
-    <div className="fu5 floatY hero-preview-root" style={{ position: 'relative' }}>
-      <div className="hero-preview-badge-right" style={{ position: 'absolute', top: '-18px', right: '-24px', zIndex: 10, padding: '8px 14px', borderRadius: '40px', background: 'var(--surf)', border: '1px solid var(--bd)', boxShadow: 'var(--card-shadow)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s ease infinite' }} />
-        <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--t1)' }}>98.7% delivered</span>
-      </div>
-      <div className="hero-preview-badge-left" style={{ position: 'absolute', bottom: '-16px', left: '-24px', zIndex: 10, padding: '8px 14px', borderRadius: '40px', background: 'var(--surf)', border: '1px solid var(--bd)', boxShadow: 'var(--card-shadow)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <I n="send" s={13} c="#1EBF5E" />
-        <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--t1)' }}>12,421 sent today</span>
-      </div>
-      <div className="hero-preview-card" style={{ background: '#090D1A', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 32px 80px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-        <div style={{ height: '36px', background: '#060A15', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', padding: '0 14px', gap: '10px' }}>
-          <div style={{ display: 'flex', gap: '5px' }}>{['#FF5F57', '#FFBD2E', '#28C840'].map(c => <div key={c} style={{ width: '10px', height: '10px', borderRadius: '50%', background: c }} />)}</div>
-          <div style={{ flex: 1, maxWidth: '300px', margin: '0 auto', background: 'rgba(255,255,255,0.05)', borderRadius: '5px', padding: '3px 12px', fontSize: '10.5px', color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>app.chatflowpro.com/dashboard</div>
-        </div>
-        <div style={{ display: 'flex', height: 'auto', minHeight: '430px' }}>
-          <div style={{ width: '50px', flexShrink: 0, background: '#060913', borderRight: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '14px 0', gap: '4px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '10px' }}>
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
-            </div>
-            {['home', 'file', 'send', 'users', 'msg', 'zap', 'chart', 'phone', 'cog'].map((ic, i) => (
-              <div key={ic} style={{ width: '32px', height: '32px', borderRadius: '7px', background: i === 0 ? 'var(--gbg)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <I n={ic} s={14} c={i === 0 ? 'var(--green)' : 'rgba(255,255,255,0.18)'} w={1.6} />
-              </div>
-            ))}
-          </div>
-          <div style={{ flex: 1, minWidth: 0, background: '#070B18', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '10px', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-              <div>
-                <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '14px', color: 'var(--t1)' }}>Dashboard</div>
-                <div style={{ fontSize: '10px', color: 'var(--t2)', marginTop: '1px' }}>May 9, 2026</div>
-              </div>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <div style={{ padding: '4px 10px', fontSize: '10px', fontWeight: 600, borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)' }}>Export</div>
-                <div style={{ padding: '4px 10px', fontSize: '10px', fontWeight: 700, borderRadius: '6px', background: 'var(--green)', color: '#060913' }}>+ Campaign</div>
-              </div>
-            </div>
-            <div style={{ minHeight: '32px', borderRadius: '8px', background: 'linear-gradient(90deg,rgba(30,191,94,0.12),rgba(14,165,233,0.07))', border: '1px solid rgba(30,191,94,0.2)', display: 'flex', alignItems: 'center', padding: '6px 12px', gap: '6px', flexWrap: 'wrap' }}>
-              <I n="spark" s={10} c="var(--green)" />
-              <span style={{ fontSize: '10px', color: 'var(--t1)', fontWeight: 600 }}>Unlock AI Copilot — Upgrade to Growth</span>
-              <span style={{ marginLeft: 'auto', fontSize: '9px', padding: '2px 8px', borderRadius: '20px', background: 'var(--green)', color: '#060913', fontWeight: 700 }}>Upgrade</span>
-            </div>
-            <div className="preview-grid-4">
-              {[['50.2K', 'Messages', spark1, 'var(--green)', '↑12%'], ['12.4K', 'Contacts', spark2, '#0EA5E9', '↑8%'], ['24', 'Campaigns', spark3, '#A78BFA', '↑3'], ['98.7%', 'Delivery', spark4, '#F59E0B', '↑0.4%']].map(([v, l, sp, c, ch]) => (
-                <div key={l} style={{ padding: '9px 10px', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', marginBottom: '3px' }}>{l}</div>
-                  <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '14px', color: c, marginBottom: '2px' }}>{v}</div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                    <span style={{ fontSize: '8px', color: 'rgba(30,191,94,0.7)' }}>{ch}</span>
-                    <MiniSpark data={sp} color={c} w={44} h={18} />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{ flex: 1, padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', minWidth: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '10px', fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>Messages Sent</span>
-                <span style={{ fontSize: '9px', color: 'var(--green)', fontWeight: 600 }}>↑ 32% this week</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '5px', height: '68px', marginBottom: '6px' }}>
-                {bars.map((h2, i) => (
-                  <div key={i} style={{ flex: 1, height: `${h2}%`, borderRadius: '4px 4px 0 0', background: `linear-gradient(to top,rgba(30,191,94,${i === 5 ? '0.8' : '0.35'}),rgba(30,191,94,${i === 5 ? '0.9' : '0.55'}))` }} />
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '5px' }}>
-                {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i} style={{ flex: 1, fontSize: '8px', color: 'rgba(255,255,255,0.2)', textAlign: 'center' }}>{d}</div>)}
-              </div>
-            </div>
-            <div className="preview-grid-2">
-              {[
-                { label: 'WhatsApp', value: '+91 98765 43210', sub: 'Quality: High', badge: 'Connected', bc: 'var(--green)', bb: 'var(--gbd)', bbg: 'var(--gbg)' },
-                { label: 'Campaigns', value: 'Diwali Sale Active', sub: '12,421 sent', badge: 'Live', bc: '#0EA5E9', bb: 'rgba(14,165,233,0.25)', bbg: 'rgba(14,165,233,0.08)' },
-              ].map(it => (
-                <div key={it.label} style={{ padding: '9px 10px', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '7px', minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
-                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{it.label}</span>
-                    <span style={{ fontSize: '8px', padding: '1px 6px', borderRadius: '20px', background: it.bbg, border: `1px solid ${it.bb}`, color: it.bc, fontWeight: 700 }}>{it.badge}</span>
-                  </div>
-                  <div style={{ fontFamily: "'Syne',sans-serif", fontSize: '10px', fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.value}</div>
-                  <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', marginTop: '1px' }}>{it.sub}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+    <div style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+      <div style={{
+        maxWidth: '84%', padding: '8px 11px',
+        borderRadius: mine ? '13px 13px 3px 13px' : '13px 13px 13px 3px',
+        background: mine ? 'rgba(30,191,94,0.14)' : 'rgba(255,255,255,0.05)',
+        border: `1px solid ${mine ? 'var(--gbd)' : 'var(--bd)'}`,
+      }}>
+        {!mine && <div style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.12em', color: 'var(--green)', marginBottom: 3, textTransform: 'uppercase' }}>Riya · campaign agent</div>}
+        <p style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--t1)', fontFamily: mono ? MONO : undefined }}>{text}</p>
       </div>
     </div>
   );
 };
 
+const Typing = () => (
+  <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+    <div className="dot-typing" style={{ display: 'flex', gap: 4, padding: '10px 12px', borderRadius: '13px 13px 13px 3px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)' }}>
+      {[0, 1, 2].map((i) => <span key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--t2)' }} />)}
+    </div>
+  </div>
+);
+
+// The campaign message, its CTA, and what happens when the CTA is tapped.
+// Plays itself once on view; tapping the button replays it, because the whole
+// point is that the button is the thing you press.
+const CampaignTap = () => {
+  const ref = useRef(null);
+  const seen = useInView(ref);
+  const timers = useRef([]);
+  const [step, setStep] = useState(0);       // how many script lines are shown
+  const [pressed, setPressed] = useState(false);
+  const [typing, setTyping] = useState(false);
+
+  const clear = () => { timers.current.forEach(clearTimeout); timers.current = []; };
+
+  const play = useCallback(() => {
+    clear();
+    if (prefersReducedMotion()) { setPressed(true); setStep(SCRIPT.length); return; }
+    setStep(0); setTyping(false);
+    setPressed(true);
+    let t = 620;
+    SCRIPT.forEach((line, i) => {
+      if (line.role === 'agent') {
+        timers.current.push(setTimeout(() => setTyping(true), t));
+        t += 780;
+      }
+      timers.current.push(setTimeout(() => { setTyping(false); setStep(i + 1); }, t));
+      t += line.role === 'agent' ? 900 : 700;
+    });
+  }, []);
+
+  useEffect(() => { if (seen) play(); return clear; }, [seen, play]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', width: '100%', maxWidth: 420 }}>
+      {/* Delivery panel, frosted and set back — the campaign this message
+          belongs to, seen through the glass behind the phone. */}
+      <Glass lit={false} className="hero-back-panel" style={{ position: 'absolute', top: -28, right: -96, width: 250, padding: '14px 16px', opacity: 0.75 }}>
+        <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--t2)', marginBottom: 10 }}>Summer Sale · live</div>
+        {[['Sent', '12,421', 'var(--t1)'], ['Delivered', '12,180', 'var(--green)'], ['Chats opened', '1,308', '#0EA5E9']].map(([l, v, c]) => (
+          <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0' }}>
+            <span style={{ fontSize: 11, color: 'var(--t2)' }}>{l}</span>
+            <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 700, color: c }}>{v}</span>
+          </div>
+        ))}
+        <div style={{ marginTop: 10, height: 3, borderRadius: 3, background: 'rgba(255,255,255,0.07)' }}>
+          <div style={{ height: '100%', width: '98.3%', borderRadius: 3, background: 'var(--green)' }} />
+        </div>
+      </Glass>
+
+      <Glass lit={false} style={{ position: 'relative', padding: 16, borderRadius: 'var(--rxl)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+          <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--t1)' }}>Aarti Textiles</div>
+            <div style={{ fontFamily: MONO, fontSize: 9.5, color: 'var(--t2)' }}>business account</div>
+          </div>
+        </div>
+
+        {/* The template as it lands on the customer's phone. */}
+        <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', borderRadius: '13px 13px 13px 3px', padding: '11px 13px' }}>
+          <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--t1)' }}>
+            <strong>Summer Sale 🎉</strong><br />
+            Premium Plan at ₹999/month.<br />
+            Get 50% OFF until 15 August.<br />
+            <span style={{ color: 'var(--t2)' }}>Unlimited messages · AI automation · Analytics · Priority support</span>
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginTop: 6 }}>
+            <span style={{ fontFamily: MONO, fontSize: 9.5, color: 'var(--t2)' }}>10:24</span>
+            <svg width="14" height="9" viewBox="0 0 18 12" fill="none" aria-hidden="true">
+              <path d="M1 6l4 4L13 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M6 6l4 4L17 1" stroke="#53bdeb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        </div>
+
+        {/* The CTA. Pressing it is the product. */}
+        <button
+          onClick={play}
+          aria-label="Replay: customer taps Ask Anything"
+          style={{
+            width: '100%', marginTop: 3, padding: '10px', cursor: 'pointer',
+            borderRadius: 11, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 12.5, fontWeight: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+            color: pressed ? 'var(--green)' : '#53bdeb',
+            background: pressed ? 'rgba(30,191,94,0.12)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${pressed ? 'var(--gbd)' : 'var(--bd)'}`,
+            transform: pressed ? 'scale(0.985)' : 'none',
+            transition: 'all .25s cubic-bezier(.2,.7,.3,1)',
+          }}
+        >
+          <I n="msg" s={13} c={pressed ? 'var(--green)' : '#53bdeb'} />
+          Ask Anything
+        </button>
+
+        {step > 0 && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {SCRIPT.slice(0, step).map((line, i) => <Bubble key={i} {...line} />)}
+            {typing && <Typing />}
+          </div>
+        )}
+      </Glass>
+    </div>
+  );
+};
+
+// ─── nav ─────────────────────────────────────────────────────────────────────
+
 const Navbar = ({ onNav }) => {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 20);
-    window.addEventListener('scroll', fn);
+    const fn = () => setScrolled(window.scrollY > 24);
+    fn();
+    window.addEventListener('scroll', fn, { passive: true });
     return () => window.removeEventListener('scroll', fn);
   }, []);
+
   return (
-    <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, height: '62px', background: scrolled ? 'rgba(8,11,18,0.90)' : 'transparent', backdropFilter: scrolled ? 'blur(24px)' : 'none', borderBottom: scrolled ? '1px solid var(--bd)' : '1px solid transparent', transition: 'all .25s ease', display: 'flex', alignItems: 'center' }}>
-      <div style={{ maxWidth: '1240px', width: '100%', margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer' }}>
-          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 16px rgba(30,191,94,0.35)' }}>
+    <nav style={{
+      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, height: 64,
+      display: 'flex', alignItems: 'center',
+      background: scrolled ? 'rgba(8,11,18,0.72)' : 'transparent',
+      backdropFilter: scrolled ? 'blur(18px) saturate(150%)' : 'none',
+      WebkitBackdropFilter: scrolled ? 'blur(18px) saturate(150%)' : 'none',
+      borderBottom: `1px solid ${scrolled ? 'var(--bd)' : 'transparent'}`,
+      transition: 'background .3s ease, border-color .3s ease',
+    }}>
+      <div style={{ maxWidth: 1240, width: '100%', margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <button onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 18px rgba(30,191,94,0.35)' }}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /><path d="M5.5 7.5h5M5.5 10h3" stroke="#1EBF5E" strokeWidth="1.2" strokeLinecap="round" /></svg>
           </div>
-          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '16px', color: 'var(--t1)', letterSpacing: '-.02em' }}>ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span></span>
-        </div>
-        <div style={{ display: 'flex', gap: '32px' }}>
+          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span></span>
+        </button>
+
+        <div className="nav-links" style={{ display: 'flex', gap: 30 }}>
           {[['Features', '#features'], ['Use Cases', '#usecases'], ['Pricing', '#pricing']].map(([l, h]) => (
-            <a key={l} href={h} style={{ color: 'var(--t2)', fontSize: '14px', fontWeight: 500, textDecoration: 'none', transition: 'color .15s' }}
+            <a key={l} href={h} style={{ color: 'var(--t2)', fontSize: 14, fontWeight: 500, textDecoration: 'none', transition: 'color .15s' }}
               onMouseOver={e => e.target.style.color = 'var(--t1)'} onMouseOut={e => e.target.style.color = 'var(--t2)'}>{l}</a>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <Btn variant="ghost" size="sm" onClick={() => onNav('login')}>Log in</Btn>
-          <Btn variant="primary" size="sm" onClick={() => onNav('dashboard')}>Get Started <I n="arrow" s={12} c="#060A10" /></Btn>
+          <Btn variant="primary" size="sm" onClick={() => onNav('dashboard')}>Get started <I n="arrow" s={12} c="#060A10" /></Btn>
         </div>
       </div>
     </nav>
   );
 };
 
-const Hero = ({ onNav }) => {
-  return (
-    <section className="hero-section" style={{ minHeight: '100vh', paddingTop: '140px', paddingBottom: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
-      <style>{`
-        .hero-container {
-          width: 100%;
-          max-width: 1240px;
-          margin: 0 auto;
-          padding: 0 32px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 60px;
-          z-index: 10;
-        }
-        .hero-left-col {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 26px;
-          align-items: flex-start;
-          text-align: left;
-        }
-        .hero-right-col {
-          flex: 1;
-          width: 100%;
-          max-width: 560px;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-        }
-        .hero-preview-root {
-          width: 100%;
-          max-width: 560px;
-          flex-shrink: 0;
-        }
-        .hero-preview-card {
-          width: 100%;
-          max-width: 560px;
-        }
-        .hero-heading {
-          font-size: clamp(54px, 5.5vw, 84px);
-          font-weight: 800;
-          color: var(--t1);
-          margin: 0;
-          letter-spacing: -.05em;
-          line-height: 1.02;
-        }
-        .preview-grid-4 {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 6px;
-        }
-        .preview-grid-2 {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 6px;
-        }
+// ─── hero ────────────────────────────────────────────────────────────────────
 
-        /* Tablet widths and medium screen sizes: <= 1024px */
-        @media (max-width: 1024px) {
-          .hero-container {
-            flex-direction: column;
-            align-items: flex-start;
-            justify-content: flex-start;
-            gap: 56px;
-          }
-          .hero-left-col {
-            width: 100%;
-            max-width: 100%;
-            flex: none;
-          }
-          .hero-right-col {
-            width: 100%;
-            max-width: 100%;
-            flex: none;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-          }
-          .hero-heading {
-            font-size: clamp(42px, 6vw, 60px);
-          }
-        }
+const Hero = ({ onNav }) => (
+  <section style={{ position: 'relative', overflow: 'hidden', paddingTop: 150, paddingBottom: 90 }}>
+    <Aurora />
+    <div className="hero-grid" style={{ position: 'relative', maxWidth: 1240, margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', gap: 64 }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'flex-start' }}>
+        <Reveal>
+          {/* The newest thing is the reason to read on, so it gets the badge.
+              The partner credential moves to the proof strip below. */}
+          <button
+            onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '6px 14px 6px 6px', borderRadius: 999, background: 'var(--gbg)', border: '1px solid var(--gbd)', cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif" }}
+          >
+            <span style={{ padding: '3px 8px', borderRadius: 999, background: 'var(--green)', color: '#060913', fontFamily: MONO, fontSize: 10, fontWeight: 700, letterSpacing: '.1em' }}>NEW</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>Campaign AI Agent</span>
+            <I n="arrow" s={12} c="var(--green)" />
+          </button>
+        </Reveal>
 
-        /* Smaller screens / mobile: < 768px */
-        @media (max-width: 767px) {
-          .hero-container {
-            gap: 48px;
-          }
-          .hero-heading {
-            font-size: clamp(36px, 7vw, 48px);
-          }
-          .preview-grid-4 {
-            grid-template-columns: repeat(2, 1fr);
-          }
-        }
-
-        @media (max-width: 480px) {
-          .hero-container {
-            gap: 40px;
-          }
-          .hero-heading {
-            font-size: clamp(32px, 8vw, 40px);
-          }
-          .preview-grid-2 {
-            grid-template-columns: 1fr;
-          }
-          .hero-preview-badge-right {
-            right: 0px !important;
-            top: -14px !important;
-          }
-          .hero-preview-badge-left {
-            left: 0px !important;
-            bottom: -14px !important;
-          }
-        }
-      `}</style>
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '600px', background: 'radial-gradient(ellipse at 50% 0%, rgba(30,191,94,0.15) 0%, transparent 70%)', pointerEvents: 'none' }} />
-      <div style={{ position: 'absolute', top: '20%', left: '5%', width: '300px', height: '300px', background: 'var(--green)', filter: 'blur(150px)', opacity: 0.05, pointerEvents: 'none' }} />
-      <div style={{ position: 'absolute', bottom: '10%', right: '5%', width: '400px', height: '400px', background: '#0EA5E9', filter: 'blur(150px)', opacity: 0.05, pointerEvents: 'none' }} />
-      <div className="hero-container">
-        <div className="hero-left-col">
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '10px 18px', borderRadius: '999px', background: 'rgba(30,191,94,0.08)', border: '1px solid rgba(30,191,94,0.2)', color: 'var(--green)', fontSize: '13px', fontWeight: 700, letterSpacing: '.08em', maxWidth: '100%', whiteSpace: 'normal' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-            <span>Official Meta WhatsApp Business API Partner</span>
-          </div>
+        <Reveal delay={80}>
           <h1 className="hero-heading">
-            The WhatsApp Platform <br />Built for <span style={{ color: 'var(--green)' }}>Revenue.</span>
+            Your campaign can<br />answer <span style={{ color: 'var(--green)' }}>for itself.</span>
           </h1>
-          <p style={{ fontSize: '18px', color: 'var(--t2)', maxWidth: '540px', lineHeight: 1.7, fontWeight: 500 }}>
-            Send campaigns, automate conversations, and track every rupee of ROI — with zero hidden markup and no per-agent fees.
+        </Reveal>
+
+        <Reveal delay={150}>
+          <p style={{ fontSize: 18, color: 'var(--t2)', maxWidth: 520, lineHeight: 1.7, fontWeight: 500 }}>
+            Send WhatsApp campaigns, then let an AI agent handle the questions they start — priced, dated
+            and worded from the exact message each customer received. No markup on Meta's rates.
           </p>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+        </Reveal>
+
+        <Reveal delay={210}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>Start for free <I n="arrow" s={14} c="#060A10" /></Btn>
-            <Btn variant="ghost" size="lg" onClick={() => onNav('dashboard')} style={{ background: 'var(--surf)', border: '1px solid var(--bd)' }}>Book a Demo</Btn>
-            <Btn variant="ghost" size="lg" onClick={() => onNav('dashboard')} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>Agent</Btn>
+            <Btn variant="ghost" size="lg" onClick={() => { document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }); }}>See how it works</Btn>
           </div>
-          <p style={{ fontSize: '13px', color: 'var(--t3)', margin: 0 }}>14-day free trial · No credit card required</p>
-        </div>
-        <div className="hero-right-col">
-          <HeroPreview />
-        </div>
+        </Reveal>
+
+        <Reveal delay={260}>
+          <p style={{ fontFamily: MONO, fontSize: 12, color: 'var(--t3)', letterSpacing: '.02em' }}>
+            Free plan · no card · connect a number in minutes
+          </p>
+        </Reveal>
       </div>
-    </section>
-  );
-};
+
+      <div className="hero-visual" style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center' }}>
+        <Reveal delay={200} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+          <CampaignTap />
+        </Reveal>
+      </div>
+    </div>
+  </section>
+);
+
+// ─── proof strip ─────────────────────────────────────────────────────────────
+// Capability claims, not invented traffic numbers: each line is something the
+// product actually does, and each is demonstrated further down the page.
+
+const PROOF = [
+  ['At cost', 'Meta’s per-message rate, passed through'],
+  ['Refunded', 'Every message that never went out'],
+  ['Never guessed', 'A price or date the campaign didn’t state'],
+  ['Meta partner', 'Official WhatsApp Business API access'],
+];
+
+const ProofStrip = () => (
+  <section style={{ padding: '0 32px 90px' }}>
+    <div style={{ maxWidth: 1240, margin: '0 auto' }}>
+      <Reveal>
+        <Glass lit={false} className="proof-grid" style={{ padding: '26px 8px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', borderRadius: 'var(--rxl)' }}>
+          {PROOF.map(([value, label], i) => (
+            <div key={label} style={{ padding: '0 24px', borderLeft: i === 0 ? 'none' : '1px solid var(--bd)' }}>
+              <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22, color: 'var(--t1)', letterSpacing: '-.03em', marginBottom: 6 }}>{value}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>{label}</div>
+            </div>
+          ))}
+        </Glass>
+      </Reveal>
+    </div>
+  </section>
+);
+
+// ─── AI prompt ───────────────────────────────────────────────────────────────
 
 const LoginRequiredModal = ({ isOpen, onClose, onNav }) => {
   if (!isOpen) return null;
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
-      <div style={{ background:'#070B14', border:'1px solid rgba(255,255,255,0.08)', width: 400, borderRadius: 12, padding: 24, display:'flex', flexDirection:'column', alignItems:'center', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
-        <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: '24px' }}>🔒</div>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.72)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: 20 }}>
+      <Glass lit={false} onClick={(e) => e.stopPropagation()} style={{ width: 400, maxWidth: '100%', padding: 26, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRadius: 'var(--rxl)' }}>
+        <div style={{ width: 46, height: 46, borderRadius: 13, background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+          <I n="lock" s={20} c="var(--green)" />
         </div>
-        <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight: 700, fontSize: 18, color:'#F0F2F8', marginBottom: 8, margin: 0 }}>Login Required</h3>
-        <p style={{ fontSize: 14, color:'rgba(255,255,255,0.6)', textAlign:'center', marginBottom: 24, lineHeight: 1.5 }}>
-          You need to be logged in to use the AI Agent. Please sign in to your account to continue.
+        <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--t1)', marginBottom: 8 }}>Sign in to build this</h3>
+        <p style={{ fontSize: 14, color: 'var(--t2)', textAlign: 'center', marginBottom: 22, lineHeight: 1.6 }}>
+          The assistant builds templates, campaigns and flows inside your workspace, so it needs an account to build them in.
         </p>
-        <div style={{ display: 'flex', gap: 12, width: '100%' }}>
-          <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>Cancel</button>
-          <button onClick={() => onNav('login')} style={{ flex: 1, padding: '10px', borderRadius: 8, background: '#1EBF5E', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Log in</button>
+        <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+          <Btn variant="ghost" style={{ flex: 1, justifyContent: 'center' }} onClick={onClose}>Cancel</Btn>
+          <Btn style={{ flex: 1, justifyContent: 'center' }} onClick={() => onNav('login')}>Log in</Btn>
         </div>
-      </div>
+      </Glass>
     </div>
   );
 };
+
+const EXAMPLES = [
+  'Create a template for an abandoned cart',
+  'Build a Diwali sale campaign for my VIP list',
+  'Set up an agent that answers offer questions',
+  'Draft a welcome flow for new contacts',
+];
 
 const AIPromptSection = ({ onNav }) => {
   const [prompt, setPrompt] = useState('');
-  const [guided, setGuided] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [focused, setFocused] = useState(false);
 
-  const handleSend = () => {
+  const send = () => {
     if (!prompt.trim()) return;
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      setShowLoginModal(true);
-    } else {
-      onNav('dashboard');
-    }
+    if (!localStorage.getItem('accessToken')) setShowLoginModal(true);
+    else onNav('dashboard');
   };
 
   return (
-    <section style={{ padding: '40px 32px 80px', display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#070B14' }}>
+    <section style={{ padding: '0 32px 100px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       <LoginRequiredModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onNav={onNav} />
-      {/* Big Input Box */}
-      <div style={{ width: '100%', maxWidth: '720px', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(30, 191, 94, 0.4)', boxShadow: '0 0 30px rgba(30, 191, 94, 0.15), inset 0 0 20px rgba(30, 191, 94, 0.05)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', transition: 'all 0.3s ease' }}>
-        <textarea 
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe your ideal WhatsApp flow or campaign..."
-          style={{ width: '100%', height: '160px', background: 'transparent', border: 'none', padding: '24px', color: '#fff', fontSize: '16px', resize: 'none', outline: 'none', fontFamily: 'inherit' }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
+      <div style={{ width: '100%', maxWidth: 720 }}>
+        <Reveal>
+          <div style={{ textAlign: 'center', marginBottom: 22 }}>
+            <Eyebrow>Describe it, don’t build it</Eyebrow>
+          </div>
+        </Reveal>
+        <Reveal delay={70}>
+          <Glass lit={false} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 'var(--rxl)', borderColor: focused ? 'var(--gbd)' : 'var(--glass-bd)', boxShadow: focused ? 'var(--glow), var(--glass-sh)' : 'var(--glass-sh)', transition: 'border-color .25s, box-shadow .25s' }}>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+              placeholder="Describe the campaign or flow you want…"
+              aria-label="Describe the campaign or flow you want"
+              style={{ width: '100%', height: 132, background: 'transparent', border: 'none', padding: '22px 24px', color: 'var(--t1)', fontSize: 15.5, lineHeight: 1.6, resize: 'none', outline: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif" }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 18px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid var(--bd)' }}>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--t3)', letterSpacing: '.06em' }}>ENTER TO SEND</span>
+              <Btn size="sm" onClick={send} disabled={!prompt.trim()}>Build it <I n="arrow" s={12} c="#060A10" /></Btn>
+            </div>
+          </Glass>
+        </Reveal>
+        <Reveal delay={130}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, justifyContent: 'center' }}>
+            {EXAMPLES.map((ex) => (
+              <button key={ex} onClick={() => setPrompt(ex)}
+                style={{ padding: '7px 13px', borderRadius: 999, background: 'rgba(255,255,255,0.035)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12.5, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", transition: 'all .18s' }}
+                onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'var(--t1)'; }}
+                onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.035)'; e.currentTarget.style.color = 'var(--t2)'; }}>
+                {ex}
+              </button>
+            ))}
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+};
+
+// ─── what a send costs ───────────────────────────────────────────────────────
+//
+// The one number a prospect actually wants before signing up. Rates come from
+// the server's published rate card (GET /api/v1/pricing), which is the same
+// table campaigns are billed against — a figure typed in here by hand is how
+// someone gets quoted a price the billing code will not honour. If the rates
+// can't be fetched, the section removes itself rather than guess.
+
+const CATEGORY_COPY = [
+  ['MARKETING', 'Marketing', 'Offers, launches, re-engagement'],
+  ['UTILITY', 'Utility', 'Order updates, reminders, receipts'],
+  ['AUTHENTICATION', 'Authentication', 'One-time passcodes'],
+];
+
+const SIZES = [500, 2000, 10000, 25000];
+
+// Eases to a new value so a changed total reads as movement, not a jump cut.
+function useCountUp(target, ms = 420) {
+  const [value, setValue] = useState(target);
+  const from = useRef(target);
+  useEffect(() => {
+    if (prefersReducedMotion()) { setValue(target); from.current = target; return undefined; }
+    const start = performance.now();
+    const origin = from.current;
+    let raf;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / ms);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setValue(origin + (target - origin) * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else from.current = target;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return value;
+}
+
+const rupees = (n) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+const CostCalculator = () => {
+  const [rates, setRates] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [category, setCategory] = useState('MARKETING');
+  const [count, setCount] = useState(2000);
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/v1/pricing')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('unavailable'))))
+      .then((d) => { if (alive && d?.rates) setRates(d.rates); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, []);
+
+  const rate = rates?.[category];
+  const total = useCountUp(rate ? count * rate : 0);
+
+  if (failed || !rates) return null;
+
+  return (
+    <section style={{ padding: '20px 0 100px' }}>
+      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
+        <SectionHead
+          eyebrow="Run the numbers"
+          title={<>What your next send<br /><span style={{ color: 'var(--green)' }}>actually costs</span></>}
+          sub="These are the live rates your campaigns are billed at — not an estimate, and not a marked-up resale price."
         />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: '#1EBF5E', fontWeight: 600 }}>
-            <input type="checkbox" checked={guided} onChange={(e) => setGuided(e.target.checked)} style={{ accentColor: '#1EBF5E', width: '16px', height: '16px', cursor: 'pointer' }} />
-            Guided Flow
-          </label>
-          <button 
-            onClick={handleSend}
-            style={{ background: '#1EBF5E', color: '#000', border: 'none', borderRadius: '8px', padding: '9px 18px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'transform 0.1s' }}
-            onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
-            onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-          >
-            Send
-          </button>
+        <Reveal>
+          <Glass lit={false} className="calc" style={{ padding: 30, borderRadius: 'var(--rxl)', display: 'grid', gridTemplateColumns: '1.15fr .85fr', gap: 34, alignItems: 'center' }}>
+            <div>
+              <label htmlFor="calc-size" style={{ display: 'block', fontFamily: MONO, fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--t2)', marginBottom: 12 }}>
+                Recipients
+              </label>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
+                <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 34, color: 'var(--t1)', letterSpacing: '-.04em' }}>
+                  {count.toLocaleString('en-IN')}
+                </span>
+                <span style={{ fontSize: 13, color: 'var(--t2)' }}>contacts</span>
+              </div>
+              <input
+                id="calc-size" type="range" min="100" max="50000" step="100"
+                value={count} onChange={(e) => setCount(Number(e.target.value))}
+                style={{ width: '100%', accentColor: 'var(--green)' }}
+              />
+              <div style={{ display: 'flex', gap: 7, marginTop: 14, flexWrap: 'wrap' }}>
+                {SIZES.map((n) => (
+                  <button key={n} onClick={() => setCount(n)}
+                    style={{ padding: '5px 11px', borderRadius: 999, cursor: 'pointer', fontFamily: MONO, fontSize: 11.5,
+                      background: count === n ? 'var(--gbg)' : 'rgba(255,255,255,0.035)',
+                      border: `1px solid ${count === n ? 'var(--gbd)' : 'var(--bd)'}`,
+                      color: count === n ? 'var(--green)' : 'var(--t2)', transition: 'all .18s' }}>
+                    {n.toLocaleString('en-IN')}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ marginTop: 26 }}>
+                <span style={{ display: 'block', fontFamily: MONO, fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--t2)', marginBottom: 12 }}>
+                  Message type
+                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {CATEGORY_COPY.map(([key, label, hint]) => {
+                    const on = category === key;
+                    return (
+                      <button key={key} onClick={() => setCategory(key)}
+                        aria-pressed={on}
+                        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+                          background: on ? 'var(--gbg)' : 'rgba(255,255,255,0.025)',
+                          border: `1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`, transition: 'all .18s' }}>
+                        <span style={{ width: 13, height: 13, borderRadius: '50%', flexShrink: 0, border: `1.5px solid ${on ? 'var(--green)' : 'var(--bdm)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {on && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)' }} />}
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: on ? 'var(--t1)' : 'var(--t2)' }}>{label}</span>
+                          <span style={{ display: 'block', fontSize: 11.5, color: 'var(--t3)', marginTop: 1 }}>{hint}</span>
+                        </span>
+                        <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 700, color: on ? 'var(--green)' : 'var(--t2)' }}>
+                          ₹{rates[key].toFixed(2)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--t2)', marginBottom: 10 }}>
+                One campaign
+              </div>
+              <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 'clamp(44px,5vw,68px)', color: 'var(--green)', letterSpacing: '-.05em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                {rupees(total)}
+              </div>
+              <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--t2)', marginTop: 10 }}>
+                {count.toLocaleString('en-IN')} × ₹{rate.toFixed(2)}
+              </div>
+              <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', gap: 9, textAlign: 'left' }}>
+                {[
+                  'Reserved from your wallet at launch',
+                  'Opted-out numbers skipped, never charged',
+                  'Anything undelivered comes back to you',
+                ].map((line) => (
+                  <div key={line} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>
+                    <span style={{ flexShrink: 0, marginTop: 2 }}><I n="check" s={13} c="var(--green)" w={2.4} /></span>{line}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Glass>
+        </Reveal>
+      </div>
+    </section>
+  );
+};
+
+// ─── questions people ask before signing up ──────────────────────────────────
+
+const FAQ_ITEMS = [
+  ['Do I need my own WhatsApp Business API access?',
+   'No. Connect a number you already own through Meta’s embedded signup, or have one assigned to you from the pool. Either way the number, its templates and its access token stay bound to your workspace.'],
+  ['What happens when a message fails?',
+   'Retryable failures are retried on a backoff schedule you control, with SMS or email as a fallback channel. A recipient is billed once no matter how many attempts it took, and anything that never reached Meta is refunded when the campaign settles.'],
+  ['Can the AI agent invent a price or a date?',
+   'It is given the campaign message that specific customer received, plus your knowledge base, and is instructed to answer from those only. Asked something neither covers, it says it does not have that and offers a human — it does not fill the gap.'],
+  ['What if someone wants to stop hearing from us?',
+   'A reply of STOP blocks that number for good. It is skipped on every future campaign, excluded from the cost before you are charged, and no automation replies to it again.'],
+  ['Who can see my data?',
+   'Everything — contacts, campaigns, conversations, wallet — is scoped to your workspace, and members only reach it through their membership. WhatsApp access tokens are encrypted at rest.'],
+];
+
+const FaqRow = ({ q, a, open, onToggle, index }) => (
+  <Reveal delay={index * 50}>
+    <Glass lit={false} style={{ borderRadius: 'var(--rl)', overflow: 'hidden' }}>
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, padding: '18px 22px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: "'Plus Jakarta Sans',sans-serif" }}
+      >
+        <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'var(--t1)', letterSpacing: '-.01em' }}>{q}</span>
+        <span style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform .3s cubic-bezier(.2,.7,.3,1)', transform: open ? 'rotate(45deg)' : 'none' }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={open ? 'var(--green)' : 'var(--t2)'} strokeWidth="2.4" strokeLinecap="round">
+            <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </span>
+      </button>
+      {/* Grid-rows trick: animates to the answer's real height without
+          measuring it or hardcoding a max-height that clips longer copy. */}
+      <div style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', transition: 'grid-template-rows .32s cubic-bezier(.2,.7,.3,1)' }}>
+        <div style={{ overflow: 'hidden' }}>
+          <p style={{ padding: '0 22px 20px', fontSize: 13.5, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 760 }}>{a}</p>
         </div>
       </div>
+    </Glass>
+  </Reveal>
+);
 
-      {/* Use Cases */}
-      <div style={{ marginTop: '32px', width: '100%', maxWidth: '720px' }}>
-        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '12px' }}>Try these examples</div>
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          {[
-            'Create a template for an abandoned cart',
-            'Delete a template',
-            'Create a campaign for Diwali sale',
-            'Delete a campaign'
-          ].map(uc => (
-            <button 
-              key={uc} 
-              onClick={() => { setPrompt(uc); onNav('dashboard'); }} 
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 16px', color: '#fff', fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left' }} 
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30, 191, 94, 0.1)'; e.currentTarget.style.borderColor = 'rgba(30, 191, 94, 0.3)'; }} 
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
-            >
-              "{uc}"
-            </button>
+const Faq = () => {
+  const [open, setOpen] = useState(0);
+  return (
+    <section style={{ padding: '20px 0 100px' }}>
+      <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 32px' }}>
+        <SectionHead eyebrow="Before you ask" title={<>The questions that<br />come up <span style={{ color: 'var(--green)' }}>every time</span></>} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {FAQ_ITEMS.map(([q, a], i) => (
+            <FaqRow key={q} q={q} a={a} index={i} open={open === i} onToggle={() => setOpen(open === i ? -1 : i)} />
           ))}
         </div>
       </div>
@@ -384,258 +698,342 @@ const AIPromptSection = ({ onNav }) => {
   );
 };
 
+// ─── features ────────────────────────────────────────────────────────────────
 
-const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', padding: '28px', boxShadow: 'var(--card-shadow)', transition: 'border-color .2s, transform .2s' };
-
-const CampaignVisual = () => (
-  <div style={{ marginTop: '20px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--bd)', padding: '14px' }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-      <div><div style={{ fontSize: '11px', color: 'var(--t2)', marginBottom: '2px' }}>Diwali Sale 2026 · 12,400 recipients</div>
-        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)' }}>Campaign Active</div></div>
-      <div style={{ padding: '3px 9px', borderRadius: '20px', background: 'var(--gbg)', border: '1px solid var(--gbd)', fontSize: '10px', color: 'var(--green)', fontWeight: 700 }}>Live</div>
-    </div>
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '6px', marginBottom: '12px' }}>
-      {[['Sent', '12,421', 'var(--t1)'], ['Delivered', '12,180', 'var(--green)'], ['Read', '8,943', '#0EA5E9']].map(([l, v, c]) => (
-        <div key={l} style={{ padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)' }}>
-          <div style={{ fontSize: '9px', color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '3px' }}>{l}</div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '13px', color: c }}>{v}</div>
-        </div>
-      ))}
-    </div>
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--t2)', marginBottom: '4px' }}><span>Delivery</span><span style={{ color: 'var(--green)' }}>98.3%</span></div>
-      <div style={{ height: '4px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)' }}><div style={{ height: '100%', width: '98.3%', borderRadius: '4px', background: 'var(--green)' }} /></div>
-    </div>
-  </div>
-);
-
-const ChatVisual = () => (
-  <div style={{ marginTop: '18px', display: 'flex', flexDirection: 'column', gap: '7px' }}>
-    {[{ t: 'What are your delivery charges?', o: false }, { t: 'Free delivery above ₹499! Your order qualifies.', o: true, ai: true }, { t: 'Is the blue hoodie in XL?', o: false }].map((m, i) => (
-      <div key={i} style={{ display: 'flex', justifyContent: m.o ? 'flex-end' : 'flex-start' }}>
-        <div style={{ maxWidth: '82%', padding: '8px 11px', borderRadius: m.o ? '12px 12px 2px 12px' : '12px 12px 12px 2px', background: m.o ? 'var(--gbg)' : 'rgba(255,255,255,0.04)', border: `1px solid ${m.o ? 'var(--gbd)' : 'var(--bd)'}` }}>
-          {m.ai && <div style={{ fontSize: '8px', color: 'var(--green)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: '3px' }}>AI Reply</div>}
-          <p style={{ fontSize: '11px', color: 'var(--t1)', lineHeight: 1.45 }}>{m.t}</p>
-        </div>
+const AgentChainVisual = () => (
+  <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+    {[
+      ['1 · Attach', 'Pick a deployed agent and a CTA label while you build the campaign.', 'var(--green)'],
+      ['2 · Tap', 'The button carries the recipient’s id, so the agent opens on the right message.', '#0EA5E9'],
+      ['3 · Answer', 'Questions are answered from that message — and nothing else is invented.', '#A78BFA'],
+    ].map(([step, copy, c]) => (
+      <div key={step} style={{ padding: '11px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.025)', border: '1px solid var(--bd)' }}>
+        <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.08em', color: c, marginBottom: 6, textTransform: 'uppercase' }}>{step}</div>
+        <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.55 }}>{copy}</p>
       </div>
     ))}
   </div>
 );
 
-const BarVis = () => {
-  const d = [55, 72, 61, 88, 95, 78, 84];
-  return (
-    <div style={{ marginTop: '18px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '5px', height: '72px', marginBottom: '6px' }}>
-        {d.map((v, i) => <div key={i} style={{ flex: 1, height: `${v}%`, borderRadius: '4px 4px 0 0', background: `linear-gradient(to top,rgba(30,191,94,0.25),rgba(30,191,94,${i === 4 ? '0.8' : '0.55'}))` }} />)}
+const LedgerVisual = () => (
+  <div style={{ marginTop: 18, borderRadius: 10, border: '1px solid var(--bd)', background: 'rgba(255,255,255,0.02)', overflow: 'hidden' }}>
+    {[
+      ['Reserved at launch', '−₹2,116.00', 'var(--t1)'],
+      ['2 numbers opted out', 'skipped', 'var(--t2)'],
+      ['Refunded on completion', '+₹4.36', 'var(--green)'],
+    ].map(([label, value, c], i) => (
+      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 13px', borderTop: i ? '1px solid var(--bd)' : 'none' }}>
+        <span style={{ fontSize: 12, color: 'var(--t2)' }}>{label}</span>
+        <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 700, color: c }}>{value}</span>
       </div>
-      <div style={{ display: 'flex', gap: '5px' }}>{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i} style={{ flex: 1, fontSize: '9px', color: 'var(--t3)', textAlign: 'center' }}>{d}</div>)}</div>
-      <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--green)' }} />
-        <span style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 600 }}>↑ 32% revenue this week</span>
-      </div>
-    </div>
-  );
-};
+    ))}
+  </div>
+);
 
-const FlowVis = () => (
-  <div style={{ marginTop: '18px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-    {[['Trigger', 'User sends message', 'var(--green)'], ['Condition', 'During business hours?', '#F59E0B'], ['Action', 'Send welcome + menu', '#0EA5E9']].map(([t, d, c], i) => (
+const FlowVisual = () => (
+  <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 5 }}>
+    {[['Trigger', 'Customer sends a message', 'var(--green)'], ['Wait', '2 hours', '#F59E0B'], ['Send', 'Follow-up template', '#0EA5E9']].map(([t, d, c], i) => (
       <div key={t}>
-        <div style={{ padding: '9px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.025)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: '9px' }}>
-          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: c, flexShrink: 0 }} />
-          <div><div style={{ fontSize: '9px', color: c, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em' }}>{t}</div>
-            <div style={{ fontSize: '10px', color: 'var(--t2)', marginTop: '1px' }}>{d}</div></div>
+        <div style={{ padding: '9px 12px', borderRadius: 9, background: 'rgba(255,255,255,0.025)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 9 }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: c, flexShrink: 0 }} />
+          <span style={{ fontFamily: MONO, fontSize: 9.5, color: c, textTransform: 'uppercase', letterSpacing: '.08em', width: 52, flexShrink: 0 }}>{t}</span>
+          <span style={{ fontSize: 11.5, color: 'var(--t2)' }}>{d}</span>
         </div>
-        {i < 2 && <div style={{ width: '1px', height: '6px', background: 'rgba(255,255,255,0.08)', margin: '0 19px' }} />}
+        {i < 2 && <div style={{ width: 1, height: 7, background: 'var(--bdm)', marginLeft: 15 }} />}
       </div>
     ))}
   </div>
 );
 
-const FCard = ({ span = 2, icon, color = 'var(--green)', title, desc, visual }) => (
-  <div style={{ ...card, gridColumn: `span ${span}` }}
-    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--bdm)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--bd)'; e.currentTarget.style.transform = 'none'; }}>
-    <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: 'rgba(255,255,255,0.045)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '14px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-      <I n={icon} s={17} c={color} />
-    </div>
-    <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--t1)', marginBottom: '7px', letterSpacing: '-.01em' }}>{title}</h3>
-    <p style={{ fontSize: '13px', color: 'var(--t2)', lineHeight: 1.65 }}>{desc}</p>
-    {visual}
-  </div>
+const FCard = ({ span = 2, icon, color = 'var(--green)', title, desc, visual, delay = 0 }) => (
+  <Reveal delay={delay} style={{ gridColumn: `span ${span}` }}>
+    <Glass style={{ padding: 26, height: '100%' }}>
+      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 15, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.09)' }}>
+        <I n={icon} s={17} c={color} />
+      </div>
+      <h3 style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--t1)', marginBottom: 7, letterSpacing: '-.015em' }}>{title}</h3>
+      <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.65 }}>{desc}</p>
+      {visual}
+    </Glass>
+  </Reveal>
 );
 
 const Features = () => (
-  <section id="features" style={{ padding: '110px 0 80px' }}>
-    <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '0 32px' }}>
-      <div style={{ textAlign: 'center', marginBottom: '60px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--green)', marginBottom: '14px' }}>Features</div>
-        <h2 style={{ fontSize: 'clamp(30px,3.8vw,52px)', fontWeight: 800, marginBottom: '16px', letterSpacing: '-.03em' }}>
-          Everything competitors charge<br />extra for — <span style={{ color: 'var(--green)' }}>included free</span>
-        </h2>
-        <p style={{ fontSize: '16px', color: 'var(--t2)', maxWidth: '500px', margin: '0 auto', lineHeight: 1.7 }}>No per-agent fees, no conversation markup, no hidden costs.</p>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: '12px' }}>
-        <FCard span={4} icon="send" title="Smart Campaigns" desc="One-time, ongoing, or API-triggered campaigns with A/B testing, retry logic, and full UTM tracking." visual={<CampaignVisual />} />
-        <FCard span={2} icon="bot" color="#0EA5E9" title="AI Smart Replies" desc="Intent-based automation. AI copilot writes templates and suggests contextual responses." visual={<ChatVisual />} />
-        <FCard span={2} icon="wflow" color="#F59E0B" title="Visual Flow Builder" desc="Drag-and-drop automation with triggers, conditions, and multi-step sequences." visual={<FlowVis />} />
-        <FCard span={4} icon="chart" color="#A78BFA" title="Revenue Attribution" desc="Full-funnel conversion tracking with ROI dashboards — every campaign tied to actual revenue." visual={<BarVis />} />
-        {[{ icon: 'msg', color: '#0EA5E9', title: 'Team Inbox', desc: 'Split-panel inbox with agent assignment, bot/human toggle, session timers, and internal notes.' },
-          { icon: 'globe', color: '#F59E0B', title: '60+ Integrations', desc: 'Shopify, WooCommerce, Zapier, Google Sheets, HubSpot, Razorpay — plug and play.' },
-          { icon: 'brain', color: '#A78BFA', title: 'AI Copilot', desc: 'Generate template copy, optimize send times, and get campaign suggestions powered by AI.' },
-        ].map(f => <FCard key={f.title} span={2} {...f} />)}
+  <section id="features" style={{ padding: '20px 0 100px', position: 'relative' }}>
+    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
+      <SectionHead
+        eyebrow="What's inside"
+        title={<>Everything the campaign needs<br />after <span style={{ color: 'var(--green)' }}>you press send</span></>}
+        sub="Sending is the easy part. These are the pieces that decide whether the conversation it starts goes anywhere."
+      />
+      <div className="bento" style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12 }}>
+        <FCard span={4} icon="bot" title="Campaign AI Agent" delay={0}
+          desc="Attach your agent to a campaign and it answers questions about that campaign — the price, the discount, the deadline, the fine print — from the exact message that customer received. Edit the campaign later and their answers stay true to what was sent."
+          visual={<AgentChainVisual />} />
+        <FCard span={2} icon="spark" color="#0EA5E9" title="Replies that route themselves" delay={60}
+          desc="A deployed agent answers free-form questions when no rule matches, and intent matching sends “my parcel hasn’t come” to your shipping trigger without an exact keyword." />
+
+        <FCard span={2} icon="wflow" color="#F59E0B" title="Workflows that actually run" delay={0}
+          desc="Triggers, conditions, delays and multi-step sends — with a run history, so “did it fire?” is answerable."
+          visual={<FlowVisual />} />
+        <FCard span={4} icon="credit" title="Billing you can audit" delay={60}
+          desc="Campaigns reserve at launch and settle on completion. Opted-out and unsendable numbers are skipped, retries are never charged twice, and everything that never went out comes back to your wallet."
+          visual={<LedgerVisual />} />
+
+        <FCard span={2} icon="note" color="#A78BFA" title="Forms over chat" delay={0}
+          desc="Collect answers one question per message, with validation, and a completed submission at the end." />
+        <FCard span={2} icon="phone" color="#0EA5E9" title="Voice AI reception" delay={60}
+          desc="Inbound calls answered, transcribed and turned into a lead, with a handoff when the caller needs a person." />
+        <FCard span={2} icon="insta" color="#F59E0B" title="Instagram quickflows" delay={120}
+          desc="DMs, comments and story replies automated on the same keyword model as WhatsApp." />
+
+        <FCard span={2} icon="file" title="Template studio" delay={0}
+          desc="Write copy with AI, generate the header image, add buttons, submit to Meta, and watch approval status land by webhook." />
+        <FCard span={2} icon="chart" color="#A78BFA" title="Delivery and revenue" delay={60}
+          desc="Sent, delivered, read and failed per campaign, tied back to spend — plus retries and SMS or email fallback." />
+        <FCard span={2} icon="key" color="#0EA5E9" title="API, webhooks, integrations" delay={120}
+          desc="Scoped API keys, outbound webhooks and OAuth connections for the tools your team already runs." />
       </div>
     </div>
   </section>
 );
 
-const UseCases = () => {
-  const cases = [
-    { icon: 'send', color: '#1EBF5E', title: 'E-Commerce', metric: '3× conversion', desc: 'Abandoned cart recovery, order updates, catalog sharing, and WhatsApp checkout.' },
-    { icon: 'users', color: '#0EA5E9', title: 'Education', metric: '60% less work', desc: 'Enrollment reminders, class updates, fee notifications, and student support bots.' },
-    { icon: 'phone', color: '#A78BFA', title: 'Healthcare', metric: '89% satisfaction', desc: 'Appointment booking, prescription reminders, lab reports, and follow-ups.' },
-    { icon: 'chart', color: '#F59E0B', title: 'Real Estate', metric: '2× site visits', desc: 'Property alerts, site visit scheduling, document sharing, and lead nurturing.' },
-    { icon: 'globe', color: '#1EBF5E', title: 'Marketing Agencies', metric: '50+ clients', desc: 'Multi-client management, campaign analytics, white-label solutions, bulk messaging.' },
-    { icon: 'zap', color: '#0EA5E9', title: 'Travel & Tourism', metric: '75% faster', desc: 'Booking confirmations, itinerary sharing, 24/7 FAQ bots, and feedback collection.' },
-  ];
-  return (
-    <section id="usecases" style={{ padding: '80px 0', borderTop: '1px solid var(--bd)', borderBottom: '1px solid var(--bd)', background: 'var(--surf)' }}>
-      <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '0 32px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '52px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--green)', marginBottom: '14px' }}>Use Cases</div>
-          <h2 style={{ fontSize: 'clamp(28px,3.5vw,48px)', fontWeight: 800, marginBottom: '14px', letterSpacing: '-.03em' }}>Built for <span style={{ color: 'var(--green)' }}>every industry</span></h2>
-          <p style={{ fontSize: '15px', color: 'var(--t2)', maxWidth: '460px', margin: '0 auto', lineHeight: 1.65 }}>From D2C brands to hospitals, ChatFlow Pro powers WhatsApp at scale.</p>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' }}>
-          {cases.map(c => (
-            <div key={c.title} style={{ ...card, padding: '22px' }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--bdm)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--bd)'; e.currentTarget.style.transform = 'none'; }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-                <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+// ─── use cases ───────────────────────────────────────────────────────────────
+
+const CASES = [
+  { icon: 'send',  color: '#1EBF5E', title: 'E-commerce',    metric: 'Cart recovery', desc: 'Abandoned-cart nudges, order updates and catalogue sends — with the agent fielding “is it in stock?”.' },
+  { icon: 'users', color: '#0EA5E9', title: 'Education',      metric: 'Admissions',    desc: 'Enrolment reminders, fee notices and a form that collects student details over chat.' },
+  { icon: 'phone', color: '#A78BFA', title: 'Clinics',        metric: 'Appointments',  desc: 'Booking confirmations, reminders and reports, with inbound calls answered when the desk is busy.' },
+  { icon: 'building', color: '#F59E0B', title: 'Real estate', metric: 'Site visits',   desc: 'Property drops to a smart list, then an agent that answers price and location questions per listing.' },
+  { icon: 'globe', color: '#1EBF5E', title: 'Agencies',       metric: 'Multi-client',  desc: 'A workspace per client, separate numbers and wallets, and one place to report from.' },
+  { icon: 'zap',   color: '#0EA5E9', title: 'Travel',         metric: 'Itineraries',   desc: 'Booking confirmations and itinerary sends, with after-hours questions handled automatically.' },
+];
+
+const UseCases = () => (
+  <section id="usecases" style={{ padding: '100px 0', borderTop: '1px solid var(--bd)', borderBottom: '1px solid var(--bd)', background: 'rgba(13,17,33,0.6)' }}>
+    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
+      <SectionHead eyebrow="Who runs it" title={<>Built for <span style={{ color: 'var(--green)' }}>every industry</span></>}
+        sub="Same platform, different conversations. These are the ones it gets used for most." />
+      <div className="case-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+        {CASES.map((c, i) => (
+          <Reveal key={c.title} delay={(i % 3) * 70}>
+            <Glass style={{ padding: 22, height: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <I n={c.icon} s={16} c={c.color} />
                 </div>
-                <div style={{ padding: '3px 9px', borderRadius: '20px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', fontSize: '11px', color: 'var(--t2)', fontWeight: 600 }}>{c.metric}</div>
+                <span style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '.06em', color: 'var(--t2)', padding: '4px 9px', borderRadius: 999, background: 'rgba(255,255,255,0.035)', border: '1px solid var(--bd)', textTransform: 'uppercase' }}>{c.metric}</span>
               </div>
-              <h3 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--t1)', marginBottom: '6px', letterSpacing: '-.01em' }}>{c.title}</h3>
-              <p style={{ fontSize: '13px', color: 'var(--t2)', lineHeight: 1.6 }}>{c.desc}</p>
-            </div>
-          ))}
-        </div>
+              <h3 style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--t1)', marginBottom: 6 }}>{c.title}</h3>
+              <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.6 }}>{c.desc}</p>
+            </Glass>
+          </Reveal>
+        ))}
       </div>
-    </section>
-  );
-};
+    </div>
+  </section>
+);
 
-const Pricing = ({ onNav }) => {
-  const plans = [
-    // Prices must match the Plan catalog seeded in backend/src/server.js —
-    // advertising a price the checkout cannot sell is worse than no price.
-    { name: 'Basic', price: '₹1,500', per: '/mo', note: 'or ₹3,500/quarter', desc: 'For small businesses getting started.', popular: false, features: ['1 WhatsApp number', 'Up to 10 team members', '10,000 messages/cycle', 'Basic chatbot builder', 'Team inbox', 'Template manager', 'Email support'] },
-    { name: 'Growth', price: '₹2,500', per: '/mo', note: 'or ₹7,500/quarter', desc: 'For growing teams needing full automation.', popular: true, features: ['Unlimited WhatsApp numbers', 'Unlimited team members', 'Unlimited messages', 'AI Smart Replies & Copilot', 'Campaign A/B testing', 'Visual flow builder', 'Revenue attribution', 'RCS fallback', 'Priority support'] },
-    { name: 'Enterprise', price: 'Custom', per: '', desc: 'For large teams with complex requirements.', popular: false, features: ['Unlimited numbers & team', 'Custom conversation volume', 'Custom AI model training', 'Dedicated account manager', 'SSO & audit logs', 'Custom integrations', 'SLA guarantee'] },
-  ];
-  return (
-    <section id="pricing" style={{ padding: '110px 0' }}>
-      <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '0 32px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '60px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--green)', marginBottom: '14px' }}>Pricing</div>
-          <h2 style={{ fontSize: 'clamp(28px,3.8vw,52px)', fontWeight: 800, marginBottom: '14px', letterSpacing: '-.03em' }}>
-            Transparent pricing.<br /><span style={{ color: 'var(--green)' }}>Zero hidden costs.</span>
-          </h2>
-          <p style={{ fontSize: '16px', color: 'var(--t2)', maxWidth: '480px', margin: '0 auto', lineHeight: 1.7 }}>Unlike Wati's 20% markup, we pass through Meta's pricing at cost.</p>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '16px', maxWidth: '980px', margin: '0 auto' }}>
-          {plans.map(p => (
-            <div key={p.name} style={{ padding: '32px', borderRadius: 'var(--rxl)', position: 'relative', background: p.popular ? 'linear-gradient(155deg,rgba(30,191,94,0.07),rgba(14,165,233,0.04))' : 'var(--surf)', border: p.popular ? '1px solid var(--gbd)' : '1px solid var(--bd)', boxShadow: p.popular ? `var(--glow), var(--card-shadow)` : 'var(--card-shadow)' }}>
-              {p.popular && <div style={{ position: 'absolute', top: '-13px', left: '50%', transform: 'translateX(-50%)', padding: '4px 14px', borderRadius: '20px', background: 'var(--green)', fontSize: '11px', fontWeight: 700, color: '#060913', whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(30,191,94,0.3)' }}>Most Popular</div>}
-              <h3 style={{ fontWeight: 700, fontSize: '18px', color: 'var(--t1)', marginBottom: '6px', letterSpacing: '-.02em' }}>{p.name}</h3>
-              <p style={{ fontSize: '13px', color: 'var(--t2)', marginBottom: '22px', lineHeight: 1.55 }}>{p.desc}</p>
-              <div style={{ marginBottom: p.note ? '6px' : '24px', display: 'flex', alignItems: 'baseline', gap: '3px' }}>
-                <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '42px', color: 'var(--t1)', letterSpacing: '-.04em' }}>{p.price}</span>
-                <span style={{ fontSize: '13px', color: 'var(--t2)' }}>{p.per}</span>
+// ─── pricing ─────────────────────────────────────────────────────────────────
+
+const PLANS = [
+  // Prices must match the Plan catalog seeded in backend/src/server.js —
+  // advertising a price the checkout cannot sell is worse than no price.
+  { name: 'Basic', price: '₹1,500', per: '/mo', note: 'or ₹3,500 per quarter', desc: 'For a small team running its first campaigns.', popular: false,
+    features: ['1 WhatsApp number', 'Up to 10 team members', '10,000 messages per cycle', 'Campaigns, templates, team inbox', 'Workflows and auto-replies', 'Email support'] },
+  { name: 'Growth', price: '₹2,500', per: '/mo', note: 'or ₹7,500 per quarter', desc: 'For teams whose WhatsApp runs itself.', popular: true,
+    features: ['Unlimited numbers and members', 'Unlimited messages', 'Campaign AI Agent', 'AI intent matching and smart replies', 'Retries with SMS and email fallback', 'Voice AI and Instagram flows', 'Revenue and delivery analytics', 'Priority support'] },
+  { name: 'Enterprise', price: 'Custom', per: '', desc: 'For volume, review requirements and bespoke work.', popular: false,
+    features: ['Everything in Growth', 'Custom message volume', 'Dedicated account manager', 'SSO and audit logs', 'Custom integrations', 'SLA'] },
+];
+
+const Pricing = ({ onNav }) => (
+  <section id="pricing" style={{ padding: '110px 0', position: 'relative', overflow: 'hidden' }}>
+    <div className="aurora-a" style={{ position: 'absolute', bottom: '-20%', left: '30%', width: 560, height: 560, background: 'radial-gradient(circle, rgba(30,191,94,0.10), transparent 62%)', filter: 'blur(50px)', pointerEvents: 'none' }} />
+    <div style={{ position: 'relative', maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
+      <SectionHead eyebrow="Pricing" title={<>Plans that cost what they say.<br /><span style={{ color: 'var(--green)' }}>Messages cost what Meta charges.</span></>}
+        sub="No per-agent seats. On a paid plan the per-message rate you are billed is the one Meta bills us — the wallet ledger shows every deduction and every refund." />
+      {/* Cards stretch to the tallest plan and the CTA is pinned to the
+          bottom of each, so the three buttons land on one line. Sized to
+          content they sat at three different heights, and the popular card's
+          button hung below the panel it belongs to. */}
+      <div className="plan-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, maxWidth: 1000, margin: '0 auto' }}>
+        {PLANS.map((p, i) => (
+          <Reveal key={p.name} delay={i * 80} style={{ height: '100%' }}>
+            <Glass lit={!p.popular} style={{
+              padding: 30, borderRadius: 'var(--rxl)', position: 'relative',
+              height: '100%', display: 'flex', flexDirection: 'column',
+              ...(p.popular ? {
+                // Tint layered *over* the glass, not instead of it. On its own
+                // the gradient faded to near-nothing by the bottom of the
+                // card, so the panel looked like it stopped above the button.
+                background: 'linear-gradient(158deg, rgba(30,191,94,0.10), rgba(14,165,233,0.05)), var(--glass)',
+                borderColor: 'var(--gbd)',
+                boxShadow: 'var(--glow), var(--glass-sh)',
+              } : {}),
+            }}>
+              {p.popular && (
+                <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', padding: '4px 13px', borderRadius: 999, background: 'var(--green)', fontFamily: MONO, fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', color: '#060913', textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: '0 4px 18px rgba(30,191,94,0.35)' }}>Most popular</div>
+              )}
+              <h3 style={{ fontWeight: 700, fontSize: 18, color: 'var(--t1)', marginBottom: 6, letterSpacing: '-.02em' }}>{p.name}</h3>
+              <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 20, lineHeight: 1.55 }}>{p.desc}</p>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: p.note ? 6 : 24 }}>
+                <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 40, color: 'var(--t1)', letterSpacing: '-.045em' }}>{p.price}</span>
+                <span style={{ fontSize: 13, color: 'var(--t2)' }}>{p.per}</span>
               </div>
-              {p.note && <p style={{ fontSize: '12px', color: 'var(--t2)', marginBottom: '24px' }}>{p.note}</p>}
-              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '28px' }}>
+              {p.note && <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t2)', marginBottom: 24, letterSpacing: '.02em' }}>{p.note}</p>}
+              {/* Grows to fill the card so the button below it stays put. */}
+              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 26, flex: 1 }}>
                 {p.features.map(f => (
-                  <li key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', fontSize: '13px', color: 'var(--t2)' }}>
-                    <I n="check" s={14} c="var(--green)" w={2.2} /> {f}
+                  <li key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>
+                    <span style={{ flexShrink: 0, marginTop: 2 }}><I n="check" s={13} c="var(--green)" w={2.4} /></span>{f}
                   </li>
                 ))}
               </ul>
-              <Btn variant={p.popular ? 'primary' : 'ghost'} style={{ width: '100%', justifyContent: 'center', boxShadow: p.popular ? 'var(--glow)' : undefined }} onClick={() => onNav('dashboard')}>
-                {p.name === 'Enterprise' ? 'Talk to Sales' : 'Start Free Trial'} <I n="arrow" s={13} c={p.popular ? '#060A10' : 'var(--t2)'} />
+              {/* No extra glow on the popular plan's button: the card is
+                  already glowing, and two overlapping halos made the button
+                  look detached from the card it sits in. */}
+              {/* Names the plan, because "Start free" on a ₹2,500/mo
+                  subscription promises something this button cannot do — the
+                  free plan is its own tier, called out under the grid. */}
+              <Btn variant={p.popular ? 'primary' : 'ghost'} style={{ width: '100%', justifyContent: 'center' }} onClick={() => onNav('dashboard')}>
+                {p.name === 'Enterprise' ? 'Talk to sales' : `Choose ${p.name}`} <I n="arrow" s={13} c={p.popular ? '#060A10' : 'var(--t2)'} />
               </Btn>
-            </div>
-          ))}
-        </div>
+            </Glass>
+          </Reveal>
+        ))}
       </div>
-    </section>
-  );
-};
 
-const CTA = ({ onNav }) => (
-  <section style={{ padding: '110px 32px', textAlign: 'center', position: 'relative', overflow: 'hidden', borderTop: '1px solid var(--bd)' }}>
-    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '700px', height: '500px', background: 'radial-gradient(ellipse,rgba(30,191,94,0.07) 0%,transparent 60%)', pointerEvents: 'none' }} />
-    <div style={{ position: 'relative', maxWidth: '680px', margin: '0 auto' }}>
-      <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--green)', marginBottom: '18px' }}>Get Started Today</div>
-      <h2 style={{ fontSize: 'clamp(30px,4vw,58px)', fontWeight: 800, marginBottom: '18px', letterSpacing: '-.03em', lineHeight: 1.08 }}>
-        Ready to stop overpaying<br />for WhatsApp API?
-      </h2>
-      <p style={{ fontSize: '17px', color: 'var(--t2)', marginBottom: '36px', lineHeight: 1.7, maxWidth: '500px', margin: '0 auto 36px' }}>
-        Join thousands of businesses that switched to get better features at a fraction of the cost.
-      </p>
-      <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>
-        Start Your Free Trial <I n="arrow" s={14} c="#060A10" />
-      </Btn>
-      <p style={{ marginTop: '16px', fontSize: '12px', color: 'var(--t3)' }}>14-day free trial · No credit card required · Setup in 5 minutes</p>
+      {/* The free tier is real (100 messages a cycle) and is what the "Start
+          for free" buttons elsewhere on the page lead to. Saying so here stops
+          the paid cards from having to carry that promise. */}
+      <Reveal delay={240}>
+        <p style={{ textAlign: 'center', marginTop: 26, fontSize: 13.5, color: 'var(--t2)' }}>
+          Not ready to pay? The Free plan includes 100 messages a cycle, one workspace and no card —{' '}
+          <button onClick={() => onNav('dashboard')} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--green)', fontWeight: 600, cursor: 'pointer' }}>
+            start there
+          </button>.
+        </p>
+      </Reveal>
     </div>
   </section>
 );
 
+// ─── closing ─────────────────────────────────────────────────────────────────
+
+const CTA = ({ onNav }) => (
+  <section style={{ padding: '30px 32px 110px', position: 'relative' }}>
+    <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+      <Reveal>
+        <Glass lit={false} style={{ padding: '64px 40px', borderRadius: 'var(--rxl)', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+          <div className="aurora-b" style={{ position: 'absolute', top: '-60%', left: '50%', width: 700, height: 700, marginLeft: -350, background: 'radial-gradient(circle, rgba(30,191,94,0.12), transparent 60%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+          <div style={{ position: 'relative' }}>
+            <Eyebrow>Start today</Eyebrow>
+            <h2 style={{ fontSize: 'clamp(28px,3.8vw,50px)', fontWeight: 800, letterSpacing: '-.035em', lineHeight: 1.08, margin: '18px 0 16px' }}>
+              Send the campaign.<br />Let it handle the questions.
+            </h2>
+            <p style={{ fontSize: 16.5, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 480, margin: '0 auto 32px' }}>
+              Connect a number, import your contacts, and put an agent behind your next offer.
+            </p>
+            <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>
+              Start for free <I n="arrow" s={14} c="#060A10" />
+            </Btn>
+            <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)', marginTop: 16, letterSpacing: '.04em' }}>NO CARD · FREE PLAN INCLUDES 100 MESSAGES</p>
+          </div>
+        </Glass>
+      </Reveal>
+    </div>
+  </section>
+);
+
+const FOOTER_COLS = [
+  { title: 'Product', links: ['Features', 'Pricing', 'Campaign AI Agent', 'Workflows', 'API'] },
+  { title: 'Solutions', links: ['E-commerce', 'Education', 'Clinics', 'Real estate', 'Agencies'] },
+  { title: 'Company', links: ['About', 'Blog', 'Careers', 'Contact', 'Privacy'] },
+];
+
 const Footer = ({ onNav }) => (
-  <footer style={{ borderTop: '1px solid var(--bd)', padding: '60px 32px 32px', background: 'var(--surf)' }}>
-    <div style={{ maxWidth: '1240px', margin: '0 auto' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr', gap: '40px', marginBottom: '48px' }}>
+  <footer style={{ borderTop: '1px solid var(--bd)', padding: '56px 32px 30px', background: 'rgba(13,17,33,0.5)' }}>
+    <div style={{ maxWidth: 1240, margin: '0 auto' }}>
+      <div className="footer-grid" style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr 1fr 1fr', gap: 40, marginBottom: 44 }}>
         <div>
-          <div onClick={() => onNav('landing')} style={{ display: 'inline-flex', alignItems: 'center', gap: '9px', cursor: 'pointer', marginBottom: '14px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button onClick={() => onNav('landing')} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, cursor: 'pointer', marginBottom: 14, background: 'none', border: 'none', padding: 0 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
             </div>
-            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)' }}>ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span></span>
-          </div>
-          <p style={{ fontSize: '13px', color: 'var(--t2)', lineHeight: 1.65, maxWidth: '220px' }}>WhatsApp Business API platform built for revenue, not hidden fees.</p>
+            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span></span>
+          </button>
+          <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.65, maxWidth: 240 }}>
+            WhatsApp Business API for teams that would rather their campaigns answered for themselves.
+          </p>
         </div>
-        {[{ title: 'Product', links: ['Features', 'Pricing', 'Integrations', 'API Docs', 'Changelog'] },
-          { title: 'Solutions', links: ['E-commerce', 'Education', 'Healthcare', 'Real Estate', 'Agencies'] },
-          { title: 'Company', links: ['About', 'Blog', 'Careers', 'Contact', 'Privacy Policy'] },
-        ].map(col => (
+        {FOOTER_COLS.map(col => (
           <div key={col.title}>
-            <h4 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '12px', color: 'var(--t1)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '.08em' }}>{col.title}</h4>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {col.links.map(l => <li key={l}><a href="#" style={{ fontSize: '13px', color: 'var(--t2)', textDecoration: 'none', transition: 'color .15s' }} onMouseOver={e => e.target.style.color = 'var(--t1)'} onMouseOut={e => e.target.style.color = 'var(--t2)'}>{l}</a></li>)}
+            <h4 style={{ fontFamily: MONO, fontWeight: 600, fontSize: 11, color: 'var(--t1)', marginBottom: 15, textTransform: 'uppercase', letterSpacing: '.14em' }}>{col.title}</h4>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {col.links.map(l => (
+                <li key={l}>
+                  <a href="#features" style={{ fontSize: 13, color: 'var(--t2)', textDecoration: 'none', transition: 'color .15s' }}
+                    onMouseOver={e => e.target.style.color = 'var(--t1)'} onMouseOut={e => e.target.style.color = 'var(--t2)'}>{l}</a>
+                </li>
+              ))}
             </ul>
           </div>
         ))}
       </div>
-      <div style={{ borderTop: '1px solid var(--bd)', paddingTop: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-        <p style={{ fontSize: '12px', color: 'var(--t3)' }}>© 2026 ChatFlow Pro. All rights reserved. Official Meta WhatsApp Business API Partner.</p>
-        <div style={{ display: 'flex', gap: '20px' }}>{['Terms', 'Privacy', 'Security'].map(l => <a key={l} href="#" style={{ fontSize: '12px', color: 'var(--t3)', textDecoration: 'none' }}>{l}</a>)}</div>
+      <div style={{ borderTop: '1px solid var(--bd)', paddingTop: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)' }}>© 2026 ChatFlow Pro · Meta WhatsApp Business API partner</p>
+        <div style={{ display: 'flex', gap: 18 }}>
+          {['Terms', 'Privacy', 'Security'].map(l => <a key={l} href="#features" style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)', textDecoration: 'none' }}>{l}</a>)}
+        </div>
       </div>
     </div>
   </footer>
 );
 
+// ─── page ────────────────────────────────────────────────────────────────────
+
+const PAGE_CSS = `
+  .hero-heading {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(42px, 5.4vw, 76px);
+    font-weight: 800;
+    color: var(--t1);
+    letter-spacing: -.052em;
+    line-height: 1.02;
+  }
+  @media (max-width: 1024px) {
+    .calc { grid-template-columns: 1fr !important; gap: 26px !important; }
+    .hero-grid { flex-direction: column; align-items: flex-start !important; gap: 56px !important; }
+    .hero-visual { width: 100%; }
+    .bento { grid-template-columns: repeat(2, 1fr) !important; }
+    .bento > * { grid-column: span 1 !important; }
+    .case-grid, .plan-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .footer-grid { grid-template-columns: 1fr 1fr !important; }
+    .nav-links { display: none !important; }
+  }
+  @media (max-width: 720px) {
+    .hero-back-panel { display: none !important; }
+    .proof-grid { grid-template-columns: 1fr 1fr !important; gap: 20px 0; }
+    .proof-grid > * { border-left: none !important; }
+    .bento, .case-grid, .plan-grid { grid-template-columns: 1fr !important; }
+    .footer-grid { grid-template-columns: 1fr !important; gap: 30px !important; }
+  }
+`;
+
 export default function Landing({ onNav }) {
   return (
-    <div style={{ minHeight: '100vh' }}>
+    <div style={{ minHeight: '100vh', overflowX: 'clip' }}>
+      <style>{PAGE_CSS}</style>
       <Navbar onNav={onNav} />
       <Hero onNav={onNav} />
+      <ProofStrip />
       <AIPromptSection onNav={onNav} />
       <Features />
       <UseCases />
+      <CostCalculator />
       <Pricing onNav={onNav} />
+      <Faq />
       <CTA onNav={onNav} />
       <Footer onNav={onNav} />
     </div>

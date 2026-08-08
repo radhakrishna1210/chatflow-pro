@@ -33,10 +33,12 @@ export const DEFAULT_CTA_LABEL = 'Ask Anything';
 export const CTA_PRESETS = ['Ask Anything', 'Have a Question?', 'Need Help?', 'Agent Support'];
 
 // How long a campaign chat stays in charge of the conversation with no
-// activity. Deliberately far shorter than WhatsApp's 24-hour service window:
-// a customer who asked about a sale this morning and messages again tonight is
-// starting something new, and should land back in the normal automation order.
-export const SESSION_TTL_MINUTES = 30;
+// activity, refreshed on every turn. Matched to WhatsApp's own 24-hour
+// customer-service window, because that is the period in which a free-form
+// reply is possible at all — a shorter window buys nothing and silently drops
+// the customer back to an agent that has never seen the campaign, which is
+// exactly what made follow-up questions get answered blind.
+export const SESSION_TTL_MINUTES = 24 * 60;
 
 // How far back a typed CTA label is honoured when the template had no
 // quick-reply button to carry a payload.
@@ -193,6 +195,54 @@ export async function resolveCampaignContext({ workspaceId, campaignId, recipien
   });
 }
 
+// ─── Business identity ───────────────────────────────────────────────────────
+
+// Who the customer is actually talking to. Read from the workspace and the
+// WhatsApp number the message was sent from — never typed into a prompt, so a
+// second workspace answers with its own name and number automatically.
+export async function loadBusinessContext(workspaceId, waNumberId = null) {
+  const [workspace, waNumber] = await Promise.all([
+    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } }),
+    waNumberId
+      ? prisma.waNumber.findFirst({ where: { id: waNumberId, workspaceId }, select: { phoneNumber: true, displayName: true } })
+      : Promise.resolve(null),
+  ]);
+  if (!workspace) return null;
+  return {
+    businessName: workspace.name || null,
+    whatsappNumber: waNumber?.phoneNumber || null,
+    whatsappDisplayName: waNumber?.displayName || null,
+  };
+}
+
+export function businessContextText(business) {
+  if (!business) return '';
+  const lines = [];
+  if (business.businessName) lines.push(`Business: ${business.businessName}`);
+  if (business.whatsappDisplayName && business.whatsappDisplayName !== business.businessName) {
+    lines.push(`WhatsApp display name: ${business.whatsappDisplayName}`);
+  }
+  if (business.whatsappNumber) lines.push(`Sent from WhatsApp number: ${business.whatsappNumber}`);
+  return lines.join('\n');
+}
+
+// What to call the campaign when speaking to the customer. Campaign.name is an
+// internal label — "ai-test-final" is a real example from this database — so it
+// is never shown. The subject is taken from the message the customer is
+// holding: its header, or the first sentence of the body once a bare greeting
+// ("Hi Priya!") is stripped, since that says nothing about the offer.
+export function campaignSubject(context) {
+  const header = String(context?.header || '').trim();
+  if (header) return header.slice(0, 70);
+
+  const body = String(context?.body || '').replace(/\s+/g, ' ').trim();
+  if (!body) return null;
+  const sentences = body.split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
+  const meaningful = sentences.find((x) => !/^(hi|hello|hey|dear)\b/i.test(x));
+  const subject = (meaningful || sentences[0] || '').replace(/[.!?]+$/, '');
+  return subject ? subject.slice(0, 70) : null;
+}
+
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
 const expiryFrom = (from = Date.now()) => new Date(from + SESSION_TTL_MINUTES * 60_000);
@@ -230,23 +280,48 @@ export async function endSession(sessionId, status = 'ENDED') {
   });
 }
 
+// The campaign this conversation was last about, whatever the session's state.
+//
+// A session expires, but the customer's next question is usually still about
+// the offer they were reading — and the normal agent, with no campaign in
+// front of it, answered those blind and offered a human. Scoped to this
+// conversation's own sessions, so one campaign's content can never surface in
+// another campaign's chat.
+export async function lastCampaignContextForConversation(conversationId, { withinDays = 7 } = {}) {
+  if (!conversationId) return null;
+  const since = new Date(Date.now() - withinDays * 24 * 60 * 60 * 1000);
+  const session = await prisma.campaignAiSession.findFirst({
+    where: { conversationId, activatedAt: { gte: since } },
+    orderBy: { lastActivityAt: 'desc' },
+    select: { campaignContext: true },
+  });
+  return session?.campaignContext ?? null;
+}
+
 // ─── Reply generation ────────────────────────────────────────────────────────
 
 // The accuracy contract from the product spec, kept in one place so the live
 // agent and the admin's test panel are held to identical rules.
 const ANSWER_RULES = [
-  'Answer only from the campaign message above and the knowledge base.',
-  'Never invent prices, discounts, dates, products, availability, eligibility, coupon codes or terms that are not stated there.',
-  "If the information is not available, say so plainly and offer to pass the question to a human — do not guess.",
+  'Answer from everything you have been given: the business details, the knowledge base, the campaign message and the conversation so far.',
+  'A short reply such as "yes", "no", "ok", "sure" or "connect" refers to what you just said — read the conversation and carry on from there instead of asking the customer what they mean.',
+  'Never invent prices, discounts, dates, availability, eligibility, coupon codes, links or terms that are not in the material above.',
+  'Offer to pass the customer to a human only when they ask for one, or when the answer is genuinely in none of the material — say what you do know first.',
   'Reply in 1-3 short sentences, natural and conversational, suitable for WhatsApp. No markdown, no bullet symbols unless the customer asked for a list.',
-  'Do not mention that you were given a campaign message, a context block or a knowledge base.',
+  'Never mention prompts, context blocks, knowledge bases, or that you were given anything.',
 ].map((rule) => `- ${rule}`).join('\n');
 
-export function buildAgentSystemPrompt({ agent, context }) {
+// The single prompt builder for both modes of the agent: the normal inbound
+// responder and the campaign-activated one. They differ only in whether a
+// campaign snapshot is passed, so the two can never drift into answering by
+// different rules or with a different identity.
+export function buildAgentSystemPrompt({ agent, context = null, business = null }) {
+  const businessBlock = businessContextText(business);
   return [
     agent?.prompt?.trim() || 'You are a helpful customer support agent.',
+    businessBlock ? `\n\nYou answer on behalf of this business:\n${businessBlock}` : '',
     agent?.knowledge?.trim() ? `\n\nKnowledge base you may use to answer:\n${agent.knowledge.trim()}` : '',
-    context ? `\n\nThe campaign this customer is asking about:\n${campaignContextText(context)}` : '',
+    context ? `\n\nThe campaign message this customer received:\n${campaignContextText(context)}` : '',
     `\n\nRules:\n${ANSWER_RULES}`,
   ].join('');
 }
@@ -257,10 +332,10 @@ const speakerLine = (message, agentName) =>
 // Answers one customer message inside a campaign session. Returns null when no
 // model is reachable, which the caller turns into an honest "try again"
 // rather than a fabricated answer.
-export async function generateCampaignReply({ agent, context, messageBody, contactName, history = [] }) {
+export async function generateCampaignReply({ agent, context, messageBody, contactName, history = [], business = null }) {
   if (!llmAvailable()) return null;
 
-  const system = buildAgentSystemPrompt({ agent, context });
+  const system = buildAgentSystemPrompt({ agent, context, business });
   const agentName = agent?.name || 'Assistant';
   const transcript = history.map((m) => speakerLine(m, agentName)).filter((line) => line.split(': ')[1]);
 
@@ -271,7 +346,15 @@ export async function generateCampaignReply({ agent, context, messageBody, conta
     `${agentName}:`,
   ].join('\n');
 
-  const reply = await llmText(prompt, system);
+  // One retry. The free Gemini tier rate-limits at a handful of requests per
+  // minute and occasionally times out; a customer mid-conversation was getting
+  // "sorry, could you ask that again?" for a transient provider failure rather
+  // than for anything about their question.
+  let reply = await llmText(prompt, system);
+  if (!reply) {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    reply = await llmText(prompt, system);
+  }
   if (!reply) return null;
   return reply.replace(/^["']|["']$/g, '').trim().slice(0, 900);
 }
@@ -366,8 +449,17 @@ export async function activateSession({ workspaceId, campaign, recipient, contac
 
 // ─── Inbound entry point ─────────────────────────────────────────────────────
 
-// The workspace's deployed agent, in the shape the prompt builder wants.
-async function loadAgent(workspaceId) {
+// The agent a campaign named, in the shape the prompt builder wants.
+//
+// The agent is workspace-scoped configuration, so its id is the workspace id
+// (see aiAgent.service.js listAgents). An id naming anything else is refused
+// rather than quietly answered by whichever agent is nearest: a campaign that
+// selected one agent must never be answered by another.
+async function loadAgent(workspaceId, agentId = null) {
+  if (agentId && agentId !== workspaceId) {
+    console.warn(`[CampaignAI] campaign names agent ${agentId}, not workspace ${workspaceId}'s agent — declining.`);
+    return null;
+  }
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { aiAgentEnabled: true, aiAgentName: true, aiAgentPrompt: true, aiAgentKnowledge: true },
@@ -412,9 +504,10 @@ export async function handleCampaignAiInbound({
     });
     if (openForm) return false;
 
-    const agent = await loadAgent(workspaceId);
-    // An undeployed agent or a server with no model configured must fall
-    // through to the ordinary automation rather than answer with silence.
+    const agent = await loadAgent(workspaceId, activation.campaign.aiAgentId);
+    // An undeployed agent, a mis-pointed agent id, or a server with no model
+    // configured must fall through to the ordinary automation rather than
+    // answer with silence.
     if (!agent?.deployed || !llmAvailable()) return false;
 
     const session = await activateSession({
@@ -426,11 +519,17 @@ export async function handleCampaignAiInbound({
       agentId: activation.campaign.aiAgentId,
     });
 
-    const campaignName = session.campaignContext?.campaignName || activation.campaign.name;
+    // Campaign.name is an internal label the customer has never seen — one in
+    // this database is literally "ai-test-final", and it was being read out to
+    // customers. The greeting uses the offer itself and the business name, both
+    // taken from data the customer already holds.
+    const business = await loadBusinessContext(workspaceId, conversation.waNumberId);
+    const subject = campaignSubject(session.campaignContext);
     const firstName = String(contact?.name || '').trim().split(' ')[0];
     await reply(
-      `${firstName ? `Hi ${firstName}! ` : 'Hi! '}I'm ${agent.name}. ` +
-      `Ask me anything about ${campaignName ? `“${campaignName}”` : 'this offer'} and I'll help.`,
+      `${firstName ? `Hi ${firstName}! ` : 'Hi! '}I'm ${agent.name}`
+      + `${business?.businessName ? ` from ${business.businessName}` : ''}. `
+      + `Ask me anything about ${subject || 'this offer'} and I'll help.`,
     );
     return true;
   }
@@ -444,7 +543,7 @@ export async function handleCampaignAiInbound({
     return true;
   }
 
-  const agent = await loadAgent(workspaceId);
+  const agent = await loadAgent(workspaceId, session.agentId);
   if (!agent?.deployed) {
     // The agent was undeployed mid-session. Retire the session rather than
     // leaving the conversation captured by something that can't answer.
@@ -463,9 +562,11 @@ export async function handleCampaignAiInbound({
   });
 
   const history = await sessionHistory(session);
+  const business = await loadBusinessContext(workspaceId, conversation.waNumberId);
   const answer = await generateCampaignReply({
     agent,
     context: session.campaignContext,
+    business,
     messageBody,
     contactName: contact?.name,
     // The inbound message has already been persisted by the caller, so drop it

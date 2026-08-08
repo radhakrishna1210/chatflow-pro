@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { canManage } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import CreateCampaign from './CreateCampaign.jsx';
@@ -267,7 +268,8 @@ const ActivityChart = ({ data, labels, color = 'var(--green)' }) => {
         <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
         {pts.split(' ').slice(-1).map(p => {
           const [x, y] = p.split(',');
-          return <circle key="dot" cx={x} cy={y} r="4" fill={color} stroke="var(--surf)" strokeWidth="2" />;
+          // --surf is a gradient (see index.css); an SVG stroke needs a colour.
+          return <circle key="dot" cx={x} cy={y} r="4" fill={color} stroke="var(--surf-solid)" strokeWidth="2" />;
         })}
       </svg>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${labels.length},1fr)`, gap: '0', marginTop: '8px' }}>
@@ -418,7 +420,7 @@ const NotificationsBell = () => {
         style={{ position: 'relative', width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
         <I n="bell" s={15} c="var(--t2)" />
         {unread > 0 && (
-          <div style={{ position: 'absolute', top: -5, right: -5, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 9, background: 'var(--green)', border: '1.5px solid var(--surf)', color: '#060913', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', top: -5, right: -5, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 9, background: 'var(--green)', border: '1.5px solid var(--surf-solid)', color: '#060913', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {unread > 9 ? '9+' : unread}
           </div>
         )}
@@ -698,7 +700,7 @@ const HomeView = () => {
                     </div>
                     {aiCard.details && Object.entries(aiCard.details).map(([k, v]) => (
                       <div key={k} style={{ fontSize: '11px', marginBottom: '4px' }}>
-                        <span style={{ color: '#56688A', textTransform: 'capitalize' }}>{k}:</span>{' '}
+                        <span style={{ color: 'var(--t2)', textTransform: 'capitalize' }}>{k}:</span>{' '}
                         <span style={{ color: '#F0F2F8' }}>{typeof v === 'object' ? JSON.stringify(v) : v}</span>
                       </div>
                     ))}
@@ -1877,7 +1879,8 @@ const CATEGORY_FILTERS = [
 
 const TemplatesView = () => {
   const rates = useMessageRates();
-  const isAdmin = JSON.parse(localStorage.getItem('user') || '{}').role === 'ADMIN';
+  // Templates are day-to-day work, not an admin privilege.
+  const isAdmin = canManage();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [syncing, setSyncing]     = useState(false);
@@ -2567,7 +2570,7 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
   }, [isSuperAdmin]);
 
   return (
-    <div style={{ width: col ? '60px' : '232px', background: '#060913', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', transition: 'width .22s ease', flexShrink: 0, overflow: 'hidden', minHeight: 0 }}>
+    <div style={{ width: col ? '60px' : '232px', background: 'rgba(6,9,19,0.72)', backdropFilter: 'blur(18px) saturate(140%)', WebkitBackdropFilter: 'blur(18px) saturate(140%)', borderRight: '1px solid var(--bd)', boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.03)', display: 'flex', flexDirection: 'column', transition: 'width .22s ease', flexShrink: 0, overflow: 'hidden', minHeight: 0 }}>
       <div style={{ padding: '16px 14px', display: 'flex', alignItems: 'center', gap: '9px', borderBottom: '1px solid var(--bd)', minHeight: '62px', flexShrink: 0 }}>
         <div onClick={() => setPage(isSuperAdmin ? 'admin-overview' : 'home')} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', boxShadow: '0 0 16px rgba(30,191,94,0.3)' }}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
@@ -2590,7 +2593,9 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
           const on = page === item.id || (page === 'campaigns-create' && item.id === 'campaigns');
           return (
             <div key={item.id} onClick={() => setPage(item.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', background: on ? 'rgba(30,191,94,0.1)' : 'transparent', justifyContent: col ? 'center' : 'flex-start' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .15s ease, box-shadow .15s ease', justifyContent: col ? 'center' : 'flex-start',
+                background: on ? 'linear-gradient(90deg, rgba(30,191,94,0.16), rgba(30,191,94,0.06))' : 'transparent',
+                boxShadow: on ? 'inset 2px 0 0 var(--green)' : 'none' }}
               onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
               onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}
               title={col ? item.label : ''}>
@@ -2734,7 +2739,10 @@ export default function Dashboard({ onNav, routePath }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#060B18' }}>
+    // Two very low-opacity washes behind everything, so the panels above them
+    // read as translucent panes rather than flat blocks. Static, not animated:
+    // this is a work surface, not a landing page.
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'radial-gradient(1200px 600px at 12% -8%, rgba(30,191,94,0.07), transparent 60%), radial-gradient(1000px 520px at 100% 0%, rgba(14,165,233,0.06), transparent 62%), #060B18' }}>
       {impersonator && (
         <div style={{ flexShrink: 0, height: 38, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(245,158,11,.06))', borderBottom: '1px solid rgba(245,158,11,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 12.5, color: '#fbbf24', fontWeight: 600 }}>
           <I n="eye" s={13} c="#fbbf24" />

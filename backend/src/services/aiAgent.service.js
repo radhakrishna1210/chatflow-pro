@@ -1,7 +1,10 @@
 import { prisma } from '../lib/prisma.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
 import { hasMeaningfulText } from '../lib/textValidation.js';
-import { resolveCampaignContext, generateCampaignReply } from './campaignAi.service.js';
+import {
+  resolveCampaignContext, generateCampaignReply,
+  loadBusinessContext, lastCampaignContextForConversation,
+} from './campaignAi.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI Agent + AI Intent Matching
@@ -233,7 +236,7 @@ export async function matchIntent(workspaceId, messageBody) {
 
 // Generates a free-form reply from the deployed agent, or null if the agent is
 // not deployed / no LLM is available / generation fails. Keeps replies short.
-export async function generateAgentReply(workspaceId, messageBody, { contactName } = {}) {
+export async function generateAgentReply(workspaceId, messageBody, { contactName, conversationId = null, waNumberId = null } = {}) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { aiAgentEnabled: true, aiAgentName: true, aiAgentPrompt: true, aiAgentKnowledge: true },
@@ -241,17 +244,45 @@ export async function generateAgentReply(workspaceId, messageBody, { contactName
   if (!ws?.aiAgentEnabled) return null;
   if (!llmAvailable()) return null;
 
-  const system = [
-    ws.aiAgentPrompt,
-    ws.aiAgentKnowledge ? `\nKnowledge base you may use to answer:\n${ws.aiAgentKnowledge}` : '',
-    `\nRules: Reply in 1-3 short sentences suitable for WhatsApp. If you don't know, say you'll connect them to a human. Never invent order numbers, prices, or policies not in the knowledge base.`,
-  ].join('');
-  const prompt = `${contactName ? `Customer (${contactName})` : 'Customer'}: ${messageBody}\n\n${ws.aiAgentName}:`;
+  // Everything below is runtime context, read fresh from the database on every
+  // message. None of it is stored in the agent's configuration: the system
+  // prompt and knowledge base stay exactly what the workspace typed.
+  //
+  //   business  — who the customer is talking to, so "who sent this?" is
+  //               answerable instead of being escalated to a human.
+  //   context   — the campaign this conversation was last about, if any. The
+  //               agent used to answer campaign follow-ups with no campaign in
+  //               front of it once the session window closed.
+  //   history   — the conversation so far, which is what makes a bare "yes"
+  //               mean something. This call previously sent the current message
+  //               alone.
+  const [business, context, history] = await Promise.all([
+    loadBusinessContext(workspaceId, waNumberId),
+    lastCampaignContextForConversation(conversationId),
+    recentConversationHistory(conversationId),
+  ]);
 
-  const reply = await llmText(prompt, system);
-  if (!reply) return null;
-  return reply.replace(/^["']|["']$/g, '').trim().slice(0, 900);
+  // Same generator as the campaign path, so both modes share one prompt, one
+  // set of answer rules and one Gemini call — the only difference is whether
+  // `context` is null.
+  const agent = { name: ws.aiAgentName, prompt: ws.aiAgentPrompt, knowledge: ws.aiAgentKnowledge };
+  return generateCampaignReply({ agent, context, business, messageBody, contactName, history });
 }
+
+// The tail of a conversation, oldest first. The inbound message being answered
+// is already persisted by the webhook, so it is dropped here rather than being
+// asked twice.
+async function recentConversationHistory(conversationId, take = 12) {
+  if (!conversationId) return [];
+  const messages = await prisma.message.findMany({
+    where: { conversationId },
+    orderBy: { sentAt: 'desc' },
+    take,
+    select: { body: true, direction: true, sentAt: true },
+  });
+  return messages.reverse().slice(0, -1);
+}
+
 
 // Preview endpoint for the UI "test" button — runs the agent against a sample
 // message without needing a real inbound webhook.
@@ -279,9 +310,13 @@ export async function testAgent(workspaceId, sampleMessage, { mode = 'general', 
     const context = await resolveCampaignContext({ workspaceId, campaignId });
     if (!context) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
 
+    // Same business identity the live agent answers with, so the test panel
+    // reflects production rather than a thinner version of it.
+    const business = await loadBusinessContext(workspaceId);
     const reply = await generateCampaignReply({
       agent: { name: ws.aiAgentName, prompt: ws.aiAgentPrompt, knowledge: ws.aiAgentKnowledge },
       context,
+      business,
       messageBody: sampleMessage,
     });
     return reply

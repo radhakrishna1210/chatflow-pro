@@ -172,7 +172,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
               maxWidth: '88%', animation: 'agent-fadeUp 0.2s ease-out',
             }}>
               {m.role === 'assistant' && (
-                <div style={{ fontSize: '9px', color: '#56688A', fontWeight: 600, marginBottom: '3px', paddingLeft: '2px' }}>AI Agent</div>
+                <div style={{ fontSize: '9px', color: 'var(--t2)', fontWeight: 600, marginBottom: '3px', paddingLeft: '2px' }}>AI Agent</div>
               )}
               <div style={{
                 background: m.role === 'user'
@@ -201,7 +201,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
                     </div>
                     {m.card.details && Object.entries(m.card.details).map(([k, v]) => (
                       <div key={k} style={{ fontSize: '11px', marginBottom: '4px' }}>
-                        <span style={{ color: '#56688A', textTransform: 'capitalize' }}>{k}:</span>{' '}
+                        <span style={{ color: 'var(--t2)', textTransform: 'capitalize' }}>{k}:</span>{' '}
                         <span style={{ color: '#F0F2F8' }}>{typeof v === 'object' ? JSON.stringify(v) : v}</span>
                       </div>
                     ))}
@@ -219,7 +219,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
           {/* Typing indicator */}
           {loading && (
             <div style={{ alignSelf: 'flex-start', maxWidth: '88%' }}>
-              <div style={{ fontSize: '9px', color: '#56688A', fontWeight: 600, marginBottom: '3px', paddingLeft: '2px' }}>AI Agent</div>
+              <div style={{ fontSize: '9px', color: 'var(--t2)', fontWeight: 600, marginBottom: '3px', paddingLeft: '2px' }}>AI Agent</div>
               <div style={{
                 background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
                 padding: '11px 15px', borderRadius: '12px 12px 12px 3px',
@@ -315,7 +315,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
         {/* ─── Footer Badge ─── */}
         <div style={{
           padding: '5px 14px 7px', textAlign: 'center',
-          fontSize: '9.5px', color: '#2A3550', fontWeight: 500,
+          fontSize: '9.5px', color: 'var(--t3)', fontWeight: 500,
           flexShrink: 0, background: 'rgba(0,0,0,0.08)',
         }}>
           🔒 Running locally · No data leaves your system
