@@ -75,17 +75,20 @@ export default function Login({ onNav, mode = 'login' }) {
   });
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)', position: 'relative', overflow: 'hidden' }}>
       <style>{`
         @media (max-width: 860px) {
           .auth-brand-panel { display: none !important; }
           .auth-form-panel { padding: 28px 20px !important; }
+          .auth-card { padding: 26px 22px !important; }
         }
       `}</style>
       {/* Left panel */}
       <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#07090F 0%,#0a0f1e 60%,#07090F 100%)', borderRight: '1px solid var(--bd)' }}>
-        <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '380px', height: '380px', background: 'radial-gradient(circle,rgba(32,201,103,0.07) 0%,transparent 65%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: '-60px', right: '-40px', width: '320px', height: '320px', background: 'radial-gradient(circle,rgba(14,165,233,0.05) 0%,transparent 65%)', pointerEvents: 'none' }} />
+        {/* Same drifting aurora as the landing page, so signing in feels like
+            the same product rather than a bolted-on form. */}
+        <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(30,191,94,0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
+        <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(14,165,233,0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
 
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', position: 'relative', zIndex: 1 }}>
           <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -108,15 +111,15 @@ export default function Login({ onNav, mode = 'login' }) {
           <p style={{ fontSize: '15px', color: 'var(--t2)', lineHeight: 1.65, marginBottom: '36px', maxWidth: '340px' }}>
             Sign in to manage your WhatsApp campaigns, monitor conversations, and grow your audience.
           </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {[
               { icon: 'send', label: 'Launch campaigns in minutes', color: 'var(--green)' },
-              { icon: 'bot', label: 'AI-powered smart replies', color: '#0EA5E9' },
-              { icon: 'chart', label: 'Real-time delivery analytics', color: '#A78BFA' },
-              { icon: 'zap', label: 'Automate with visual flow builder', color: '#F59E0B' },
+              { icon: 'bot', label: 'An AI agent that answers about your campaign', color: '#0EA5E9' },
+              { icon: 'chart', label: 'Delivery and spend, per campaign', color: '#A78BFA' },
+              { icon: 'wflow', label: 'Workflows, forms and auto-replies', color: '#F59E0B' },
             ].map(f => (
-              <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <div key={f.label} className="glass" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 13px', borderRadius: 'var(--r)' }}>
+                <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <I n={f.icon} s={15} c={f.color} />
                 </div>
                 <span style={{ fontSize: '13px', color: 'var(--t2)' }}>{f.label}</span>
@@ -136,8 +139,9 @@ export default function Login({ onNav, mode = 'login' }) {
       </div>
 
       {/* Right panel */}
-      <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px' }}>
-        <div style={{ width: '100%', maxWidth: '400px' }}>
+      <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', position: 'relative' }}>
+        <div className="aurora-b" style={{ position: 'absolute', top: '10%', right: '-10%', width: '420px', height: '420px', background: 'radial-gradient(circle,rgba(30,191,94,0.07) 0%,transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+        <div className="glass auth-card" style={{ width: '100%', maxWidth: '420px', padding: '34px 32px', borderRadius: 'var(--rxl)', position: 'relative' }}>
           <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>
             {isRegister ? 'Create your account' : 'Sign in to your account'}
           </h1>

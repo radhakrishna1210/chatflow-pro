@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
@@ -930,7 +930,7 @@ const parseTimeSplit = (str, defH, defM, defAp) => {
   return [time[0] || defH, time[1] || defM, parts[1] || defAp];
 };
 
-const StepRetries = ({ initial = null, onRetryToggle, onSaved }) => {
+const StepRetries = ({ initial = null, onRetryToggle, onSaved, onCommit }) => {
   const [active, setActive]   = useState(initial?.active ?? false);
   const [endDate, setEndDate] = useState(initial?.endDate ?? '');
   const [pattern, setPattern] = useState(initial?.pattern ?? 'smart');
@@ -956,6 +956,7 @@ const StepRetries = ({ initial = null, onRetryToggle, onSaved }) => {
 
   const commit = () => {
     onSaved?.(buildConfig());
+    onCommit?.();
     setSaved(true); setTimeout(() => setSaved(false), 1800);
   };
 
@@ -1294,6 +1295,12 @@ export default function CreateCampaign({ onBack }) {
   const [step2Done, setStep2Done]             = useState(false);
   const [step3Done, setStep3Done]             = useState(false);
   const [step4Done, setStep4Done]             = useState(false);
+  // Steps 5-9 are optional, so they have no gate to advance past — but saving
+  // one still has to look like it worked. They used to be hardcoded `done:
+  // false`, so their circle never filled in and a saved step was
+  // indistinguishable from an untouched one.
+  const [savedSteps, setSavedSteps]           = useState({});
+  const markStepSaved = useCallback((n) => setSavedSteps((s) => (s[n] ? s : { ...s, [n]: true })), []);
   const [openStep, setOpenStep]               = useState(1);
   const [retriesActive, setRetriesActive]     = useState(false);
   const [launching, setLaunching]             = useState(false);
@@ -1516,11 +1523,11 @@ export default function CreateCampaign({ onBack }) {
     { n: 2, title: 'Message Template',                done: step2Done },
     { n: 3, title: 'Audience',                        done: step3Done },
     { n: 4, title: 'Schedule',                        done: step4Done },
-    { n: 5, title: 'AI Agent',                        done: aiAgentEnabled && !!aiAgentId },
-    { n: 6, title: 'Reply Flows',                     done: false },
-    { n: 7, title: 'Retries',                         done: false },
-    { n: 8, title: 'Conversion Tracking',             done: false },
-    { n: 9, title: 'Fallback Channels',               done: false },
+    { n: 5, title: 'AI Agent',                        done: !!savedSteps[5] },
+    { n: 6, title: 'Reply Flows',                     done: !!savedSteps[6] },
+    { n: 7, title: 'Retries',                         done: !!savedSteps[7] },
+    { n: 8, title: 'Conversion Tracking',             done: !!savedSteps[8] },
+    { n: 9, title: 'Fallback Channels',               done: !!savedSteps[9] },
   ];
 
   return (
@@ -1588,13 +1595,17 @@ export default function CreateCampaign({ onBack }) {
                   agentId={aiAgentId} setAgentId={setAiAgentId}
                   ctaLabel={aiCtaLabel} setCtaLabel={setAiCtaLabel}
                   template={selectedTemplate}
-                  onNext={() => setOpenStep(6)}
+                  onNext={() => { markStepSaved(5); setOpenStep(6); }}
                 />
               )}
-              {s.n === 6 && <StepReplyFlows initial={replyRules} onSaved={setReplyRules} />}
-              {s.n === 7 && <StepRetries initial={retryConfig} onRetryToggle={setRetriesActive} onSaved={setRetryConfig} />}
-              {s.n === 8 && <StepTracking onSaved={setTrackingConfig} />}
-              {s.n === 9 && <StepFallback retriesActive={retriesActive} onSaved={setFallbackConfig} />}
+              {/* Each optional step reports its own save. Retries is the odd
+                  one out: it also lifts its config on every change so a launch
+                  can't go out with a stale retryConfig, which would tick the
+                  step the moment it mounted — hence the separate onCommit. */}
+              {s.n === 6 && <StepReplyFlows initial={replyRules} onSaved={(r) => { setReplyRules(r); markStepSaved(6); }} />}
+              {s.n === 7 && <StepRetries initial={retryConfig} onRetryToggle={setRetriesActive} onSaved={setRetryConfig} onCommit={() => markStepSaved(7)} />}
+              {s.n === 8 && <StepTracking onSaved={(t) => { setTrackingConfig(t); markStepSaved(8); }} />}
+              {s.n === 9 && <StepFallback retriesActive={retriesActive} onSaved={(f) => { setFallbackConfig(f); markStepSaved(9); }} />}
             </StepWrap>
           ))}
           <div style={{ height: '48px' }} />

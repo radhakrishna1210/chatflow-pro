@@ -127,16 +127,19 @@ export default function Register({ onNav }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)', position: 'relative', overflow: 'hidden' }}>
       <style>{`
         @media (max-width: 860px) {
           .auth-brand-panel { display: none !important; }
           .auth-form-panel { padding: 28px 20px !important; }
+          .auth-card { padding: 26px 22px !important; }
         }
       `}</style>
       {/* Left brand panel */}
       <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#07090F 0%,#0a0f1e 60%,#07090F 100%)', borderRight: '1px solid var(--bd)' }}>
-        <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '380px', height: '380px', background: 'radial-gradient(circle,rgba(32,201,103,0.07) 0%,transparent 65%)', pointerEvents: 'none' }} />
+        {/* Matches the landing page and the sign-in screen. */}
+        <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(30,191,94,0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
+        <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(14,165,233,0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', position: 'relative', zIndex: 1 }}>
           <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -160,8 +163,9 @@ export default function Register({ onNav }) {
       </div>
 
       {/* Right form panel */}
-      <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
-        <div style={{ width: '100%', maxWidth: '380px' }}>
+      <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', position: 'relative' }}>
+        <div className="aurora-b" style={{ position: 'absolute', top: '10%', right: '-10%', width: '420px', height: '420px', background: 'radial-gradient(circle,rgba(30,191,94,0.07) 0%,transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+        <div className="glass auth-card" style={{ width: '100%', maxWidth: '420px', padding: '34px 32px', borderRadius: 'var(--rxl)', position: 'relative' }}>
           {step === 'details' ? (
             <>
               <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Create your account</h1>
