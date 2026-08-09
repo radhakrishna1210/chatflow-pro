@@ -1175,8 +1175,9 @@ const StepFallback = ({ retriesActive, onSaved }) => {
 };
 
 // ─── Phone Preview ─────────────────────────────────────────────
-const PhonePreview = ({ templateBody, ctaLabel = '' }) => {
+const PhonePreview = ({ template, templateBody, ctaLabel = '' }) => {
   const [businessName, setBusinessName] = useState('ChatFlow Pro');
+  const [headerPreview, setHeaderPreview] = useState(null);
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   useEffect(() => {
@@ -1185,6 +1186,51 @@ const PhonePreview = ({ templateBody, ctaLabel = '' }) => {
       if (u.workspaceName) setBusinessName(u.workspaceName);
     } catch {}
   }, []);
+
+  useEffect(() => {
+    setHeaderPreview(null);
+    if (!template) return;
+
+    const headerComp = Array.isArray(template.components)
+      ? template.components.find(c => (c.type || '').toUpperCase() === 'HEADER')
+      : null;
+    
+    if (headerComp?.format !== 'IMAGE') return;
+
+    if (template.headerAssetId) {
+      let active = true;
+      let objectUrl = null;
+      wFetch(`/templates/media/${template.headerAssetId}`)
+        .then(res => res.ok ? res.blob() : null)
+        .then(blob => {
+          if (active && blob) {
+            objectUrl = URL.createObjectURL(blob);
+            setHeaderPreview(objectUrl);
+          } else if (active) {
+            setHeaderPreview('placeholder');
+          }
+        })
+        .catch(() => {
+          if (active) setHeaderPreview('placeholder');
+        });
+      return () => {
+        active = false;
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      };
+    } else {
+      const exampleUrl = headerComp?.example?.header_url?.[0] || headerComp?.example?.header_handle?.[0];
+      if (exampleUrl && typeof exampleUrl === 'string' && exampleUrl.startsWith('http')) {
+        setHeaderPreview(exampleUrl);
+      } else {
+        setHeaderPreview('placeholder');
+      }
+    }
+  }, [template]);
+
+  const headerComp = template && Array.isArray(template?.components)
+    ? template.components.find(c => (c.type || '').toUpperCase() === 'HEADER')
+    : null;
+  const isImageHeader = headerComp?.format === 'IMAGE';
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center' }}>
@@ -1211,10 +1257,23 @@ const PhonePreview = ({ templateBody, ctaLabel = '' }) => {
         </div>
         {/* Chat area */}
         <div style={{ background: '#ECE5DD', minHeight: '220px', padding: '10px 8px', borderRadius: '0 0 22px 22px', backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' opacity='0.04'%3E%3Cpath d='M0 0L40 0L40 40L0 40Z' fill='%23000'/%3E%3C/svg%3E\")" }}>
-          {templateBody ? (
+          {(templateBody || isImageHeader) ? (
             <div style={{ maxWidth: '88%', display: 'inline-block' }}>
               <div style={{ background: 'white', borderRadius: '0 8px 8px 8px', padding: '8px 10px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                <p style={{ fontSize: '11px', color: '#111', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'system-ui, -apple-system, sans-serif', margin: 0 }}>{templateBody}</p>
+                {isImageHeader && (
+                  <div style={{ marginBottom: 8, borderRadius: 6, overflow: 'hidden', background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: (headerPreview && headerPreview !== 'placeholder') ? 'auto' : 120 }}>
+                    {headerPreview === 'placeholder' ? (
+                      <span style={{ fontSize: 12, color: '#888', padding: 20 }}>Image header</span>
+                    ) : headerPreview ? (
+                      <img src={headerPreview} alt="Header" style={{ width: '100%', display: 'block' }} />
+                    ) : (
+                      <span style={{ fontSize: 11, color: '#999', padding: 20 }}>Loading image…</span>
+                    )}
+                  </div>
+                )}
+                {templateBody && (
+                  <p style={{ fontSize: '11px', color: '#111', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'system-ui, -apple-system, sans-serif', margin: 0 }}>{templateBody}</p>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '3px', marginTop: '4px' }}>
                   <span style={{ fontSize: '9px', color: '#9CA3AF' }}>{now}</span>
                   <svg width="13" height="9" viewBox="0 0 18 12" fill="none">
@@ -1614,7 +1673,7 @@ export default function CreateCampaign({ onBack }) {
         {/* ── phone preview ── */}
         <div style={{ width: '296px', borderLeft: '1px solid var(--bd)', padding: '20px 18px', overflowY: 'auto', flexShrink: 0, background: 'rgba(5,8,20,0.5)' }}>
           <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '13px', color: 'var(--t1)', marginBottom: '16px' }}>Message Preview</p>
-          <PhonePreview templateBody={templateBody} ctaLabel={aiAgentEnabled ? aiCtaLabel : ''} />
+          <PhonePreview template={selectedTemplate} templateBody={templateBody} ctaLabel={aiAgentEnabled ? aiCtaLabel : ''} />
         </div>
       </div>
     </div>
