@@ -41,6 +41,40 @@ export async function notifyWorkspace(workspaceId, { type, title, body = null, l
   });
 }
 
+// Notify a workspace about something that happens once per recipient but is
+// only worth one line in the bell. A campaign whose sends are frequency-capped
+// schedules a retry for every one of them, and one notification each would bury
+// the feed under hundreds of identical rows — so entries sharing a `key` update
+// the existing notification in place (with a fresh count and a fresh ETA)
+// instead of adding another.
+export async function notifyWorkspaceGrouped(workspaceId, { key, type, title, body = null, link = null, meta = null }) {
+  if (!workspaceId || !key || !title) return null;
+  const payload = { ...(meta ?? {}), key };
+
+  const existing = await prisma.notification.findFirst({
+    where: { workspaceId, userId: null, type, meta: { path: ['key'], equals: key } },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (existing) {
+    // Re-opened as unread: the count and the ETA in the body have changed, so
+    // this is new information even though it reuses the row. Workspace-scoped
+    // read state lives in NotificationRead, so clearing those rows is what
+    // actually brings the badge back for everyone.
+    await prisma.notificationRead.deleteMany({ where: { notificationId: existing.id } }).catch(() => {});
+    return prisma.notification.update({
+      where: { id: existing.id },
+      // createdAt moves with the update: the feed is ordered by it, so without
+      // this the refreshed notice would sit unread halfway down the list under
+      // the timestamp of the first recipient in the wave.
+      data: { title, body, link, meta: payload, readAt: null, createdAt: new Date() },
+    });
+  }
+  return prisma.notification.create({
+    data: { workspaceId, userId: null, type, title, body, link, meta: payload },
+  });
+}
+
 // The bell's feed: this user's personal notifications plus the workspace-wide
 // ones, newest first, with each one's read state resolved for this user.
 export async function listNotifications(userId, workspaceId, { limit = MAX_FEED } = {}) {

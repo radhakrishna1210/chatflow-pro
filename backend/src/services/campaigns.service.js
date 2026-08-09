@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
 import { assertWithinLimit } from './subscription.service.js';
-import { normalizeRetryConfig } from '../lib/retry.js';
+import { normalizeRetryConfig, retryPolicySummary } from '../lib/retry.js';
 import { credit, debit } from './wallet.service.js';
 import { getOptedOutPhoneSet, normalizePhone } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
@@ -80,7 +80,37 @@ export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) 
     }),
     prisma.campaign.count({ where: { workspaceId } }),
   ]);
-  return { data, total };
+
+  // The retry counters are per-recipient, so the list column has to be derived
+  // rather than read off the campaign row. Two grouped counts over the page's
+  // campaigns, not one query per row.
+  const ids = data.map((c) => c.id);
+  const [retriedRows, retryingRows] = ids.length
+    ? await Promise.all([
+        prisma.campaignRecipient.groupBy({
+          by: ['campaignId'],
+          where: { campaignId: { in: ids }, retryCount: { gt: 0 } },
+          _count: { _all: true },
+        }),
+        prisma.campaignRecipient.groupBy({
+          by: ['campaignId'],
+          where: { campaignId: { in: ids }, status: 'RETRYING' },
+          _count: { _all: true },
+        }),
+      ])
+    : [[], []];
+
+  const retriedBy = new Map(retriedRows.map((r) => [r.campaignId, r._count._all]));
+  const retryingBy = new Map(retryingRows.map((r) => [r.campaignId, r._count._all]));
+
+  return {
+    data: data.map((c) => ({
+      ...c,
+      retried: retriedBy.get(c.id) ?? 0,
+      retrying: retryingBy.get(c.id) ?? 0,
+    })),
+    total,
+  };
 }
 
 export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent }, user = null) {
@@ -563,6 +593,21 @@ export async function getCampaign(workspaceId, campaignId) {
   const counts = Object.fromEntries(byStatus.map((row) => [row.status, row._count._all]));
   const totalRecipients = byStatus.reduce((sum, row) => sum + row._count._all, 0);
 
+  // Retry bookkeeping for the report. `retried` counts people, not attempts —
+  // one contact that took four tries is one retried message — while `attempts`
+  // is what those tries cost in sends. `nextRetryAt` is the soonest wave still
+  // owed, which is what the view renders as "retrying in 2h".
+  const [retried, retrySucceeded, retryAttempts, nextRetry] = await Promise.all([
+    prisma.campaignRecipient.count({ where: { campaignId, retryCount: { gt: 0 } } }),
+    prisma.campaignRecipient.count({ where: { campaignId, retryStatus: 'SUCCESS' } }),
+    prisma.campaignRecipient.aggregate({ where: { campaignId }, _sum: { retryCount: true } }),
+    prisma.campaignRecipient.findFirst({
+      where: { campaignId, status: 'RETRYING', nextRetryAt: { not: null } },
+      orderBy: { nextRetryAt: 'asc' },
+      select: { nextRetryAt: true },
+    }),
+  ]);
+
   return {
     ...campaign,
     // Whether the CTA can actually be tapped, or only typed — the template's
@@ -570,6 +615,9 @@ export async function getCampaign(workspaceId, campaignId) {
     aiAgentWarnings: campaign.aiAgentEnabled
       ? campaignCtaWarnings(campaign.template, campaign.aiAgentCtaLabel)
       : [],
+    // Read through the same normaliser the engine schedules against, so the
+    // policy shown here is the policy that will actually run.
+    retryPolicy: retryPolicySummary(campaign.retryConfig),
     report: {
       totalContacts: totalRecipients || campaign.totalContacts,
       sent: (counts.SENT || 0) + (counts.DELIVERED || 0) + (counts.READ || 0),
@@ -578,6 +626,13 @@ export async function getCampaign(workspaceId, campaignId) {
       failed: counts.FAILED || 0,
       skipped: counts.SKIPPED || 0,
       pending: (counts.PENDING || 0) + (counts.RETRYING || 0),
+      // Retry engine. `failed` above is only ever the permanent kind — a
+      // recipient still waiting on an attempt is RETRYING, not FAILED.
+      retrying: counts.RETRYING || 0,
+      retried,
+      retrySucceeded,
+      retryAttempts: retryAttempts._sum.retryCount || 0,
+      nextRetryAt: nextRetry?.nextRetryAt ?? null,
       costPerMessage: campaign.costPerMessage == null ? null : Number(campaign.costPerMessage),
       totalCost: campaign.totalCost == null ? null : Number(campaign.totalCost),
       walletBefore: campaign.walletBefore == null ? null : Number(campaign.walletBefore),

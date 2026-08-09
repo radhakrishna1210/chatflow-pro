@@ -10,7 +10,7 @@ import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
 import { consumeMessageCredit, releaseMessageCredit } from '../services/subscription.service.js';
 import { runFallbackForRecipient } from '../services/fallback.service.js';
-import { handleRecipientFailure, checkAndCompleteCampaign } from '../services/retry.service.js';
+import { handleRecipientFailure, checkAndCompleteCampaign, notifyRetrySucceeded } from '../services/retry.service.js';
 import { settleCampaignRefund } from '../services/campaigns.service.js';
 import { claimRecipientCharge, markRecipientNotCharged, recordAttempt } from '../services/campaignBilling.service.js';
 import { isOptedOut } from '../services/optout.service.js';
@@ -233,6 +233,7 @@ async function processRetryJob(job) {
     // second charge for the same person.
     await claimRecipientCharge(campaign, recipient);
     await recordAttempt(recipient.id, { attempt, ok: true });
+    await notifyRetrySucceeded(campaign, recipient, attempt);
 
     await prisma.campaign.update({
       where: { id: campaignId },
