@@ -1019,7 +1019,7 @@ const StepRetries = ({ initial = null, onRetryToggle, onSaved, onCommit }) => {
           )}
         </>
       )}
-      <InfoAlert>Retries are free and only apply to Meta frequency-capping failures. Messages that fail for other reasons will not be retried.</InfoAlert>
+      <InfoAlert>A message is only charged once, however many attempts it takes. Every failure that could succeed later — frequency capping, rate limits, timeouts, transient Meta errors — is retried on this schedule. Failures that can never succeed (an invalid number, a blocked recipient, a rejected template) are marked Failed straight away and never retried.</InfoAlert>
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Btn onClick={commit}>{saved ? 'Saved ✓' : 'Save Retry Config'}</Btn>
       </div>

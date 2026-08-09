@@ -1,9 +1,9 @@
 import { prisma } from '../lib/prisma.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
-import { isRetryableFailure, calculateNextRetry } from '../lib/retry.js';
+import { isRetryableFailure, calculateNextRetry, formatRetryEta, retryPolicySummary } from '../lib/retry.js';
 import { queueCampaignCompletedEmail } from './email.service.js';
 import { runFallbackForRecipient } from './fallback.service.js';
-import { notifyWorkspace } from './notification.service.js';
+import { notifyWorkspace, notifyWorkspaceGrouped } from './notification.service.js';
 import { markRecipientNotCharged } from './campaignBilling.service.js';
 
 export async function checkAndCompleteCampaign(campaignId) {
@@ -102,6 +102,46 @@ export async function recoverPendingRetries() {
   }
 
   return requeued;
+}
+
+// "Retrying in 2h · 12 messages waiting" — one line in the bell per campaign
+// per attempt number, not one per recipient, kept current as the rest of the
+// wave lands on the same schedule.
+async function notifyRetryScheduled(campaign, { attempt, nextRetryAt, reason }) {
+  const waiting = await prisma.campaignRecipient.count({
+    where: { campaignId: campaign.id, status: 'RETRYING' },
+  });
+  const eta = formatRetryEta(nextRetryAt.getTime() - Date.now());
+  const { maxAttempts } = retryPolicySummary(campaign.retryConfig);
+
+  await notifyWorkspaceGrouped(campaign.workspaceId, {
+    key: `campaign-retry:${campaign.id}:${attempt}`,
+    type: 'CAMPAIGN_RETRY_SCHEDULED',
+    // The eta is this wave's; the count is every message the campaign still
+    // owes an attempt, which may span earlier waves — hence "waiting" rather
+    // than claiming they all go out at once.
+    title: `Retrying in ${eta} · ${waiting} message${waiting === 1 ? '' : 's'} waiting`,
+    body: `Campaign "${campaign.name}" · attempt ${attempt}${maxAttempts ? ` of ${maxAttempts}` : ''} at ${nextRetryAt.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} — ${reason}`,
+    link: 'campaigns',
+    meta: { campaignId: campaign.id, attempt, nextRetryAt: nextRetryAt.toISOString(), waiting },
+  });
+}
+
+// "3 messages delivered on retry" — the other half of the pair above, so a wave
+// that was announced as "retrying in 2h" is reported on when it succeeds.
+export async function notifyRetrySucceeded(campaign, recipient, attempt) {
+  const recovered = await prisma.campaignRecipient.count({
+    where: { campaignId: campaign.id, retryStatus: 'SUCCESS' },
+  });
+
+  await notifyWorkspaceGrouped(campaign.workspaceId, {
+    key: `campaign-retry-success:${campaign.id}`,
+    type: 'CAMPAIGN_RETRY_SUCCESS',
+    title: `Retry successful — ${recovered} message${recovered === 1 ? '' : 's'} recovered`,
+    body: `Campaign "${campaign.name}" · ${recipient.contact?.name || recipient.contact?.phoneNumber || 'a recipient'} was delivered on retry attempt ${attempt}.`,
+    link: 'campaigns',
+    meta: { campaignId: campaign.id, recipientId: recipient.id, attempt, recovered },
+  }).catch(() => {});
 }
 
 export async function handleRecipientFailure(campaign, recipient, reason, metaCode = null) {
@@ -203,6 +243,14 @@ export async function handleRecipientFailure(campaign, recipient, reason, metaCo
     // waiting retry without checking whether its job survived.
     { delay: calculation.delayMs, jobId: retryJobId(recipient.id, calculation.attempt) },
   );
+
+  // Best-effort: the retry is already queued, and a notification that could not
+  // be written must never undo that.
+  await notifyRetryScheduled(campaign, {
+    attempt: calculation.attempt,
+    nextRetryAt: calculation.nextTime,
+    reason: textReason,
+  }).catch((e) => console.error(`[CampaignRetry] Retry notification failed for ${campaign.id}:`, e.message));
 
   return { retried: true, nextRetryAt: calculation.nextTime, attempt: calculation.attempt };
 }

@@ -123,7 +123,42 @@ export function isRetryableFailure(reason = '', metaCode = null) {
   ];
   if (retryablePatterns.some((p) => p.test(text))) return true;
 
-  return false;
+  // Anything not provably permanent is retried. The old default was the
+  // opposite, which meant a failure Meta words in a way this file has not seen
+  // before was marked FAILED on the first attempt and never tried again — the
+  // retry engine only ever fired for the handful of reasons listed above. Only
+  // a failure that cannot succeed on a later attempt (the lists above) ends the
+  // recipient now; everything else gets the configured schedule, and stops on
+  // its own at MAX_RETRIES or the retry end date.
+  return true;
+}
+
+// "1h", "2h 30m", "45m" — the wait a person is being asked to accept, used in
+// the retry notification and echoed by the campaign report.
+export function formatRetryEta(ms) {
+  // Rounded to whole minutes *before* the split, not after: a delay of
+  // 3_599_999ms is 59.99 minutes, and rounding the remainder on its own turns
+  // that into "60m" (and a 24-hour wait into "23h 60m").
+  const totalMins = Math.max(0, Math.round((Number(ms) || 0) / 60000));
+  if (totalMins < 1) return 'less than a minute';
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  if (!hours) return `${mins}m`;
+  return mins ? `${hours}h ${mins}m` : `${hours}h`;
+}
+
+// What the campaign report shows for its retry policy, derived from the same
+// normalisation the engine schedules against so the two can never disagree.
+export function retryPolicySummary(retryConfig) {
+  const config = normalizeRetryConfig(retryConfig);
+  if (!config) return { enabled: false, pattern: null, maxAttempts: 0, endDate: null, noRetryWindow: null };
+  return {
+    enabled: true,
+    pattern: config.retryPattern,
+    maxAttempts: config.retryPattern === 'hourly' ? 24 : 6,
+    endDate: config.retryEndDate || null,
+    noRetryWindow: config.noRetryWindow || null,
+  };
 }
 
 export function calculateNextRetry(retryConfig, currentRetryCount = 0, fromDate = new Date()) {

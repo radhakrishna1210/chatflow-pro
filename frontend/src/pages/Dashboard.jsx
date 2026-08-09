@@ -334,6 +334,8 @@ const NOTIF_ICONS = {
   CAMPAIGN_LAUNCHED: 'send',
   CAMPAIGN_COMPLETED: 'checkc',
   CAMPAIGN_FAILED: 'alertt',
+  CAMPAIGN_RETRY_SCHEDULED: 'clock',
+  CAMPAIGN_RETRY_SUCCESS: 'refresh',
   TEMPLATE_APPROVED: 'checkc',
   TEMPLATE_REJECTED: 'alertt',
   WALLET_RECHARGE: 'credit',
@@ -768,6 +770,43 @@ const HomeView = () => {
 
 const fmtDate = (d) => d ? new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
+// How long until a scheduled retry fires — "2h", "2h 30m", "45m". Mirrors
+// formatRetryEta() on the server so the bell and the report read the same.
+const fmtEta = (iso) => {
+  if (!iso) return null;
+  const raw = new Date(iso).getTime() - Date.now();
+  if (raw <= 0) return 'any moment now';
+  // Rounded to whole minutes before splitting, so a 1h wait never reads "60m".
+  const mins = Math.round(raw / 60000);
+  if (mins < 1) return 'less than a minute';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (!h) return `${m}m`;
+  return m ? `${h}h ${m}m` : `${h}h`;
+};
+
+// The retry line under a recipient: what attempt they are on and when the next
+// one runs, or — once it is over — whether retrying is what got them delivered.
+const retryNote = (r, maxAttempts) => {
+  const count = r.retryCount || 0;
+  if (r.status === 'RETRYING') {
+    const eta = fmtEta(r.nextRetryAt);
+    const attempt = count + 1;
+    return {
+      color: '#c084fc',
+      text: `Attempt ${attempt}${maxAttempts ? ` of ${maxAttempts}` : ''}${eta ? ` · retrying in ${eta}` : ' · retrying shortly'}${r.lastFailureReason ? ` · ${r.lastFailureReason}` : ''}`,
+    };
+  }
+  if (!count) return null;
+  if (['DELIVERED', 'READ', 'SENT'].includes(r.status)) {
+    return { color: 'var(--green)', text: `Recovered — delivered on retry attempt ${count}` };
+  }
+  if (r.status === 'FAILED') {
+    return { color: '#f87171', text: `Failed after ${count} retr${count === 1 ? 'y' : 'ies'}` };
+  }
+  return null;
+};
+
 // Detail modal — surfaces the campaign's full timeline (created / scheduled /
 // launched / completed), live counters and recipient list, plus a Cancel
 // action for draft/scheduled/running campaigns.
@@ -786,6 +825,12 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
   };
 
   useEffect(() => { load(); const iv = setInterval(load, 8000); return () => clearInterval(iv); }, [campaignId]); // eslint-disable-line
+
+  // The retry countdowns are rendered from nextRetryAt against the clock, so
+  // they need a re-render of their own — otherwise a modal left open on a
+  // failed poll would keep showing a stale "retrying in 2h".
+  const [, setTick] = useState(0);
+  useEffect(() => { const iv = setInterval(() => setTick(t => t + 1), 30000); return () => clearInterval(iv); }, []);
 
   const cancel = async () => {
     if (!window.confirm('Cancel this campaign? Pending messages will not be sent.')) return;
@@ -822,8 +867,10 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
           {!c && !err && <div style={{ textAlign:'center', padding:'32px', color:'var(--t2)', fontSize:13 }}>Loading…</div>}
           {c && (
             <>
-              {/* Total / Sent / Delivered / Read / Failed / Skipped — the full
-                  report. Skipped counts numbers that opted out: they were
+              {/* Total / Sent / Delivered / Read / Failed / Retries / Skipped —
+                  the full report. Failed is only ever the permanent kind: a
+                  message still owed an attempt counts under Retrying, not
+                  Failed. Skipped counts numbers that opted out: they were
                   never sent to and never charged for. */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
                 {[
@@ -832,6 +879,8 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
                   ['Delivered',      c.report?.delivered ?? c.delivered,         'var(--t1)'],
                   ['Read',           c.report?.read ?? c.read,                   'var(--t1)'],
                   ['Failed',         c.report?.failed ?? c.failed,               '#f87171'],
+                  ['Retries',        c.report?.retried ?? 0,                     '#c084fc'],
+                  ['Retrying Now',   c.report?.retrying ?? 0,                    '#c084fc'],
                   ['Skipped (Opted Out)', c.report?.skipped ?? c.skipped,        '#fbbf24'],
                 ].map(([k, v, danger]) => (
                   <div key={k} style={{ padding:'12px 14px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
@@ -840,6 +889,31 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
                   </div>
                 ))}
               </div>
+
+              {/* The retry engine, in the one place a campaign's owner looks
+                  after a send goes wrong: how many messages are still owed an
+                  attempt, when the next one runs, and how many earlier
+                  failures retrying has already recovered. */}
+              {(c.report?.retrying > 0 || c.report?.retried > 0) && (
+                <div style={{ padding:'13px 16px', borderRadius:10, background:'rgba(168,85,247,.07)', border:'1px solid rgba(168,85,247,.28)', display:'flex', flexDirection:'column', gap:6 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <I n="refresh" s={13} c="#c084fc" />
+                    <span style={{ fontSize:12.5, fontWeight:700, color:'#c084fc' }}>
+                      {c.report.retrying > 0
+                        ? `${c.report.retrying} message${c.report.retrying === 1 ? '' : 's'} waiting to be retried`
+                        : 'Retries finished'}
+                    </span>
+                  </div>
+                  <p style={{ fontSize:11.5, color:'var(--t2)', lineHeight:1.55 }}>
+                    {c.report.retrying > 0 && c.report.nextRetryAt && (
+                      <>Next attempt in <strong style={{ color:'var(--t1)' }}>{fmtEta(c.report.nextRetryAt)}</strong> ({fmtDate(c.report.nextRetryAt)}). </>
+                    )}
+                    {c.report.retrySucceeded > 0
+                      ? `${c.report.retrySucceeded} of ${c.report.retried} retried message${c.report.retried === 1 ? '' : 's'} have been delivered so far.`
+                      : `${c.report.retried} message${c.report.retried === 1 ? ' has' : 's have'} needed a retry (${c.report.retryAttempts ?? 0} attempt${(c.report.retryAttempts ?? 0) === 1 ? '' : 's'} in total).`}
+                  </p>
+                </div>
+              )}
 
               {c.totalCost != null && (
                 <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(30,191,94,0.05)', border:'1px solid var(--gbd)', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px 16px' }}>
@@ -872,6 +946,12 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
                   ['Send-from',      c.waNumber ? `${c.waNumber.phoneNumber}${c.waNumber.displayName ? ' · ' + c.waNumber.displayName : ''}` : '—'],
                   ['Recipients',     (c.totalContacts ?? 0).toLocaleString()],
                   ['AI Agent',       c.aiAgentEnabled ? `On · CTA “${c.aiAgentCtaLabel || 'Ask Anything'}”` : 'Off'],
+                  ['Auto-Retry',     c.retryPolicy?.enabled
+                    ? `On · ${c.retryPolicy.pattern === 'hourly' ? 'Hourly' : 'Smart'} · up to ${c.retryPolicy.maxAttempts} attempts`
+                    : 'Off — failures are not retried'],
+                  ['No-Retry Window', c.retryPolicy?.enabled && c.retryPolicy.noRetryWindow
+                    ? `${c.retryPolicy.noRetryWindow.start} – ${c.retryPolicy.noRetryWindow.end}`
+                    : '—'],
                 ].map(([k, v]) => (
                   <div key={k}>
                     <p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:3 }}>{k}</p>
@@ -894,15 +974,19 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
                 <div>
                   <p style={{ fontSize:11, fontWeight:700, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Recipients ({c.recipients.length}{c.totalContacts > c.recipients.length ? ` of ${c.totalContacts}` : ''})</p>
                   <div style={{ maxHeight:220, overflowY:'auto', border:'1px solid var(--bd)', borderRadius:10 }}>
-                    {c.recipients.map((r, i) => (
-                      <div key={r.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'9px 14px', borderBottom: i < c.recipients.length - 1 ? '1px solid var(--bd)' : 'none' }}>
-                        <div style={{ minWidth:0 }}>
-                          <p style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.contact?.name || '—'}</p>
-                          <p style={{ fontSize:11, color:'var(--t3)' }}>{r.contact?.phoneNumber}{r.failReason ? ` · ${r.failReason}` : ''}</p>
+                    {c.recipients.map((r, i) => {
+                      const note = retryNote(r, c.retryPolicy?.maxAttempts);
+                      return (
+                        <div key={r.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, padding:'9px 14px', borderBottom: i < c.recipients.length - 1 ? '1px solid var(--bd)' : 'none' }}>
+                          <div style={{ minWidth:0 }}>
+                            <p style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.contact?.name || '—'}</p>
+                            <p style={{ fontSize:11, color:'var(--t3)' }}>{r.contact?.phoneNumber}{r.failReason ? ` · ${r.failReason}` : ''}</p>
+                            {note && <p style={{ fontSize:11, color:note.color, marginTop:2, lineHeight:1.45 }}>{note.text}</p>}
+                          </div>
+                          <StatusBadge s={r.status} />
                         </div>
-                        <StatusBadge s={r.status} />
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -991,7 +1075,7 @@ const CampaignsView = ({ onCreateCampaign }) => {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  {['Campaign', 'Status', 'Sent', 'Delivered', 'Read', 'Skipped', 'Cost', 'Rate', 'Date', ''].map(h => (
+                  {['Campaign', 'Status', 'Sent', 'Delivered', 'Read', 'Failed', 'Retries', 'Skipped', 'Cost', 'Rate', 'Date', ''].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{h}</th>
                   ))}
                 </tr>
@@ -1013,6 +1097,15 @@ const CampaignsView = ({ onCreateCampaign }) => {
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{sent.toLocaleString()}</td>
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{delivered.toLocaleString()}</td>
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{read.toLocaleString()}</td>
+                      <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.failed ?? 0) > 0 ? '#f87171' : 'var(--t2)' }}>{(c.failed ?? 0).toLocaleString()}</td>
+                      {/* Messages that needed a retry, with the ones still
+                          waiting on an attempt called out — those are not
+                          failures yet, and the Failed column excludes them. */}
+                      <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.retried ?? 0) > 0 ? '#c084fc' : 'var(--t2)' }}
+                        title={(c.retrying ?? 0) > 0 ? `${c.retrying} still waiting on a retry` : 'Messages that needed at least one retry'}>
+                        {(c.retried ?? 0).toLocaleString()}
+                        {(c.retrying ?? 0) > 0 && <span style={{ fontSize: '11px', color: 'var(--t3)' }}> · {c.retrying} waiting</span>}
+                      </td>
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.skipped ?? 0) > 0 ? '#fbbf24' : 'var(--t2)' }}>{(c.skipped ?? 0).toLocaleString()}</td>
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{c.totalCost == null ? '—' : `₹${Number(c.totalCost).toFixed(2)}`}</td>
                       <td style={{ padding: '14px 16px' }}>
