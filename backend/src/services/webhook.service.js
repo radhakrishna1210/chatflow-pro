@@ -482,37 +482,37 @@ async function handleStatusUpdate(status) {
   });
   if (!recipient) return;
 
-  if (newStatus === 'delivered' && !recipient.deliveredAt) {
-    await prisma.$transaction([
-      prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: { deliveredAt: eventTime, ...(recipient.status === 'SENT' ? { status: 'DELIVERED' } : {}) },
-      }),
-      prisma.campaign.update({
+  if (newStatus === 'delivered') {
+    const updated = await prisma.campaignRecipient.updateMany({
+      where: { id: recipient.id, deliveredAt: null },
+      data: { deliveredAt: eventTime, status: 'DELIVERED' },
+    });
+    if (updated.count > 0) {
+      await prisma.campaign.update({
         where: { id: recipient.campaignId },
         data: { delivered: { increment: 1 } },
-      }),
-    ]);
-  } else if (newStatus === 'read' && !recipient.readAt) {
-    const ops = [
-      prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: {
-          readAt: eventTime,
-          status: 'READ',
-          // A read implies delivery — backfill if the delivered webhook was missed.
-          ...(recipient.deliveredAt ? {} : { deliveredAt: eventTime }),
-        },
-      }),
-      prisma.campaign.update({
+      });
+    }
+  } else if (newStatus === 'read') {
+    const readUpdated = await prisma.campaignRecipient.updateMany({
+      where: { id: recipient.id, readAt: null },
+      data: { readAt: eventTime, status: 'READ' },
+    });
+    
+    if (readUpdated.count > 0) {
+      const deliveryUpdated = await prisma.campaignRecipient.updateMany({
+        where: { id: recipient.id, deliveredAt: null },
+        data: { deliveredAt: eventTime },
+      });
+      
+      await prisma.campaign.update({
         where: { id: recipient.campaignId },
         data: {
           read: { increment: 1 },
-          ...(recipient.deliveredAt ? {} : { delivered: { increment: 1 } }),
+          ...(deliveryUpdated.count > 0 ? { delivered: { increment: 1 } } : {}),
         },
-      }),
-    ];
-    await prisma.$transaction(ops);
+      });
+    }
   } else if (newStatus === 'failed' && !recipient.failedAt) {
     const errObj = status.errors?.[0];
     const code = errObj?.code;
