@@ -218,9 +218,8 @@ async function processRetryJob(job) {
     await prisma.campaignRecipient.update({
       where: { id: recipient.id },
       data: {
-        status: 'DELIVERED',
+        status: 'SENT',
         sentAt: recipient.sentAt || new Date(),
-        deliveredAt: new Date(),
         retryStatus: 'SUCCESS',
         nextRetryAt: null,
         failReason: null,
@@ -235,13 +234,12 @@ async function processRetryJob(job) {
     await recordAttempt(recipient.id, { attempt, ok: true });
     await notifyRetrySucceeded(campaign, recipient, attempt);
 
-    await prisma.campaign.update({
-      where: { id: campaignId },
-      data: {
-        delivered: { increment: 1 },
-        ...(wasSent ? {} : { sent: { increment: 1 } }),
-      },
-    });
+    if (!wasSent) {
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { sent: { increment: 1 } },
+      });
+    }
 
     if (metaMessageId) {
       let convo = await prisma.conversation.findFirst({

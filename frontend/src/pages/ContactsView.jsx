@@ -303,6 +303,163 @@ const AddContactDialog = ({ onClose, onSaved }) => {
   );
 };
 
+// ─── Edit Contact dialog ───────────────────────────────────────
+const EditContactDialog = ({ contact, onClose, onSaved }) => {
+  const [name, setName]     = useState(contact.name || '');
+  const [phone, setPhone]   = useState(contact.phoneNumber || '');
+  const [email, setEmail]   = useState(contact.email || '');
+  const [tagsRaw, setTags]  = useState((contact.tags || []).join(', '));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState(null);
+
+  const submit = async () => {
+    if (!phone.trim()) { setErr('Phone number is required'); return; }
+    setErr(null); setSaving(true);
+    try {
+      const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+      const res = await wFetch(`/contacts/${contact.id}`, {
+        method:'PATCH',
+        body: JSON.stringify({ name: name.trim() || 'Unknown', phoneNumber: phone.trim(), email: email.trim() || null, tags }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setErr(data.error || `Error ${res.status}`); return; }
+      onSaved?.(data);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="Edit Contact" onClose={onClose}>
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        {err && (
+          <div style={{ padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12 }}>{err}</div>
+        )}
+        <div>
+          <FLabel>Name</FLabel>
+          <FInput value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" />
+        </div>
+        <div>
+          <FLabel required>Phone Number</FLabel>
+          <FInput value={phone} onChange={e => setPhone(e.target.value.replace(/[^0-9+\s\-()]/g, ''))} placeholder="+91 9876543210" onKeyDown={e => e.key === 'Enter' && submit()} />
+          <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Include country code (e.g. +91 for India, +1 for US). WhatsApp won't deliver without it.</p>
+        </div>
+        <div>
+          <FLabel>Email</FLabel>
+          <FInput type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" />
+        </div>
+        <div>
+          <FLabel>Tags</FLabel>
+          <FInput value={tagsRaw} onChange={e => setTags(e.target.value)} placeholder="vip, newsletter, prospect" />
+          <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Comma-separated.</p>
+        </div>
+        <Btn onClick={submit} disabled={saving || !phone.trim()} style={{ alignSelf:'flex-end', boxShadow: phone.trim() ? 'var(--glow)' : 'none' }}>
+          {saving ? 'Saving…' : 'Save Changes'}
+        </Btn>
+      </div>
+    </Modal>
+  );
+};
+
+// ─── Delete Contact modal ──────────────────────────────────────
+const DeleteContactModal = ({ contact, onClose, onDeleted }) => {
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr]           = useState(null);
+
+  const confirmDelete = async () => {
+    setErr(null); setDeleting(true);
+    try {
+      const res = await wFetch(`/contacts/${contact.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setErr(data.error || `Error ${res.status}`);
+        return;
+      }
+      onDeleted?.();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Modal title="Delete Contact" onClose={onClose} width={400} footer={
+      <>
+        <Btn variant="outline" onClick={onClose} disabled={deleting}>Cancel</Btn>
+        <Btn onClick={confirmDelete} disabled={deleting} style={{ background: '#f87171', color: '#fff' }}>
+          {deleting ? 'Deleting…' : 'Delete'}
+        </Btn>
+      </>
+    }>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {err && (
+          <div style={{ padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12 }}>{err}</div>
+        )}
+        <p style={{ fontSize: 13, color: 'var(--t1)', lineHeight: 1.5 }}>
+          Are you sure you want to delete <strong>{contact.name || contact.phoneNumber}</strong>?
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>
+          This action cannot be undone. It will not delete existing conversations or campaign histories for this contact, but they will no longer appear in your contact list.
+        </p>
+      </div>
+    </Modal>
+  );
+};
+
+// ─── Delete Multiple Contacts modal ──────────────────────────────────────
+const DeleteMultipleModal = ({ selectedIds, onClose, onDeleted }) => {
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr]           = useState(null);
+
+  const confirmDelete = async () => {
+    setErr(null); setDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const errors = [];
+      for (const id of ids) {
+        try {
+          const res = await wFetch(`/contacts/${id}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error(`Failed to delete ${id}`);
+        } catch (e) {
+          errors.push(e.message);
+        }
+      }
+      if (errors.length > 0) throw new Error(`Failed to delete ${errors.length} contacts.`);
+      onDeleted?.();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Modal title="Delete Contacts" onClose={onClose} width={400} footer={
+      <>
+        <Btn variant="outline" onClick={onClose} disabled={deleting}>Cancel</Btn>
+        <Btn onClick={confirmDelete} disabled={deleting} style={{ background: '#f87171', color: '#fff' }}>
+          {deleting ? 'Deleting…' : 'Delete'}
+        </Btn>
+      </>
+    }>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {err && (
+          <div style={{ padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12 }}>{err}</div>
+        )}
+        <p style={{ fontSize: 13, color: 'var(--t1)', lineHeight: 1.5 }}>
+          Are you sure you want to delete <strong>{selectedIds.size}</strong> selected contact{selectedIds.size > 1 ? 's' : ''}?
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>
+          This action cannot be undone. It will not delete existing conversations or campaign histories, but they will no longer appear in your contact list.
+        </p>
+      </div>
+    </Modal>
+  );
+};
+
 // ─── Create Cluster modal ──────────────────────────────────────
 const CreateClusterModal = ({ onClose, onSaved }) => {
   const [name, setName]               = useState('');
@@ -453,6 +610,9 @@ export default function ContactsView() {
   const [selected, setSelected]         = useState(new Set());
   const [loading, setLoading]           = useState(false);
   const [addOpen, setAddOpen]           = useState(false);
+  const [editingContact, setEditingContact] = useState(null);
+  const [deletingContact, setDeletingContact] = useState(null);
+  const [deletingMultiple, setDeletingMultiple] = useState(false);
   const [clusters, setClusters]         = useState([]);
   const [selectedCluster, setSelectedCluster] = useState('');
   const [clusterOpen, setClusterOpen]   = useState(false);
@@ -525,6 +685,12 @@ export default function ContactsView() {
           <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:1 }}>{total} total contacts</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
+          {selCount > 0 && (
+            <Btn variant="outline" onClick={() => setDeletingMultiple(true)} style={{ borderColor: 'rgba(239,68,68,0.3)', color: '#f87171', background: 'rgba(239,68,68,0.05)' }}>
+              <I n="trash" s={14} c="#f87171" />
+              Delete {selCount} selected
+            </Btn>
+          )}
           <Btn variant="outline" onClick={() => setClusterOpen(true)}>
             <I n="plus" s={14} c="var(--t2)" />
             Create Cluster
@@ -618,7 +784,7 @@ export default function ContactsView() {
                   <ColHead>Created</ColHead>
                   <ColHead>Status</ColHead>
                   <ColHead>Tags</ColHead>
-                  <th style={{ padding:'10px 16px', width:50 }} />
+                  <th style={{ padding:'10px 16px', width:120 }} />
                 </tr>
               </thead>
               <tbody>
@@ -669,11 +835,25 @@ export default function ContactsView() {
                         </div>
                       </td>
                       <td style={{ padding:'12px 16px' }}>
-                        <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s' }}
-                          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.1)'; e.currentTarget.style.borderColor = 'var(--gbd)'; }}
-                          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
-                          <I n="msg" s={13} c="var(--t2)" />
-                        </button>
+                        <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                          <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.1)'; e.currentTarget.style.borderColor = 'var(--gbd)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
+                            <I n="msg" s={13} c="var(--t2)" />
+                          </button>
+                          <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
+                            onClick={() => setEditingContact(c)}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,165,233,0.1)'; e.currentTarget.style.borderColor = 'rgba(14,165,233,0.3)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
+                            <I n="pencil" s={13} c="var(--t2)" />
+                          </button>
+                          <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#f87171', transition:'all .15s', flexShrink:0 }}
+                            onClick={() => setDeletingContact(c)}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.3)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
+                            <I n="trash" s={13} c="#f87171" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -695,6 +875,27 @@ export default function ContactsView() {
         <CreateClusterModal
           onClose={() => setClusterOpen(false)}
           onSaved={() => { load(); }}
+        />
+      )}
+      {editingContact && (
+        <EditContactDialog
+          contact={editingContact}
+          onClose={() => setEditingContact(null)}
+          onSaved={() => { setEditingContact(null); load(); }}
+        />
+      )}
+      {deletingContact && (
+        <DeleteContactModal
+          contact={deletingContact}
+          onClose={() => setDeletingContact(null)}
+          onDeleted={() => { setDeletingContact(null); load(); }}
+        />
+      )}
+      {deletingMultiple && (
+        <DeleteMultipleModal
+          selectedIds={selected}
+          onClose={() => setDeletingMultiple(false)}
+          onDeleted={() => { setDeletingMultiple(false); setSelected(new Set()); load(); }}
         />
       )}
     </div>
