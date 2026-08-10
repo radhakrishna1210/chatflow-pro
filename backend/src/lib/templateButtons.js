@@ -18,6 +18,12 @@ export const BUTTON_LIMITS = {
   URL: 2,
   COPY_CODE: 1,
   QUICK_REPLY: 10,
+  // A catalog template carries exactly one CATALOG button and nothing else.
+  CATALOG: 1,
+  // Carousel cards are far more restricted than the message bubble: at most
+  // two buttons, quick-reply or link only, and every card must repeat the
+  // same set (enforced across cards in lib/templateStructure.js).
+  cardTotal: 2,
   textChars: 25,
   urlChars: 2000,
   // Meta renders at most 3 buttons on desktop; beyond that the template is
@@ -25,32 +31,48 @@ export const BUTTON_LIMITS = {
   desktopSafe: 3,
 };
 
-const TYPES = new Set(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'COPY_CODE']);
+const TYPES = new Set(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'COPY_CODE', 'CATALOG']);
+// Meta accepts only these two inside a carousel card.
+const CARD_TYPES = new Set(['QUICK_REPLY', 'URL']);
 
 const fail = (message) => { const e = new Error(message); e.status = 400; throw e; };
 
 // Accepts the buttons array a client sends and returns the exact shape Meta
 // expects, or throws with a message naming the offending button.
-export function normalizeButtons(raw) {
+//
+// `context` switches between the message bubble's rules and the much tighter
+// ones Meta applies inside a carousel card ('card'), where only quick-reply
+// and link buttons are allowed and at most two of them.
+export function normalizeButtons(raw, { context = 'template', where: whereLabel = 'Button' } = {}) {
+  const isCard = context === 'card';
   const list = Array.isArray(raw) ? raw.filter(Boolean) : [];
   if (list.length === 0) return [];
 
-  if (list.length > BUTTON_LIMITS.total) {
-    fail(`A template can have at most ${BUTTON_LIMITS.total} buttons — this one has ${list.length}.`);
+  const maxTotal = isCard ? BUTTON_LIMITS.cardTotal : BUTTON_LIMITS.total;
+  if (list.length > maxTotal) {
+    fail(isCard
+      ? `A carousel card can have at most ${maxTotal} buttons — this one has ${list.length}.`
+      : `A template can have at most ${maxTotal} buttons — this one has ${list.length}.`);
   }
 
-  const counts = { QUICK_REPLY: 0, URL: 0, PHONE_NUMBER: 0, COPY_CODE: 0 };
+  const counts = { QUICK_REPLY: 0, URL: 0, PHONE_NUMBER: 0, COPY_CODE: 0, CATALOG: 0 };
   const out = [];
 
   list.forEach((btn, i) => {
     const type = String(btn?.type || '').trim().toUpperCase();
-    const where = `Button ${i + 1}`;
-    if (!TYPES.has(type)) fail(`${where} has an unsupported type "${btn?.type}". Use a quick reply, a link, a phone number, or a copy-code button.`);
+    const where = `${whereLabel} ${i + 1}`;
+    const allowed = isCard ? CARD_TYPES : TYPES;
+    if (!allowed.has(type)) {
+      fail(isCard
+        ? `${where} is a ${btn?.type || 'unknown'} button — carousel cards only support quick-reply and link buttons.`
+        : `${where} has an unsupported type "${btn?.type}". Use a quick reply, a link, a phone number, a copy-code, or a catalog button.`);
+    }
 
     counts[type] += 1;
-    if (counts[type] > BUTTON_LIMITS[type]) {
-      const label = { PHONE_NUMBER: 'phone-number', URL: 'link', COPY_CODE: 'copy-code', QUICK_REPLY: 'quick-reply' }[type];
-      fail(`Only ${BUTTON_LIMITS[type]} ${label} button${BUTTON_LIMITS[type] === 1 ? ' is' : 's are'} allowed per template.`);
+    const perType = isCard ? BUTTON_LIMITS.cardTotal : BUTTON_LIMITS[type];
+    if (counts[type] > perType) {
+      const label = { PHONE_NUMBER: 'phone-number', URL: 'link', COPY_CODE: 'copy-code', QUICK_REPLY: 'quick-reply', CATALOG: 'catalog' }[type];
+      fail(`Only ${perType} ${label} button${perType === 1 ? ' is' : 's are'} allowed per ${isCard ? 'card' : 'template'}.`);
     }
 
     const text = String(btn?.text || '').trim();
@@ -94,11 +116,24 @@ export function normalizeButtons(raw) {
       return;
     }
 
+    // A catalog button carries no destination of its own — it opens the
+    // catalog already connected to the WhatsApp Business account.
+    if (type === 'CATALOG') {
+      out.push({ type, text });
+      return;
+    }
+
     // COPY_CODE carries the sample coupon Meta shows the reviewer.
     const code = String(btn?.example || btn?.code || '').trim();
     if (!code) fail(`${where} needs an example code (e.g. SAVE20).`);
     out.push({ type, text, example: [code] });
   });
+
+  // Meta's catalog button replaces the whole button row — it cannot share the
+  // template with links, calls or quick replies.
+  if (counts.CATALOG > 0 && out.length > 1) {
+    fail('A catalog button must be the only button on the template.');
+  }
 
   // Quick replies must sit together. Meta errors on QR → URL → QR.
   const qrPositions = out.map((b, i) => (b.type === 'QUICK_REPLY' ? i : -1)).filter((i) => i !== -1);
@@ -119,16 +154,4 @@ export function buttonWarnings(buttons) {
     notes.push(`Templates with more than ${BUTTON_LIMITS.desktopSafe} buttons are not shown on WhatsApp desktop.`);
   }
   return notes;
-}
-
-// Pulls a BUTTONS component out of a components array, validates it in place
-// and returns the array with the normalised version. Used on the create path
-// so a hand-rolled API call gets the same checks as the builder.
-export function normalizeButtonsInComponents(components) {
-  if (!Array.isArray(components)) return components;
-  return components.map((c) => {
-    if (String(c?.type || '').toUpperCase() !== 'BUTTONS') return c;
-    const buttons = normalizeButtons(c.buttons);
-    return buttons.length ? { type: 'BUTTONS', buttons } : null;
-  }).filter(Boolean);
 }

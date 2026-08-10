@@ -18,6 +18,7 @@ import axios from 'axios';
 import { GoogleGenAI } from '@google/genai';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
+import { carouselCards, buildCardBodyComponent, buildCardButtonComponents } from '../lib/templateParams.js';
 import { uploadPhoneMedia } from '../lib/meta.js';
 
 let _ai = null;
@@ -484,4 +485,47 @@ export async function resolveSendableMediaId(asset, { phoneNumberId, accessToken
     data: { metaMediaId: mediaId, metaMediaNumberId: phoneNumberId, metaMediaAt: new Date() },
   });
   return mediaId;
+}
+
+// Builds the `carousel` component a carousel template needs on every send.
+//
+// Each card repeats the header/body/button work the message bubble does, and
+// the card's picture has the same problem the main header has — the
+// `header_handle` Meta reviewed cannot be sent, so the stored bytes are
+// re-minted into a phone-scoped media id here. The asset id rides along on the
+// stored card header as `_assetId` (see lib/templateStructure.js) because a
+// carousel has up to ten pictures and Template.headerAssetId holds only one.
+export async function carouselComponent(template, { phoneNumberId, accessToken, resolve }) {
+  const cards = carouselCards(template?.components);
+  if (cards.length === 0) return null;
+
+  const built = [];
+  for (const [index, card] of cards.entries()) {
+    const header = (Array.isArray(card?.components) ? card.components : [])
+      .find((c) => String(c?.type || '').toUpperCase() === 'HEADER');
+    const assetId = header?._assetId;
+    if (!assetId) {
+      const e = new Error(`Card ${index + 1} of template "${template.name}" has no stored media to send. Re-upload the card's image.`);
+      e.status = 422;
+      throw e;
+    }
+    const asset = await prisma.templateAsset.findUnique({ where: { id: assetId } });
+    if (!asset) {
+      const e = new Error(`The media for card ${index + 1} of template "${template.name}" is missing. Re-upload it.`);
+      e.status = 422;
+      throw e;
+    }
+
+    const mediaId = await resolveSendableMediaId(asset, { phoneNumberId, accessToken });
+    const kind = String(header.format || 'IMAGE').toLowerCase();
+    const components = [{ type: 'header', parameters: [{ type: kind, [kind]: { id: mediaId } }] }];
+
+    const body = buildCardBodyComponent(card, resolve);
+    if (body) components.push(body);
+    components.push(...buildCardButtonComponents(card));
+
+    built.push({ card_index: index, components });
+  }
+
+  return { type: 'carousel', cards: built };
 }
