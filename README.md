@@ -190,8 +190,39 @@ All routes are mounted under `/api/v1` (see `backend/src/app.js` + `backend/src/
 | `/workspaces/:workspaceId/support` | `support.routes.js` | Submit support tickets (surfaced to super admins) |
 | `/onboarding` | `onboarding.routes.js` | AI onboarding chat assistant (guided template/campaign/workflow creation) |
 | `/ai` | `ai.routes.js` | Misc AI-assisted endpoints |
+| `/assistant` | `assistant.routes.js` | Website assistant: RAG chatbot answering questions about the product from indexed site content (see §5.1) |
 
 **Auth model**: JWT access token carries `{ sub: userId, workspaceId, role, superAdmin }`. `role` and `workspaceId` can be `null` for a signed-up user who hasn't created/joined a workspace yet (see `frontend/src/pages/WorkspaceSetup.jsx` — such users are routed to `/setup`). `workspaceContext` middleware re-derives the effective role per-request from the `WorkspaceMember` row for the `:workspaceId` in the URL, so a stale JWT role never grants access to a different workspace. `superAdmin` is computed by comparing the user's email to `ADMIN_EMAIL` — it is a platform-level flag, orthogonal to any workspace's `Role`.
+
+### 5.1 Website Assistant (RAG chatbot)
+
+A retrieval-grounded chatbot that answers questions about ChatFlow Pro from the site's own content. It is not a general-purpose assistant: asked about anything the indexed content does not cover, it declines rather than answering from the model's world knowledge.
+
+```
+site content + help guides + Plan table
+        -> chunk -> embed -> SiteKnowledgeChunk
+question -> embed -> hybrid search -> relevance guard -> Gemini -> answer
+```
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `POST /assistant/chat` | public, 12 req/min per IP | Ask a question. Body `{ question, history }`; returns `{ answer, grounded, sources, reason }` |
+| `GET /assistant/status` | public | Index health: chunk count, whether semantic search is live, last sync |
+| `POST /assistant/reindex` | super admin | Force a re-sync. `{ force: true }` re-embeds every chunk |
+
+**Knowledge sources** (`services/siteKnowledge.service.js`) — no uploads, no scraping, nothing hand-written as an "answer":
+
+- `data/siteContent.js` — the marketing copy, which `frontend/src/pages/Landing.jsx` also renders. One module, two consumers, so the page and the chatbot cannot disagree.
+- `data/helpContent.js` — per-screen how-to guides.
+- The database — active `Plan` rows (price, quota, limits, feature flags) and the `MESSAGE_CATEGORY_RATES` card. **Prices are only ever read from here**, so the assistant quotes what checkout charges. `PLAN_CARDS` in `siteContent.js` carries display prices for the pricing section, and the indexer deliberately skips them.
+
+**Sync**: `syncIndex()` runs unawaited at boot and reconciles by content hash — unchanged chunks keep their embedding, so a restart with no content edit costs zero embedding calls. Edit any source above and the next boot (or a `/reindex` call) re-embeds only what moved.
+
+**Grounding**: retrieval blends cosine similarity over Gemini embeddings with BM25. A guard on lexical coverage and semantic score decides whether anything relevant was found; when nothing was, **no model is called at all** and a fixed refusal is returned — so a prompt injected into the question cannot reach a model that was never invoked. Both legs degrade independently: with no embeddings, ranking is lexical; with no reachable LLM, the answer is the best-matching passage quoted verbatim.
+
+**Config**: reuses `GEMINI_API_KEY` (and the super-admin key override). `GEMINI_EMBEDDING_MODEL` and `GEMINI_EMBEDDING_DIM` tune the index; changing either invalidates stored vectors and triggers a full re-embed on the next sync.
+
+**UI**: `frontend/src/components/SiteAssistant.jsx`, mounted once in `App.jsx` so it follows the visitor from the landing page into the dashboard.
 
 ---
 

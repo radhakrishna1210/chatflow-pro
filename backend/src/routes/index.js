@@ -23,6 +23,7 @@ import * as instagramController from '../controllers/instagram.controller.js';
 import segmentsRoutes from './segments.routes.js';
 import whatsappFormsRoutes from './whatsappForms.routes.js';
 import walletRoutes from './wallet.routes.js';
+import widgetsRoutes from './widgets.routes.js';
 import integrationsRoutes, { oauthCallbackRouter } from './integrations.routes.js';
 import supportRoutes from './support.routes.js';
 import workspacesRoutes from './workspaces.routes.js';
@@ -33,6 +34,7 @@ import workspaceSwitchRoutes from './workspaceSwitch.routes.js';
 import usersRoutes from './users.routes.js';
 import notificationsRoutes from './notifications.routes.js';
 import optOutRoutes from './optout.routes.js';
+import assistantRoutes from './assistant.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 
 const router = Router();
@@ -78,6 +80,7 @@ ws.use('/whatsapp-forms', whatsappFormsRoutes);
 ws.use('/workflows', workflowRoutes);
 ws.use('/instagram', instagramRoutes);
 ws.use('/wallet', walletRoutes);
+ws.use('/widgets', widgetsRoutes);
 ws.use('/opt-outs', optOutRoutes);
 // Friendlier alias for the Settings → Blocked Numbers screen.
 ws.use('/blocked-numbers', optOutRoutes);
@@ -87,6 +90,10 @@ ws.use('/support', supportRoutes);
 ws.use('/ai-agent', aiAgentRoutes);
 ws.use('/invitations', invitationsRoutes);
 ws.use('/switch', workspaceSwitchRoutes);
+
+// Website assistant (public chatbot). Not workspace-scoped: it answers from
+// the site's own published content, which is the same for every visitor.
+router.use('/assistant', assistantRoutes);
 
 router.use('/onboarding', onboardingRoutes);
 router.use('/ai', aiRoutes);

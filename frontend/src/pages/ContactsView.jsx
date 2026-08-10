@@ -446,6 +446,26 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
 };
 
 // ─── Main page ─────────────────────────────────────────────────
+// Sort choices offered in the UI. The ids match the whitelist the contacts
+// service accepts (services/contacts.service.js CONTACT_SORTS) — the server
+// does the ordering, so it holds across pages instead of only reordering
+// whatever page happens to be loaded.
+const SORT_OPTIONS = [
+  { id: 'newest',           label: 'Newest First' },
+  { id: 'oldest',           label: 'Oldest First' },
+  { id: 'name_asc',         label: 'Name — A to Z' },
+  { id: 'name_desc',        label: 'Name — Z to A' },
+  { id: 'recently_updated', label: 'Recently Updated' },
+  { id: 'phone',            label: 'Phone Number' },
+];
+
+const EMPTY_FILTERS = {
+  status: '', segmentId: '', tags: [],
+  createdFrom: '', createdTo: '', updatedFrom: '', updatedTo: '',
+};
+
+const PAGE_SIZE = 20;
+
 export default function ContactsView() {
   const [contacts, setContacts]         = useState([]);
   const [total, setTotal]               = useState(0);
@@ -457,27 +477,78 @@ export default function ContactsView() {
   const [selectedCluster, setSelectedCluster] = useState('');
   const [clusterOpen, setClusterOpen]   = useState(false);
 
+  // Search / filter / sort / page are all query parameters — the server does
+  // the work. Filtering a fetched page in the browser (which is what this
+  // screen used to do) silently hides every match that lives on another page.
+  const [filters, setFilters]   = useState(EMPTY_FILTERS);
+  const [sort, setSort]         = useState('newest');
+  const [page, setPage]         = useState(1);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const [availableTags, setAvailableTags] = useState([]);
+  const [segments, setSegments] = useState([]);
+
+  // Typing shouldn't fire a request per keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const activeFilterCount =
+    (filters.status ? 1 : 0) +
+    (filters.segmentId ? 1 : 0) +
+    (filters.tags.length ? 1 : 0) +
+    (filters.createdFrom || filters.createdTo ? 1 : 0) +
+    (filters.updatedFrom || filters.updatedTo ? 1 : 0);
+  const isFiltered = activeFilterCount > 0 || !!debouncedSearch || !!selectedCluster;
+
+  // Any change to what is being asked for has to reset to page 1, or the list
+  // lands on a page that no longer exists and reads as "no results".
+  useEffect(() => { setPage(1); }, [debouncedSearch, filters, sort, selectedCluster]);
+
+  // Guards against a slow response for an older query landing after a newer
+  // one and repopulating the table with stale rows.
+  const loadToken = useRef(0);
+
   const load = useCallback(() => {
     setLoading(true);
-    wFetch(`/contacts?search=${encodeURIComponent(search)}${selectedCluster ? `&clusterId=${selectedCluster}` : ''}`)
+    const qs = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), sort });
+    if (debouncedSearch) qs.set('search', debouncedSearch);
+    if (selectedCluster) qs.set('clusterId', selectedCluster);
+    if (filters.status) qs.set('status', filters.status);
+    if (filters.segmentId) qs.set('segmentId', filters.segmentId);
+    if (filters.tags.length) qs.set('tags', filters.tags.join(','));
+    for (const k of ['createdFrom', 'createdTo', 'updatedFrom', 'updatedTo']) {
+      if (filters[k]) qs.set(k, filters[k]);
+    }
+
+    const token = ++loadToken.current;
+    wFetch(`/contacts?${qs.toString()}`)
       .then(r => r.ok && r.json())
       .then(d => {
+        if (token !== loadToken.current) return;
         const list = Array.isArray(d) ? d : (d?.data ?? []);
         setContacts(list);
         setTotal(d?.total ?? list.length);
+        // Selections refer to rows that are no longer on screen.
+        setSelected(new Set());
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
-
-    wFetch('/clusters')
-      .then(r => r.ok && r.json())
-      .then(d => {
-        if (Array.isArray(d)) setClusters(d);
-      })
-      .catch(() => {});
-  }, [search, selectedCluster]);
+      .finally(() => { if (token === loadToken.current) setLoading(false); });
+  }, [debouncedSearch, selectedCluster, filters, sort, page]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Filter options: clusters (sidebar), segments and the tags actually in use.
+  useEffect(() => {
+    wFetch('/clusters').then(r => r.ok && r.json())
+      .then(d => { if (Array.isArray(d)) setClusters(d); }).catch(() => {});
+    wFetch('/segments').then(r => r.ok && r.json())
+      .then(d => { if (Array.isArray(d)) setSegments(d); else if (Array.isArray(d?.data)) setSegments(d.data); }).catch(() => {});
+    wFetch('/contacts/tags').then(r => r.ok && r.json())
+      .then(d => { if (Array.isArray(d)) setAvailableTags(d); }).catch(() => {});
+  }, []);
 
   // Global header search ("app:search") lands here with the query prefilled.
   useEffect(() => {
@@ -486,17 +557,26 @@ export default function ContactsView() {
     return () => window.removeEventListener('app:search', onSearch);
   }, []);
 
-  const filtered = contacts.filter(c =>
-    !search ||
-    c.name?.toLowerCase().includes(search.toLowerCase()) ||
-    c.phoneNumber?.includes(search)
-  );
+  const clearFilters = () => {
+    setFilters(EMPTY_FILTERS);
+    setSearch('');
+    setSelectedCluster('');
+    setSort('newest');
+    setFilterOpen(false);
+  };
 
-  const allChecked = filtered.length > 0 && filtered.every(c => selected.has(c.id));
+  const toggleTag = (tag) => setFilters(f => ({
+    ...f,
+    tags: f.tags.includes(tag) ? f.tags.filter(t => t !== tag) : [...f.tags, tag],
+  }));
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const allChecked = contacts.length > 0 && contacts.every(c => selected.has(c.id));
 
   const toggleAll = () => {
     if (allChecked) setSelected(new Set());
-    else setSelected(new Set(filtered.map(c => c.id)));
+    else setSelected(new Set(contacts.map(c => c.id)));
   };
 
   const toggle = id => setSelected(prev => {
@@ -537,10 +617,10 @@ export default function ContactsView() {
       </div>
 
       {/* filter bar */}
-      <div style={{ padding:'12px 28px', borderBottom:'1px solid var(--bd)', display:'flex', gap:10, alignItems:'center', background:'var(--surf)', flexShrink:0 }}>
-        <div style={{ flex:1, maxWidth:360, display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
+      <div style={{ padding:'12px 28px', borderBottom:'1px solid var(--bd)', display:'flex', gap:10, alignItems:'center', background:'var(--surf)', flexShrink:0, flexWrap:'wrap' }}>
+        <div style={{ flex:1, maxWidth:360, minWidth:200, display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
           <I n="search" s={13} c="var(--t2)" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or phone…"
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, phone or email…"
             style={{ flex:1, background:'none', border:'none', outline:'none', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif" }} />
           {search && (
             <div onClick={() => setSearch('')} style={{ cursor:'pointer', color:'var(--t2)' }}>
@@ -548,14 +628,140 @@ export default function ContactsView() {
             </div>
           )}
         </div>
-        <Btn variant="outline">
-          <I n="filter" s={13} c="var(--t2)" />
-          Filter
-        </Btn>
-        <Btn variant="outline">
-          <I n="columns" s={13} c="var(--t2)" />
-          Columns
-        </Btn>
+
+        {/* Filter */}
+        <div style={{ position:'relative' }}>
+          <Btn variant="outline" onClick={() => { setFilterOpen(o => !o); setSortOpen(false); }}
+            style={activeFilterCount ? { borderColor:'var(--gbd)', color:'var(--green)' } : {}}>
+            <I n="filter" s={13} c={activeFilterCount ? 'var(--green)' : 'var(--t2)'} />
+            Filter
+            {activeFilterCount > 0 && (
+              <span style={{ marginLeft:2, padding:'1px 6px', borderRadius:8, fontSize:10, fontWeight:800, background:'var(--green)', color:'#060913' }}>{activeFilterCount}</span>
+            )}
+          </Btn>
+
+          {filterOpen && (
+            <>
+              {/* click-away */}
+              <div onClick={() => setFilterOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
+              <div style={{ ...card, position:'absolute', top:'calc(100% + 8px)', left:0, width:320, zIndex:41, padding:16, display:'flex', flexDirection:'column', gap:14, maxHeight:'70vh', overflowY:'auto' }}>
+
+                <div>
+                  <FLabel>Status</FLabel>
+                  <div style={{ display:'flex', gap:6 }}>
+                    {[['', 'Any'], ['active', 'Active'], ['opted_out', 'Opted Out']].map(([v, label]) => (
+                      <button key={v} type="button" onClick={() => setFilters(f => ({ ...f, status: v }))}
+                        style={{ flex:1, padding:'7px 8px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight:600,
+                                 fontFamily:"'Plus Jakarta Sans',sans-serif",
+                                 border:`1px solid ${filters.status === v ? 'var(--gbd)' : 'var(--bd)'}`,
+                                 background: filters.status === v ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
+                                 color: filters.status === v ? 'var(--green)' : 'var(--t2)' }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {segments.length > 0 && (
+                  <div>
+                    <FLabel>Group</FLabel>
+                    <select value={filters.segmentId} onChange={e => setFilters(f => ({ ...f, segmentId: e.target.value }))}
+                      style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', appearance:'auto', colorScheme:'dark' }}>
+                      <option value="">Any group</option>
+                      {segments.map(sg => <option key={sg.id} value={sg.id}>{sg.name}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <FLabel>Tags</FLabel>
+                  {availableTags.length === 0 ? (
+                    <p style={{ fontSize:11.5, color:'var(--t3)' }}>No tags in use yet.</p>
+                  ) : (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {availableTags.map(t => {
+                        const on = filters.tags.includes(t.name);
+                        return (
+                          <button key={t.name} type="button" onClick={() => toggleTag(t.name)}
+                            style={{ padding:'4px 10px', borderRadius:20, cursor:'pointer', fontSize:11.5, fontWeight:600,
+                                     fontFamily:"'Plus Jakarta Sans',sans-serif",
+                                     border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`,
+                                     background: on ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
+                                     color: on ? 'var(--green)' : 'var(--t2)' }}>
+                            {t.name} <span style={{ opacity:.6 }}>{t.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {filters.tags.length > 1 && (
+                    <p style={{ fontSize:10.5, color:'var(--t3)', marginTop:5 }}>Showing contacts with any of these tags.</p>
+                  )}
+                </div>
+
+                <div>
+                  <FLabel>Created between</FLabel>
+                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                    <input type="date" value={filters.createdFrom} onChange={e => setFilters(f => ({ ...f, createdFrom: e.target.value }))}
+                      style={{ flex:1, padding:'7px 9px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', colorScheme:'dark' }} />
+                    <span style={{ fontSize:11, color:'var(--t3)' }}>to</span>
+                    <input type="date" value={filters.createdTo} onChange={e => setFilters(f => ({ ...f, createdTo: e.target.value }))}
+                      style={{ flex:1, padding:'7px 9px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', colorScheme:'dark' }} />
+                  </div>
+                </div>
+
+                <div>
+                  <FLabel>Updated between</FLabel>
+                  <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                    <input type="date" value={filters.updatedFrom} onChange={e => setFilters(f => ({ ...f, updatedFrom: e.target.value }))}
+                      style={{ flex:1, padding:'7px 9px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', colorScheme:'dark' }} />
+                    <span style={{ fontSize:11, color:'var(--t3)' }}>to</span>
+                    <input type="date" value={filters.updatedTo} onChange={e => setFilters(f => ({ ...f, updatedTo: e.target.value }))}
+                      style={{ flex:1, padding:'7px 9px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none', colorScheme:'dark' }} />
+                  </div>
+                </div>
+
+                <div style={{ display:'flex', justifyContent:'space-between', gap:8, borderTop:'1px solid var(--bd)', paddingTop:12 }}>
+                  <Btn variant="ghost" size="sm" onClick={clearFilters}>Clear all</Btn>
+                  <Btn size="sm" onClick={() => setFilterOpen(false)}>Done</Btn>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Sort */}
+        <div style={{ position:'relative' }}>
+          <Btn variant="outline" onClick={() => { setSortOpen(o => !o); setFilterOpen(false); }}>
+            <I n="columns" s={13} c="var(--t2)" />
+            {SORT_OPTIONS.find(o => o.id === sort)?.label || 'Sort'}
+          </Btn>
+          {sortOpen && (
+            <>
+              <div onClick={() => setSortOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
+              <div style={{ ...card, position:'absolute', top:'calc(100% + 8px)', right:0, width:210, zIndex:41, padding:6 }}>
+                {SORT_OPTIONS.map(o => (
+                  <div key={o.id} onClick={() => { setSort(o.id); setSortOpen(false); }}
+                    style={{ padding:'8px 11px', borderRadius:7, cursor:'pointer', fontSize:12.5,
+                             fontWeight: sort === o.id ? 700 : 500,
+                             color: sort === o.id ? 'var(--green)' : 'var(--t2)',
+                             background: sort === o.id ? 'var(--gbg)' : 'transparent' }}
+                    onMouseEnter={e => { if (sort !== o.id) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+                    onMouseLeave={e => { if (sort !== o.id) e.currentTarget.style.background = 'transparent'; }}>
+                    {o.label}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {isFiltered && (
+          <Btn variant="ghost" size="sm" onClick={clearFilters}>
+            <I n="x" s={12} c="var(--t2)" />
+            Clear Filters
+          </Btn>
+        )}
       </div>
 
       <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
@@ -622,13 +828,20 @@ export default function ContactsView() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
+                {contacts.length === 0 && (
                   <tr>
                     <td colSpan={8} style={{ padding:'48px 16px', textAlign:'center', color:'var(--t2)', fontSize:13 }}>
                       {loading
                         ? 'Loading…'
-                        : selectedCluster ? (
-                          <span>No contacts found in this cluster.</span>
+                        : isFiltered ? (
+                          // An empty result under a filter is a different thing
+                          // from an empty address book, and offering "add your
+                          // first contact" to someone with 500 of them is wrong.
+                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
+                            <span>No contacts found.</span>
+                            <span style={{ fontSize:11.5, color:'var(--t3)' }}>No contacts match the current search and filters.</span>
+                            <Btn variant="outline" size="sm" onClick={clearFilters}>Clear Filters</Btn>
+                          </div>
                         ) : (
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14 }}>
                             <span>No contacts yet.</span>
@@ -642,11 +855,11 @@ export default function ContactsView() {
                     </td>
                   </tr>
                 )}
-                {filtered.map((c, i) => {
+                {contacts.map((c, i) => {
                   const sel = selected.has(c.id);
                   return (
                     <tr key={c.id}
-                      style={{ borderBottom: i < filtered.length - 1 ? '1px solid var(--bd)' : 'none', background: sel ? 'rgba(30,191,94,0.04)' : 'transparent', transition:'background .12s' }}
+                      style={{ borderBottom: i < contacts.length - 1 ? '1px solid var(--bd)' : 'none', background: sel ? 'rgba(30,191,94,0.04)' : 'transparent', transition:'background .12s' }}
                       onMouseEnter={e => { if (!sel) e.currentTarget.style.background = 'rgba(255,255,255,0.015)'; }}
                       onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'transparent'; }}>
                       <td style={{ padding:'12px 16px' }}>
@@ -681,7 +894,25 @@ export default function ContactsView() {
               </tbody>
             </table>
           </div>
-          <p style={{ textAlign:'center', marginTop:14, fontSize:11, color:'var(--t3)' }}>Showing {filtered.length} of {total} contacts</p>
+          {/* Pagination over the filtered+sorted result, not over the page. */}
+          <div style={{ marginTop:14, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+            <p style={{ fontSize:11, color:'var(--t3)' }}>
+              {total === 0
+                ? 'No contacts'
+                : `Showing ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, total)} of ${total} contact${total === 1 ? '' : 's'}`}
+            </p>
+            {totalPages > 1 && (
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <Btn variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                  Previous
+                </Btn>
+                <span style={{ fontSize:12, color:'var(--t2)' }}>Page {page} of {totalPages}</span>
+                <Btn variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                  Next
+                </Btn>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

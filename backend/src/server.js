@@ -13,6 +13,7 @@ import { startWorkflowWorker } from './workers/workflow.worker.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
+import { syncIndex as syncSiteKnowledge } from './services/siteKnowledge.service.js';
 import { campaignQueue } from './queues/campaign.queue.js';
 import { emailQueue } from './queues/email.queue.js';
 import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
@@ -215,6 +216,16 @@ async function main() {
     console.error('[DB] Connection failed:', err.message);
     process.exit(1);
   }
+
+  // Website assistant knowledge index. Deliberately not awaited: it embeds
+  // whatever content changed since the last boot, which is a network round
+  // trip per batch, and no request needs it to have finished — the chatbot is
+  // the only reader and it degrades to lexical search on a partial index.
+  // Holding the listen() call behind it would delay every other route on a
+  // slow or rate-limited embedding provider.
+  syncSiteKnowledge().catch((err) => {
+    console.error('[siteKnowledge] initial index sync failed:', err.message);
+  });
 
   // Redis backs every queue, so production must not start without it — a
   // server that accepts campaign launches it can never process is worse than

@@ -7,8 +7,10 @@ import { wFetch, apiFetch } from '../lib/api.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import { useMessageRates, inr as inrRate } from '../lib/pricing.js';
 import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
+import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 import ContactsView from './ContactsView.jsx';
 import InboxView from './InboxView.jsx';
+import WidgetsView from './WidgetsView.jsx';
 import AutomationView from './AutomationView.jsx';
 import AnalyticsView from './AnalyticsView.jsx';
 import UserAnalyticsView from './UserAnalyticsView.jsx';
@@ -633,6 +635,8 @@ const HomeView = () => {
           <Btn size="sm" style={{ flexShrink: 0 }} onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'payments' }))}>Upgrade Plan</Btn>
         </div>
 
+        <WalletStatusBanner hideWhenHealthy style={{ marginBottom: 16 }} />
+
         <WalletSummaryCards />
 
         <div style={{ width: '100%', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(30, 191, 94, 0.4)', boxShadow: '0 0 30px rgba(30, 191, 94, 0.15), inset 0 0 20px rgba(30, 191, 94, 0.05)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', transition: 'all 0.3s ease', marginBottom: '16px' }}>
@@ -1063,6 +1067,7 @@ const CampaignsView = ({ onCreateCampaign }) => {
         {/* Every workspace member can create a campaign — the button used to
             be admin-only, which left members on a Free plan able to import
             contacts and then do nothing with them. */}
+        <WalletStatusBanner style={{ marginBottom: 16 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
           <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#060A10" /> New Campaign</Btn>
         </div>
@@ -1450,6 +1455,49 @@ const TemplateAiPanel = ({ onClose, onUseDraft }) => {
   );
 };
 
+// ─── Template shape rules (mirror of backend lib/templateStructure.js) ──────
+// Which template types each category may use, and which headers each category
+// allows. The builder only offers what Meta will actually accept, so a bad
+// combination is impossible to submit rather than rejected hours later.
+const TYPES_BY_CATEGORY = {
+  MARKETING:      ['STANDARD', 'CATALOG', 'CAROUSEL'],
+  UTILITY:        ['STANDARD', 'CAROUSEL'],
+  AUTHENTICATION: ['STANDARD'],
+};
+
+const TEMPLATE_TYPE_META = {
+  STANDARD: { label: 'Standard',  hint: 'Header, body, footer and buttons.' },
+  CATALOG:  { label: 'Catalog',   hint: 'Opens the catalog linked to your WhatsApp account.' },
+  CAROUSEL: { label: 'Carousel',  hint: 'Up to 10 swipeable cards, each with its own image.' },
+};
+
+const HEADER_FORMATS_BY_CATEGORY = {
+  MARKETING:      ['NONE', 'TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT'],
+  UTILITY:        ['NONE', 'TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT'],
+  AUTHENTICATION: ['NONE'],
+};
+
+const HEADER_FORMAT_META = {
+  NONE:     { label: 'None',     accept: null },
+  TEXT:     { label: 'Text',     accept: null },
+  IMAGE:    { label: 'Image',    accept: 'image/jpeg,image/png',  hint: 'JPG or PNG, up to 5 MB.' },
+  VIDEO:    { label: 'Video',    accept: 'video/mp4',             hint: 'MP4, up to 16 MB.' },
+  DOCUMENT: { label: 'Document', accept: 'application/pdf',       hint: 'PDF, up to 100 MB.' },
+};
+
+const CARD_MAX = 10;
+const CARD_BODY_MAX = 160;
+
+// Reads the type back off a saved template — the backend derives it the same
+// way rather than storing it, so there is nothing to read from a column.
+const detectTemplateType = (components) => {
+  const list = Array.isArray(components) ? components : [];
+  if (list.some(c => (c?.type || '').toUpperCase() === 'CAROUSEL')) return 'CAROUSEL';
+  const buttons = list.find(c => (c?.type || '').toUpperCase() === 'BUTTONS')?.buttons;
+  if (Array.isArray(buttons) && buttons.some(b => (b?.type || '').toUpperCase() === 'CATALOG')) return 'CATALOG';
+  return 'STANDARD';
+};
+
 // ─── New Template Dialog ───────────────────────────────────────
 const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
   const isEdit = !!template;
@@ -1461,8 +1509,22 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
   // A generated image wins over drafted header text — Meta allows only one
   // header, and the user explicitly asked for the picture.
   const initialHeaderKind = initialHeader
-    ? ((initialHeader.format || 'TEXT').toUpperCase() === 'TEXT' ? 'text' : 'image')
-    : (seed?.image ? 'image' : seed?.headerText ? 'text' : 'none');
+    ? (initialHeader.format || 'TEXT').toUpperCase()
+    : (seed?.image ? 'IMAGE' : seed?.headerText ? 'TEXT' : 'NONE');
+  const initialType = isEdit ? detectTemplateType(comps) : 'STANDARD';
+  // Carousel cards, unpacked from the stored CAROUSEL component. `media` holds
+  // what the upload endpoint returned; `assetId` is what the send path later
+  // re-uploads, so an edited card keeps it even when the file is not touched.
+  const initialCards = (comps.find(c => (c.type || '').toUpperCase() === 'CAROUSEL')?.cards || []).map(card => {
+    const cc = Array.isArray(card?.components) ? card.components : [];
+    const ch = cc.find(c => (c.type || '').toUpperCase() === 'HEADER');
+    return {
+      body: cc.find(c => (c.type || '').toUpperCase() === 'BODY')?.text || '',
+      buttons: (cc.find(c => (c.type || '').toUpperCase() === 'BUTTONS')?.buttons || []).map(b => ({ ...b })),
+      media: ch ? { format: (ch.format || 'IMAGE').toUpperCase(), assetId: ch._assetId || null, example: ch.example || null } : null,
+      preview: null,
+    };
+  });
 
   const [name, setName]         = useState(isEdit ? template.name : (seed?.name ?? ''));
   const [category, setCategory] = useState(isEdit ? template.category : (seed?.category ?? 'MARKETING'));
@@ -1473,6 +1535,17 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
   // media header needs a sample uploaded to Meta before the template can be
   // submitted — headerMedia holds the handle that upload returns.
   const [headerKind, setHeaderKind] = useState(initialHeaderKind);
+  // Standard / catalog / carousel. Changing the category can make the current
+  // type illegal, which the effect below corrects.
+  const [templateType, setTemplateType] = useState(initialType);
+  const [cards, setCards] = useState(initialCards);
+  // A catalog template's single button; Meta only lets its label be chosen.
+  const [catalogLabel, setCatalogLabel] = useState(() => {
+    const b = (comps.find(c => (c.type || '').toUpperCase() === 'BUTTONS')?.buttons || [])
+      .find(x => (x?.type || '').toUpperCase() === 'CATALOG');
+    return b?.text || 'View catalog';
+  });
+  const [cardUploading, setCardUploading] = useState(null);
   const [headerText, setHeaderText] = useState(initialHeader?.text ?? seed?.headerText ?? '');
   // Holds Meta's review handle once the image is uploaded, plus the assetId of
   // the stored bytes the send path re-uploads later. A generated image starts
@@ -1527,6 +1600,50 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
   }, [isEdit, template?.headerAssetId]);
 
+  const allowedTypes   = TYPES_BY_CATEGORY[category] || TYPES_BY_CATEGORY.MARKETING;
+  const allowedHeaders = HEADER_FORMATS_BY_CATEGORY[category] || HEADER_FORMATS_BY_CATEGORY.MARKETING;
+
+  // Picking a category narrows what is legal — an authentication template can
+  // carry no header at all, and only marketing can use a catalog. Rather than
+  // let the form hold a combination Meta would reject, the illegal choice falls
+  // back to the safe one the moment the category changes.
+  useEffect(() => {
+    if (!allowedTypes.includes(templateType)) setTemplateType('STANDARD');
+    if (!allowedHeaders.includes(headerKind)) setHeaderKind('NONE');
+  }, [category]);
+
+  // Show the pictures an existing carousel's cards will actually send, for the
+  // same reason the main header is fetched as a blob: every API route needs the
+  // Authorization header, so <img src> cannot reach them.
+  useEffect(() => {
+    if (!isEdit || initialCards.length === 0) return;
+    const urls = [];
+    let cancelled = false;
+    Promise.all(initialCards.map((c, i) => (
+      c.media?.assetId
+        ? wFetch(`/templates/media/${c.media.assetId}`)
+            .then(r => r.ok ? r.blob() : null)
+            .then(blob => {
+              if (!blob || cancelled) return null;
+              const u = URL.createObjectURL(blob);
+              urls.push(u);
+              return [i, u];
+            })
+            .catch(() => null)
+        : Promise.resolve(null)
+    ))).then(pairs => {
+      if (cancelled) return;
+      const found = pairs.filter(Boolean);
+      if (found.length) {
+        setCards(list => list.map((c, i) => {
+          const hit = found.find(([idx]) => idx === i);
+          return hit ? { ...c, preview: hit[1] } : c;
+        }));
+      }
+    });
+    return () => { cancelled = true; urls.forEach(u => URL.revokeObjectURL(u)); };
+  }, [isEdit]);
+
   const langs = [
     { code:'en',    label:'English' },
     { code:'en_US', label:'English (US)' },
@@ -1562,9 +1679,16 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
   const pickHeaderImage = async (file) => {
     if (!file) return;
     setErr(null);
-    const okTypes = ['image/jpeg', 'image/png', 'video/mp4', 'application/pdf'];
-    if (!okTypes.includes(file.type)) { setErr('Use a JPG or PNG image, an MP4 video, or a PDF.'); return; }
-    if (file.type.startsWith('image/') && file.size > 5 * 1024 * 1024) { setErr('Images must be 5 MB or smaller.'); return; }
+    // The header format is an explicit choice now, so the file has to match it
+    // rather than merely being one of the four types Meta accepts somewhere.
+    const spec = {
+      IMAGE:    { types: ['image/jpeg', 'image/png'], maxMb: 5,   label: 'a JPG or PNG image' },
+      VIDEO:    { types: ['video/mp4'],               maxMb: 16,  label: 'an MP4 video' },
+      DOCUMENT: { types: ['application/pdf'],         maxMb: 100, label: 'a PDF' },
+    }[headerKind];
+    if (!spec) return;
+    if (!spec.types.includes(file.type)) { setErr(`The header is set to ${HEADER_FORMAT_META[headerKind].label} — use ${spec.label}.`); return; }
+    if (file.size > spec.maxMb * 1024 * 1024) { setErr(`That file is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit for a ${HEADER_FORMAT_META[headerKind].label.toLowerCase()} header is ${spec.maxMb} MB.`); return; }
 
     setUploading(true);
     try {
@@ -1583,6 +1707,34 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
     }
   };
 
+  // Carousel cards are limited to images: the send path has to re-upload the
+  // real media on every send, and only image bytes are stored (a video header
+  // is review-only in this product), so a video card could never be delivered.
+  const pickCardImage = async (index, file) => {
+    if (!file) return;
+    setErr(null);
+    if (!['image/jpeg', 'image/png'].includes(file.type)) { setErr(`Card ${index + 1}: use a JPG or PNG image.`); return; }
+    if (file.size > 5 * 1024 * 1024) { setErr(`Card ${index + 1}: images must be 5 MB or smaller.`); return; }
+
+    setCardUploading(index);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (waNumberId) fd.append('waNumberId', waNumberId);
+      const res = await wFetch('/templates/media', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(data.error || `Card ${index + 1}: could not upload that image`); return; }
+      const preview = URL.createObjectURL(file);
+      setCards(list => list.map((c, i) => i === index
+        ? { ...c, media: { ...data, format: 'IMAGE', name: file.name }, preview }
+        : c));
+    } catch (e) {
+      setErr(e.message || 'Could not upload that image');
+    } finally {
+      setCardUploading(null);
+    }
+  };
+
   const submit = async () => {
     setErr(null);
     if (!nameValid) { setErr('Name must contain only lowercase letters, numbers and underscores.'); return; }
@@ -1592,16 +1744,39 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
       if (!examples[n]?.trim()) { setErr(`Provide an example value for variable {{${n}}}.`); return; }
     }
 
-    if (headerKind === 'image' && !headerMedia && !isEdit) {
-      setErr('Upload a header image, or set the header to None.'); return;
+    const isCarousel = templateType === 'CAROUSEL';
+    const isCatalog  = templateType === 'CATALOG';
+    const isMediaHeader = ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerKind);
+    const usesHeader = templateType === 'STANDARD';
+
+    if (usesHeader && isMediaHeader && !headerMedia && !isEdit) {
+      setErr(`Upload a ${HEADER_FORMAT_META[headerKind].label.toLowerCase()} for the header, or set the header to None.`); return;
     }
     if (!isEdit && numbers.length > 1 && !waNumberId) { setErr('Select which WhatsApp number this template belongs to.'); return; }
+
+    if (isCarousel) {
+      if (cards.length === 0) { setErr('A carousel needs at least one card.'); return; }
+      for (let i = 0; i < cards.length; i++) {
+        const c = cards[i];
+        if (!c.media?.handle && !c.media?.example) { setErr(`Card ${i + 1}: upload an image.`); return; }
+        const labelled = c.buttons.filter(b => String(b.text || '').trim());
+        if (labelled.length === 0) { setErr(`Card ${i + 1}: add at least one button — Meta requires them on every card.`); return; }
+      }
+      // Meta rejects the template unless every card repeats the same buttons in
+      // the same order, so the mismatch is caught here rather than at review.
+      const signature = (c) => c.buttons.filter(b => String(b.text || '').trim()).map(b => b.type).join(',');
+      const first = signature(cards[0]);
+      const odd = cards.findIndex(c => signature(c) !== first);
+      if (odd > 0) { setErr(`Card ${odd + 1} has different buttons from card 1 — every card must repeat the same buttons in the same order.`); return; }
+    }
+
+    if (isCatalog && !catalogLabel.trim()) { setErr('Give the catalog button a label.'); return; }
 
     // A generated image has stored bytes but no Meta review handle yet — it is
     // uploaded here rather than at generation time so a draft the user
     // abandons never reaches Meta.
     let media = headerMedia;
-    if (headerKind === 'image' && media?.assetId && !media.handle) {
+    if (usesHeader && isMediaHeader && media?.assetId && !media.handle) {
       setSaving(true);
       try {
         const res = await wFetch('/templates/media', {
@@ -1618,16 +1793,16 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
         setSaving(false);
       }
     }
-    if (headerKind === 'text' && !headerText.trim()) {
+    if (usesHeader && headerKind === 'TEXT' && !headerText.trim()) {
       setErr('Enter the header text, or set the header to None.'); return;
     }
 
     const components = [];
     // Meta requires HEADER first, then BODY, then FOOTER.
-    if (headerKind === 'text') {
+    if (usesHeader && headerKind === 'TEXT') {
       components.push({ type:'HEADER', format:'TEXT', text: headerText.trim() });
-    } else if (headerKind === 'image') {
-      const header = { type:'HEADER', format: media?.format || 'IMAGE' };
+    } else if (usesHeader && isMediaHeader) {
+      const header = { type:'HEADER', format: media?.format || headerKind };
       // The handle is Meta's sample for review. Editing without re-uploading
       // keeps whatever the stored component already had.
       if (media?.handle) header.example = { header_handle: [media.handle] };
@@ -1639,20 +1814,44 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
       bodyComp.example = { body_text: [vars.map(n => examples[n].trim())] };
     }
     components.push(bodyComp);
-    if (footer.trim()) components.push({ type:'FOOTER', text: footer.trim() });
+    // A carousel carries no footer or buttons on the bubble itself.
+    if (!isCarousel && footer.trim()) components.push({ type:'FOOTER', text: footer.trim() });
 
     // BUTTONS goes last. The server re-validates against Meta's rules, so a
     // bad set is caught before the template is submitted for review.
-    const cleanButtons = buttons
-      .filter(b => String(b.text || '').trim())
-      .map(b => {
-        const out = { type: b.type, text: String(b.text).trim() };
-        if (b.type === 'URL') { out.url = String(b.url || '').trim(); if (b.example) out.example = String(b.example).trim(); }
-        if (b.type === 'PHONE_NUMBER') out.phone_number = String(b.phone_number || '').trim();
-        if (b.type === 'COPY_CODE') out.example = String(b.example || '').trim();
-        return out;
+    const toMetaButton = (b) => {
+      const out = { type: b.type, text: String(b.text).trim() };
+      if (b.type === 'URL') { out.url = String(b.url || '').trim(); if (b.example) out.example = String(b.example).trim(); }
+      if (b.type === 'PHONE_NUMBER') out.phone_number = String(b.phone_number || '').trim();
+      if (b.type === 'COPY_CODE') out.example = String(b.example || '').trim();
+      return out;
+    };
+
+    if (isCatalog) {
+      components.push({ type:'BUTTONS', buttons: [{ type:'CATALOG', text: catalogLabel.trim() }] });
+    } else if (isCarousel) {
+      components.push({
+        type: 'CAROUSEL',
+        cards: cards.map(c => {
+          const header = { type:'HEADER', format: c.media?.format || 'IMAGE' };
+          if (c.media?.handle) header.example = { header_handle: [c.media.handle] };
+          else if (c.media?.example) header.example = c.media.example;
+          // Carried through so the send path can re-upload the real picture —
+          // the review handle above cannot be sent. Stripped before Meta sees it.
+          if (c.media?.assetId) header._assetId = c.media.assetId;
+          const cardComponents = [header];
+          if (c.body.trim()) cardComponents.push({ type:'BODY', text: c.body.trim() });
+          cardComponents.push({
+            type: 'BUTTONS',
+            buttons: c.buttons.filter(b => String(b.text || '').trim()).map(toMetaButton),
+          });
+          return { components: cardComponents };
+        }),
       });
-    if (cleanButtons.length) components.push({ type:'BUTTONS', buttons: cleanButtons });
+    } else {
+      const cleanButtons = buttons.filter(b => String(b.text || '').trim()).map(toMetaButton);
+      if (cleanButtons.length) components.push({ type:'BUTTONS', buttons: cleanButtons });
+    }
 
     setSaving(true);
     try {
@@ -1668,7 +1867,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
               ...(waNumberId ? { waNumberId } : {}),
               // Binds the stored bytes to the template so campaign sends can
               // re-upload the picture — Meta's review handle cannot be sent.
-              ...(headerKind === 'image' && media?.assetId ? { headerAssetId: media.assetId } : {}),
+              ...(templateType === 'STANDARD' && headerKind === 'IMAGE' && media?.assetId ? { headerAssetId: media.assetId } : {}),
             }),
           });
       const data = await res.json();
@@ -1741,6 +1940,30 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
             </div>
           </div>
 
+          {/* Template Type — only the types the chosen category allows */}
+          <div>
+            <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Template Type <span style={{ color:'#f87171' }}>*</span></label>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              {allowedTypes.map(t => (
+                <button key={t} type="button" onClick={() => { setTemplateType(t); setErr(null); }}
+                  style={{ flex:'1 1 150px', textAlign:'left', padding:'9px 12px', borderRadius:8, cursor:'pointer',
+                           fontFamily:"'Plus Jakarta Sans',sans-serif",
+                           border:`1.5px solid ${templateType === t ? 'var(--green)' : 'var(--bd)'}`,
+                           background: templateType === t ? 'var(--gbg)' : 'rgba(255,255,255,0.02)' }}>
+                  <p style={{ fontSize:13, fontWeight:600, color: templateType === t ? 'var(--green)' : 'var(--t1)', marginBottom:3 }}>{TEMPLATE_TYPE_META[t].label}</p>
+                  <p style={{ fontSize:10.5, color:'var(--t3)', lineHeight:1.4 }}>{TEMPLATE_TYPE_META[t].hint}</p>
+                </button>
+              ))}
+            </div>
+            {allowedTypes.length === 1 && (
+              <p style={{ fontSize:11, color:'var(--t3)', marginTop:5 }}>
+                {category === 'AUTHENTICATION'
+                  ? 'Authentication templates carry the passcode in the body — Meta does not allow other formats here.'
+                  : 'Only the standard format is available for this category.'}
+              </p>
+            )}
+          </div>
+
           {/* Language */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Language <span style={{ color:'#f87171' }}>*</span></label>
@@ -1750,59 +1973,73 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
             </select>
           </div>
 
-          {/* Header (optional) */}
-          <div>
-            <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>
-              Header <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional)</span>
-            </label>
-            <div style={{ display:'flex', gap:6, marginBottom: headerKind === 'none' ? 0 : 10 }}>
-              {[['none','None'],['text','Text'],['image','Image / Media']].map(([id, label]) => (
-                <button key={id} type="button" onClick={() => { setHeaderKind(id); setErr(null); }}
-                  style={{ padding:'7px 13px', borderRadius:8, cursor:'pointer', fontSize:12.5, fontWeight:600,
-                           fontFamily:"'Plus Jakarta Sans',sans-serif",
-                           border:`1px solid ${headerKind === id ? 'var(--gbd)' : 'var(--bd)'}`,
-                           background: headerKind === id ? 'var(--gbg)' : 'rgba(255,255,255,0.04)',
-                           color: headerKind === id ? 'var(--green)' : 'var(--t2)' }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {headerKind === 'text' && (
-              <input value={headerText} maxLength={60} onChange={e => setHeaderText(e.target.value)}
-                placeholder="e.g. Your order is on the way" style={inputBase} />
-            )}
-
-            {headerKind === 'image' && (
-              <div style={{ border:'1px dashed var(--bd)', borderRadius:10, padding:14, display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
-                {headerPreview ? (
-                  <img src={headerPreview} alt="Header preview"
-                    style={{ width:72, height:72, objectFit:'cover', borderRadius:8, border:'1px solid var(--bd)' }} />
-                ) : (
-                  <div style={{ width:72, height:72, borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    <I n="file" s={22} c="var(--t3)" />
-                  </div>
-                )}
-                <div style={{ flex:1, minWidth:190 }}>
-                  <input type="file" accept="image/jpeg,image/png,video/mp4,application/pdf" disabled={uploading}
-                    onChange={e => pickHeaderImage(e.target.files?.[0])}
-                    style={{ fontSize:12, color:'var(--t2)', maxWidth:'100%' }} />
-                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:6, lineHeight:1.5 }}>
-                    {uploading ? 'Uploading to Meta…'
-                      : headerMedia ? `Uploaded ${headerMedia.name} — ${headerMedia.format} header ready.`
-                      : isEdit && initialHeader ? 'This template already has a media header. Upload a new file only to replace it.'
-                      : 'JPG or PNG up to 5 MB (also MP4 or PDF). Meta needs this sample to review the template.'}
-                  </p>
-                  {headerMedia && (
-                    <button type="button" onClick={() => { setHeaderMedia(null); setHeaderPreview(null); }}
-                      style={{ marginTop:6, background:'none', border:'none', padding:0, cursor:'pointer', color:'#f87171', fontSize:11.5, fontWeight:600 }}>
-                      Remove
-                    </button>
-                  )}
-                </div>
+          {/* Header — the formats depend on the category; a carousel puts its
+              media on the cards instead, and a catalog template allows none. */}
+          {templateType === 'STANDARD' && allowedHeaders.length > 1 && (
+            <div>
+              <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>
+                Header <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional)</span>
+              </label>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom: headerKind === 'NONE' ? 0 : 10 }}>
+                {allowedHeaders.map(fmt => (
+                  <button key={fmt} type="button" onClick={() => { setHeaderKind(fmt); setErr(null); }}
+                    style={{ padding:'7px 13px', borderRadius:8, cursor:'pointer', fontSize:12.5, fontWeight:600,
+                             fontFamily:"'Plus Jakarta Sans',sans-serif",
+                             border:`1px solid ${headerKind === fmt ? 'var(--gbd)' : 'var(--bd)'}`,
+                             background: headerKind === fmt ? 'var(--gbg)' : 'rgba(255,255,255,0.04)',
+                             color: headerKind === fmt ? 'var(--green)' : 'var(--t2)' }}>
+                    {HEADER_FORMAT_META[fmt].label}
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
+
+              {headerKind === 'TEXT' && (
+                <input value={headerText} maxLength={60} onChange={e => setHeaderText(e.target.value)}
+                  placeholder="e.g. Your order is on the way" style={inputBase} />
+              )}
+
+              {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerKind) && (
+                <div style={{ border:'1px dashed var(--bd)', borderRadius:10, padding:14, display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+                  {headerKind === 'IMAGE' && headerPreview ? (
+                    <img src={headerPreview} alt="Header preview"
+                      style={{ width:72, height:72, objectFit:'cover', borderRadius:8, border:'1px solid var(--bd)' }} />
+                  ) : (
+                    <div style={{ width:72, height:72, borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <I n="file" s={22} c="var(--t3)" />
+                    </div>
+                  )}
+                  <div style={{ flex:1, minWidth:190 }}>
+                    <input type="file" accept={HEADER_FORMAT_META[headerKind].accept} disabled={uploading}
+                      onChange={e => pickHeaderImage(e.target.files?.[0])}
+                      style={{ fontSize:12, color:'var(--t2)', maxWidth:'100%' }} />
+                    <p style={{ fontSize:11, color:'var(--t3)', marginTop:6, lineHeight:1.5 }}>
+                      {uploading ? 'Uploading to Meta…'
+                        : headerMedia ? `Uploaded ${headerMedia.name} — ${headerMedia.format} header ready.`
+                        : isEdit && initialHeader ? 'This template already has a media header. Upload a new file only to replace it.'
+                        : `${HEADER_FORMAT_META[headerKind].hint} Meta needs this sample to review the template.`}
+                    </p>
+                    {headerMedia && (
+                      <button type="button" onClick={() => { setHeaderMedia(null); setHeaderPreview(null); }}
+                        style={{ marginTop:6, background:'none', border:'none', padding:0, cursor:'pointer', color:'#f87171', fontSize:11.5, fontWeight:600 }}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {templateType === 'CAROUSEL' && (
+            <p style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.5, margin:0 }}>
+              A carousel has no header of its own — each card carries its own image, configured below.
+            </p>
+          )}
+          {templateType === 'CATALOG' && (
+            <p style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.5, margin:0 }}>
+              Catalog templates cannot have a header. The button opens the catalog already linked to your WhatsApp Business account.
+            </p>
+          )}
 
           {/* Body */}
           <div>
@@ -1836,14 +2073,32 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
             </div>
           )}
 
-          {/* Footer (optional) */}
-          <div>
-            <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Footer <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional, max 60 chars)</span></label>
-            <input value={footer} maxLength={60} onChange={e => setFooter(e.target.value)}
-              placeholder="Reply STOP to unsubscribe" style={inputBase} />
-          </div>
+          {/* Footer — independent of the header. Meta has no footer on a carousel. */}
+          {templateType !== 'CAROUSEL' && (
+            <div>
+              <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Footer <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional, max 60 chars)</span></label>
+              <input value={footer} maxLength={60} onChange={e => setFooter(e.target.value)}
+                placeholder="Reply STOP to unsubscribe" style={inputBase} />
+              <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Plain text only — Meta does not allow variables in a footer.</p>
+            </div>
+          )}
 
-          {/* Buttons (optional) */}
+          {/* Catalog configuration */}
+          {templateType === 'CATALOG' && (
+            <div>
+              <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Catalog Button <span style={{ color:'#f87171' }}>*</span></label>
+              <input value={catalogLabel} maxLength={25} onChange={e => setCatalogLabel(e.target.value)}
+                placeholder="View catalog" style={inputBase} />
+              <p style={{ fontSize:11, color:'var(--t3)', marginTop:4, lineHeight:1.5 }}>
+                Only the label is yours to choose — the button opens the product catalog connected to this WhatsApp Business account, so there is nothing to hardcode here.
+              </p>
+            </div>
+          )}
+
+          {/* Buttons — the message bubble's own buttons. A carousel puts
+              buttons on each card instead, and a catalog template's single
+              button is configured above. */}
+          {templateType === 'STANDARD' && (
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>
               Buttons <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional)</span>
@@ -1915,36 +2170,166 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
               {buttons.length > 3 && <span style={{ color:'#fbbf24' }}> This template has {buttons.length}.</span>}
             </p>
           </div>
+          )}
 
-          {/* Preview */}
+          {/* Carousel cards */}
+          {templateType === 'CAROUSEL' && (
+            <div>
+              <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>
+                Cards <span style={{ color:'var(--t3)', fontWeight:500 }}>({cards.length}/{CARD_MAX})</span>
+              </label>
+              <p style={{ fontSize:11, color:'var(--t3)', marginBottom:10, lineHeight:1.5 }}>
+                Every card needs an image and the same buttons in the same order — Meta rejects the whole template otherwise.
+              </p>
+
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {cards.map((c, ci) => (
+                  <div key={ci} style={{ border:'1px solid var(--bd)', borderRadius:10, padding:'12px 13px', background:'rgba(255,255,255,0.02)', display:'flex', flexDirection:'column', gap:10 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.06em' }}>Card {ci + 1}</span>
+                      <button type="button" onClick={() => setCards(l => l.filter((_, k) => k !== ci))}
+                        style={{ padding:'4px 9px', borderRadius:6, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Remove</button>
+                    </div>
+
+                    <div style={{ display:'flex', gap:12, alignItems:'flex-start', flexWrap:'wrap' }}>
+                      {c.preview ? (
+                        <img src={c.preview} alt="" style={{ width:64, height:64, objectFit:'cover', borderRadius:8, border:'1px solid var(--bd)' }} />
+                      ) : (
+                        <div style={{ width:64, height:64, borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          <I n="file" s={20} c="var(--t3)" />
+                        </div>
+                      )}
+                      <div style={{ flex:1, minWidth:180 }}>
+                        <input type="file" accept="image/jpeg,image/png" disabled={cardUploading === ci}
+                          onChange={e => pickCardImage(ci, e.target.files?.[0])}
+                          style={{ fontSize:12, color:'var(--t2)', maxWidth:'100%' }} />
+                        <p style={{ fontSize:11, color:'var(--t3)', marginTop:5 }}>
+                          {cardUploading === ci ? 'Uploading to Meta…'
+                            : c.media?.handle ? `Uploaded ${c.media.name || 'image'} — ready.`
+                            : c.media?.example ? 'This card already has an image. Upload a new one only to replace it.'
+                            : 'JPG or PNG up to 5 MB.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <input value={c.body} maxLength={CARD_BODY_MAX}
+                      onChange={e => setCards(l => l.map((x, k) => k === ci ? { ...x, body: e.target.value } : x))}
+                      placeholder={`Card text (optional, max ${CARD_BODY_MAX} chars)`} style={inputBase} />
+
+                    <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+                      {c.buttons.map((b, bi) => (
+                        <div key={bi} style={{ display:'flex', gap:7, alignItems:'center', flexWrap:'wrap' }}>
+                          <span style={{ fontSize:10.5, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', minWidth:72 }}>
+                            {b.type === 'URL' ? 'Link' : 'Quick reply'}
+                          </span>
+                          <input value={b.text || ''} maxLength={25}
+                            onChange={e => setCards(l => l.map((x, k) => k === ci ? { ...x, buttons: x.buttons.map((y, m) => m === bi ? { ...y, text: e.target.value } : y) } : x))}
+                            placeholder="Button label" style={{ ...inputBase, flex:1, minWidth:120 }} />
+                          {b.type === 'URL' && (
+                            <input value={b.url || ''}
+                              onChange={e => setCards(l => l.map((x, k) => k === ci ? { ...x, buttons: x.buttons.map((y, m) => m === bi ? { ...y, url: e.target.value } : y) } : x))}
+                              placeholder="https://example.com" style={{ ...inputBase, flex:1, minWidth:150 }} />
+                          )}
+                          <button type="button" onClick={() => setCards(l => l.map((x, k) => k === ci ? { ...x, buttons: x.buttons.filter((_, m) => m !== bi) } : x))}
+                            style={{ padding:'5px 9px', borderRadius:6, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Remove</button>
+                        </div>
+                      ))}
+                      {c.buttons.length < 2 && (
+                        <div style={{ display:'flex', gap:6 }}>
+                          {[['QUICK_REPLY', 'Quick reply'], ['URL', 'Link']].map(([t, label]) => (
+                            <button key={t} type="button"
+                              onClick={() => setCards(l => l.map((x, k) => k === ci ? { ...x, buttons: [...x.buttons, { type: t, text: '' }] } : x))}
+                              style={{ padding:'6px 11px', borderRadius:8, background:'transparent', border:'1px solid var(--bd)', color:'var(--green)', cursor:'pointer', fontSize:11.5, fontWeight:600, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+                              + {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {cards.length < CARD_MAX && (
+                <button type="button"
+                  onClick={() => setCards(l => [...l, {
+                    body: '', media: null, preview: null,
+                    // A new card copies card 1's button set, because Meta requires
+                    // every card to carry the same buttons in the same order.
+                    buttons: l[0] ? l[0].buttons.map(b => ({ ...b, text: b.text || '' })) : [],
+                  }])}
+                  style={{ marginTop:10, padding:'8px 13px', borderRadius:8, background:'transparent', border:'1px dashed var(--bd)', color:'var(--green)', cursor:'pointer', fontSize:12, fontWeight:600, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+                  + Add card
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Preview — rendered from the same state the submit builds from, so
+              what is shown is what Meta receives. */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Preview</label>
             <div style={{ background:'#ECE5DD', borderRadius:10, padding:14, minHeight:60 }}>
               <div style={{ background:'#fff', borderRadius:'0 8px 8px 8px', padding:'10px 12px', maxWidth:'88%', boxShadow:'0 1px 3px rgba(0,0,0,0.1)', display:'inline-block' }}>
-                {headerKind === 'image' && (
+                {templateType === 'STANDARD' && headerKind === 'IMAGE' && (
                   headerPreview
                     ? <img src={headerPreview} alt="" style={{ display:'block', width:'100%', maxWidth:220, borderRadius:6, marginBottom:7 }} />
                     : <div style={{ width:220, height:110, borderRadius:6, marginBottom:7, background:'#d9d2c9', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#7a736b' }}>Image header</div>
                 )}
-                {headerKind === 'text' && headerText && (
+                {templateType === 'STANDARD' && ['VIDEO', 'DOCUMENT'].includes(headerKind) && (
+                  <div style={{ width:220, height: headerKind === 'VIDEO' ? 110 : 64, borderRadius:6, marginBottom:7, background:'#d9d2c9', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#7a736b' }}>
+                    {HEADER_FORMAT_META[headerKind].label} header
+                  </div>
+                )}
+                {templateType === 'STANDARD' && headerKind === 'TEXT' && headerText && (
                   <p style={{ fontSize:12.5, fontWeight:700, color:'#111', margin:'0 0 4px', lineHeight:1.4 }}>{headerText}</p>
                 )}
                 <p style={{ fontSize:12, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word', fontFamily:'system-ui,-apple-system,sans-serif', margin:0 }}>
                   {body || <span style={{ color:'#999', fontStyle:'italic' }}>Body preview…</span>}
                 </p>
-                {footer && (
+                {templateType !== 'CAROUSEL' && footer && (
                   <p style={{ fontSize:10.5, color:'#888', marginTop:6, lineHeight:1.4 }}>{footer}</p>
                 )}
-                {buttons.filter(b => (b.text || '').trim()).length > 0 && (
+                {templateType === 'STANDARD' && buttons.filter(b => (b.text || '').trim()).length > 0 && (
                   <div style={{ marginTop:8, borderTop:'1px solid #e4e0d8', paddingTop:2 }}>
                     {buttons.filter(b => (b.text || '').trim()).map((b, i) => (
                       <div key={i} style={{ textAlign:'center', padding:'7px 4px', fontSize:12, color:'#00a5f4', fontWeight:500, borderTop: i > 0 ? '1px solid #e4e0d8' : 'none' }}>
-                        {{ URL:'\u2197 ', PHONE_NUMBER:'\u2706 ', COPY_CODE:'\u29c9 ' }[b.type] || ''}{b.text}
+                        {{ URL:'↗ ', PHONE_NUMBER:'✆ ', COPY_CODE:'⧉ ' }[b.type] || ''}{b.text}
                       </div>
                     ))}
                   </div>
                 )}
+                {templateType === 'CATALOG' && catalogLabel.trim() && (
+                  <div style={{ marginTop:8, borderTop:'1px solid #e4e0d8', paddingTop:2 }}>
+                    <div style={{ textAlign:'center', padding:'7px 4px', fontSize:12, color:'#00a5f4', fontWeight:500 }}>
+                      {'▦ '}{catalogLabel}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* Cards sit below the bubble and scroll sideways, the way WhatsApp shows them. */}
+              {templateType === 'CAROUSEL' && cards.length > 0 && (
+                <div style={{ display:'flex', gap:8, marginTop:8, overflowX:'auto', paddingBottom:4 }}>
+                  {cards.map((c, i) => (
+                    <div key={i} style={{ flex:'0 0 150px', background:'#fff', borderRadius:8, overflow:'hidden', boxShadow:'0 1px 3px rgba(0,0,0,0.1)' }}>
+                      {c.preview
+                        ? <img src={c.preview} alt="" style={{ display:'block', width:'100%', height:88, objectFit:'cover' }} />
+                        : <div style={{ width:'100%', height:88, background:'#d9d2c9', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10.5, color:'#7a736b' }}>Card {i + 1} image</div>}
+                      {c.body.trim() && (
+                        <p style={{ fontSize:11, color:'#111', lineHeight:1.45, padding:'7px 9px 0', margin:0, wordBreak:'break-word' }}>{c.body}</p>
+                      )}
+                      <div style={{ marginTop:6 }}>
+                        {c.buttons.filter(b => (b.text || '').trim()).map((b, bi) => (
+                          <div key={bi} style={{ textAlign:'center', padding:'6px 4px', fontSize:11.5, color:'#00a5f4', fontWeight:500, borderTop:'1px solid #e4e0d8' }}>
+                            {b.type === 'URL' ? '↗ ' : ''}{b.text}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2132,6 +2517,10 @@ const TemplatesView = () => {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <DashHeader title="Templates" subtitle="Create and manage message templates" />
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+        {/* Sending an approved template spends from the wallet, so the warning
+            states belong here too — but not the healthy one, which would just
+            be noise on a screen that is mostly authoring. */}
+        <WalletStatusBanner hideWhenHealthy style={{ marginBottom: 16 }} />
         {/* Tab switcher */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--bd)' }}>
           {[
@@ -2261,6 +2650,12 @@ const TemplatesView = () => {
                       <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '14px', color: 'var(--t1)', marginBottom: '5px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.name}</p>
                       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
                         <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '5px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)' }}>{t.category}</span>
+                        {/* Standard is the norm, so only the shopping formats are called out. */}
+                        {t.templateType && t.templateType !== 'STANDARD' && (
+                          <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'5px', background:'rgba(167,139,250,.10)', border:'1px solid rgba(167,139,250,.28)', color:'#A78BFA', fontWeight:700 }}>
+                            {TEMPLATE_TYPE_META[t.templateType]?.label || t.templateType}
+                          </span>
+                        )}
                         <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '5px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t3)' }}>{t.language}</span>
                         {/* Meta moved this template's category after approval.
                             Worth flagging because the per-message price follows
@@ -2581,6 +2976,7 @@ const ADMIN_NAV = [
   { id: 'campaigns',      label: 'Campaigns',      icon: 'send'  },
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
+  { id: 'widget',         label: 'Website Widget', icon: 'globe' },
   { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
   { id: 'automation',     label: 'Automation',     icon: 'zap'   },
   { id: 'analytics',      label: 'Analytics',      icon: 'chart' },
@@ -2802,6 +3198,7 @@ export default function Dashboard({ onNav, routePath }) {
     if (page === 'inbox')      return <InboxView />;
     if (page === 'campaigns')  return <CampaignsView onCreateCampaign={() => setPage('campaigns-create')} />;
     if (page === 'templates')  return <TemplatesView />;
+    if (page === 'widget')     return <WidgetsView />;
     if (page === 'contacts')   return <ContactsView />;
     if (page === 'automation')     return <AutomationView />;
     if (page === 'analytics')      return <AnalyticsView />;

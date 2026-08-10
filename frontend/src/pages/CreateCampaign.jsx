@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import { validateMeaningfulText } from '../lib/validation.js';
+import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 
 // Extract body text from Meta components array
 const getBodyText = (components) => {
@@ -1545,6 +1546,10 @@ export default function CreateCampaign({ onBack }) {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* ── accordion ── */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* Step 4 already spells out the exact cost against the balance, so
+              a healthy banner here would repeat it — only the states that can
+              block the launch are shown. */}
+          <WalletStatusBanner hideWhenHealthy style={{ marginBottom: 4 }} />
           {launchError && (
             <div style={{ padding: '11px 15px', borderRadius: 9, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexShrink: 0 }}>
               <p style={{ fontSize: 12.5, color: '#f87171', lineHeight: 1.5 }}>{launchError}</p>

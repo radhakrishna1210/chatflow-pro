@@ -13,6 +13,9 @@ router.use(authenticate, workspaceContext);
 router.get('/', contactsController.list);
 router.post('/', validate({ body: contactSchemas.create }), contactsController.create);
 router.post('/import', upload.single('file'), contactsController.importCsv);
+// Literal path before '/:id' so it is not read as a contact id.
+router.get('/tags', contactsController.tags);
+router.get('/:id', contactsController.getOne);
 router.delete('/:id', contactsController.remove);
 router.patch('/:id', validate({ body: contactSchemas.update }), contactsController.update);
 

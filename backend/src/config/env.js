@@ -87,6 +87,16 @@ const envSchema = z.object({
   // broke every AI feature. The `-latest` alias tracks the current Flash model
   // instead; override this only to pin a specific version deliberately.
   GEMINI_MODEL: z.string().default('gemini-flash-latest'),
+  // Embedding model for the website assistant's knowledge index
+  // (lib/embeddings.js). A separate family from the text models above and
+  // billed separately; it is on the free tier, unlike image generation.
+  GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-001'),
+  // gemini-embedding-001 returns 3072 dimensions by default. The corpus is
+  // ~100 short chunks, where 768 retrieves indistinguishably well for a
+  // quarter of the storage and scan cost. Changing this invalidates every
+  // stored vector — vectors of different widths cannot be compared — so the
+  // indexer re-embeds the whole corpus when it sees the width change.
+  GEMINI_EMBEDDING_DIM: z.coerce.number().int().positive().default(768),
   // Image generation is a separate family of models and, unlike text, is not
   // offered on the Gemini free tier at all — a free key reports
   // "limit: 0" for it, so header generation needs billing enabled on the key.
