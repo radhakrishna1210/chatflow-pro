@@ -32,27 +32,6 @@ const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 10
 // wallet, which is exactly the serialisation we want, not a reason to fail.
 const TX_OPTS = { maxWait: 15_000, timeout: 30_000 };
 
-// How much runway counts as "running low", expressed in messages rather than
-// rupees: a workspace paying 0.85/message and one paying 2.20 do not run out
-// at the same balance, so a flat threshold would warn one far too early and
-// the other far too late.
-export const LOW_BALANCE_MESSAGES = 100;
-
-// Wallet health, derived here so every banner in the app agrees rather than
-// each screen inventing its own idea of "low".
-export function walletStatus(balance, costPerMessage) {
-  const bal = Number(balance) || 0;
-  const cost = Number(costPerMessage) || 0;
-  // A zero/unknown per-message cost leaves nothing to scale by; fall back to a
-  // bare "is there anything in it" rather than reporting a false LOW.
-  const threshold = money(cost > 0 ? cost * LOW_BALANCE_MESSAGES : 0);
-  if (bal <= 0) return { status: 'EMPTY', threshold, messagesRemaining: 0 };
-  if (threshold > 0 && bal < threshold) {
-    return { status: 'LOW', threshold, messagesRemaining: Math.floor(bal / cost) };
-  }
-  return { status: 'HEALTHY', threshold, messagesRemaining: cost > 0 ? Math.floor(bal / cost) : null };
-}
-
 export async function getWallet(workspaceId) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -64,17 +43,9 @@ export async function getWallet(workspaceId) {
     orderBy: { createdAt: 'desc' },
     take: 50,
   });
-  const balance = Number(ws.walletBalance);
-  const costPerMessage = Number(ws.costPerMessage);
-  const health = walletStatus(balance, costPerMessage);
   return {
-    balance,
-    costPerMessage,
-    // HEALTHY | LOW | EMPTY, plus what the threshold actually was, so the UI
-    // can explain the number instead of just asserting it.
-    status: health.status,
-    lowBalanceThreshold: health.threshold,
-    messagesRemaining: health.messagesRemaining,
+    balance: Number(ws.walletBalance),
+    costPerMessage: Number(ws.costPerMessage),
     transactions: transactions.map(serialize),
   };
 }
@@ -322,16 +293,9 @@ export async function getWalletSummary(workspaceId) {
   const totalCampaigns = campaignStats._count._all || 0;
   const netCampaignSpend = money(Number(campaignSpend._sum.amount || 0) - Number(refunds._sum.amount || 0));
 
-  const summaryHealth = walletStatus(ws.walletBalance, ws.costPerMessage);
-
   return {
     balance: Number(ws.walletBalance),
     costPerMessage: Number(ws.costPerMessage),
-    // Same derivation as getWallet, so the dashboard card and the banner can
-    // never disagree about whether the wallet is low.
-    status: summaryHealth.status,
-    lowBalanceThreshold: summaryHealth.threshold,
-    messagesRemaining: summaryHealth.messagesRemaining,
     todaySpend: money(todaySpend._sum.amount || 0),
     campaignSpend: netCampaignSpend,
     totalSpend: money(totalSpend._sum.amount || 0),

@@ -1,28 +1,10 @@
 import * as contactsService from '../services/contacts.service.js';
 
 export async function list(req, res) {
-  const {
-    search, page, limit, clusterId, segmentId, tags, status, sort,
-    createdFrom, createdTo, updatedFrom, updatedTo,
-  } = req.query;
-  // 'all' is how the campaign audience picker asks for the whole book.
-  const parsedLimit = limit === 'all' || limit === '0' ? 10000 : Math.min(+limit || 20, 10000);
-  const result = await contactsService.listContacts(req.params.workspaceId, {
-    search, clusterId, segmentId, tags, status, sort,
-    createdFrom, createdTo, updatedFrom, updatedTo,
-    page: +page || 1, limit: parsedLimit,
-  });
+  const { search, page, limit, clusterId } = req.query;
+  const parsedLimit = limit === 'all' || limit === '0' ? 10000 : (+limit || 20);
+  const result = await contactsService.listContacts(req.params.workspaceId, { search, clusterId, page: +page || 1, limit: parsedLimit });
   res.json(result);
-}
-
-// Distinct tags in use, for the filter panel's tag picker.
-export async function tags(req, res) {
-  res.json(await contactsService.listContactTags(req.params.workspaceId));
-}
-
-export async function getOne(req, res) {
-  const contact = await contactsService.getContact(req.params.workspaceId, req.params.id);
-  res.json(contact);
 }
 
 export async function create(req, res) {

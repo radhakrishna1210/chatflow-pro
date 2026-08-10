@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
-import ContactDetailsPanel from '../components/ContactDetailsPanel.jsx';
 
 const labelCfg = {
   urgent:   { bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.22)',   c:'#f87171' },
@@ -51,24 +50,6 @@ export default function InboxView() {
   const [sending, setSending]   = useState(false);
   const [sendError, setSendError] = useState(null);
   const scrollRef = useRef(null);
-  // The details panel follows the selected conversation. On a narrow viewport
-  // there is no room for a third column, so it becomes an overlay drawer that
-  // opens on demand instead of permanently eating the chat width.
-  const [detailsOpen, setDetailsOpen] = useState(true);
-  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 1100px)').matches);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 1100px)');
-    const onChange = (e) => {
-      setNarrow(e.matches);
-      // Coming from wide, an open panel would cover the conversation the user
-      // was just reading; going back to wide, restore the docked column.
-      setDetailsOpen(!e.matches);
-    };
-    setDetailsOpen(!mq.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
 
   // initial + polling fetch of conversation list
   useEffect(() => {
@@ -226,14 +207,6 @@ export default function InboxView() {
                 <select style={{ padding:'6px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)', fontSize:12, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none' }}>
                   <option>Unassigned</option><option>Agent 1</option><option>Agent 2</option>
                 </select>
-                <button onClick={() => setDetailsOpen(o => !o)}
-                  title={detailsOpen ? 'Hide contact details' : 'Show contact details'}
-                  aria-label={detailsOpen ? 'Hide contact details' : 'Show contact details'}
-                  style={{ width:30, height:30, borderRadius:7, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
-                           background: detailsOpen ? 'var(--gbg)' : 'rgba(255,255,255,0.04)',
-                           border:`1px solid ${detailsOpen ? 'var(--gbd)' : 'var(--bd)'}` }}>
-                  <I n="user" s={14} c={detailsOpen ? 'var(--green)' : 'var(--t2)'} />
-                </button>
               </div>
             </div>
 
@@ -311,27 +284,6 @@ export default function InboxView() {
           <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)' }}>
             <p style={{ fontSize:14 }}>Select a conversation to start chatting</p>
           </div>
-        )}
-
-        {/* ── contact details ──
-            Keyed on the contact so switching conversations swaps the whole
-            panel rather than leaving the previous contact's edit state behind.
-            The data comes from the Contacts API, so an edit here is an edit
-            there. */}
-        {active?.contact?.id && detailsOpen && (
-          <ContactDetailsPanel
-            key={active.contact.id}
-            contactId={active.contact.id}
-            asDrawer={narrow}
-            onClose={() => setDetailsOpen(false)}
-            onContactUpdated={(updated) => {
-              // Keep the list and chat header in step with a rename made here,
-              // without waiting for the next poll.
-              setConvs(list => list.map(c => (
-                c.contact?.id === updated.id ? { ...c, contact: { ...c.contact, ...updated } } : c
-              )));
-            }}
-          />
         )}
       </div>
     </div>

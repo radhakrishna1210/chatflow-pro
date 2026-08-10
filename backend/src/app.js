@@ -7,7 +7,6 @@ import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { findOrCreateGoogleUser } from './services/auth.service.js';
 import apiRoutes from './routes/index.js';
-import widgetPublicRoutes from './routes/widgetPublic.routes.js';
 
 const app = express();
 
@@ -20,15 +19,6 @@ app.use(express.urlencoded({ extended: true }));
 // CORS — only the configured client origin(s) are allowed. Never `*`:
 // a wildcard lets any site on the internet call the API from a victim's browser.
 app.use((req, res, next) => {
-  // The embeddable website widget is the one thing here that is *meant* to be
-  // called cross-origin by sites we do not control, so it cannot use this
-  // allow-list — it enforces its own, per widget, from the customer's
-  // configured domains. Skipping it here matters specifically because of the
-  // OPTIONS short-circuit below: it answers every preflight, so without this
-  // the widget's own preflight handler would never run and every JSON POST
-  // from a customer's site would fail CORS in the browser.
-  if (req.path.startsWith('/widget/v1')) return next();
-
   const origin = req.headers.origin;
   if (origin && env.CORS_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -67,11 +57,6 @@ passport.use(
 
 app.use(passport.initialize());
 app.use('/api/v1', apiRoutes);
-
-// The embeddable website widget's own surface. Mounted outside /api/v1 because
-// these URLs are pasted into customers' websites — they must not move when the
-// private API version does. Unauthenticated by design; see the route file.
-app.use('/widget/v1', widgetPublicRoutes);
 
 // Serve the built frontend from the same service (single-service deploy on
 // Render). Skipped when frontend/dist doesn't exist — local dev keeps using

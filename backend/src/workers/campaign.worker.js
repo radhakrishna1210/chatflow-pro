@@ -3,7 +3,7 @@ import { createBullConnection, logRedisError } from '../lib/redis.js';
 import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
-import { headerImageComponent, carouselComponent } from '../services/templateImage.service.js';
+import { headerImageComponent } from '../services/templateImage.service.js';
 import { templateHasVariables, contactVariableResolver, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
 import { campaignCtaComponent, buildCampaignContext } from '../services/campaignAi.service.js';
 import { env } from '../config/env.js';
@@ -79,15 +79,11 @@ const describeMetaError = (metaErr, fallback) => {
 const buildTemplatePayload = async (template, contact, { phoneNumberId, accessToken, campaign = null, recipientId = null }) => {
   const payload = { name: template.name, language: { code: template.language } };
 
-  const resolve = contactVariableResolver(contact);
   const header = await headerImageComponent(template, { phoneNumberId, accessToken });
   const textComponents = templateHasVariables(template.components)
-    ? buildTextComponents(template.components, resolve)
+    ? buildTextComponents(template.components, contactVariableResolver(contact))
     : [];
   const buttonComponents = buildButtonComponents(template.components);
-  // A carousel carries its media and buttons on the cards, so none of the
-  // above finds them — without this the send goes out as a bare body.
-  const carousel = await carouselComponent(template, { phoneNumberId, accessToken, resolve });
   const ctaComponent = campaign?.aiAgentEnabled
     ? campaignCtaComponent(template.components, { ctaLabel: campaign.aiAgentCtaLabel, recipientId })
     : null;
@@ -96,7 +92,6 @@ const buildTemplatePayload = async (template, contact, { phoneNumberId, accessTo
     ...(header ? [header] : []),
     ...textComponents,
     ...buttonComponents,
-    ...(carousel ? [carousel] : []),
     ...(ctaComponent ? [ctaComponent] : []),
   ];
   if (components.length) payload.components = components;
