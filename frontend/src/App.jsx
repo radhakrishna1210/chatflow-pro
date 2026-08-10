@@ -7,6 +7,7 @@ import AuthCallback from './pages/AuthCallback.jsx';
 import WorkspaceSetup from './pages/WorkspaceSetup.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
+import SiteAssistant from './components/SiteAssistant.jsx';
 import { clearStoredSession } from './lib/api.js';
 
 // ─── Tiny history-based router ────────────────────────────────────────────────
@@ -124,6 +125,21 @@ export default function App() {
     }
   }, [path]);
 
+  const page = renderPage(path, nav);
+
+  // The website assistant rides above every screen, so a question that occurs
+  // to someone on the pricing page is still answerable once they are inside
+  // the dashboard. It is withheld from /auth/callback, which is a redirect in
+  // progress rather than a page anyone reads.
+  return (
+    <>
+      {page}
+      {path !== '/auth/callback' && <SiteAssistant />}
+    </>
+  );
+}
+
+function renderPage(path, nav) {
   if (path === '/auth/callback') return <AuthCallback />;
   // Deliberately not covered by the route-guard effect above (only handles
   // /dashboard, /setup, /login, /register) — this page must work whether or
