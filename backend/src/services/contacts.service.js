@@ -16,63 +16,11 @@ export function isValidPhone(raw) {
   return digits.length >= 7 && digits.length <= 15;
 }
 
-// Sort options the contact list offers, mapped to the order Prisma needs.
-// A whitelist rather than passing the client's string through, so a query
-// parameter can never name an arbitrary column.
-export const CONTACT_SORTS = {
-  newest:       { createdAt: 'desc' },
-  oldest:       { createdAt: 'asc' },
-  name_asc:     { name: 'asc' },
-  name_desc:    { name: 'desc' },
-  recently_updated: { updatedAt: 'desc' },
-  phone:        { phoneNumber: 'asc' },
-};
-export const DEFAULT_CONTACT_SORT = 'newest';
-
-// Parses a YYYY-MM-DD (or full ISO) bound into a Date, or null when absent or
-// unparseable — a bad date narrows nothing rather than erroring the whole list.
-function dateBound(value, { endOfDay = false } = {}) {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  // A bare date means the whole of that day when used as an upper bound,
-  // otherwise "created up to today" excludes everything created today.
-  if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(String(value).trim())) d.setHours(23, 59, 59, 999);
-  return d;
-}
-
-// Builds the `where` for a contact list. Every filter is a database term
-// rather than a post-fetch array filter, so it composes correctly with
-// pagination — filtering a single page in the client would silently drop
-// matches that live on other pages.
-export function buildContactWhere(workspaceId, {
-  search = '', clusterId = '', segmentId = '', tags = [], status = '',
-  createdFrom = '', createdTo = '', updatedFrom = '', updatedTo = '',
-} = {}) {
-  const tagList = (Array.isArray(tags) ? tags : String(tags || '').split(','))
-    .map((t) => String(t).trim())
-    .filter(Boolean);
-
-  const createdGte = dateBound(createdFrom);
-  const createdLte = dateBound(createdTo, { endOfDay: true });
-  const updatedGte = dateBound(updatedFrom);
-  const updatedLte = dateBound(updatedTo, { endOfDay: true });
-
-  return {
+export async function listContacts(workspaceId, { search = '', clusterId = '', page = 1, limit = 20 } = {}) {
+  const skip = (page - 1) * limit;
+  const where = {
     workspaceId,
     ...(clusterId ? { clusterContacts: { some: { clusterId } } } : {}),
-    ...(segmentId ? { segments: { some: { id: segmentId } } } : {}),
-    // hasSome, not hasEvery: picking two tags asks for contacts in either,
-    // which is what a multi-select filter is understood to mean.
-    ...(tagList.length ? { tags: { hasSome: tagList } } : {}),
-    ...(status === 'active' ? { optedOut: false } : {}),
-    ...(status === 'opted_out' ? { optedOut: true } : {}),
-    ...(createdGte || createdLte ? {
-      createdAt: { ...(createdGte ? { gte: createdGte } : {}), ...(createdLte ? { lte: createdLte } : {}) },
-    } : {}),
-    ...(updatedGte || updatedLte ? {
-      updatedAt: { ...(updatedGte ? { gte: updatedGte } : {}), ...(updatedLte ? { lte: updatedLte } : {}) },
-    } : {}),
     ...(search ? {
       OR: [
         { name: { contains: search, mode: 'insensitive' } },
@@ -81,80 +29,11 @@ export function buildContactWhere(workspaceId, {
       ],
     } : {}),
   };
-}
-
-export async function listContacts(workspaceId, { page = 1, limit = 20, sort = DEFAULT_CONTACT_SORT, ...filters } = {}) {
-  const safePage = Math.max(1, Number(page) || 1);
-  const skip = (safePage - 1) * limit;
-  const where = buildContactWhere(workspaceId, filters);
-  // `id` breaks ties so a contact can't appear on two pages (or on none) when
-  // many rows share a timestamp — which is exactly what a CSV import produces.
-  // The tiebreak follows the primary direction, so flipping Newest/Oldest (or
-  // A-Z/Z-A) really does reverse the list instead of leaving tied rows in the
-  // same order in both.
-  const primary = CONTACT_SORTS[sort] || CONTACT_SORTS[DEFAULT_CONTACT_SORT];
-  const orderBy = [primary, { id: Object.values(primary)[0] === 'desc' ? 'desc' : 'asc' }];
-
   const [data, total] = await Promise.all([
-    prisma.contact.findMany({
-      where, skip, take: limit, orderBy,
-      include: { segments: { select: { id: true, name: true, color: true } } },
-    }),
+    prisma.contact.findMany({ where, skip, take: limit, orderBy: { createdAt: 'desc' } }),
     prisma.contact.count({ where }),
   ]);
-  return { data, total, page: safePage, limit, sort: CONTACT_SORTS[sort] ? sort : DEFAULT_CONTACT_SORT };
-}
-
-// The distinct tags in use across a workspace, for the filter panel's tag
-// picker. Tags live in a String[] on Contact rather than their own table, so
-// this is the only way to enumerate them.
-export async function listContactTags(workspaceId) {
-  const rows = await prisma.contact.findMany({
-    where: { workspaceId, tags: { isEmpty: false } },
-    select: { tags: true },
-  });
-  const seen = new Map();
-  for (const row of rows) {
-    for (const tag of row.tags) {
-      const key = tag.trim();
-      if (key) seen.set(key, (seen.get(key) || 0) + 1);
-    }
-  }
-  return [...seen.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([name, count]) => ({ name, count }));
-}
-
-// One contact with everything the details panel shows. The inbox reads this
-// rather than carrying its own copy of contact data, so an edit made there and
-// an edit made in Contacts are the same record.
-export async function getContact(workspaceId, id) {
-  const contact = await prisma.contact.findFirst({
-    where: { id, workspaceId },
-    include: {
-      segments: { select: { id: true, name: true, color: true } },
-      clusterContacts: { select: { cluster: { select: { id: true, name: true } } } },
-    },
-  });
-  if (!contact) { const e = new Error('Contact not found'); e.status = 404; throw e; }
-
-  // "Last interaction" is the most recent message either way on any of this
-  // contact's threads — the conversation's own lastMessageAt is the same fact
-  // and cheaper to read than scanning messages.
-  const lastConversation = await prisma.conversation.findFirst({
-    where: { workspaceId, contactId: id },
-    orderBy: { lastMessageAt: 'desc' },
-    select: { id: true, lastMessageAt: true, status: true },
-  });
-
-  const { clusterContacts, ...rest } = contact;
-  return {
-    ...rest,
-    clusters: clusterContacts.map((cc) => cc.cluster),
-    lastInteractionAt: lastConversation?.lastMessageAt ?? null,
-    conversationId: lastConversation?.id ?? null,
-    conversationStatus: lastConversation?.status ?? null,
-  };
+  return { data, total };
 }
 
 export async function createContact(workspaceId, { name, phoneNumber, email, tags = [] }) {

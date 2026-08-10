@@ -5,7 +5,7 @@ import { assertWithinLimit } from './subscription.service.js';
 import { assertNotOptedOut, normalizePhone } from './optout.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { countVariables, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
-import { headerImageComponent, carouselComponent } from './templateImage.service.js';
+import { headerImageComponent } from './templateImage.service.js';
 
 function generateKey() {
   const raw = 'cfp_' + randomBytes(32).toString('hex');
@@ -116,20 +116,14 @@ export async function sendTestMessage(workspaceId, { to, templateId, message, va
         phoneNumberId: waNumber.metaPhoneNumberId,
         accessToken,
       });
-      const resolve = (i) => String(supplied[i] ?? '').trim() || ' ';
-      const carousel = await carouselComponent(template, {
-        phoneNumberId: waNumber.metaPhoneNumberId,
-        accessToken,
-        resolve,
-      });
       const parts = [
         ...(header ? [header] : []),
-        ...(required > 0 ? buildTextComponents(components, resolve) : []),
+        ...(required > 0
+          ? buildTextComponents(components, (i) => String(supplied[i] ?? '').trim() || ' ')
+          : []),
         // Button values come from the template's own examples, so the caller
         // never has to supply them.
         ...buildButtonComponents(components),
-        // Carousel cards carry their own media and buttons.
-        ...(carousel ? [carousel] : []),
       ];
       if (parts.length) payload.components = parts;
 

@@ -2,7 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { createMetaTemplate, deleteMetaTemplate, getWabaTemplates, uploadTemplateMedia } from '../lib/meta.js';
 import { decrypt } from '../lib/encryption.js';
 import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.js';
-import { normalizeTemplateComponents, detectTemplateType, toMetaComponents } from '../lib/templateStructure.js';
+import { normalizeButtonsInComponents } from '../lib/templateButtons.js';
 import { storeAsset } from './templateImage.service.js';
 
 // Resolve which WhatsApp number a template operation targets. Templates are
@@ -32,17 +32,11 @@ export async function listTemplates(workspaceId, waNumberId) {
   // DELETED rows are tombstones for templates removed on Meta. They are kept so
   // campaigns that already reference them still resolve, but never listed.
   const where = { workspaceId, status: { not: 'DELETED' }, ...(waNumberId ? { waNumberId } : {}) };
-  const templates = await prisma.template.findMany({
+  return prisma.template.findMany({
     where,
-    select: {
-      id: true, name: true, category: true, language: true, status: true, components: true,
-      waNumberId: true, metaTemplateId: true, aiGenerated: true, createdAt: true,
-      previousCategory: true, categoryUpdatedAt: true,
-    },
+    select: { id: true, name: true, category: true, language: true, status: true, components: true, waNumberId: true, metaTemplateId: true, aiGenerated: true, createdAt: true },
     orderBy: { createdAt: 'desc' },
   });
-  // Standard/catalog/carousel is not a stored column — see lib/templateStructure.js.
-  return templates.map((t) => ({ ...t, templateType: detectTemplateType(t.components) }));
 }
 
 function mapStatus(metaStatus) {
@@ -141,10 +135,9 @@ export async function createTemplate(workspaceId, { name, category, language, co
   if (!name || !category || !language || !Array.isArray(components) || components.length === 0) {
     const e = new Error('name, category, language and components are required'); e.status = 400; throw e;
   }
-  // Meta rejects the whole template over one bad button or a card that does not
-  // match its siblings, and reports it hours later as an opaque review failure
-  // — so the whole structure is validated against the category up front.
-  const safeComponents = normalizeTemplateComponents(category, components);
+  // Meta rejects the whole template over one bad button, and reports it hours
+  // later as an opaque review failure — so the rules are enforced up front.
+  const safeComponents = normalizeButtonsInComponents(components);
 
   const waNumber = await resolveWaNumber(workspaceId, waNumberId);
   const wabaId = waNumber.wabaId;
@@ -152,7 +145,7 @@ export async function createTemplate(workspaceId, { name, category, language, co
 
   let metaResult;
   try {
-    metaResult = await createMetaTemplate(wabaId, { name, category, language, components: toMetaComponents(safeComponents) }, accessToken);
+    metaResult = await createMetaTemplate(wabaId, { name, category, language, components: safeComponents }, accessToken);
   } catch (err) {
     const m = err.response?.data?.error;
     const reason = m ? `${m.message}${m.error_user_msg ? ' — ' + m.error_user_msg : ''} (code ${m.code}${m.error_subcode ? '/' + m.error_subcode : ''})` : err.message;
@@ -184,7 +177,7 @@ export async function createTemplate(workspaceId, { name, category, language, co
 export async function getTemplate(workspaceId, id) {
   const template = await prisma.template.findFirst({ where: { id, workspaceId } });
   if (!template) { const err = new Error('Template not found'); err.status = 404; throw err; }
-  return { ...template, templateType: detectTemplateType(template.components) };
+  return template;
 }
 
 export async function updateTemplate(workspaceId, id, updates) {
@@ -193,12 +186,6 @@ export async function updateTemplate(workspaceId, id, updates) {
 
   // Never allow the number binding to be mutated via update.
   delete updates.waNumberId;
-
-  // A resubmitted template goes through the same structural checks as a new
-  // one, so an edit cannot smuggle past what create would have rejected.
-  if (updates.components) {
-    updates.components = normalizeTemplateComponents(updates.category || template.category, updates.components);
-  }
 
   if (template.status === 'REJECTED' && (updates.components || updates.name)) {
     // Resubmit against THIS template's own number, not "the newest number".
@@ -210,7 +197,7 @@ export async function updateTemplate(workspaceId, id, updates) {
         name: updates.name || template.name,
         category: updates.category || template.category,
         language: updates.language || template.language,
-        components: toMetaComponents(updates.components || template.components),
+        components: updates.components || template.components,
       }, decrypt(waNumber.encryptedAccessToken)).catch(() => null);
     }
     updates.status = 'PENDING';
