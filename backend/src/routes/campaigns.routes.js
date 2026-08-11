@@ -22,6 +22,8 @@ router.get('/:id', campaignsController.getOne);
 router.patch('/:id', authorize('CLIENT'), validate({ body: campaignSchemas.update }), campaignsController.update);
 router.put('/:id', authorize('CLIENT'), validate({ body: campaignSchemas.update }), campaignsController.update);
 router.post('/:id/recipients', authorize('CLIENT'), validate({ body: campaignSchemas.addRecipients }), campaignsController.addRecipients);
+// PUT replaces the audience (draft editing); POST above only adds to it.
+router.put('/:id/recipients', authorize('CLIENT'), validate({ body: campaignSchemas.setRecipients }), campaignsController.setRecipients);
 router.post('/:id/launch', authorize('CLIENT'), validate({ body: campaignSchemas.launch }), campaignsController.launch);
 router.patch('/:id/cancel', authorize('CLIENT'), campaignsController.cancel);
 

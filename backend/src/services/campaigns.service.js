@@ -152,7 +152,10 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
   });
 }
 
-export async function updateCampaign(workspaceId, campaignId, { name, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent }) {
+export async function updateCampaign(workspaceId, campaignId, {
+  name, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent,
+  templateId, numberId, whatsappNumberId, scheduledAt,
+}) {
   const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
   if (campaign.status !== 'DRAFT' && campaign.status !== 'SCHEDULED') {
@@ -160,6 +163,54 @@ export async function updateCampaign(workspaceId, campaignId, { name, replyRules
   }
   const data = {};
   if (name !== undefined) data.name = String(name).trim();
+
+  // Which template a draft sends, and from which number, are the two things a
+  // half-finished campaign most often needs changed — but they were the two
+  // this function would not accept, so reopening a draft could never really
+  // edit it. They are validated exactly as createCampaign validates them,
+  // including the per-number template privacy rule, rather than trusted.
+  //
+  // DRAFT only: a SCHEDULED campaign has already been costed and queued
+  // against a specific template, so swapping it underneath would bill for one
+  // message and send another.
+  const resolvedNumberId = numberId ?? whatsappNumberId;
+  const changingContent = templateId !== undefined || resolvedNumberId !== undefined;
+  if (changingContent && campaign.status !== 'DRAFT') {
+    const e = new Error('The template and sending number can only be changed while the campaign is a draft');
+    e.status = 400; throw e;
+  }
+  if (changingContent) {
+    const nextTemplateId = templateId ?? campaign.templateId;
+    const nextNumberId = resolvedNumberId ?? campaign.waNumberId;
+    const [template, waNumber] = await Promise.all([
+      prisma.template.findFirst({ where: { id: nextTemplateId, workspaceId } }),
+      nextNumberId
+        ? prisma.waNumber.findFirst({ where: { id: nextNumberId, workspaceId } })
+        : Promise.resolve(null),
+    ]);
+    if (!template) { const e = new Error('Template not found'); e.status = 404; throw e; }
+    if (template.status === 'DELETED') {
+      const e = new Error('That template was deleted on Meta and can no longer be used'); e.status = 400; throw e;
+    }
+    if (!waNumber) { const e = new Error('WhatsApp number not found'); e.status = 404; throw e; }
+    if (template.waNumberId && template.waNumberId !== waNumber.id) {
+      const e = new Error('Selected template belongs to a different WhatsApp number'); e.status = 400; throw e;
+    }
+    data.templateId = template.id;
+    data.waNumberId = waNumber.id;
+  }
+
+  // A draft can carry the schedule the user picked before they finished. It is
+  // still only a stored intention — nothing sends until launchCampaign runs,
+  // which takes its own scheduledAt.
+  if (scheduledAt !== undefined) {
+    if (scheduledAt === null || scheduledAt === '') data.scheduledAt = null;
+    else {
+      const when = new Date(scheduledAt);
+      if (Number.isNaN(when.getTime())) { const e = new Error('scheduledAt is not a valid date'); e.status = 400; throw e; }
+      data.scheduledAt = when;
+    }
+  }
   if (replyRules !== undefined) data.replyRules = replyRules;
   if (retryConfig !== undefined) data.retryConfig = retryConfig ? normalizeRetryConfig(retryConfig) : null;
   if (trackingConfig !== undefined) data.trackingConfig = trackingConfig;
@@ -168,6 +219,75 @@ export async function updateCampaign(workspaceId, campaignId, { name, replyRules
   if (aiConfig) Object.assign(data, aiConfig);
 
   return prisma.campaign.update({ where: { id: campaignId }, data });
+}
+
+// Makes the campaign's audience exactly `contactIds`.
+//
+// addRecipients() below is add-only (skipDuplicates), which is right when a
+// wizard is building an audience up but wrong when someone reopens a draft and
+// deselects people — the audience could only ever grow, so a "removed" contact
+// was still messaged at launch. Replacing is therefore its own operation
+// rather than a flag, and it deletes only what the new selection drops.
+export async function setRecipients(workspaceId, campaignId, contactIds) {
+  const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
+  if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
+  if (campaign.status !== 'DRAFT') {
+    const e = new Error('The audience can only be changed while the campaign is a draft'); e.status = 400; throw e;
+  }
+
+  const ids = Array.isArray(contactIds) ? [...new Set(contactIds.filter(Boolean))] : [];
+
+  // Emptying the audience is a legitimate mid-edit state for a draft — the
+  // launch path is what insists on having someone to send to.
+  if (ids.length === 0) {
+    await prisma.campaignRecipient.deleteMany({ where: { campaignId } });
+    await prisma.campaign.update({ where: { id: campaignId }, data: { totalContacts: 0 } });
+    return { added: 0, removed: 0, kept: 0, blocked: 0, totalContacts: 0, invalidIds: [] };
+  }
+
+  const validContacts = await prisma.contact.findMany({
+    where: { id: { in: ids }, workspaceId },
+    select: { id: true, phoneNumber: true, optedOut: true },
+  });
+  const validIds = validContacts.map((c) => c.id);
+  const invalidIds = ids.filter((id) => !validIds.includes(id));
+  if (validIds.length === 0) {
+    const e = new Error(`No valid contacts in this workspace. Invalid IDs: ${JSON.stringify(invalidIds)}`);
+    e.status = 400; throw e;
+  }
+
+  const existing = await prisma.campaignRecipient.findMany({
+    where: { campaignId }, select: { contactId: true },
+  });
+  const existingIds = new Set(existing.map((r) => r.contactId));
+  const wanted = new Set(validIds);
+  const toRemove = [...existingIds].filter((id) => !wanted.has(id));
+  const toAdd = validIds.filter((id) => !existingIds.has(id));
+
+  if (toRemove.length) {
+    await prisma.campaignRecipient.deleteMany({ where: { campaignId, contactId: { in: toRemove } } });
+  }
+  if (toAdd.length) {
+    await prisma.campaignRecipient.createMany({
+      data: toAdd.map((contactId) => ({ campaignId, contactId })),
+      skipDuplicates: true,
+    });
+  }
+
+  const total = await prisma.campaignRecipient.count({ where: { campaignId } });
+  await prisma.campaign.update({ where: { id: campaignId }, data: { totalContacts: total } });
+
+  const blockedSet = await getOptedOutPhoneSet(workspaceId, validContacts.map((c) => c.phoneNumber));
+  const blocked = validContacts.filter((c) => c.optedOut === true || blockedSet.has(normalizePhone(c.phoneNumber))).length;
+
+  return {
+    added: toAdd.length,
+    removed: toRemove.length,
+    kept: validIds.length - toAdd.length,
+    blocked,
+    invalidIds,
+    totalContacts: total,
+  };
 }
 
 export async function addRecipients(workspaceId, campaignId, contactIds) {
@@ -583,6 +703,19 @@ export async function getCampaign(workspaceId, campaignId) {
   });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
 
+  // The draft editor needs the whole audience to tick the right boxes, and
+  // `recipients` above is capped at 100 and ordered by sentAt — which is null
+  // on every draft, so it is neither complete nor meaningfully ordered. Ids
+  // only, and only for drafts, so a launched campaign's report payload does
+  // not grow by ten thousand strings.
+  let recipientContactIds;
+  if (campaign.status === 'DRAFT') {
+    const all = await prisma.campaignRecipient.findMany({
+      where: { campaignId }, select: { contactId: true },
+    });
+    recipientContactIds = all.map((r) => r.contactId);
+  }
+
   // Counters live on the campaign row for speed, but the report is derived
   // from the recipients themselves so it can never drift from reality.
   const byStatus = await prisma.campaignRecipient.groupBy({
@@ -610,6 +743,9 @@ export async function getCampaign(workspaceId, campaignId) {
 
   return {
     ...campaign,
+    // Present only on drafts — the complete audience, so reopening one in the
+    // wizard re-selects exactly the contacts that were saved.
+    ...(recipientContactIds ? { recipientContactIds } : {}),
     // Whether the CTA can actually be tapped, or only typed — the template's
     // buttons decide that, and they can only change with Meta's approval.
     aiAgentWarnings: campaign.aiAgentEnabled

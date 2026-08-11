@@ -27,6 +27,13 @@ export async function addRecipients(req, res) {
   res.json(result);
 }
 
+// Replaces the audience outright, which is what editing a draft needs — adding
+// is not enough, because a deselected contact has to actually come off.
+export async function setRecipients(req, res) {
+  const result = await campaignsService.setRecipients(req.params.workspaceId, req.params.id, req.body.contactIds);
+  res.json(result);
+}
+
 export async function update(req, res) {
   const campaign = await campaignsService.updateCampaign(req.params.workspaceId, req.params.id, req.body);
   res.json(campaign);

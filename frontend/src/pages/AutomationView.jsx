@@ -1229,6 +1229,10 @@ const WhatsAppAIAgentTab = () => {
   const [name, setName] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [knowledge, setKnowledge] = useState('');
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  // What the last upload did — how much was added, and whether the 12k ceiling
+  // forced anything to be dropped.
+  const [uploadNote, setUploadNote] = useState(null);
   const [saving, setSaving] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [testMsg, setTestMsg] = useState('What are your business hours?');
@@ -1293,6 +1297,30 @@ const WhatsAppAIAgentTab = () => {
     load();
   };
 
+  // Appends an uploaded document's text to the knowledge base server-side —
+  // the extraction needs a parser, and the result has to be measured against
+  // the 12,000-character ceiling before it is stored.
+  const uploadKnowledgeDoc = async (file) => {
+    if (!file) return;
+    setUploadingDoc(true);
+    setUploadNote(null);
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await wJson('/ai-agent/knowledge/upload', { method: 'POST', body: fd });
+    setUploadingDoc(false);
+    if (!r.ok) { setUploadNote({ error: r.error }); return; }
+    // The server is the source of truth for what was stored, so the textarea
+    // takes what came back rather than what was uploaded.
+    const d = r.data;
+    setKnowledge(d.knowledge);
+    setUploadNote({
+      truncated: d.truncated,
+      text: d.truncated
+        ? `Added ${d.added.toLocaleString()} characters from "${d.fileName}", but ${d.dropped.toLocaleString()} had to be dropped — the knowledge base holds ${d.limit.toLocaleString()} characters and is now full.`
+        : `Added ${d.added.toLocaleString()} characters from "${d.fileName}". Using ${d.used.toLocaleString()} of ${d.limit.toLocaleString()}.`,
+    });
+  };
+
   const runTest = async () => {
     if (!testMsg.trim()) return;
     if (testMode === 'campaign' && !testCampaignId) {
@@ -1337,7 +1365,36 @@ const WhatsAppAIAgentTab = () => {
             <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4} style={{ ...inputStyle, resize:'vertical' }} maxLength={4000} /></div>
           <div><label style={labelStyle}>Knowledge base</label>
             <textarea value={knowledge} onChange={e => setKnowledge(e.target.value)} rows={6} style={{ ...inputStyle, resize:'vertical' }} maxLength={12000}
-              placeholder={"Business hours: Mon-Sat 9am-7pm IST\nReturns: within 7 days with receipt\nShipping: 2-4 business days"} /></div>
+              placeholder={"Business hours: Mon-Sat 9am-7pm IST\nReturns: within 7 days with receipt\nShipping: 2-4 business days"} />
+
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginTop:7, flexWrap:'wrap' }}>
+              <label style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:12, color:'var(--t2)', cursor: uploadingDoc ? 'wait' : 'pointer' }}>
+                <span style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 11px', borderRadius:8, border:'1px solid var(--bd)', background:'rgba(255,255,255,0.04)', fontWeight:600 }}>
+                  <I n="file" s={12} c="var(--t2)" />
+                  {uploadingDoc ? 'Reading…' : 'Upload document'}
+                </span>
+                <input type="file" accept=".pdf,.docx,.txt,.md,.csv" disabled={uploadingDoc}
+                  onChange={e => { uploadKnowledgeDoc(e.target.files?.[0]); e.target.value = ''; }}
+                  style={{ display:'none' }} />
+              </label>
+              <span style={{ fontSize:11, color: knowledge.length >= 12000 ? '#fbbf24' : 'var(--t3)' }}>
+                {knowledge.length.toLocaleString()} / 12,000
+              </span>
+            </div>
+
+            <p style={{ fontSize:11, color:'var(--t3)', marginTop:5, lineHeight:1.5 }}>
+              PDF, Word (.docx) or plain text. The text is extracted and appended to whatever is above — the file itself is not stored.
+            </p>
+
+            {uploadNote && (
+              <div style={{ marginTop:8, padding:'8px 11px', borderRadius:8, fontSize:11.5, lineHeight:1.5,
+                background: uploadNote.error ? 'rgba(239,68,68,.08)' : uploadNote.truncated ? 'rgba(245,158,11,.08)' : 'var(--gbg)',
+                border: `1px solid ${uploadNote.error ? 'rgba(239,68,68,.25)' : uploadNote.truncated ? 'rgba(245,158,11,.28)' : 'var(--gbd)'}`,
+                color: uploadNote.error ? '#f87171' : uploadNote.truncated ? '#fbbf24' : 'var(--green)' }}>
+                {uploadNote.error || uploadNote.text}
+              </div>
+            )}
+          </div>
           <div style={{ display:'flex', justifyContent:'flex-end' }}>
             <Btn variant="outline" size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Config'}</Btn>
           </div>

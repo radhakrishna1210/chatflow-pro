@@ -31,6 +31,7 @@ router.get('/:id',                templatesController.getOne);
 router.put('/:id',                validate({ body: templateSchemas.update }), templatesController.update);
 router.delete('/:id',             templatesController.remove);
 router.post('/:id/duplicate',     templatesController.duplicate);
+router.post('/:id/restore',       templatesController.restore);
 router.post('/:id/utility-variant', templatesController.utilityVariant);
 
 export default router;

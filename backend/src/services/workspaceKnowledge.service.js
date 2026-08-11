@@ -2,6 +2,7 @@ import axios from 'axios';
 import { prisma } from '../lib/prisma.js';
 import { syncIndex, invalidateIndexCache } from './siteKnowledge.service.js';
 import { embeddingsAvailable } from '../lib/embeddings.js';
+import { extractDocumentText } from '../lib/documentText.js';
 
 // The customer's own website knowledge — what their Smart Website Widget
 // answers from.
@@ -181,11 +182,33 @@ export async function createSource(workspaceId, { kind, url, title, content }) {
   });
 }
 
+// A document upload becomes an ordinary source: the text is extracted once at
+// upload time and stored like pasted text, so chunking, embedding and the
+// incremental re-index all work on it unchanged. The original file is not kept
+// — the corpus needs the prose, not the PDF.
+export async function createSourceFromDocument(workspaceId, { buffer, fileName, mimeType, title } = {}) {
+  const count = await prisma.knowledgeSource.count({ where: { workspaceId } });
+  if (count >= MAX_SOURCES) fail(`A workspace can index at most ${MAX_SOURCES} sources.`);
+
+  const { text, label } = await extractDocumentText({ buffer, fileName, mimeType });
+
+  return prisma.knowledgeSource.create({
+    data: {
+      workspaceId,
+      kind: 'file',
+      title: String(title || '').trim() || String(fileName || `Uploaded ${label}`).trim(),
+      content: text.slice(0, MAX_CONTENT_CHARS),
+      status: 'READY',
+      fetchedAt: new Date(),
+    },
+  });
+}
+
 export async function updateSource(workspaceId, id, { title, content }) {
   const source = await getSource(workspaceId, id);
   const data = {};
   if (title !== undefined) data.title = String(title).trim() || source.title;
-  if (content !== undefined && source.kind === 'text') {
+  if (content !== undefined && (source.kind === 'text' || source.kind === 'file')) {
     const body = String(content).trim();
     if (!body) fail('Text sources cannot be empty.');
     data.content = body.slice(0, MAX_CONTENT_CHARS);
@@ -245,7 +268,7 @@ export async function reindexWorkspace(workspaceId, { force = false, refresh = f
     .filter((s) => s.content.trim())
     .map((s) => ({
       id: docId(workspaceId, s.id),
-      source: s.kind === 'url' ? 'website' : 'note',
+      source: s.kind === 'url' ? 'website' : s.kind === 'file' ? 'document' : 'note',
       title: s.title,
       topic: s.url || null,
       body: s.content,
