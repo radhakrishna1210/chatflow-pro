@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
+import {
+  HERO, PROOF, AI_PROMPT_EXAMPLES, FEATURES, USE_CASES, PLAN_CARDS,
+  FAQ_ITEMS, FOOTER_COLS, FOOTER_BLURB, FOOTER_LEGAL,
+  // Aliased: `CTA` is already the name of the closing section's component.
+  CTA as CTA_COPY,
+} from '../../../backend/src/data/siteContent.js';
 
 // ─── Landing page ────────────────────────────────────────────────────────────
 //
@@ -9,6 +15,12 @@ import { Btn } from '../components/Btn.jsx';
 // questions about itself. So the hero is not a screenshot of the app — it is
 // the message a customer receives, the button they tap, and the conversation
 // that follows. Everything else on the page stays quiet around it.
+//
+// The words themselves come from backend/src/data/siteContent.js — a plain
+// data module with no React in it — because the website assistant indexes that
+// same file. Copy edited here would be invisible to the assistant, which would
+// then answer "what features do you have?" from a stale second copy. Vite
+// inlines the import at build time, so nothing about this reaches runtime.
 //
 // Surfaces are frosted (.glass in index.css) over a slowly drifting aurora, so
 // depth comes from layering rather than from borders. All motion is opt-out:
@@ -331,21 +343,32 @@ const Hero = ({ onNav }) => (
             style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '6px 14px 6px 6px', borderRadius: 999, background: 'var(--gbg)', border: '1px solid var(--gbd)', cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif" }}
           >
             <span style={{ padding: '3px 8px', borderRadius: 999, background: 'var(--green)', color: '#060913', fontFamily: MONO, fontSize: 10, fontWeight: 700, letterSpacing: '.1em' }}>NEW</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>Campaign AI Agent</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>{HERO.badge}</span>
             <I n="arrow" s={12} c="var(--green)" />
           </button>
         </Reveal>
 
         <Reveal delay={80}>
+          {/* Last line carries the green tail; the break between lines is the
+              intended one, not whatever the width happens to produce. */}
           <h1 className="hero-heading">
-            Your campaign can<br />answer <span style={{ color: 'var(--green)' }}>for itself.</span>
+            {HERO.headlineLines.map((line, i, all) => {
+              const last = i === all.length - 1;
+              const tinted = last && line.endsWith(HERO.highlight);
+              return (
+                <span key={line}>
+                  {tinted ? line.slice(0, -HERO.highlight.length) : line}
+                  {tinted && <span style={{ color: 'var(--green)' }}>{HERO.highlight}</span>}
+                  {!last && <br />}
+                </span>
+              );
+            })}
           </h1>
         </Reveal>
 
         <Reveal delay={150}>
           <p style={{ fontSize: 18, color: 'var(--t2)', maxWidth: 520, lineHeight: 1.7, fontWeight: 500 }}>
-            Send WhatsApp campaigns, then let an AI agent handle the questions they start — priced, dated
-            and worded from the exact message each customer received. No markup on Meta's rates.
+            {HERO.sub}
           </p>
         </Reveal>
 
@@ -358,7 +381,7 @@ const Hero = ({ onNav }) => (
 
         <Reveal delay={260}>
           <p style={{ fontFamily: MONO, fontSize: 12, color: 'var(--t3)', letterSpacing: '.02em' }}>
-            Free plan · no card · connect a number in minutes
+            {HERO.note}
           </p>
         </Reveal>
       </div>
@@ -375,13 +398,7 @@ const Hero = ({ onNav }) => (
 // ─── proof strip ─────────────────────────────────────────────────────────────
 // Capability claims, not invented traffic numbers: each line is something the
 // product actually does, and each is demonstrated further down the page.
-
-const PROOF = [
-  ['At cost', 'Meta’s per-message rate, passed through'],
-  ['Refunded', 'Every message that never went out'],
-  ['Never guessed', 'A price or date the campaign didn’t state'],
-  ['Meta partner', 'Official WhatsApp Business API access'],
-];
+// (PROOF is imported — see the note at the top of the file.)
 
 const ProofStrip = () => (
   <section style={{ padding: '0 32px 90px' }}>
@@ -423,13 +440,6 @@ const LoginRequiredModal = ({ isOpen, onClose, onNav }) => {
   );
 };
 
-const EXAMPLES = [
-  'Create a template for an abandoned cart',
-  'Build a Diwali sale campaign for my VIP list',
-  'Set up an agent that answers offer questions',
-  'Draft a welcome flow for new contacts',
-];
-
 const AIPromptSection = ({ onNav }) => {
   const [prompt, setPrompt] = useState('');
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -470,7 +480,7 @@ const AIPromptSection = ({ onNav }) => {
         </Reveal>
         <Reveal delay={130}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, justifyContent: 'center' }}>
-            {EXAMPLES.map((ex) => (
+            {AI_PROMPT_EXAMPLES.map((ex) => (
               <button key={ex} onClick={() => setPrompt(ex)}
                 style={{ padding: '7px 13px', borderRadius: 999, background: 'rgba(255,255,255,0.035)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12.5, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", transition: 'all .18s' }}
                 onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'var(--t1)'; }}
@@ -643,19 +653,6 @@ const CostCalculator = () => {
 
 // ─── questions people ask before signing up ──────────────────────────────────
 
-const FAQ_ITEMS = [
-  ['Do I need my own WhatsApp Business API access?',
-   'No. Connect a number you already own through Meta’s embedded signup, or have one assigned to you from the pool. Either way the number, its templates and its access token stay bound to your workspace.'],
-  ['What happens when a message fails?',
-   'Retryable failures are retried on a backoff schedule you control, with SMS or email as a fallback channel. A recipient is billed once no matter how many attempts it took, and anything that never reached Meta is refunded when the campaign settles.'],
-  ['Can the AI agent invent a price or a date?',
-   'It is given the campaign message that specific customer received, plus your knowledge base, and is instructed to answer from those only. Asked something neither covers, it says it does not have that and offers a human — it does not fill the gap.'],
-  ['What if someone wants to stop hearing from us?',
-   'A reply of STOP blocks that number for good. It is skipped on every future campaign, excluded from the cost before you are charged, and no automation replies to it again.'],
-  ['Who can see my data?',
-   'Everything — contacts, campaigns, conversations, wallet — is scoped to your workspace, and members only reach it through their membership. WhatsApp access tokens are encrypted at rest.'],
-];
-
 const FaqRow = ({ q, a, open, onToggle, index }) => (
   <Reveal delay={index * 50}>
     <Glass lit={false} style={{ borderRadius: 'var(--rl)', overflow: 'hidden' }}>
@@ -745,6 +742,14 @@ const FlowVisual = () => (
   </div>
 );
 
+// The three inline diagrams, keyed by the `visual` name a FEATURES entry
+// carries. A card without one just renders its prose.
+const FEATURE_VISUALS = {
+  agentChain: AgentChainVisual,
+  ledger: LedgerVisual,
+  flow: FlowVisual,
+};
+
 const FCard = ({ span = 2, icon, color = 'var(--green)', title, desc, visual, delay = 0 }) => (
   <Reveal delay={delay} style={{ gridColumn: `span ${span}` }}>
     <Glass style={{ padding: 26, height: '100%' }}>
@@ -766,33 +771,24 @@ const Features = () => (
         title={<>Everything the campaign needs<br />after <span style={{ color: 'var(--green)' }}>you press send</span></>}
         sub="Sending is the easy part. These are the pieces that decide whether the conversation it starts goes anywhere."
       />
+      {/* Reveal delays stagger each grid row rather than the whole list, so a
+          card animates in with its neighbours. The rows are 6 columns wide and
+          every card spans 2 or 4, so the running span tells us where a row
+          starts without hardcoding the grouping. */}
       <div className="bento" style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12 }}>
-        <FCard span={4} icon="bot" title="Campaign AI Agent" delay={0}
-          desc="Attach your agent to a campaign and it answers questions about that campaign — the price, the discount, the deadline, the fine print — from the exact message that customer received. Edit the campaign later and their answers stay true to what was sent."
-          visual={<AgentChainVisual />} />
-        <FCard span={2} icon="spark" color="#0EA5E9" title="Replies that route themselves" delay={60}
-          desc="A deployed agent answers free-form questions when no rule matches, and intent matching sends “my parcel hasn’t come” to your shipping trigger without an exact keyword." />
-
-        <FCard span={2} icon="wflow" color="#F59E0B" title="Workflows that actually run" delay={0}
-          desc="Triggers, conditions, delays and multi-step sends — with a run history, so “did it fire?” is answerable."
-          visual={<FlowVisual />} />
-        <FCard span={4} icon="credit" title="Billing you can audit" delay={60}
-          desc="Campaigns reserve at launch and settle on completion. Opted-out and unsendable numbers are skipped, retries are never charged twice, and everything that never went out comes back to your wallet."
-          visual={<LedgerVisual />} />
-
-        <FCard span={2} icon="note" color="#A78BFA" title="Forms over chat" delay={0}
-          desc="Collect answers one question per message, with validation, and a completed submission at the end." />
-        <FCard span={2} icon="phone" color="#0EA5E9" title="Voice AI reception" delay={60}
-          desc="Inbound calls answered, transcribed and turned into a lead, with a handoff when the caller needs a person." />
-        <FCard span={2} icon="insta" color="#F59E0B" title="Instagram quickflows" delay={120}
-          desc="DMs, comments and story replies automated on the same keyword model as WhatsApp." />
-
-        <FCard span={2} icon="file" title="Template studio" delay={0}
-          desc="Write copy with AI, generate the header image, add buttons, submit to Meta, and watch approval status land by webhook." />
-        <FCard span={2} icon="chart" color="#A78BFA" title="Delivery and revenue" delay={60}
-          desc="Sent, delivered, read and failed per campaign, tied back to spend — plus retries and SMS or email fallback." />
-        <FCard span={2} icon="key" color="#0EA5E9" title="API, webhooks, integrations" delay={120}
-          desc="Scoped API keys, outbound webhooks and OAuth connections for the tools your team already runs." />
+        {(() => {
+          let cursor = 0;
+          return FEATURES.map((f) => {
+            const delay = (cursor % 6) * 30;
+            cursor += f.span;
+            const Visual = FEATURE_VISUALS[f.visual];
+            return (
+              <FCard key={f.title} span={f.span} icon={f.icon} color={f.color}
+                title={f.title} desc={f.desc} delay={delay}
+                visual={Visual ? <Visual /> : undefined} />
+            );
+          });
+        })()}
       </div>
     </div>
   </section>
@@ -800,22 +796,13 @@ const Features = () => (
 
 // ─── use cases ───────────────────────────────────────────────────────────────
 
-const CASES = [
-  { icon: 'send',  color: '#1EBF5E', title: 'E-commerce',    metric: 'Cart recovery', desc: 'Abandoned-cart nudges, order updates and catalogue sends — with the agent fielding “is it in stock?”.' },
-  { icon: 'users', color: '#0EA5E9', title: 'Education',      metric: 'Admissions',    desc: 'Enrolment reminders, fee notices and a form that collects student details over chat.' },
-  { icon: 'phone', color: '#A78BFA', title: 'Clinics',        metric: 'Appointments',  desc: 'Booking confirmations, reminders and reports, with inbound calls answered when the desk is busy.' },
-  { icon: 'building', color: '#F59E0B', title: 'Real estate', metric: 'Site visits',   desc: 'Property drops to a smart list, then an agent that answers price and location questions per listing.' },
-  { icon: 'globe', color: '#1EBF5E', title: 'Agencies',       metric: 'Multi-client',  desc: 'A workspace per client, separate numbers and wallets, and one place to report from.' },
-  { icon: 'zap',   color: '#0EA5E9', title: 'Travel',         metric: 'Itineraries',   desc: 'Booking confirmations and itinerary sends, with after-hours questions handled automatically.' },
-];
-
 const UseCases = () => (
   <section id="usecases" style={{ padding: '100px 0', borderTop: '1px solid var(--bd)', borderBottom: '1px solid var(--bd)', background: 'rgba(13,17,33,0.6)' }}>
     <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
       <SectionHead eyebrow="Who runs it" title={<>Built for <span style={{ color: 'var(--green)' }}>every industry</span></>}
         sub="Same platform, different conversations. These are the ones it gets used for most." />
       <div className="case-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-        {CASES.map((c, i) => (
+        {USE_CASES.map((c, i) => (
           <Reveal key={c.title} delay={(i % 3) * 70}>
             <Glass style={{ padding: 22, height: '100%' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
@@ -836,17 +823,6 @@ const UseCases = () => (
 
 // ─── pricing ─────────────────────────────────────────────────────────────────
 
-const PLANS = [
-  // Prices must match the Plan catalog seeded in backend/src/server.js —
-  // advertising a price the checkout cannot sell is worse than no price.
-  { name: 'Basic', price: '₹1,500', per: '/mo', note: 'or ₹3,500 per quarter', desc: 'For a small team running its first campaigns.', popular: false,
-    features: ['1 WhatsApp number', 'Up to 10 team members', '10,000 messages per cycle', 'Campaigns, templates, team inbox', 'Workflows and auto-replies', 'Email support'] },
-  { name: 'Growth', price: '₹2,500', per: '/mo', note: 'or ₹7,500 per quarter', desc: 'For teams whose WhatsApp runs itself.', popular: true,
-    features: ['Unlimited numbers and members', 'Unlimited messages', 'Campaign AI Agent', 'AI intent matching and smart replies', 'Retries with SMS and email fallback', 'Voice AI and Instagram flows', 'Revenue and delivery analytics', 'Priority support'] },
-  { name: 'Enterprise', price: 'Custom', per: '', desc: 'For volume, review requirements and bespoke work.', popular: false,
-    features: ['Everything in Growth', 'Custom message volume', 'Dedicated account manager', 'SSO and audit logs', 'Custom integrations', 'SLA'] },
-];
-
 const Pricing = ({ onNav }) => (
   <section id="pricing" style={{ padding: '110px 0', position: 'relative', overflow: 'hidden' }}>
     <div className="aurora-a" style={{ position: 'absolute', bottom: '-20%', left: '30%', width: 560, height: 560, background: 'radial-gradient(circle, rgba(30,191,94,0.10), transparent 62%)', filter: 'blur(50px)', pointerEvents: 'none' }} />
@@ -858,7 +834,7 @@ const Pricing = ({ onNav }) => (
           content they sat at three different heights, and the popular card's
           button hung below the panel it belongs to. */}
       <div className="plan-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, maxWidth: 1000, margin: '0 auto' }}>
-        {PLANS.map((p, i) => (
+        {PLAN_CARDS.map((p, i) => (
           <Reveal key={p.name} delay={i * 80} style={{ height: '100%' }}>
             <Glass lit={!p.popular} style={{
               padding: 30, borderRadius: 'var(--rxl)', position: 'relative',
@@ -930,10 +906,12 @@ const CTA = ({ onNav }) => (
           <div style={{ position: 'relative' }}>
             <Eyebrow>Start today</Eyebrow>
             <h2 style={{ fontSize: 'clamp(28px,3.8vw,50px)', fontWeight: 800, letterSpacing: '-.035em', lineHeight: 1.08, margin: '18px 0 16px' }}>
-              Send the campaign.<br />Let it handle the questions.
+              {CTA_COPY.headlineLines.map((line, i, all) => (
+                <span key={line}>{line}{i < all.length - 1 && <br />}</span>
+              ))}
             </h2>
             <p style={{ fontSize: 16.5, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 480, margin: '0 auto 32px' }}>
-              Connect a number, import your contacts, and put an agent behind your next offer.
+              {CTA_COPY.sub}
             </p>
             <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>
               Start for free <I n="arrow" s={14} c="#060A10" />
@@ -945,12 +923,6 @@ const CTA = ({ onNav }) => (
     </div>
   </section>
 );
-
-const FOOTER_COLS = [
-  { title: 'Product', links: ['Features', 'Pricing', 'Campaign AI Agent', 'Workflows', 'API'] },
-  { title: 'Solutions', links: ['E-commerce', 'Education', 'Clinics', 'Real estate', 'Agencies'] },
-  { title: 'Company', links: ['About', 'Blog', 'Careers', 'Contact', 'Privacy'] },
-];
 
 const Footer = ({ onNav }) => (
   <footer style={{ borderTop: '1px solid var(--bd)', padding: '56px 32px 30px', background: 'rgba(13,17,33,0.5)' }}>
@@ -964,7 +936,7 @@ const Footer = ({ onNav }) => (
             <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span></span>
           </button>
           <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.65, maxWidth: 240 }}>
-            WhatsApp Business API for teams that would rather their campaigns answered for themselves.
+            {FOOTER_BLURB}
           </p>
         </div>
         {FOOTER_COLS.map(col => (
@@ -982,7 +954,7 @@ const Footer = ({ onNav }) => (
         ))}
       </div>
       <div style={{ borderTop: '1px solid var(--bd)', paddingTop: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)' }}>© 2026 ChatFlow Pro · Meta WhatsApp Business API partner</p>
+        <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)' }}>{FOOTER_LEGAL}</p>
         <div style={{ display: 'flex', gap: 18 }}>
           {['Terms', 'Privacy', 'Security'].map(l => <a key={l} href="#features" style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)', textDecoration: 'none' }}>{l}</a>)}
         </div>

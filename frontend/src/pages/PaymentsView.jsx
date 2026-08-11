@@ -3,6 +3,7 @@ import { canBill } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
+import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -350,6 +351,9 @@ export default function PaymentsView({ initialTab } = {}) {
   // Render Inner Tabs
   const renderWallet = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* This is the page the status is about, so the healthy state shows here
+          too rather than only the warnings. */}
+      <WalletStatusBanner />
       {/* Balance Card */}
       <div style={{ ...card, padding: 24, background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -504,7 +508,9 @@ export default function PaymentsView({ initialTab } = {}) {
   };
 
   const renderBilling = () => (
-    <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <WalletStatusBanner hideWhenHealthy />
+      <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Billing details</h3>
       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
@@ -539,6 +545,7 @@ export default function PaymentsView({ initialTab } = {}) {
           {saveStatus === 'success' ? 'Details Saved!' : 'Save Details'}
         </Btn>
       </div>}
+      </div>
     </div>
   );
 
@@ -552,6 +559,9 @@ export default function PaymentsView({ initialTab } = {}) {
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Overage beyond the plan quota is billed to the wallet, so an empty
+            one stops sending even on an active subscription. */}
+        <WalletStatusBanner hideWhenHealthy />
         {/* Current plan */}
         <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
