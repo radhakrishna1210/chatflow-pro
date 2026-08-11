@@ -1308,7 +1308,7 @@ const PhonePreview = ({ template, templateBody, ctaLabel = '' }) => {
 };
 
 // ─── Top Bar ───────────────────────────────────────────────────
-const TopBar = ({ campaignName, setCampaignName, canLaunch, onSaveDraft, onGoLive, onBack, launching, savingDraft }) => (
+const TopBar = ({ campaignName, setCampaignName, canLaunch, onSaveDraft, onGoLive, onBack, launching, savingDraft, editing }) => (
   <div style={{ height: '58px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: '12px', flexShrink: 0, background: 'var(--surf)' }}>
     <button onClick={onBack}
       style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', background: 'transparent', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: '13px', fontFamily: "'Plus Jakarta Sans',sans-serif", cursor: 'pointer', transition: 'all .15s', fontWeight: 500 }}
@@ -1318,6 +1318,11 @@ const TopBar = ({ campaignName, setCampaignName, canLaunch, onSaveDraft, onGoLiv
       Campaigns
     </button>
     <div style={{ width: '1px', height: '24px', background: 'var(--bd)' }} />
+    {editing && (
+      <span style={{ padding: '3px 9px', borderRadius: 8, fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', color: 'var(--t2)', textTransform: 'uppercase' }}>
+        Editing draft
+      </span>
+    )}
     <input value={campaignName} onChange={e => setCampaignName(e.target.value)} placeholder="Enter Campaign Name"
       style={{ width: '280px', padding: '8px 13px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: '14px', fontFamily: "'Plus Jakarta Sans',sans-serif", fontWeight: 500, outline: 'none', transition: 'border-color .15s' }}
       onFocus={e => e.target.style.borderColor = 'var(--gbd)'}
@@ -1328,7 +1333,7 @@ const TopBar = ({ campaignName, setCampaignName, canLaunch, onSaveDraft, onGoLiv
         <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
         <polyline points="17,21 17,13 7,13 7,21"/><polyline points="7,3 7,8 15,8"/>
       </svg>
-      {savingDraft ? 'Saving…' : 'Save as Draft'}
+      {savingDraft ? 'Saving…' : editing ? 'Save Draft' : 'Save as Draft'}
     </Btn>
     <Btn onClick={onGoLive} disabled={!canLaunch || launching} style={{ boxShadow: canLaunch && !launching ? 'var(--glow)' : 'none' }}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1341,7 +1346,33 @@ const TopBar = ({ campaignName, setCampaignName, canLaunch, onSaveDraft, onGoLiv
 );
 
 // ─── Main export ───────────────────────────────────────────────
-export default function CreateCampaign({ onBack }) {
+// A stored ISO timestamp, in the shape <input type="datetime-local"> wants —
+// local time, no zone, no seconds. new Date().toISOString() is UTC and would
+// silently shift a saved schedule by the user's offset on every reopen.
+const toLocalInput = (iso) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+/**
+ * The campaign wizard, for a new campaign or an existing draft.
+ *
+ * `campaignId` switches it into edit mode: the draft is loaded, every step is
+ * pre-filled from what was saved, and saving updates that campaign instead of
+ * creating another one. Without it the wizard behaves exactly as before.
+ *
+ * Opening a draft never sends anything — loading only reads, and the launch
+ * path is still the explicit "Go Live" action at the end of step 4.
+ */
+export default function CreateCampaign({ onBack, campaignId = null }) {
+  // The campaign being edited. Set from the prop when reopening a draft, and
+  // also set after the first "Save Draft" of a new campaign — which is what
+  // stops a second click creating a duplicate.
+  const [draftId, setDraftId]                 = useState(campaignId);
+  const [loadingDraft, setLoadingDraft]       = useState(!!campaignId);
+  const [draftError, setDraftError]           = useState('');
   const [campaignName, setCampaignName]       = useState('');
   const [campaignType, setCampaignType]       = useState('onetime');
   const [selectedNumberId, setSelectedNumberId] = useState(null);
@@ -1404,6 +1435,81 @@ export default function CreateCampaign({ onBack }) {
     }).catch(()=>{});
     reloadContacts();
   }, []);
+
+  // Load the draft being edited. Runs once per campaignId, before the user
+  // can touch anything, so nothing it sets can overwrite a live edit.
+  useEffect(() => {
+    if (!campaignId) return undefined;
+    let cancelled = false;
+    setLoadingDraft(true);
+    setDraftError('');
+
+    wFetch(`/campaigns/${campaignId}`)
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || `Could not load this campaign (${r.status})`);
+        return data;
+      })
+      .then((c) => {
+        if (cancelled) return;
+        if (c.status !== 'DRAFT') {
+          // Anything already launched is a report, not a form. Editing one
+          // would imply changes that cannot reach messages already sent.
+          throw new Error(`This campaign is ${String(c.status).toLowerCase()} and can no longer be edited.`);
+        }
+
+        // "Untitled Draft" is the placeholder the save path substitutes for an
+        // empty name; showing it back as if the user typed it would make them
+        // delete it before naming the campaign properly.
+        setCampaignName(c.name === 'Untitled Draft' ? '' : (c.name || ''));
+        setSelectedNumberId(c.waNumberId || null);
+        setSelectedTemplateId(c.templateId || null);
+        setTemplateBody(getBodyText(c.template?.components) || '');
+        setSelectedContactIds(new Set(c.recipientContactIds || []));
+
+        if (c.scheduledAt) {
+          setScheduleType('custom');
+          setScheduledAt(toLocalInput(c.scheduledAt));
+        }
+
+        setReplyRules(c.replyRules ?? null);
+        setRetryConfig(c.retryConfig ?? null);
+        setTrackingConfig(c.trackingConfig ?? null);
+        setFallbackConfig(c.fallbackConfig ?? null);
+        setRetriesActive(!!c.retryConfig?.enabled);
+
+        if (c.aiAgentEnabled) {
+          setAiAgentEnabled(true);
+          setAiAgentId(c.aiAgentId || null);
+          setAiCtaLabel(c.aiAgentCtaLabel || 'Ask Anything');
+        }
+
+        // Steps gate each other, so a reopened draft has to arrive with the
+        // ones its data already satisfies unlocked — otherwise everything past
+        // step 1 is greyed out and the draft is no more editable than before.
+        const hasNumber = !!c.waNumberId;
+        const hasTemplate = !!c.templateId;
+        const hasAudience = (c.recipientContactIds || []).length > 0;
+        setStep1Done(hasNumber);
+        setStep2Done(hasNumber && hasTemplate);
+        setStep3Done(hasNumber && hasTemplate && hasAudience);
+        setStep4Done(hasNumber && hasTemplate && hasAudience);
+        setSavedSteps({
+          ...(c.aiAgentEnabled ? { 5: true } : {}),
+          ...(c.replyRules ? { 6: true } : {}),
+          ...(c.retryConfig ? { 7: true } : {}),
+          ...(c.trackingConfig ? { 8: true } : {}),
+          ...(c.fallbackConfig ? { 9: true } : {}),
+        });
+        // Open the first thing still missing, so "Continue" lands where the
+        // work actually stopped rather than back at step 1.
+        setOpenStep(!hasNumber ? 1 : !hasTemplate ? 2 : !hasAudience ? 3 : 4);
+      })
+      .catch((e) => { if (!cancelled) setDraftError(e.message || 'Could not load this campaign'); })
+      .finally(() => { if (!cancelled) setLoadingDraft(false); });
+
+    return () => { cancelled = true; };
+  }, [campaignId]);
 
   const toggleContact = id => setSelectedContactIds(prev => {
     const next = new Set(prev);
@@ -1476,6 +1582,45 @@ export default function CreateCampaign({ onBack }) {
     }
   };
 
+  // Creates the campaign the first time and updates it thereafter, then makes
+  // the audience match the current selection exactly. Shared by "Save Draft"
+  // and "Go Live" so the two cannot drift into saving different things.
+  //
+  // Returns the campaign id. Throws on failure; callers surface the message.
+  const persistDraft = async () => {
+    const body = {
+      name: campaignName.trim() || 'Untitled Draft',
+      type: campaignType,
+      numberId: selectedNumberId,
+      templateId: selectedTemplateId,
+      replyRules, retryConfig, trackingConfig, fallbackConfig,
+      aiAgent: aiAgentPayload,
+      // Kept on the draft so a schedule survives being saved and reopened.
+      // It is only an intention — launchCampaign takes its own copy.
+      scheduledAt: scheduleType === 'custom' && scheduledAt ? new Date(scheduledAt).toISOString() : null,
+    };
+
+    let id = draftId;
+    if (id) {
+      const res = await wFetch(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(await parseError(res, `Could not save changes (${res.status})`));
+    } else {
+      const res = await wFetch('/campaigns', { method: 'POST', body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(await parseError(res, `Could not save draft (${res.status})`));
+      id = (await res.json()).id;
+      setDraftId(id);
+    }
+
+    // PUT, not POST: the audience has to be able to shrink. POST only adds, so
+    // a contact deselected while editing would still be messaged at launch.
+    const recRes = await wFetch(`/campaigns/${id}/recipients`, {
+      method: 'PUT', body: JSON.stringify({ contactIds: [...selectedContactIds] }),
+    });
+    if (!recRes.ok) throw new Error(await parseError(recRes, `Could not save the audience (${recRes.status})`));
+
+    return id;
+  };
+
   const handleGoLive = async () => {
     // `launching` also blocks the double-submit that a refresh or an
     // impatient second click would otherwise cause.
@@ -1496,19 +1641,11 @@ export default function CreateCampaign({ onBack }) {
         ? new Date(scheduledAt).toISOString()
         : null;
 
-      const res = await wFetch('/campaigns', {
-        method: 'POST',
-        body: JSON.stringify({ name: campaignName, type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent: aiAgentPayload }),
-      });
-      if (!res.ok) throw new Error(await parseError(res, `Could not create campaign (${res.status})`));
-      const campaign = await res.json();
+      // Save first, so launching an edited draft sends what is on screen
+      // rather than what was last written.
+      const id = await persistDraft();
 
-      const recRes = await wFetch(`/campaigns/${campaign.id}/recipients`, {
-        method: 'POST', body: JSON.stringify({ contactIds: [...selectedContactIds] }),
-      });
-      if (!recRes.ok) throw new Error(await parseError(recRes, `Could not add recipients (${recRes.status})`));
-
-      const launchRes = await wFetch(`/campaigns/${campaign.id}/launch`, {
+      const launchRes = await wFetch(`/campaigns/${id}/launch`, {
         method: 'POST', body: JSON.stringify({ scheduledAt: effectiveScheduledAt, retryConfig }),
       });
       if (!launchRes.ok) throw new Error(await parseError(launchRes, `Could not launch campaign (${launchRes.status})`));
@@ -1545,17 +1682,8 @@ export default function CreateCampaign({ onBack }) {
     setLaunchError('');
     setSavingDraft(true);
     try {
-      const res = await wFetch('/campaigns', {
-        method: 'POST',
-        body: JSON.stringify({ name: campaignName || 'Untitled Draft', type: campaignType, numberId: selectedNumberId, templateId: selectedTemplateId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent: aiAgentPayload }),
-      });
-      if (!res.ok) throw new Error(await parseError(res, `Could not save draft (${res.status})`));
-      const campaign = await res.json();
-      if (selectedContactIds.size > 0) {
-        await wFetch(`/campaigns/${campaign.id}/recipients`, {
-          method: 'POST', body: JSON.stringify({ contactIds: [...selectedContactIds] }),
-        }).catch(() => {});
-      }
+      await persistDraft();
+      window.dispatchEvent(new CustomEvent('app:data-updated', { detail: { campaigns: true } }));
       onBack?.();
     } catch (err) {
       setLaunchError(err.message || 'Failed to save draft');
@@ -1601,7 +1729,21 @@ export default function CreateCampaign({ onBack }) {
         onBack={onBack}
         launching={launching}
         savingDraft={savingDraft}
+        editing={!!campaignId}
       />
+
+      {/* A draft still loading must not show an empty form — the user would
+          start typing into fields that are about to be overwritten. */}
+      {loadingDraft ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--t2)', fontSize: 13 }}>
+          Loading draft…
+        </div>
+      ) : draftError ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 }}>
+          <p style={{ fontSize: 13, color: '#f87171', textAlign: 'center', maxWidth: 420, lineHeight: 1.6 }}>{draftError}</p>
+          <Btn variant="outline" onClick={onBack}>Back to Campaigns</Btn>
+        </div>
+      ) : (
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* ── accordion ── */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1681,6 +1823,7 @@ export default function CreateCampaign({ onBack }) {
           <PhonePreview template={selectedTemplate} templateBody={templateBody} ctaLabel={aiAgentEnabled ? aiCtaLabel : ''} />
         </div>
       </div>
+      )}
     </div>
   );
 }

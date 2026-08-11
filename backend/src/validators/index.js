@@ -90,6 +90,9 @@ export const campaignSchemas = {
     aiAgent: aiAgentConfig.optional(),
   }).passthrough().refine((v) => v.numberId || v.whatsappNumberId, { message: 'numberId is required' }),
   addRecipients: z.object({ contactIds: z.array(id).min(1, 'At least one contact is required').max(10_000) }),
+  // Replacing an audience may legitimately empty it — a draft mid-edit does
+  // not have to have anyone selected yet. Launch is what insists on that.
+  setRecipients: z.object({ contactIds: z.array(id).max(10_000) }),
   update: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Campaign name').optional(),
     replyRules: z.any().optional(),
@@ -97,6 +100,11 @@ export const campaignSchemas = {
     trackingConfig: z.any().optional(),
     fallbackConfig: z.any().optional(),
     aiAgent: aiAgentConfig.optional(),
+    // Editable while the campaign is still a draft; the service enforces that.
+    templateId: id.optional(),
+    numberId: id.optional(),
+    whatsappNumberId: id.optional(),
+    scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
   }).passthrough(),
   launch: z.object({
     scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
