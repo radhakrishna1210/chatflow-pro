@@ -140,6 +140,7 @@ const KnowledgePanel = () => {
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
   const [tab, setTab] = useState('url');
+  const [uploading, setUploading] = useState(false);
 
   const load = useCallback(() => {
     wFetch('/widgets/knowledge').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setSources(d); }).catch(() => {});
@@ -157,6 +158,22 @@ const KnowledgePanel = () => {
       setUrl(''); setNoteTitle(''); setNoteBody('');
       load();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  // Multipart, so it cannot go through add() — the text is extracted server-side
+  // and stored as an ordinary source, which then indexes like any other.
+  const uploadDocument = async (file) => {
+    if (!file) return;
+    setBusy(true); setUploading(true); setErr(null); setMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await wFetch('/widgets/knowledge/upload', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(data.error || `Could not read that document (${res.status})`); return; }
+      setMsg(`Added "${data.title}". Re-index to make it searchable.`);
+      load();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); setUploading(false); }
   };
 
   const act = async (path, method = 'POST') => {
@@ -213,7 +230,7 @@ const KnowledgePanel = () => {
       {msg && <div style={{ padding: '9px 12px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 12, marginBottom: 12 }}>{msg}</div>}
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        {[['url', 'Add a page'], ['text', 'Paste text']].map(([id, label]) => (
+        {[['url', 'Add a page'], ['text', 'Paste text'], ['file', 'Upload document']].map(([id, label]) => (
           <button key={id} type="button" onClick={() => setTab(id)}
             style={{ padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, fontFamily: "'Plus Jakarta Sans',sans-serif",
                      border: `1px solid ${tab === id ? 'var(--gbd)' : 'var(--bd)'}`,
@@ -242,13 +259,29 @@ const KnowledgePanel = () => {
         </div>
       )}
 
+      {tab === 'file' && (
+        <div style={{ border: '1px dashed var(--bd)', borderRadius: 10, padding: 16, marginBottom: 14 }}>
+          <input type="file" accept=".pdf,.docx,.txt,.md,.csv" disabled={uploading}
+            onChange={e => { uploadDocument(e.target.files?.[0]); e.target.value = ''; }}
+            style={{ fontSize: 12, color: 'var(--t2)', maxWidth: '100%' }} />
+          <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 7, lineHeight: 1.55 }}>
+            {uploading
+              ? 'Reading the document…'
+              : 'PDF, Word (.docx), or plain text (.txt, .md, .csv), up to 10 MB. The text is extracted and indexed — the file itself is not stored.'}
+          </p>
+          <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 4 }}>
+            Scanned PDFs are images and have no text to extract.
+          </p>
+        </div>
+      )}
+
       {sources.length === 0 ? (
         <p style={{ fontSize: 12, color: 'var(--t3)' }}>No sources yet.</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
           {sources.map(s => (
             <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--bd)', background: 'rgba(255,255,255,0.02)' }}>
-              <I n={s.kind === 'url' ? 'globe' : 'note'} s={14} c="var(--t2)" />
+              <I n={s.kind === 'url' ? 'globe' : s.kind === 'file' ? 'file' : 'note'} s={14} c="var(--t2)" />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontSize: 12.5, color: 'var(--t1)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</p>
                 <p style={{ fontSize: 10.5, color: s.status === 'ERROR' ? '#f87171' : 'var(--t3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

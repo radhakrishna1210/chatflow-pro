@@ -294,37 +294,62 @@ const MSGS = {
   3: [{ id: 1, dir: 'IN', body: 'Hi, I wanted to ask about your Diwali offer.', time: '09:10' }, { id: 2, dir: 'OUT', body: 'Our Diwali Sale runs till Oct 31 — 30% off all plans!', time: '09:11', sender: 'AI' }, { id: 3, dir: 'IN', body: 'When does the offer end?', time: '09:12' }],
 };
 
-const DashHeader = ({ title, subtitle }) => (
+// `searchPlaceholder` + `onSearch` make the header search belong to the page
+// it is on. Without them it keeps its original behaviour — jump to Contacts
+// with the query prefilled — which is right for pages that have nothing of
+// their own to search.
+const DashHeader = ({ title, subtitle, searchPlaceholder, onSearch, searchKey }) => (
   <div style={{ height: '58px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', gap: '16px', flexShrink: 0, background: 'var(--surf)' }}>
     <div style={{ flex: 1 }}>
       <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '16px', color: 'var(--t1)', letterSpacing: '-.02em' }}>{title}</h1>
       {subtitle && <p style={{ fontSize: '11.5px', color: 'var(--t2)', marginTop: '1px' }}>{subtitle}</p>}
     </div>
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <HeaderSearch />
+      <HeaderSearch key={searchKey} placeholder={searchPlaceholder} onSearch={onSearch} />
       <NotificationsBell />
       <ProfileMenu />
     </div>
   </div>
 );
 
-// Functional global search: Enter jumps to Contacts with the query prefilled.
-const HeaderSearch = () => {
+// The header search. When the page supplies `onSearch` it filters that page as
+// you type; otherwise Enter jumps to Contacts with the query prefilled, which
+// is what it always did.
+//
+// It used to say "Search contacts…" and navigate to Contacts on every page —
+// so on Templates and Campaigns it was both mislabelled and pointed somewhere
+// else entirely.
+const HeaderSearch = ({ placeholder, onSearch }) => {
   const [q, setQ] = useState('');
+  const local = typeof onSearch === 'function';
+  const label = placeholder || 'Search contacts…';
+
+  const change = (value) => {
+    setQ(value);
+    if (local) onSearch(value);
+  };
   const go = () => {
     const query = q.trim();
+    if (local) { onSearch(query); return; }
     window.dispatchEvent(new CustomEvent('app:nav', { detail: 'contacts' }));
     window.dispatchEvent(new CustomEvent('app:search', { detail: query }));
     setQ('');
   };
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', width: '200px' }}>
       <I n="search" s={13} c="var(--t2)" />
-      <input value={q} onChange={e => setQ(e.target.value)}
+      <input value={q} onChange={e => change(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter' && q.trim()) go(); }}
-        placeholder="Search contacts…"
-        aria-label="Search contacts"
+        placeholder={label}
+        aria-label={label.replace('…', '')}
         style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--t1)', fontSize: '13px', fontFamily: "'Plus Jakarta Sans',sans-serif", minWidth: 0 }} />
+      {q && (
+        <button onClick={() => change('')} aria-label="Clear search"
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', color: 'var(--t2)' }}>
+          <I n="x" s={11} c="var(--t2)" />
+        </button>
+      )}
     </div>
   );
 };
@@ -814,7 +839,7 @@ const retryNote = (r, maxAttempts) => {
 // Detail modal — surfaces the campaign's full timeline (created / scheduled /
 // launched / completed), live counters and recipient list, plus a Cancel
 // action for draft/scheduled/running campaigns.
-const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
+const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
   const [c, setC] = useState(null);
   const [err, setErr] = useState(null);
   const [cancelling, setCancelling] = useState(false);
@@ -852,6 +877,10 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
   // Members can cancel too — they can create and launch campaigns, so being
   // unable to stop one would be worse than not starting it.
   const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING'].includes(c.status);
+  // A draft is unfinished work, so it gets a way back into the wizard. Only a
+  // draft: anything launched is a report, and "editing" it would imply changes
+  // reaching messages that have already gone out.
+  const editable = c?.status === 'DRAFT';
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
@@ -999,12 +1028,22 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
         </div>
 
         <div style={{ padding:'14px 22px', borderTop:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <span style={{ fontSize:11, color:'var(--t3)' }}>Counters update live from delivery webhooks.</span>
+          <span style={{ fontSize:11, color:'var(--t3)' }}>
+            {editable
+              ? 'This campaign is a draft — nothing sends until you launch it.'
+              : 'Counters update live from delivery webhooks.'}
+          </span>
           <div style={{ display:'flex', gap:8 }}>
             {cancellable && (
               <Btn variant="outline" size="sm" onClick={cancel} disabled={cancelling}
                 style={{ borderColor:'rgba(239,68,68,.35)', color:'#f87171' }}>
                 {cancelling ? 'Cancelling…' : 'Cancel Campaign'}
+              </Btn>
+            )}
+            {editable && (
+              <Btn size="sm" onClick={() => onEdit?.(campaignId)} style={{ boxShadow:'var(--glow)' }}>
+                <I n="pencil" s={12} c="#060A10" />
+                Edit / Continue
               </Btn>
             )}
             <Btn variant="ghost" size="sm" onClick={onClose}>Close</Btn>
@@ -1015,10 +1054,11 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
   );
 };
 
-const CampaignsView = ({ onCreateCampaign }) => {
+const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [detailId, setDetailId]   = useState(null);
+  const [search, setSearch]       = useState('');
 
   const loadCampaigns = async () => {
     setLoading(true);
@@ -1037,6 +1077,16 @@ const CampaignsView = ({ onCreateCampaign }) => {
   useEffect(() => {
     loadCampaigns();
   }, []);
+
+  // Matched on the fields a person would actually search by. Campaigns are
+  // already loaded in full, so this filters in place rather than refetching.
+  const q = search.trim().toLowerCase();
+  const visibleCampaigns = q
+    ? campaigns.filter(c =>
+        String(c.name || '').toLowerCase().includes(q) ||
+        String(c.status || '').toLowerCase().includes(q) ||
+        String(c.template?.name || '').toLowerCase().includes(q))
+    : campaigns;
 
   // Deep link from the campaign completion/failure email's "View Full
   // Report" button (?campaignId=…) — open that campaign's report directly.
@@ -1062,7 +1112,8 @@ const CampaignsView = ({ onCreateCampaign }) => {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <DashHeader title="Campaigns" subtitle="Manage and monitor your broadcasts" />
+      <DashHeader title="Campaigns" subtitle="Manage and monitor your broadcasts"
+        searchPlaceholder="Search campaigns…" onSearch={setSearch} />
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
         {/* Every workspace member can create a campaign — the button used to
             be admin-only, which left members on a Free plan able to import
@@ -1073,8 +1124,10 @@ const CampaignsView = ({ onCreateCampaign }) => {
         </div>
         {loading ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading campaigns…</div>
-        ) : campaigns.length === 0 ? (
-          <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>No campaigns yet. Create your first campaign.</div>
+        ) : visibleCampaigns.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>
+            {q ? `No campaigns match “${search.trim()}”.` : 'No campaigns yet. Create your first campaign.'}
+          </div>
         ) : (
           <div style={{ ...card, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1086,7 +1139,7 @@ const CampaignsView = ({ onCreateCampaign }) => {
                 </tr>
               </thead>
               <tbody>
-                {campaigns.map((c, i) => {
+                {visibleCampaigns.map((c, i) => {
                   const sent = c.sentCount ?? c.sent ?? 0;
                   const delivered = c.deliveredCount ?? c.delivered ?? 0;
                   const read = c.readCount ?? c.read ?? 0;
@@ -1134,6 +1187,7 @@ const CampaignsView = ({ onCreateCampaign }) => {
           campaignId={detailId}
           onClose={() => setDetailId(null)}
           onChanged={loadCampaigns}
+          onEdit={(id) => { setDetailId(null); onEditCampaign?.(id); }}
         />
       )}
     </div>
@@ -2370,6 +2424,16 @@ const TemplatesView = () => {
   // Draft handed from the AI panel to TemplateModal as its initial values.
   const [aiSeed, setAiSeed]       = useState(null);
   const [tab, setTab]             = useState('my');         // 'my' | 'library'
+  // 'ACTIVE' | 'DELETED' — the recycle bin is a server-side filter, not a
+  // client-side one, because deleted templates are excluded from the default
+  // list entirely rather than being fetched and hidden.
+  const [view, setView]           = useState('ACTIVE');
+  const [restoringId, setRestoringId] = useState(null);
+  // Category segregation for "My Templates". Meta's three categories price and
+  // behave differently, so filtering by them is how you actually find anything
+  // once a workspace has more than a handful.
+  const [catFilter, setCatFilter] = useState('ALL');
+  const [search, setSearch]       = useState('');
   const [hasNumber, setHasNumber] = useState(null);          // null = unknown, true/false
   // Library installs and Meta syncs are per-number — when a workspace has
   // more than one, resolveWaNumber() on the backend can't guess which one,
@@ -2407,8 +2471,56 @@ const TemplatesView = () => {
     }
   };
 
-  const loadTemplates = () =>
-    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d); }).catch(()=>{});
+  // The 20s poll below is set up once, so it closes over the first render's
+  // `view`. Reading through a ref instead keeps a poll that fires while the
+  // recycle bin is open from replacing it with the active list.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  const loadTemplates = (which = viewRef.current) =>
+    wFetch(which === 'DELETED' ? '/templates?status=DELETED' : '/templates')
+      .then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d); }).catch(()=>{});
+
+  // Switching views refetches rather than filtering what is already loaded.
+  useEffect(() => { setTemplates([]); setLoading(true); loadTemplates(view).finally(() => setLoading(false)); }, [view]); // eslint-disable-line
+
+  // Category segregation and search, applied to whichever view (Active or
+  // Deleted) is loaded. Both filter in place — the list is already fetched, and
+  // the server-side split is by deleted/live, not by category.
+  const tplQuery = search.trim().toLowerCase();
+  const visibleTemplates = templates.filter((t) => {
+    if (catFilter !== 'ALL' && t.category !== catFilter) return false;
+    if (!tplQuery) return true;
+    return String(t.name || '').toLowerCase().includes(tplQuery)
+      || String(t.category || '').toLowerCase().includes(tplQuery)
+      || String(t.language || '').toLowerCase().includes(tplQuery)
+      || getBodyText(t.components).toLowerCase().includes(tplQuery);
+  });
+
+  // Counts per category, so the chips say how much is behind each one rather
+  // than making the user click to find out.
+  const catCounts = templates.reduce((acc, t) => {
+    acc[t.category] = (acc[t.category] || 0) + 1;
+    return acc;
+  }, {});
+
+  const restoreTemplate = async (t) => {
+    setRestoringId(t.id);
+    setToast(null);
+    try {
+      const res = await wFetch(`/templates/${t.id}/restore`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setToast({ error: data.error || `Could not restore (${res.status})` }); return; }
+      setToast({ ok: data.status === 'PENDING'
+        ? `"${t.name}" was restored and resubmitted to Meta for review.`
+        : `"${t.name}" was restored.` });
+      loadTemplates(view);
+    } catch (e) {
+      setToast({ error: e.message });
+    } finally {
+      setRestoringId(null);
+    }
+  };
 
   const loadHasNumber = () =>
     wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{
@@ -2479,7 +2591,8 @@ const TemplatesView = () => {
 
   useEffect(() => {
     loadHasNumber();
-    loadTemplates().finally(() => setLoading(false));
+    // The initial fetch belongs to the view effect above, which runs on mount
+    // too — doing it here as well would race it.
     // Poll every 20s so Meta status changes (APPROVED/REJECTED) surface even if
     // the message_template_status_update webhook isn't subscribed.
     const interval = setInterval(() => {
@@ -2515,7 +2628,10 @@ const TemplatesView = () => {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <DashHeader title="Templates" subtitle="Create and manage message templates" />
+      <DashHeader title="Templates" subtitle="Create and manage message templates"
+        searchKey={tab}
+        searchPlaceholder={tab === 'library' ? 'Search library…' : 'Search templates…'}
+        onSearch={tab === 'library' ? setLibSearch : setSearch} />
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
         {/* Sending an approved template spends from the wallet, so the warning
             states belong here too — but not the healthy one, which would just
@@ -2588,7 +2704,54 @@ const TemplatesView = () => {
           />
         ) : (
         <>
-        {isAdmin && (
+        {/* Active / Deleted. Deleted templates are kept rather than removed, so a
+            template deleted by mistake — or one Meta dropped — can be brought
+            back instead of rebuilt. */}
+        <div style={{ display:'flex', gap:4, padding:3, borderRadius:9, background:'var(--surf)', border:'1px solid var(--bd)', marginBottom:16, width:'fit-content' }}>
+          {[['ACTIVE', 'Active'], ['DELETED', 'Deleted']].map(([id, label]) => {
+            const on = view === id;
+            return (
+              <div key={id} onClick={() => setView(id)}
+                style={{ padding:'6px 14px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight: on ? 700 : 500,
+                         color: on ? '#060913' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent',
+                         transition:'all .12s', whiteSpace:'nowrap' }}>
+                {label}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Category segregation. Meta's three categories price and behave
+            differently, so this is the split that matters once a workspace has
+            more than a handful of templates. */}
+        <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:16, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', gap:4, padding:3, borderRadius:9, background:'var(--surf)', border:'1px solid var(--bd)' }}>
+            {CATEGORY_FILTERS.map(f => {
+              const on = catFilter === f.id;
+              const n = f.id === 'ALL' ? templates.length : (catCounts[f.id] || 0);
+              return (
+                <div key={f.id} onClick={() => setCatFilter(f.id)}
+                  style={{ padding:'6px 12px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight: on ? 700 : 500,
+                           color: on ? '#060913' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent',
+                           transition:'all .12s', whiteSpace:'nowrap' }}>
+                  {f.label}
+                  <span style={{ marginLeft:6, opacity:.7, fontWeight:600 }}>{n}</span>
+                </div>
+              );
+            })}
+          </div>
+          {(catFilter !== 'ALL' || tplQuery) && (
+            <span style={{ fontSize:11.5, color:'var(--t3)' }}>
+              Showing {visibleTemplates.length} of {templates.length}
+              <button onClick={() => { setCatFilter('ALL'); setSearch(''); }}
+                style={{ marginLeft:8, background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--green)', fontSize:11.5, fontWeight:600 }}>
+                Clear
+              </button>
+            </span>
+          )}
+        </div>
+
+        {isAdmin && view === 'ACTIVE' && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <Btn variant="outline" onClick={syncFromMeta} disabled={syncing}>
               <I n="refresh" s={13} c={syncing ? 'var(--t3)' : 'var(--green)'} />
@@ -2626,7 +2789,24 @@ const TemplatesView = () => {
             <div style={{ width:28, height:28, border:'2px solid var(--green)', borderTopColor:'transparent', borderRadius:'50%', margin:'0 auto 12px', animation:'spin 1s linear infinite' }}/>
             Loading templates…
           </div>
-        ) : templates.length === 0 ? (
+        ) : visibleTemplates.length === 0 && (catFilter !== 'ALL' || tplQuery) ? (
+          <div style={{ textAlign:'center', padding:'48px' }}>
+            <I n="filter" s={34} c="var(--t3)" />
+            <p style={{ fontSize:13, color:'var(--t2)', marginTop:12 }}>No templates match.</p>
+            <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:5 }}>
+              {templates.length} template{templates.length === 1 ? '' : 's'} in this view — try a different category or search.
+            </p>
+            <Btn variant="outline" size="sm" style={{ marginTop:14 }} onClick={() => { setCatFilter('ALL'); setSearch(''); }}>
+              Clear filters
+            </Btn>
+          </div>
+        ) : visibleTemplates.length === 0 && view === 'DELETED' ? (
+          <div style={{ textAlign:'center', padding:'48px' }}>
+            <I n="trash" s={36} c="var(--t3)" />
+            <p style={{ fontSize:13, color:'var(--t2)', marginTop:12 }}>Nothing deleted.</p>
+            <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:5 }}>Deleted templates are kept here so you can restore them.</p>
+          </div>
+        ) : visibleTemplates.length === 0 ? (
           <div style={{ textAlign:'center', padding:'48px' }}>
             <I n="file" s={40} c="var(--t3)" />
             <p style={{ fontSize:13, color:'var(--t2)', marginTop:12, marginBottom:16 }}>No templates yet.</p>
@@ -2639,7 +2819,7 @@ const TemplatesView = () => {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' }}>
-            {templates.map(t => {
+            {visibleTemplates.map(t => {
               const bodyText = getBodyText(t.components);
               return (
                 <div key={t.id} style={{ ...card, padding: '20px', transition: 'border-color .2s,transform .2s' }}
@@ -2689,6 +2869,23 @@ const TemplatesView = () => {
                       </button>
                     </div>
                   )}
+                  {view === 'DELETED' ? (
+                    <>
+                      <p style={{ fontSize: 11, color: 'var(--t3)', marginBottom: 8 }}>
+                        Deleted {t.updatedAt ? new Date(t.updatedAt).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' }) : ''}
+                      </p>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <Btn variant="outline" size="sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setPreviewTpl(t)}>Preview</Btn>
+                        {isAdmin && (
+                          <Btn size="sm" style={{ flex: 1, justifyContent: 'center' }}
+                            onClick={() => restoreTemplate(t)} disabled={restoringId === t.id}>
+                            <I n="rotate" s={12} c="#060A10" />
+                            {restoringId === t.id ? 'Restoring…' : 'Restore'}
+                          </Btn>
+                        )}
+                      </div>
+                    </>
+                  ) : (
                   <div style={{ display: 'flex', gap: '8px' }}>
                     {isAdmin && <Btn variant="ghost" size="sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setEditTpl(t)}>Edit</Btn>}
                     <Btn variant="outline" size="sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => setPreviewTpl(t)}>Preview</Btn>
@@ -2697,6 +2894,7 @@ const TemplatesView = () => {
                       {deletingId === t.id ? '…' : <I n="trash" s={13} c="#f87171" />}
                     </Btn>}
                   </div>
+                  )}
                 </div>
               );
             })}
@@ -3230,6 +3428,20 @@ export default function Dashboard({ onNav, routePath }) {
   // deep-linked Quick Link can seed a tabbed page's initial sub-tab.
   const initialSubTab = new URLSearchParams(window.location.search).get('tab') || undefined;
 
+  // Which draft the campaign wizard is editing, if any. Kept in the URL rather
+  // than component state for the same reason `page` is: a refresh mid-edit
+  // then reopens the same draft instead of dropping the user into a blank new
+  // campaign, and the link can be shared.
+  const editingCampaignId = new URLSearchParams(window.location.search).get('draft') || null;
+  const openCampaignEditor = (id) => {
+    const target = id
+      ? `/dashboard/campaigns/create?draft=${encodeURIComponent(id)}`
+      : '/dashboard/campaigns/create';
+    if (window.location.pathname + window.location.search === target) return;
+    window.history.pushState({}, '', target);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
   // Listen for nav events from ProfileMenu / QuickLinksGrid (so we don't need
   // to thread setPage as a prop). detail is either a plain section string, or
   // { section, subTab } when a deep-link into a specific sub-tab is wanted.
@@ -3248,7 +3460,18 @@ export default function Dashboard({ onNav, routePath }) {
   }, [onNav]); // eslint-disable-line
 
   const renderView = () => {
-    if (page === 'campaigns-create') return <CreateCampaign onBack={() => setPage('campaigns')} />;
+    if (page === 'campaigns-create') {
+      return (
+        <CreateCampaign
+          // Set when continuing a draft; null for a brand-new campaign. Keyed
+          // so switching from one draft to another remounts the wizard rather
+          // than leaving the previous draft's answers in the form.
+          key={editingCampaignId || 'new'}
+          campaignId={editingCampaignId}
+          onBack={() => setPage('campaigns')}
+        />
+      );
+    }
     if (page.startsWith('admin-')) {
       // Each Platform Admin section is its own sidebar item now; regular users fall through.
       if (user?.superAdmin === true) return <SuperAdminView tab={page.slice('admin-'.length)} />;
@@ -3256,7 +3479,12 @@ export default function Dashboard({ onNav, routePath }) {
     }
     if (page === 'home')       return <HomeView />;
     if (page === 'inbox')      return <InboxView />;
-    if (page === 'campaigns')  return <CampaignsView onCreateCampaign={() => setPage('campaigns-create')} />;
+    if (page === 'campaigns')  return (
+      <CampaignsView
+        onCreateCampaign={() => openCampaignEditor(null)}
+        onEditCampaign={(id) => openCampaignEditor(id)}
+      />
+    );
     if (page === 'templates')  return <TemplatesView />;
     if (page === 'widget')     return <WidgetsView />;
     if (page === 'contacts')   return <ContactsView />;

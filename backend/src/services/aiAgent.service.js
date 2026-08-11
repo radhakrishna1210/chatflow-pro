@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { extractDocumentText, truncateAtSentence } from '../lib/documentText.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
 import { hasMeaningfulText } from '../lib/textValidation.js';
 import {
@@ -65,6 +66,47 @@ export async function updateAgentConfig(workspaceId, updates) {
     aiAgentModel: true, aiAgentDeployedAt: true,
   }});
   return ws;
+}
+
+// The knowledge base is one text column with a hard ceiling, so an uploaded
+// document is appended to what is already there rather than replacing it — and
+// when the result will not fit, it is cut at a sentence boundary and the caller
+// is told exactly how much was dropped. Silently losing the back half of a
+// price list is the one outcome worth going out of the way to avoid.
+export const AGENT_KNOWLEDGE_LIMIT = 12000;
+
+export async function appendKnowledgeDocument(workspaceId, { buffer, fileName, mimeType } = {}) {
+  const { text, label } = await extractDocumentText({ buffer, fileName, mimeType });
+
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { aiAgentKnowledge: true },
+  });
+  if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
+
+  const existing = String(ws.aiAgentKnowledge || '').trim();
+  // A heading keeps the agent's prompt readable once several documents have
+  // been added, and tells the user which upload a passage came from.
+  const block = `--- ${String(fileName || label).trim()} ---
+${text}`;
+  const combined = existing ? `${existing}
+
+${block}` : block;
+
+  const { text: stored, truncated, dropped } = truncateAtSentence(combined, AGENT_KNOWLEDGE_LIMIT);
+
+  await prisma.workspace.update({ where: { id: workspaceId }, data: { aiAgentKnowledge: stored } });
+
+  return {
+    knowledge: stored,
+    fileName: fileName || null,
+    label,
+    added: text.length,
+    used: stored.length,
+    limit: AGENT_KNOWLEDGE_LIMIT,
+    truncated,
+    dropped,
+  };
 }
 
 // Deploy = validate config, then flip enabled + stamp deployedAt. We refuse to

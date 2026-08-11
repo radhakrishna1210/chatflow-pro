@@ -28,18 +28,28 @@ async function resolveWaNumber(workspaceId, waNumberId, { required = true } = {}
 // List templates. When waNumberId is provided, only that number's templates are
 // returned (per-number privacy). Without it, returns all workspace templates
 // (used by pickers that group by number themselves).
-export async function listTemplates(workspaceId, waNumberId) {
-  // DELETED rows are tombstones for templates removed on Meta. They are kept so
-  // campaigns that already reference them still resolve, but never listed.
-  const where = { workspaceId, status: { not: 'DELETED' }, ...(waNumberId ? { waNumberId } : {}) };
+// `status: 'DELETED'` asks for the recycle bin instead; anything else lists the
+// live templates. Deleted rows are tombstones — kept so campaigns that
+// reference them still resolve, and so they can be restored.
+export async function listTemplates(workspaceId, waNumberId, { status = null } = {}) {
+  const deletedOnly = String(status || '').toUpperCase() === 'DELETED';
+  const where = {
+    workspaceId,
+    status: deletedOnly ? 'DELETED' : { not: 'DELETED' },
+    ...(waNumberId ? { waNumberId } : {}),
+  };
   const templates = await prisma.template.findMany({
     where,
     select: {
       id: true, name: true, category: true, language: true, status: true, components: true,
       waNumberId: true, metaTemplateId: true, aiGenerated: true, createdAt: true,
       previousCategory: true, categoryUpdatedAt: true,
+      // For a tombstone this is when it was deleted — the status change is the
+      // last write a deleted template ever gets, so it needs no own column.
+      updatedAt: true,
     },
-    orderBy: { createdAt: 'desc' },
+    // Newest deletions first in the bin; newest creations first otherwise.
+    orderBy: deletedOnly ? { updatedAt: 'desc' } : { createdAt: 'desc' },
   });
   // Standard/catalog/carousel is not a stored column — see lib/templateStructure.js.
   return templates.map((t) => ({ ...t, templateType: detectTemplateType(t.components) }));
@@ -48,6 +58,10 @@ export async function listTemplates(workspaceId, waNumberId) {
 function mapStatus(metaStatus) {
   if (metaStatus === 'APPROVED') return 'APPROVED';
   if (metaStatus === 'REJECTED' || metaStatus === 'DISABLED') return 'REJECTED';
+  // Meta keeps returning a template for a while after it is deleted, with this
+  // status. Without a case for it, it fell through to PENDING below — which is
+  // how a template deleted here came back looking like it was awaiting review.
+  if (metaStatus === 'DELETED') return 'DELETED';
   return 'PENDING';
 }
 
@@ -72,7 +86,18 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
       components: mt.components ?? [], status: mapStatus(mt.status), metaTemplateId: mt.id,
     };
     if (existing) {
-      await prisma.template.update({ where: { id: existing.id }, data: payload });
+      // A template deleted here stays deleted, even though Meta still lists it.
+      //
+      // Deleting is a local decision and the Meta call behind it can fail (it
+      // is best-effort — see deleteTemplate), so Meta returning the template is
+      // not evidence the user changed their mind. Overwriting the tombstone
+      // with Meta's status is what made deleted templates reappear on the next
+      // sync. The content is still refreshed, so a later restore brings back
+      // the current version rather than a stale one.
+      const data = existing.status === 'DELETED'
+        ? { ...payload, status: 'DELETED' }
+        : payload;
+      await prisma.template.update({ where: { id: existing.id }, data });
       updated++;
     } else {
       await prisma.template.create({ data: { workspaceId, waNumberId: waNumber.id, ...payload } });
@@ -100,17 +125,17 @@ async function removeTemplatesMissingFromMeta(workspaceId, waNumberId, seenMetaI
       metaTemplateId: { not: null, notIn: seenMetaIds },
       status: { not: 'DELETED' },
     },
-    select: { id: true, _count: { select: { campaigns: true } } },
+    select: { id: true },
   });
   if (stale.length === 0) return 0;
 
-  const deletable = stale.filter((t) => t._count.campaigns === 0).map((t) => t.id);
-  const tombstone = stale.filter((t) => t._count.campaigns > 0).map((t) => t.id);
-
-  if (deletable.length) await prisma.template.deleteMany({ where: { id: { in: deletable } } });
-  if (tombstone.length) {
-    await prisma.template.updateMany({ where: { id: { in: tombstone } }, data: { status: 'DELETED' } });
-  }
+  // Tombstoned, not removed, for the same reason deleteTemplate tombstones: a
+  // template that vanished from Meta is exactly the case someone may want to
+  // restore, and a deleted row cannot be restored.
+  await prisma.template.updateMany({
+    where: { id: { in: stale.map((t) => t.id) } },
+    data: { status: 'DELETED' },
+  });
   return stale.length;
 }
 
@@ -231,13 +256,91 @@ export async function deleteTemplate(workspaceId, id) {
       await deleteMetaTemplate(waNumber.wabaId, template.metaTemplateId, decrypt(waNumber.encryptedAccessToken)).catch(() => null);
     }
   }
-  // Same rule as sync: hard-delete unless a campaign still points at it.
-  const usage = await prisma.campaign.count({ where: { templateId: id } });
-  if (usage > 0) {
-    await prisma.template.update({ where: { id }, data: { status: 'DELETED' } });
-  } else {
-    await prisma.template.delete({ where: { id } });
+  // Always a tombstone, never a hard delete.
+  //
+  // Hard-deleting a template no campaign referenced left nothing behind, so
+  // there was nothing to show in the deleted list and nothing to restore — and
+  // if the Meta call above failed, the next sync simply re-created it as a new
+  // template. A tombstone is the record of the user's intent, which is what
+  // both the recycle bin and the sync guard are built on.
+  await prisma.template.update({ where: { id }, data: { status: 'DELETED' } });
+}
+
+// Brings a deleted template back.
+//
+// The tombstone may or may not still have a counterpart on Meta: the delete
+// call is best-effort, and Meta also purges deleted templates on its own
+// schedule. So this reconciles rather than assuming — adopting Meta's copy when
+// there is one, and resubmitting for review when there is not. Restoring to a
+// state where the template is visible but unsendable would be the worst of
+// both.
+export async function restoreTemplate(workspaceId, id) {
+  const template = await prisma.template.findFirst({ where: { id, workspaceId } });
+  if (!template) { const err = new Error('Template not found'); err.status = 404; throw err; }
+  if (template.status !== 'DELETED') return template;
+
+  const waNumber = template.waNumberId
+    ? await prisma.waNumber.findFirst({ where: { id: template.waNumberId, workspaceId } })
+    : await resolveWaNumber(workspaceId, null, { required: false });
+
+  // With no number to talk to Meta through, the row can still come back — it
+  // just returns as a draft the user can resubmit once a number is connected.
+  if (!waNumber) {
+    return prisma.template.update({ where: { id }, data: { status: 'PENDING' } });
   }
+
+  const accessToken = decrypt(waNumber.encryptedAccessToken);
+
+  // Match on name + language rather than the stored metaTemplateId: a template
+  // deleted and recreated on Meta keeps its name but gets a new id.
+  let live = null;
+  try {
+    const metaTemplates = await getWabaTemplates(waNumber.wabaId, accessToken);
+    live = metaTemplates.find(
+      (mt) => mt.name === template.name && mt.language === template.language
+        && String(mt.status).toUpperCase() !== 'DELETED',
+    ) ?? null;
+  } catch {
+    // Meta unreachable — fall through to resubmitting, which is the safe
+    // direction: a duplicate submission is rejected with a clear message,
+    // whereas assuming it is live would restore something that cannot send.
+  }
+
+  if (live) {
+    return prisma.template.update({
+      where: { id },
+      data: {
+        name: live.name, category: live.category, language: live.language,
+        components: live.components ?? template.components,
+        status: mapStatus(live.status), metaTemplateId: live.id,
+      },
+    });
+  }
+
+  // Gone from Meta: resubmit the stored components through the same path a new
+  // template takes, so the restored one is reviewed like any other.
+  let metaResult;
+  try {
+    metaResult = await createMetaTemplate(
+      waNumber.wabaId,
+      {
+        name: template.name, category: template.category, language: template.language,
+        components: toMetaComponents(template.components),
+      },
+      accessToken,
+    );
+  } catch (err) {
+    const m = err.response?.data?.error;
+    const reason = m ? `${m.message}${m.error_user_msg ? ' — ' + m.error_user_msg : ''}` : err.message;
+    const e = new Error(`Could not resubmit this template to Meta: ${reason}`);
+    e.status = err.response?.status || 400;
+    throw e;
+  }
+
+  return prisma.template.update({
+    where: { id },
+    data: { status: 'PENDING', metaTemplateId: metaResult?.id ?? template.metaTemplateId },
+  });
 }
 
 export async function duplicateTemplate(workspaceId, id) {

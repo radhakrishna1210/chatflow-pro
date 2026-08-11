@@ -57,6 +57,19 @@ export async function createSource(req, res) {
   res.status(201).json(await knowledge.createSource(req.params.workspaceId, req.body));
 }
 
+// Upload a PDF / Word / text document as a knowledge source. The text is
+// extracted at upload time; the file itself is not stored.
+export async function uploadSource(req, res) {
+  if (!req.file) { res.status(400).json({ error: 'Attach a document to upload' }); return; }
+  const source = await knowledge.createSourceFromDocument(req.params.workspaceId, {
+    buffer: req.file.buffer,
+    fileName: req.file.originalname,
+    mimeType: req.file.mimetype,
+    title: req.body?.title,
+  });
+  res.status(201).json(source);
+}
+
 export async function updateSource(req, res) {
   res.json(await knowledge.updateSource(req.params.workspaceId, req.params.sourceId, req.body));
 }

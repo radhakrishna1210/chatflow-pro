@@ -74,8 +74,17 @@ export async function aiDraft(req, res) {
 
 export async function list(req, res) {
   // Optional ?waNumberId= filters to one number's private templates.
-  const templates = await templatesService.listTemplates(req.params.workspaceId, req.query.waNumberId);
+  // ?status=DELETED asks for the recycle bin instead of the live list.
+  const templates = await templatesService.listTemplates(
+    req.params.workspaceId, req.query.waNumberId, { status: req.query.status },
+  );
   res.json(templates);
+}
+
+// Brings a deleted template back, reconciling with Meta — see the service.
+export async function restore(req, res) {
+  const template = await templatesService.restoreTemplate(req.params.workspaceId, req.params.id);
+  res.json(template);
 }
 
 export async function create(req, res) {
