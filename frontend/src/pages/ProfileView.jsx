@@ -55,7 +55,7 @@ const fmtDateTime = (d) => d ? new Date(d).toLocaleString('en-IN', { day: 'numer
 
 const Avatar = ({ name = '?', size = 34, showRing = false }) => {
   const init = name.split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?';
-  const colors = ['#1EBF5E', '#0EA5E9', '#A78BFA', '#F59E0B', '#F472B6'];
+  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
   const col = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: `${col}18`, border: `1.5px solid ${showRing ? col : col + '44'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * .36 + 'px', fontWeight: 700, color: col, flexShrink: 0 }}>
@@ -67,7 +67,7 @@ const Avatar = ({ name = '?', size = 34, showRing = false }) => {
 const Badge = ({ label, tone = 'green' }) => {
   const tones = {
     green:  { bg: 'var(--gbg)', bd: 'var(--gbd)', c: 'var(--green)' },
-    purple: { bg: 'rgba(167,139,250,.1)', bd: 'rgba(167,139,250,.25)', c: '#c4b5fd' },
+    purple: { bg: 'rgba(196,255,70,.1)', bd: 'rgba(196,255,70,.25)', c: '#d8ff8a' },
     red:    { bg: 'rgba(239,68,68,.08)', bd: 'rgba(239,68,68,.22)', c: '#f87171' },
     gray:   { bg: 'rgba(255,255,255,0.04)', bd: 'var(--bd)', c: 'var(--t2)' },
   };
@@ -83,7 +83,7 @@ const SectionCard = ({ icon, title, action, children }) => (
   <div style={{ ...card, overflow: 'hidden' }}>
     <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 10 }}>
       <I n={icon} s={16} c="var(--green)" />
-      <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)', flex: 1 }}>{title}</span>
+      <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)', flex: 1 }}>{title}</span>
       {action}
     </div>
     <div style={{ padding: 20 }}>{children}</div>
@@ -100,14 +100,14 @@ const Field = ({ label, error, children }) => (
 
 const FInput = ({ value, onChange, placeholder, disabled = false, type = 'text', error = false, style: ex = {} }) => (
   <input type={type} value={value ?? ''} onChange={onChange} placeholder={placeholder} disabled={disabled}
-    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: `1px solid ${error ? '#f87171' : 'var(--bd)'}`, color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none', boxSizing: 'border-box', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'text', ...ex }}
+    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: `1px solid ${error ? '#f87171' : 'var(--bd)'}`, color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif", outline: 'none', boxSizing: 'border-box', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'text', ...ex }}
     onFocus={e => e.target.style.borderColor = error ? '#f87171' : 'var(--gbd)'}
     onBlur={e => e.target.style.borderColor = error ? '#f87171' : 'var(--bd)'} />
 );
 
 const FSelect = ({ value, onChange, children, disabled = false }) => (
   <select value={value ?? ''} onChange={onChange} disabled={disabled}
-    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none', boxSizing: 'border-box', colorScheme: 'dark', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif", outline: 'none', boxSizing: 'border-box', colorScheme: 'dark', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
     {children}
   </select>
 );
@@ -209,7 +209,7 @@ const ChangePasswordModal = ({ onClose, onSuccess }) => {
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Change Password</p>
+          <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Change Password</p>
           <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <I n="x" s={11} c="var(--t2)" />
           </button>
@@ -287,7 +287,7 @@ const DeleteAccountModal = ({ onClose }) => {
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 470, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid rgba(239,68,68,0.35)' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: '#f87171' }}>Delete Account</p>
+          <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: '#f87171' }}>Delete Account</p>
           <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <I n="x" s={11} c="var(--t2)" />
           </button>
@@ -406,7 +406,7 @@ const ManageSessionsModal = ({ onClose, onChanged }) => {
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Active Sessions</p>
+          <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Active Sessions</p>
           <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <I n="x" s={11} c="var(--t2)" />
           </button>
@@ -573,7 +573,7 @@ export default function ProfileView() {
       `}</style>
 
       <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'var(--surf)' }}>
-        <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>Profile</h1>
+        <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>Profile</h1>
         <p style={{ fontSize: 11.5, color: 'var(--t2)', marginLeft: 10 }}>Your personal account</p>
       </div>
 
@@ -593,7 +593,7 @@ export default function ProfileView() {
               <Avatar name={profile.name} size={76} showRing />
               <div style={{ flex: 1, minWidth: 220 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-                  <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--t1)' }}>{profile.name}</h2>
+                  <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--t1)' }}>{profile.name}</h2>
                   <Badge label={roleLabel} tone={roleTone} />
                   <Badge label={statusLabel} tone={statusTone} />
                 </div>
@@ -608,7 +608,7 @@ export default function ProfileView() {
                 </div>
               </div>
               <div className="cf-profile-header-actions" style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
-                <Btn size="sm" onClick={startEdit}><I n="pencil" s={13} c="#060A10" /> Edit Profile</Btn>
+                <Btn size="sm" onClick={startEdit}><I n="pencil" s={13} c="#08090c" /> Edit Profile</Btn>
                 <Btn size="sm" variant="ghost" onClick={() => setShowPasswordModal(true)}><I n="lock" s={13} c="var(--t1)" /> Change Password</Btn>
               </div>
             </div>
@@ -654,14 +654,14 @@ export default function ProfileView() {
                         </Field>
                         <Field label="Time Zone">
                           <FSelect value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))}>
-                            <option value="" style={{ background: '#07090F' }}>Select time zone</option>
-                            {ALL_TIMEZONES.map(tz => <option key={tz} value={tz} style={{ background: '#07090F' }}>{tz}</option>)}
+                            <option value="" style={{ background: '#0a0b0e' }}>Select time zone</option>
+                            {ALL_TIMEZONES.map(tz => <option key={tz} value={tz} style={{ background: '#0a0b0e' }}>{tz}</option>)}
                           </FSelect>
                         </Field>
                         <Field label="Language">
                           <FSelect value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))}>
-                            <option value="" style={{ background: '#07090F' }}>Select language</option>
-                            {LANGUAGES.map(([code, label]) => <option key={code} value={code} style={{ background: '#07090F' }}>{label}</option>)}
+                            <option value="" style={{ background: '#0a0b0e' }}>Select language</option>
+                            {LANGUAGES.map(([code, label]) => <option key={code} value={code} style={{ background: '#0a0b0e' }}>{label}</option>)}
                           </FSelect>
                         </Field>
                       </div>
@@ -715,7 +715,7 @@ export default function ProfileView() {
                 <div style={{ ...card, padding: 20, border: '1px solid rgba(239,68,68,0.28)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
                     <I n="alertt" s={15} c="#f87171" />
-                    <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14, color: '#f87171' }}>Danger Zone</p>
+                    <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 14, color: '#f87171' }}>Danger Zone</p>
                   </div>
                   <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.6, marginBottom: 14 }}>
                     Permanently delete your account and personal data. Any workspace where you are the only member is deleted with it. This cannot be undone.

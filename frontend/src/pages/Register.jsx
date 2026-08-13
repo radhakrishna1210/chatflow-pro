@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { validateMeaningfulText } from '../lib/validation.js';
+import { navigate } from '../App.jsx';
 
 // Two-step, OTP-verified email signup. Step 1 collects name/email/password and
 // asks the backend to email a 6-digit code (no account is created yet). Step 2
@@ -65,7 +66,7 @@ export default function Register({ onNav }) {
 
   const inp = (name) => ({
     width: '100%', padding: '11px 14px', borderRadius: '9px', outline: 'none',
-    background: 'rgba(255,255,255,0.035)', fontFamily: "'Plus Jakarta Sans',sans-serif",
+    background: 'rgba(255,255,255,0.035)', fontFamily: "'Manrope',sans-serif",
     fontSize: '14px', color: 'var(--t1)', transition: 'border .18s',
     border: focus === name ? '1px solid var(--gbd)' : '1px solid var(--bd)',
   });
@@ -136,39 +137,39 @@ export default function Register({ onNav }) {
         }
       `}</style>
       {/* Left brand panel */}
-      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#07090F 0%,#0a0f1e 60%,#07090F 100%)', borderRight: '1px solid var(--bd)' }}>
+      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#0a0b0e 0%,#0a0f1e 60%,#0a0b0e 100%)', borderRight: '1px solid var(--bd)' }}>
         {/* Matches the landing page and the sign-in screen. */}
-        <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(30,191,94,0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
+        <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(53,232,242,0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
         <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(14,165,233,0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', position: 'relative', zIndex: 1 }}>
           <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#07090F" />
-              <path d="M5.5 7.5h5M5.5 10h3" stroke="#20C967" strokeWidth="1.3" strokeLinecap="round" />
+              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#0a0b0e" />
+              <path d="M5.5 7.5h5M5.5 10h3" stroke="#35e8f2" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </div>
-          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
-            ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span>
+          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
+            spandan
           </span>
         </div>
         <div style={{ position: 'relative', zIndex: 1 }}>
-          <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '30px', color: 'var(--t1)', lineHeight: 1.2, marginBottom: '14px' }}>
+          <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '30px', color: 'var(--t1)', lineHeight: 1.2, marginBottom: '14px' }}>
             Start automating<br />WhatsApp in minutes.
           </h2>
           <p style={{ fontSize: '14px', color: 'var(--t2)', lineHeight: 1.6, maxWidth: '340px' }}>
             Create your free account, connect a number, and launch your first campaign today.
           </p>
         </div>
-        <div style={{ position: 'relative', zIndex: 1, fontSize: '12px', color: 'var(--t3)' }}>© {new Date().getFullYear()} ChatFlow Pro</div>
+        <div style={{ position: 'relative', zIndex: 1, fontSize: '12px', color: 'var(--t3)' }}>© {new Date().getFullYear()} Spandan</div>
       </div>
 
       {/* Right form panel */}
       <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', position: 'relative' }}>
-        <div className="aurora-b" style={{ position: 'absolute', top: '10%', right: '-10%', width: '420px', height: '420px', background: 'radial-gradient(circle,rgba(30,191,94,0.07) 0%,transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+        <div className="aurora-b" style={{ position: 'absolute', top: '10%', right: '-10%', width: '420px', height: '420px', background: 'radial-gradient(circle,rgba(53,232,242,0.07) 0%,transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
         <div className="glass auth-card" style={{ width: '100%', maxWidth: '420px', padding: '34px 32px', borderRadius: 'var(--rxl)', position: 'relative' }}>
           {step === 'details' ? (
             <>
-              <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Create your account</h1>
+              <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Create your account</h1>
               <p style={{ fontSize: '14px', color: 'var(--t2)', marginBottom: '28px' }}>
                 Already have an account?{' '}
                 <span onClick={() => onNav('login')} style={{ color: 'var(--green)', fontWeight: 600, cursor: 'pointer' }}>Sign in</span>
@@ -211,13 +212,22 @@ export default function Register({ onNav }) {
                   <input type={showPass ? 'text' : 'password'} name="confirmPassword" placeholder="Re-enter your password" value={form.confirmPassword} onChange={change} style={inp('confirmPassword')} onFocus={() => setFocus('confirmPassword')} onBlur={() => setFocus('')} required />
                 </div>
                 <Btn type="submit" disabled={status === 'loading'} style={{ justifyContent: 'center', boxShadow: status === 'loading' ? 'none' : 'var(--glow)' }}>
-                  {status === 'loading' ? 'Sending code…' : <>Continue <I n="arrow" s={14} c="#07090F" /></>}
+                  {status === 'loading' ? 'Sending code…' : <>Continue <I n="arrow" s={14} c="#0a0b0e" /></>}
                 </Btn>
+                {/* Signup had no consent line at all. The policies it points at
+                    are public, so this is readable before committing to an
+                    account rather than only after signing in. */}
+                <p style={{ fontSize: 11.5, color: 'var(--t3)', textAlign: 'center', lineHeight: 1.6, marginTop: -2 }}>
+                  By continuing you agree to our{' '}
+                  <a href="/legal" onClick={e => { e.preventDefault(); navigate('/legal'); }} style={{ color: 'var(--accent)' }}>Terms</a>
+                  {' '}and{' '}
+                  <a href="/legal/privacy" onClick={e => { e.preventDefault(); navigate('/legal/privacy'); }} style={{ color: 'var(--accent)' }}>Privacy Policy</a>.
+                </p>
               </form>
             </>
           ) : (
             <>
-              <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Check your email</h1>
+              <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Check your email</h1>
               <p style={{ fontSize: '14px', color: 'var(--t2)', marginBottom: '28px' }}>
                 We sent a 6-digit code to <strong style={{ color: 'var(--t1)' }}>{form.email}</strong>.
               </p>

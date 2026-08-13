@@ -142,7 +142,7 @@ const envSchema = z.object({
   // login is even attempted. Pinning to IPv4 is the fix; set this to 6 on an
   // IPv6-only host, or 0 to let Node choose.
   SMTP_IP_FAMILY: z.coerce.number().default(4),
-  EMAIL_FROM_NAME: z.string().default('ChatFlow Pro'),
+  EMAIL_FROM_NAME: z.string().default('Spandan'),
   EMAIL_FROM: z.string().optional(),
   APP_URL: z.string().url().optional(),
 });

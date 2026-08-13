@@ -9,7 +9,7 @@ import { I } from './Icons.jsx';
 export const QUICK_LINKS = [
   { id: 'wa-profile',   label: 'WhatsApp Profile',    desc: 'Manage your connected WhatsApp Business number', icon: 'phone',  nav: 'setup' },
   { id: 'contacts',     label: 'Contact Settings',    desc: 'View and manage your contact list',              icon: 'users',  nav: 'contacts' },
-  { id: 'agent',        label: 'Agent Settings',      desc: 'Configure your WhatsApp AI Agent',                icon: 'bot',    nav: 'automation', subTab: 'wa-agent' },
+  { id: 'agent',        label: 'Agent Settings',      desc: 'Configure your WhatsApp AI Agent',                icon: 'bot',    nav: 'ai-agent' },
   { id: 'roles',        label: 'Role Permissions',    desc: 'Review admin and member role access',            icon: 'shield', nav: 'settings' },
   { id: 'teams',        label: 'Manage Teams',        desc: 'Invite teammates and manage workspace members',  icon: 'users',  nav: 'settings' },
   { id: 'tags',         label: 'Manage Tags',         desc: 'Organize contacts with tags',                    icon: 'filter', nav: 'contacts' },
@@ -28,7 +28,7 @@ export default function QuickLinksGrid({ currentPage }) {
           display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'left', padding: 16, borderRadius: 12,
           background: 'rgba(255,255,255,0.02)', border: '1px solid var(--bd)', cursor: 'pointer', transition: 'all .15s ease',
         }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.06)'; e.currentTarget.style.borderColor = 'var(--gbd)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(53,232,242,0.06)'; e.currentTarget.style.borderColor = 'var(--gbd)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
           onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.borderColor = 'var(--bd)'; e.currentTarget.style.transform = 'none'; }}>
           <div style={{ width: 34, height: 34, borderRadius: 9, background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <I n={l.icon} s={16} c="var(--green)" />

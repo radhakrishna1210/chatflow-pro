@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
+import { navigate } from '../App.jsx';
+import {
+  MONO, prefersReducedMotion, useInView, Glass, Reveal, Eyebrow, SectionHead, Aurora,
+  MarketingNav, MarketingFooter, MARKETING_CSS,
+} from '../components/marketing.jsx';
 import {
   HERO, PROOF, AI_PROMPT_EXAMPLES, FEATURES, USE_CASES, PLAN_CARDS,
-  FAQ_ITEMS, FOOTER_COLS, FOOTER_BLURB, FOOTER_LEGAL,
+  FAQ_ITEMS, REACTOR, PLAYGROUND, AUTOMATION_LAB, PLATFORM_MAP,
   // Aliased: `CTA` is already the name of the closing section's component.
   CTA as CTA_COPY,
 } from '../../../backend/src/data/siteContent.js';
@@ -27,121 +32,6 @@ import {
 // the reduced-motion block in index.css stops the drift and the reveals, and
 // the scripted conversation below jumps straight to its final state.
 
-const MONO = 'var(--mono)';
-
-// ─── motion helpers ──────────────────────────────────────────────────────────
-
-const prefersReducedMotion = () =>
-  typeof window !== 'undefined'
-  && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
-
-// One observer shared by every <Reveal> on the page, created on first use.
-// Elements are unobserved once they fire — a reveal that replays on every
-// scroll past is a distraction, not an entrance.
-//
-// Each Reveal registers itself rather than the page sweeping for
-// [data-reveal] on mount: sections that appear later (the cost calculator
-// waits for its rates) would never be picked up by a one-time sweep, and an
-// element left at opacity 0 still occupies its space — an invisible section
-// with a page-height hole where it should be.
-let revealObserver = null;
-function observeReveal(el) {
-  if (typeof IntersectionObserver === 'undefined') { el.classList.add('in'); return () => {}; }
-  if (!revealObserver) {
-    revealObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        entry.target.classList.add('in');
-        revealObserver.unobserve(entry.target);
-      });
-    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.12 });
-  }
-  revealObserver.observe(el);
-  return () => revealObserver.unobserve(el);
-}
-
-// True once the element has been seen. Drives the hero conversation so it
-// plays when it is actually on screen rather than while the page is loading.
-function useInView(ref, { once = true } = {}) {
-  const [seen, setSeen] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || !('IntersectionObserver' in window)) { setSeen(true); return undefined; }
-    const io = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setSeen(true);
-        if (once) io.disconnect();
-      } else if (!once) setSeen(false);
-    }, { threshold: 0.35 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [ref, once]);
-  return seen;
-}
-
-// ─── shared pieces ───────────────────────────────────────────────────────────
-
-// Pointer position as CSS vars, so .glass-lit can put a highlight where the
-// cursor is. Cheap enough to attach per card: two custom properties, no state.
-const trackLight = (e) => {
-  const r = e.currentTarget.getBoundingClientRect();
-  e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
-  e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
-};
-
-const Glass = ({ as: Tag = 'div', className = '', lit = true, style, children, ...rest }) => (
-  <Tag
-    className={`glass${lit ? ' glass-lit glass-lift' : ''}${className ? ` ${className}` : ''}`}
-    onMouseMove={lit ? trackLight : undefined}
-    style={style}
-    {...rest}
-  >
-    {children}
-  </Tag>
-);
-
-const Reveal = ({ delay = 0, style, children, ...rest }) => {
-  const ref = useRef(null);
-  useEffect(() => (ref.current ? observeReveal(ref.current) : undefined), []);
-  return (
-    <div ref={ref} data-reveal className="reveal" style={{ transitionDelay: `${delay}ms`, ...style }} {...rest}>
-      {children}
-    </div>
-  );
-};
-
-// Section label. The double tick is the platform's own vocabulary for
-// "delivered" — the one bit of ornament, and it means something.
-const Eyebrow = ({ children }) => (
-  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: MONO, fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--green)' }}>
-    <svg width="15" height="10" viewBox="0 0 18 12" fill="none" aria-hidden="true">
-      <path d="M1 6l4 4L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M6 6l4 4L17 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-    {children}
-  </div>
-);
-
-const SectionHead = ({ eyebrow, title, sub, align = 'center' }) => (
-  <div style={{ textAlign: align, marginBottom: 56, maxWidth: align === 'center' ? 620 : 'none', marginLeft: align === 'center' ? 'auto' : 0, marginRight: align === 'center' ? 'auto' : 0 }}>
-    <Reveal><Eyebrow>{eyebrow}</Eyebrow></Reveal>
-    <Reveal delay={60}>
-      <h2 style={{ fontSize: 'clamp(28px,3.6vw,48px)', fontWeight: 800, letterSpacing: '-.035em', margin: '16px 0 14px' }}>{title}</h2>
-    </Reveal>
-    {sub && (
-      <Reveal delay={120}>
-        <p style={{ fontSize: 16, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 520, margin: align === 'center' ? '0 auto' : 0 }}>{sub}</p>
-      </Reveal>
-    )}
-  </div>
-);
-
-const Aurora = () => (
-  <>
-    <div className="aurora-a" style={{ position: 'absolute', top: '-10%', left: '-5%', width: 620, height: 620, background: 'radial-gradient(circle, rgba(30,191,94,0.16), transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none', willChange: 'transform' }} />
-    <div className="aurora-b" style={{ position: 'absolute', top: '18%', right: '-12%', width: 680, height: 680, background: 'radial-gradient(circle, rgba(14,165,233,0.13), transparent 62%)', filter: 'blur(48px)', pointerEvents: 'none', willChange: 'transform' }} />
-  </>
-);
 
 // ─── the signature: a campaign message that answers for itself ───────────────
 
@@ -159,7 +49,7 @@ const Bubble = ({ role, text, mono }) => {
       <div style={{
         maxWidth: '84%', padding: '8px 11px',
         borderRadius: mine ? '13px 13px 3px 13px' : '13px 13px 13px 3px',
-        background: mine ? 'rgba(30,191,94,0.14)' : 'rgba(255,255,255,0.05)',
+        background: mine ? 'rgba(53,232,242,0.14)' : 'rgba(255,255,255,0.05)',
         border: `1px solid ${mine ? 'var(--gbd)' : 'var(--bd)'}`,
       }}>
         {!mine && <div style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.12em', color: 'var(--green)', marginBottom: 3, textTransform: 'uppercase' }}>Riya · campaign agent</div>}
@@ -214,7 +104,7 @@ const CampaignTap = () => {
           belongs to, seen through the glass behind the phone. */}
       <Glass lit={false} className="hero-back-panel" style={{ position: 'absolute', top: -28, right: -96, width: 250, padding: '14px 16px', opacity: 0.75 }}>
         <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--t2)', marginBottom: 10 }}>Summer Sale · live</div>
-        {[['Sent', '12,421', 'var(--t1)'], ['Delivered', '12,180', 'var(--green)'], ['Chats opened', '1,308', '#0EA5E9']].map(([l, v, c]) => (
+        {[['Sent', '12,421', 'var(--t1)'], ['Delivered', '12,180', 'var(--green)'], ['Chats opened', '1,308', '#9d6bff']].map(([l, v, c]) => (
           <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0' }}>
             <span style={{ fontSize: 11, color: 'var(--t2)' }}>{l}</span>
             <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 700, color: c }}>{v}</span>
@@ -228,7 +118,7 @@ const CampaignTap = () => {
       <Glass lit={false} style={{ position: 'relative', padding: 16, borderRadius: 'var(--rxl)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
           <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#08090c" /></svg>
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--t1)' }}>Aarti Textiles</div>
@@ -259,10 +149,10 @@ const CampaignTap = () => {
           aria-label="Replay: customer taps Ask Anything"
           style={{
             width: '100%', marginTop: 3, padding: '10px', cursor: 'pointer',
-            borderRadius: 11, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 12.5, fontWeight: 600,
+            borderRadius: 11, fontFamily: "'Manrope',sans-serif", fontSize: 12.5, fontWeight: 600,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
             color: pressed ? 'var(--green)' : '#53bdeb',
-            background: pressed ? 'rgba(30,191,94,0.12)' : 'rgba(255,255,255,0.05)',
+            background: pressed ? 'rgba(53,232,242,0.12)' : 'rgba(255,255,255,0.05)',
             border: `1px solid ${pressed ? 'var(--gbd)' : 'var(--bd)'}`,
             transform: pressed ? 'scale(0.985)' : 'none',
             transition: 'all .25s cubic-bezier(.2,.7,.3,1)',
@@ -283,50 +173,6 @@ const CampaignTap = () => {
   );
 };
 
-// ─── nav ─────────────────────────────────────────────────────────────────────
-
-const Navbar = ({ onNav }) => {
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 24);
-    fn();
-    window.addEventListener('scroll', fn, { passive: true });
-    return () => window.removeEventListener('scroll', fn);
-  }, []);
-
-  return (
-    <nav style={{
-      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, height: 64,
-      display: 'flex', alignItems: 'center',
-      background: scrolled ? 'rgba(8,11,18,0.72)' : 'transparent',
-      backdropFilter: scrolled ? 'blur(18px) saturate(150%)' : 'none',
-      WebkitBackdropFilter: scrolled ? 'blur(18px) saturate(150%)' : 'none',
-      borderBottom: `1px solid ${scrolled ? 'var(--bd)' : 'transparent'}`,
-      transition: 'background .3s ease, border-color .3s ease',
-    }}>
-      <div style={{ maxWidth: 1240, width: '100%', margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-        <button onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 18px rgba(30,191,94,0.35)' }}>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /><path d="M5.5 7.5h5M5.5 10h3" stroke="#1EBF5E" strokeWidth="1.2" strokeLinecap="round" /></svg>
-          </div>
-          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span></span>
-        </button>
-
-        <div className="nav-links" style={{ display: 'flex', gap: 30 }}>
-          {[['Features', '#features'], ['Use Cases', '#usecases'], ['Pricing', '#pricing']].map(([l, h]) => (
-            <a key={l} href={h} style={{ color: 'var(--t2)', fontSize: 14, fontWeight: 500, textDecoration: 'none', transition: 'color .15s' }}
-              onMouseOver={e => e.target.style.color = 'var(--t1)'} onMouseOut={e => e.target.style.color = 'var(--t2)'}>{l}</a>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Btn variant="ghost" size="sm" onClick={() => onNav('login')}>Log in</Btn>
-          <Btn variant="primary" size="sm" onClick={() => onNav('dashboard')}>Get started <I n="arrow" s={12} c="#060A10" /></Btn>
-        </div>
-      </div>
-    </nav>
-  );
-};
 
 // ─── hero ────────────────────────────────────────────────────────────────────
 
@@ -340,9 +186,9 @@ const Hero = ({ onNav }) => (
               The partner credential moves to the proof strip below. */}
           <button
             onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '6px 14px 6px 6px', borderRadius: 999, background: 'var(--gbg)', border: '1px solid var(--gbd)', cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif" }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '6px 14px 6px 6px', borderRadius: 999, background: 'var(--gbg)', border: '1px solid var(--gbd)', cursor: 'pointer', fontFamily: "'Manrope',sans-serif" }}
           >
-            <span style={{ padding: '3px 8px', borderRadius: 999, background: 'var(--green)', color: '#060913', fontFamily: MONO, fontSize: 10, fontWeight: 700, letterSpacing: '.1em' }}>NEW</span>
+            <span style={{ padding: '3px 8px', borderRadius: 999, background: 'var(--green)', color: '#08090c', fontFamily: MONO, fontSize: 10, fontWeight: 700, letterSpacing: '.1em' }}>NEW</span>
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>{HERO.badge}</span>
             <I n="arrow" s={12} c="var(--green)" />
           </button>
@@ -374,7 +220,7 @@ const Hero = ({ onNav }) => (
 
         <Reveal delay={210}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>Start for free <I n="arrow" s={14} c="#060A10" /></Btn>
+            <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>Start for free <I n="arrow" s={14} c="#08090c" /></Btn>
             <Btn variant="ghost" size="lg" onClick={() => { document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }); }}>See how it works</Btn>
           </div>
         </Reveal>
@@ -407,7 +253,7 @@ const ProofStrip = () => (
         <Glass lit={false} className="proof-grid" style={{ padding: '26px 8px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', borderRadius: 'var(--rxl)' }}>
           {PROOF.map(([value, label], i) => (
             <div key={label} style={{ padding: '0 24px', borderLeft: i === 0 ? 'none' : '1px solid var(--bd)' }}>
-              <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22, color: 'var(--t1)', letterSpacing: '-.03em', marginBottom: 6 }}>{value}</div>
+              <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 22, color: 'var(--t1)', letterSpacing: '-.03em', marginBottom: 6 }}>{value}</div>
               <div style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>{label}</div>
             </div>
           ))}
@@ -427,7 +273,7 @@ const LoginRequiredModal = ({ isOpen, onClose, onNav }) => {
         <div style={{ width: 46, height: 46, borderRadius: 13, background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
           <I n="lock" s={20} c="var(--green)" />
         </div>
-        <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--t1)', marginBottom: 8 }}>Sign in to build this</h3>
+        <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--t1)', marginBottom: 8 }}>Sign in to build this</h3>
         <p style={{ fontSize: 14, color: 'var(--t2)', textAlign: 'center', marginBottom: 22, lineHeight: 1.6 }}>
           The assistant builds templates, campaigns and flows inside your workspace, so it needs an account to build them in.
         </p>
@@ -470,11 +316,11 @@ const AIPromptSection = ({ onNav }) => {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
               placeholder="Describe the campaign or flow you want…"
               aria-label="Describe the campaign or flow you want"
-              style={{ width: '100%', height: 132, background: 'transparent', border: 'none', padding: '22px 24px', color: 'var(--t1)', fontSize: 15.5, lineHeight: 1.6, resize: 'none', outline: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif" }}
+              style={{ width: '100%', height: 132, background: 'transparent', border: 'none', padding: '22px 24px', color: 'var(--t1)', fontSize: 15.5, lineHeight: 1.6, resize: 'none', outline: 'none', fontFamily: "'Manrope',sans-serif" }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 18px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid var(--bd)' }}>
               <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--t3)', letterSpacing: '.06em' }}>ENTER TO SEND</span>
-              <Btn size="sm" onClick={send} disabled={!prompt.trim()}>Build it <I n="arrow" s={12} c="#060A10" /></Btn>
+              <Btn size="sm" onClick={send} disabled={!prompt.trim()}>Build it <I n="arrow" s={12} c="#08090c" /></Btn>
             </div>
           </Glass>
         </Reveal>
@@ -482,7 +328,7 @@ const AIPromptSection = ({ onNav }) => {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, justifyContent: 'center' }}>
             {AI_PROMPT_EXAMPLES.map((ex) => (
               <button key={ex} onClick={() => setPrompt(ex)}
-                style={{ padding: '7px 13px', borderRadius: 999, background: 'rgba(255,255,255,0.035)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12.5, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", transition: 'all .18s' }}
+                style={{ padding: '7px 13px', borderRadius: 999, background: 'rgba(255,255,255,0.035)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12.5, cursor: 'pointer', fontFamily: "'Manrope',sans-serif", transition: 'all .18s' }}
                 onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = 'var(--t1)'; }}
                 onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.035)'; e.currentTarget.style.color = 'var(--t2)'; }}>
                 {ex}
@@ -570,7 +416,7 @@ const CostCalculator = () => {
                 Recipients
               </label>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
-                <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 34, color: 'var(--t1)', letterSpacing: '-.04em' }}>
+                <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 34, color: 'var(--t1)', letterSpacing: '-.04em' }}>
                   {count.toLocaleString('en-IN')}
                 </span>
                 <span style={{ fontSize: 13, color: 'var(--t2)' }}>contacts</span>
@@ -626,7 +472,7 @@ const CostCalculator = () => {
               <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--t2)', marginBottom: 10 }}>
                 One campaign
               </div>
-              <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 'clamp(44px,5vw,68px)', color: 'var(--green)', letterSpacing: '-.05em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+              <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 'clamp(44px,5vw,68px)', color: 'var(--green)', letterSpacing: '-.05em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
                 {rupees(total)}
               </div>
               <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--t2)', marginTop: 10 }}>
@@ -659,7 +505,7 @@ const FaqRow = ({ q, a, open, onToggle, index }) => (
       <button
         onClick={onToggle}
         aria-expanded={open}
-        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, padding: '18px 22px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: "'Plus Jakarta Sans',sans-serif" }}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, padding: '18px 22px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: "'Manrope',sans-serif" }}
       >
         <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'var(--t1)', letterSpacing: '-.01em' }}>{q}</span>
         <span style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform .3s cubic-bezier(.2,.7,.3,1)', transform: open ? 'rotate(45deg)' : 'none' }}>
@@ -701,8 +547,8 @@ const AgentChainVisual = () => (
   <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
     {[
       ['1 · Attach', 'Pick a deployed agent and a CTA label while you build the campaign.', 'var(--green)'],
-      ['2 · Tap', 'The button carries the recipient’s id, so the agent opens on the right message.', '#0EA5E9'],
-      ['3 · Answer', 'Questions are answered from that message — and nothing else is invented.', '#A78BFA'],
+      ['2 · Tap', 'The button carries the recipient’s id, so the agent opens on the right message.', '#9d6bff'],
+      ['3 · Answer', 'Questions are answered from that message — and nothing else is invented.', '#c4ff46'],
     ].map(([step, copy, c]) => (
       <div key={step} style={{ padding: '11px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.025)', border: '1px solid var(--bd)' }}>
         <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.08em', color: c, marginBottom: 6, textTransform: 'uppercase' }}>{step}</div>
@@ -729,7 +575,7 @@ const LedgerVisual = () => (
 
 const FlowVisual = () => (
   <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 5 }}>
-    {[['Trigger', 'Customer sends a message', 'var(--green)'], ['Wait', '2 hours', '#F59E0B'], ['Send', 'Follow-up template', '#0EA5E9']].map(([t, d, c], i) => (
+    {[['Trigger', 'Customer sends a message', 'var(--green)'], ['Wait', '2 hours', '#F59E0B'], ['Send', 'Follow-up template', '#9d6bff']].map(([t, d, c], i) => (
       <div key={t}>
         <div style={{ padding: '9px 12px', borderRadius: 9, background: 'rgba(255,255,255,0.025)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 9 }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: c, flexShrink: 0 }} />
@@ -825,7 +671,7 @@ const UseCases = () => (
 
 const Pricing = ({ onNav }) => (
   <section id="pricing" style={{ padding: '110px 0', position: 'relative', overflow: 'hidden' }}>
-    <div className="aurora-a" style={{ position: 'absolute', bottom: '-20%', left: '30%', width: 560, height: 560, background: 'radial-gradient(circle, rgba(30,191,94,0.10), transparent 62%)', filter: 'blur(50px)', pointerEvents: 'none' }} />
+    <div className="aurora-a" style={{ position: 'absolute', bottom: '-20%', left: '30%', width: 560, height: 560, background: 'radial-gradient(circle, rgba(53,232,242,0.10), transparent 62%)', filter: 'blur(50px)', pointerEvents: 'none' }} />
     <div style={{ position: 'relative', maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
       <SectionHead eyebrow="Pricing" title={<>Plans that cost what they say.<br /><span style={{ color: 'var(--green)' }}>Messages cost what Meta charges.</span></>}
         sub="No per-agent seats. On a paid plan the per-message rate you are billed is the one Meta bills us — the wallet ledger shows every deduction and every refund." />
@@ -843,18 +689,18 @@ const Pricing = ({ onNav }) => (
                 // Tint layered *over* the glass, not instead of it. On its own
                 // the gradient faded to near-nothing by the bottom of the
                 // card, so the panel looked like it stopped above the button.
-                background: 'linear-gradient(158deg, rgba(30,191,94,0.10), rgba(14,165,233,0.05)), var(--glass)',
+                background: 'linear-gradient(158deg, rgba(53,232,242,0.10), rgba(14,165,233,0.05)), var(--glass)',
                 borderColor: 'var(--gbd)',
                 boxShadow: 'var(--glow), var(--glass-sh)',
               } : {}),
             }}>
               {p.popular && (
-                <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', padding: '4px 13px', borderRadius: 999, background: 'var(--green)', fontFamily: MONO, fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', color: '#060913', textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: '0 4px 18px rgba(30,191,94,0.35)' }}>Most popular</div>
+                <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', padding: '4px 13px', borderRadius: 999, background: 'var(--green)', fontFamily: MONO, fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', color: '#08090c', textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: '0 4px 18px rgba(53,232,242,0.35)' }}>Most popular</div>
               )}
               <h3 style={{ fontWeight: 700, fontSize: 18, color: 'var(--t1)', marginBottom: 6, letterSpacing: '-.02em' }}>{p.name}</h3>
               <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 20, lineHeight: 1.55 }}>{p.desc}</p>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: p.note ? 6 : 24 }}>
-                <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 40, color: 'var(--t1)', letterSpacing: '-.045em' }}>{p.price}</span>
+                <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 40, color: 'var(--t1)', letterSpacing: '-.045em' }}>{p.price}</span>
                 <span style={{ fontSize: 13, color: 'var(--t2)' }}>{p.per}</span>
               </div>
               {p.note && <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t2)', marginBottom: 24, letterSpacing: '.02em' }}>{p.note}</p>}
@@ -873,7 +719,7 @@ const Pricing = ({ onNav }) => (
                   subscription promises something this button cannot do — the
                   free plan is its own tier, called out under the grid. */}
               <Btn variant={p.popular ? 'primary' : 'ghost'} style={{ width: '100%', justifyContent: 'center' }} onClick={() => onNav('dashboard')}>
-                {p.name === 'Enterprise' ? 'Talk to sales' : `Choose ${p.name}`} <I n="arrow" s={13} c={p.popular ? '#060A10' : 'var(--t2)'} />
+                {p.name === 'Enterprise' ? 'Talk to sales' : `Choose ${p.name}`} <I n="arrow" s={13} c={p.popular ? '#08090c' : 'var(--t2)'} />
               </Btn>
             </Glass>
           </Reveal>
@@ -902,7 +748,7 @@ const CTA = ({ onNav }) => (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
       <Reveal>
         <Glass lit={false} style={{ padding: '64px 40px', borderRadius: 'var(--rxl)', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-          <div className="aurora-b" style={{ position: 'absolute', top: '-60%', left: '50%', width: 700, height: 700, marginLeft: -350, background: 'radial-gradient(circle, rgba(30,191,94,0.12), transparent 60%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+          <div className="aurora-b" style={{ position: 'absolute', top: '-60%', left: '50%', width: 700, height: 700, marginLeft: -350, background: 'radial-gradient(circle, rgba(53,232,242,0.12), transparent 60%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
           <div style={{ position: 'relative' }}>
             <Eyebrow>Start today</Eyebrow>
             <h2 style={{ fontSize: 'clamp(28px,3.8vw,50px)', fontWeight: 800, letterSpacing: '-.035em', lineHeight: 1.08, margin: '18px 0 16px' }}>
@@ -914,7 +760,7 @@ const CTA = ({ onNav }) => (
               {CTA_COPY.sub}
             </p>
             <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>
-              Start for free <I n="arrow" s={14} c="#060A10" />
+              Start for free <I n="arrow" s={14} c="#08090c" />
             </Btn>
             <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)', marginTop: 16, letterSpacing: '.04em' }}>NO CARD · FREE PLAN INCLUDES 100 MESSAGES</p>
           </div>
@@ -924,72 +770,316 @@ const CTA = ({ onNav }) => (
   </section>
 );
 
-const Footer = ({ onNav }) => (
-  <footer style={{ borderTop: '1px solid var(--bd)', padding: '56px 32px 30px', background: 'rgba(13,17,33,0.5)' }}>
-    <div style={{ maxWidth: 1240, margin: '0 auto' }}>
-      <div className="footer-grid" style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr 1fr 1fr', gap: 40, marginBottom: 44 }}>
-        <div>
-          <button onClick={() => onNav('landing')} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, cursor: 'pointer', marginBottom: 14, background: 'none', border: 'none', padding: 0 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
-            </div>
-            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span></span>
-          </button>
-          <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.65, maxWidth: 240 }}>
-            {FOOTER_BLURB}
-          </p>
-        </div>
-        {FOOTER_COLS.map(col => (
-          <div key={col.title}>
-            <h4 style={{ fontFamily: MONO, fontWeight: 600, fontSize: 11, color: 'var(--t1)', marginBottom: 15, textTransform: 'uppercase', letterSpacing: '.14em' }}>{col.title}</h4>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {col.links.map(l => (
-                <li key={l}>
-                  <a href="#features" style={{ fontSize: 13, color: 'var(--t2)', textDecoration: 'none', transition: 'color .15s' }}
-                    onMouseOver={e => e.target.style.color = 'var(--t1)'} onMouseOut={e => e.target.style.color = 'var(--t2)'}>{l}</a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-      <div style={{ borderTop: '1px solid var(--bd)', paddingTop: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)' }}>{FOOTER_LEGAL}</p>
-        <div style={{ display: 'flex', gap: 18 }}>
-          {['Terms', 'Privacy', 'Security'].map(l => <a key={l} href="#features" style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)', textDecoration: 'none' }}>{l}</a>)}
-        </div>
-      </div>
-    </div>
-  </footer>
-);
 
 // ─── page ────────────────────────────────────────────────────────────────────
 
+// ─── The conversation reactor ────────────────────────────────────────────────
+//
+// Six chapters of one message's life, each lighting its stage in the pipeline
+// beside them. It is a stepper rather than an animation on a timer: the reader
+// controls the pace, which is the difference between explaining something and
+// performing at someone.
+
+const Reactor = () => {
+  const [chapter, setChapter] = useState(0);
+  const current = REACTOR.chapters[chapter];
+
+  return (
+    <section id="story" style={{ padding: '20px 0 100px' }}>
+      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
+        <SectionHead eyebrow={REACTOR.eyebrow} title={REACTOR.title} sub={REACTOR.sub} />
+
+        <Reveal>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginBottom: 34 }}>
+            {REACTOR.chapters.map((c, i) => {
+              const on = i === chapter;
+              return (
+                <button key={c.num} onClick={() => setChapter(i)} aria-pressed={on}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 15px', borderRadius: 100, cursor: 'pointer',
+                           fontFamily: "'Manrope',sans-serif", fontSize: 12.5, fontWeight: 600, transition: 'all .2s',
+                           background: on ? 'rgba(157,107,255,0.14)' : 'rgba(255,255,255,0.03)',
+                           border: `1px solid ${on ? 'var(--violet)' : 'var(--bd)'}`,
+                           color: on ? 'var(--t1)' : 'var(--t2)' }}>
+                  <span style={{ fontFamily: MONO, fontSize: 10.5, color: on ? 'var(--violet)' : 'var(--t3)' }}>{c.num}</span>
+                  {c.kicker}
+                </button>
+              );
+            })}
+          </div>
+        </Reveal>
+
+        <div className="reactor-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, alignItems: 'center' }}>
+          <Reveal>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: MONO, fontSize: 44, fontWeight: 700, color: 'rgba(157,107,255,0.35)', lineHeight: 1, letterSpacing: '-.03em' }}>{current.num}</div>
+              <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.18em', color: 'var(--violet)', margin: '12px 0 10px' }}>{current.kicker}</div>
+              <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 'clamp(22px,2.6vw,32px)', fontWeight: 800, letterSpacing: '-.035em', color: 'var(--t1)', marginBottom: 12 }}>
+                {current.title}
+              </h3>
+              <p style={{ fontSize: 15.5, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 440 }}>{current.body}</p>
+            </div>
+          </Reveal>
+
+          <Reveal delay={80}>
+            <Glass style={{ borderRadius: 'var(--rxl)', padding: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {REACTOR.pipeline.map((stage, i) => {
+                const active = i === chapter;
+                const done = i < chapter;
+                return (
+                  <div key={stage.key} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '11px 13px', borderRadius: 12, transition: 'all .3s',
+                    background: active ? 'rgba(196,255,70,0.06)' : 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${active ? 'rgba(196,255,70,0.4)' : 'var(--bd)'}` }}>
+                    <span style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                   fontFamily: MONO, fontSize: 11, fontWeight: 700, transition: 'all .3s',
+                                   background: active ? 'rgba(196,255,70,0.16)' : done ? 'rgba(53,232,242,0.1)' : 'rgba(255,255,255,0.04)',
+                                   color: active ? 'var(--lime)' : done ? 'var(--cyan)' : 'var(--t3)',
+                                   border: `1px solid ${active ? 'rgba(196,255,70,0.5)' : done ? 'var(--gbd)' : 'var(--bd)'}` }}>
+                      {stage.key}
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, color: active ? 'var(--t1)' : done ? 'var(--t2)' : 'var(--t3)' }}>{stage.label}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--t3)' }}>{stage.sub}</div>
+                    </div>
+                    {active && <span className="sp-pulse" style={{ marginLeft: 'auto', width: 7, height: 7, borderRadius: '50%', background: 'var(--lime)', flexShrink: 0 }} />}
+                  </div>
+                );
+              })}
+            </Glass>
+          </Reveal>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+// ─── Campaign playground ─────────────────────────────────────────────────────
+//
+// The claim the whole product rests on, made falsifiable: edit the campaign,
+// ask a question, and watch the answer change with it. The replies are built
+// from whatever the visitor typed — which is the point. Nothing is scripted, so
+// there is nothing to catch out.
+
+const playgroundReply = (key, pg) => {
+  const { title, product, discount, expiry, cta } = pg;
+  const verb = (cta || 'buy').toLowerCase();
+  switch (key) {
+    case 'end':    return `Your “${title}” runs ${expiry}, so there is still time to claim ${discount} off the ${product}.`;
+    case 'size':   return `I can check ${product} stock live — send me your size and I will confirm it before you ${verb}.`;
+    case 'coupon': return `The ${discount} from “${title}” is already the best price on the ${product}, so there is no extra coupon to stack on top.`;
+    case 'new':    return `Yes — “${title}” covers the ${product} and this season's new arrivals, all at ${discount} off.`;
+    default:       return `That is part of the “${title}” offer — ${discount} off the ${product}.`;
+  }
+};
+
+const PlaygroundField = ({ label, value, onChange }) => (
+  <label style={{ display: 'block', minWidth: 0 }}>
+    <span style={{ display: 'block', fontFamily: MONO, fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 6 }}>{label}</span>
+    <input value={value} onChange={e => onChange(e.target.value)}
+      style={{ width: '100%', padding: '10px 12px', borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13.5, fontFamily: "'Manrope',sans-serif", outline: 'none', boxSizing: 'border-box' }}
+      onFocus={e => e.target.style.borderColor = 'var(--gbd)'}
+      onBlur={e => e.target.style.borderColor = 'var(--bd)'} />
+  </label>
+);
+
+const Playground = () => {
+  const [pg, setPg] = useState(PLAYGROUND.seed);
+  const [asked, setAsked] = useState(null);
+  const set = (k) => (v) => setPg(p => ({ ...p, [k]: v }));
+
+  const facts = [
+    ['OFFER', pg.title], ['DEAL', pg.discount], ['ITEM', pg.product], ['ENDS', pg.expiry],
+  ];
+
+  return (
+    <section id="playground" style={{ padding: '20px 0 100px' }}>
+      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
+        <SectionHead eyebrow={PLAYGROUND.eyebrow} title={PLAYGROUND.title} sub={PLAYGROUND.sub} />
+
+        <div className="playground-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, alignItems: 'start' }}>
+          <Reveal>
+            <Glass style={{ borderRadius: 'var(--rxl)', padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--t3)' }}>Campaign fields</div>
+              <PlaygroundField label="Offer name" value={pg.title} onChange={set('title')} />
+              <PlaygroundField label="Product" value={pg.product} onChange={set('product')} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <PlaygroundField label="Discount" value={pg.discount} onChange={set('discount')} />
+                <PlaygroundField label="CTA" value={pg.cta} onChange={set('cta')} />
+              </div>
+              <div>
+                <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 9 }}>Customer asks →</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {PLAYGROUND.questions.map(q => {
+                    const on = asked?.key === q.key;
+                    return (
+                      <button key={q.key} onClick={() => setAsked(q)}
+                        style={{ fontSize: 12.5, fontWeight: 600, padding: '8px 13px', borderRadius: 100, cursor: 'pointer', fontFamily: "'Manrope',sans-serif", transition: 'all .2s',
+                                 background: on ? 'rgba(53,232,242,0.12)' : 'rgba(255,255,255,0.03)',
+                                 border: `1px solid ${on ? 'var(--green)' : 'var(--bd)'}`,
+                                 color: on ? '#8fecf3' : 'var(--t2)' }}>
+                        {q.q}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </Glass>
+          </Reveal>
+
+          <Reveal delay={80}>
+            <Glass style={{ borderRadius: 'var(--rxl)', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', background: 'var(--grad-wa)' }}>
+                <span style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: 12 }}>B</span>
+                <div style={{ lineHeight: 1.25 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, color: '#fff' }}>Your Brand</div>
+                  <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.85)' }}>online · Spandan AI active</div>
+                </div>
+              </div>
+
+              <div style={{ padding: '18px 15px', display: 'flex', flexDirection: 'column', gap: 12, background: 'rgba(6,9,16,0.55)', minHeight: 300 }}>
+                <div style={{ alignSelf: 'flex-start', maxWidth: '92%', borderRadius: '4px 14px 14px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', padding: '11px 13px' }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', lineHeight: 1.4 }}>🔔 {pg.title} is live!</p>
+                  <p style={{ fontSize: 12.5, color: 'var(--t2)', marginTop: 5, lineHeight: 1.5 }}>
+                    {pg.discount} OFF on {pg.product} — tap to shop or ask me anything.
+                  </p>
+                  <div style={{ marginTop: 9, paddingTop: 8, borderTop: '1px solid var(--bd)', textAlign: 'center', color: 'var(--green)', fontWeight: 700, fontSize: 12.5 }}>{pg.cta}</div>
+                </div>
+
+                {asked && (
+                  <>
+                    <div style={{ alignSelf: 'flex-end', maxWidth: '82%', borderRadius: '14px 4px 14px 14px', background: 'rgba(53,232,242,0.14)', border: '1px solid var(--gbd)', padding: '9px 12px' }}>
+                      <p style={{ fontSize: 12.5, color: 'var(--t1)', lineHeight: 1.5 }}>{asked.q}</p>
+                    </div>
+                    <div style={{ alignSelf: 'flex-start', maxWidth: '96%', minWidth: 0 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                        <span style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.1em', color: 'var(--lime)', fontWeight: 600 }}>✓ VERIFIED FROM YOUR CAMPAIGN</span>
+                        {facts.map(([k, v]) => (
+                          <span key={k} style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.06em', padding: '2px 7px', borderRadius: 5, background: 'rgba(53,232,242,0.1)', border: '1px solid var(--gbd)', color: 'var(--t2)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: 'var(--green)', fontWeight: 700 }}>{k}</span> {v}
+                          </span>
+                        ))}
+                      </div>
+                      <div style={{ borderRadius: '4px 14px 14px 14px', background: 'rgba(53,232,242,0.06)', border: '1px solid var(--gbd)', padding: '11px 13px' }}>
+                        <p style={{ fontSize: 12.5, color: 'var(--t1)', lineHeight: 1.55 }}>{playgroundReply(asked.key, pg)}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {!asked && (
+                  <p style={{ marginTop: 'auto', textAlign: 'center', fontSize: 12, color: 'var(--t3)' }}>
+                    ↑ pick a question to see the answer built from these fields
+                  </p>
+                )}
+              </div>
+            </Glass>
+          </Reveal>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+// ─── Automation lab ──────────────────────────────────────────────────────────
+
+const AutomationLab = () => {
+  const [active, setActive] = useState(-1);
+  const timer = useRef(null);
+
+  const run = () => {
+    clearInterval(timer.current);
+    if (prefersReducedMotion()) { setActive(AUTOMATION_LAB.nodes.length - 1); return; }
+    setActive(0);
+    let i = 0;
+    timer.current = setInterval(() => {
+      i += 1;
+      if (i >= AUTOMATION_LAB.nodes.length) { clearInterval(timer.current); return; }
+      setActive(i);
+    }, 620);
+  };
+
+  const reset = () => { clearInterval(timer.current); setActive(-1); };
+  useEffect(() => () => clearInterval(timer.current), []);
+
+  const running = active >= 0 && active < AUTOMATION_LAB.nodes.length - 1;
+
+  return (
+    <section style={{ padding: '20px 0 100px' }}>
+      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
+        <SectionHead eyebrow={AUTOMATION_LAB.eyebrow} title={AUTOMATION_LAB.title} sub={AUTOMATION_LAB.sub} />
+
+        <Reveal>
+          <Glass style={{ borderRadius: 'var(--rxl)', padding: 'clamp(18px,3vw,28px)' }}>
+            <div className="lab-flow" style={{ display: 'flex', alignItems: 'stretch', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+              {AUTOMATION_LAB.nodes.map((node, i) => {
+                const lit = active >= i;
+                return (
+                  <div key={node.label} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 170px', minWidth: 0 }}>
+                    <div style={{ flex: 1, minWidth: 0, padding: '13px 14px', borderRadius: 13, transition: 'all .3s',
+                      background: lit ? 'rgba(53,232,242,0.07)' : 'rgba(255,255,255,0.02)',
+                      border: `1px solid ${lit ? 'var(--gbd)' : 'var(--bd)'}`,
+                      boxShadow: lit ? '0 0 22px rgba(53,232,242,0.16)' : 'none' }}>
+                      <div style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.12em', color: lit ? 'var(--green)' : 'var(--t3)', marginBottom: 6 }}>{node.kind}</div>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)' }}>{node.label}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 2 }}>{node.sub}</div>
+                    </div>
+                    {i < AUTOMATION_LAB.nodes.length - 1 && (
+                      <span aria-hidden="true" style={{ color: active > i ? 'var(--green)' : 'var(--t3)', fontSize: 15, flexShrink: 0, transition: 'color .3s' }}>→</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <Btn size="sm" onClick={run} disabled={running}>▶ {running ? 'Running…' : 'Run the flow'}</Btn>
+              <Btn size="sm" variant="ghost" onClick={reset}>Reset</Btn>
+              <span style={{ fontSize: 12.5, color: 'var(--t2)' }}>
+                {active < 0 ? 'Idle' : AUTOMATION_LAB.trace[Math.min(active, AUTOMATION_LAB.trace.length - 1)]}
+              </span>
+            </div>
+          </Glass>
+        </Reveal>
+      </div>
+    </section>
+  );
+};
+
+// ─── Platform map ────────────────────────────────────────────────────────────
+
+const PlatformMap = () => (
+  <section id="platform" style={{ padding: '20px 0 100px' }}>
+    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
+      <SectionHead eyebrow={PLATFORM_MAP.eyebrow} title={PLATFORM_MAP.title} sub={PLATFORM_MAP.sub} />
+      <div className="case-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+        {PLATFORM_MAP.groups.map((group, i) => (
+          <Reveal key={group.name} delay={(i % 3) * 70}>
+            <Glass style={{ borderRadius: 'var(--rxl)', padding: 20, height: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: group.color, boxShadow: `0 0 10px ${group.color}` }} />
+                <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.18em', color: 'var(--t2)' }}>{group.name}</span>
+              </div>
+              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {group.items.map(item => (
+                  <li key={item} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: 'var(--t2)' }}>
+                    <I n="check" s={11} c={group.color} w={2.5} />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </Glass>
+          </Reveal>
+        ))}
+      </div>
+    </div>
+  </section>
+);
+
+// Every rule this page needs is shared with the other marketing surfaces —
+// see components/marketing.jsx. Page-specific rules would be appended here.
 const PAGE_CSS = `
-  .hero-heading {
-    font-family: 'Syne', sans-serif;
-    font-size: clamp(42px, 5.4vw, 76px);
-    font-weight: 800;
-    color: var(--t1);
-    letter-spacing: -.052em;
-    line-height: 1.02;
-  }
-  @media (max-width: 1024px) {
-    .calc { grid-template-columns: 1fr !important; gap: 26px !important; }
-    .hero-grid { flex-direction: column; align-items: flex-start !important; gap: 56px !important; }
-    .hero-visual { width: 100%; }
-    .bento { grid-template-columns: repeat(2, 1fr) !important; }
-    .bento > * { grid-column: span 1 !important; }
-    .case-grid, .plan-grid { grid-template-columns: repeat(2, 1fr) !important; }
-    .footer-grid { grid-template-columns: 1fr 1fr !important; }
-    .nav-links { display: none !important; }
-  }
-  @media (max-width: 720px) {
-    .hero-back-panel { display: none !important; }
-    .proof-grid { grid-template-columns: 1fr 1fr !important; gap: 20px 0; }
-    .proof-grid > * { border-left: none !important; }
-    .bento, .case-grid, .plan-grid { grid-template-columns: 1fr !important; }
-    .footer-grid { grid-template-columns: 1fr !important; gap: 30px !important; }
+  ${MARKETING_CSS}
+  @media (max-width: 900px) {
+    .reactor-grid, .playground-grid { grid-template-columns: 1fr !important; gap: 26px !important; }
   }
 `;
 
@@ -997,17 +1087,21 @@ export default function Landing({ onNav }) {
   return (
     <div style={{ minHeight: '100vh', overflowX: 'clip' }}>
       <style>{PAGE_CSS}</style>
-      <Navbar onNav={onNav} />
+      <MarketingNav onNav={onNav} />
       <Hero onNav={onNav} />
       <ProofStrip />
       <AIPromptSection onNav={onNav} />
+      <Reactor />
+      <Playground />
       <Features />
+      <AutomationLab />
       <UseCases />
+      <PlatformMap />
       <CostCalculator />
       <Pricing onNav={onNav} />
       <Faq />
       <CTA onNav={onNav} />
-      <Footer onNav={onNav} />
+      <MarketingFooter onNav={onNav} />
     </div>
   );
 }

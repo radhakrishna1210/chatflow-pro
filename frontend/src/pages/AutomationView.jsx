@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { apiFetch } from '../lib/api.js';
@@ -6,7 +6,7 @@ import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
-const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Plus Jakarta Sans',sans-serif", boxSizing:'border-box' };
+const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Manrope',sans-serif", boxSizing:'border-box' };
 const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
 
 const Toggle = ({ on, onToggle, disabled = false }) => (
@@ -39,7 +39,7 @@ const PlanLocked = ({ feature }) => (
       <I n="lock" s={26} c="#f59e0b" />
     </div>
     <div>
-      <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:17, fontWeight:700, color:'var(--t1)', marginBottom:6 }}>Not included in your plan</h3>
+      <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:17, fontWeight:700, color:'var(--t1)', marginBottom:6 }}>Not included in your plan</h3>
       <p style={{ fontSize:13, color:'var(--t2)', maxWidth:420 }}>
         {feature === 'workflows'
           ? 'Workflows are available on the Pro plan and above.'
@@ -63,7 +63,7 @@ const TabHeader = ({ icon, color, bg, title, subtitle, badge, children }) => (
       </div>
       <div>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>{title}</h2>
+          <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>{title}</h2>
           {badge}
         </div>
         <p style={{ fontSize:'13px', color:'var(--t2)', marginTop:2 }}>{subtitle}</p>
@@ -80,6 +80,13 @@ const Pill = ({ children, tone = 'green' }) => (
 );
 
 // ── SUB-TABS ──
+// Tabs promoted to first-class sidebar destinations (see NAV_GROUPS in
+// Dashboard.jsx). Keep in step with the routes there.
+const TAB_ROUTES = {
+  'wa-agent':  '/dashboard/ai-agent',
+  'ai-intent': '/dashboard/intent-matching',
+};
+
 const TABS = [
   { id: 'basic',     label: 'Basic Automations',        icon: 'play'  },
   { id: 'custom',    label: 'Custom Auto Reply',         icon: 'msg'   },
@@ -168,7 +175,7 @@ const BasicAutomationsTab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="play" color="var(--green)" bg="rgba(30,191,94,0.1)"
+      <TabHeader icon="play" color="var(--green)" bg="rgba(53,232,242,0.1)"
         title="Basic Automations" subtitle="Welcome, out-of-office and delayed auto-replies" />
 
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
@@ -207,7 +214,7 @@ const BasicAutomationsTab = () => {
                       onChange={e => setCfg(c => ({ ...c, delayedAfterMinutes: parseInt(e.target.value, 10) }))}
                       style={inputStyle}>
                       {[5, 10, 15, 30, 60, 120, 240].map(m => (
-                        <option key={m} value={m} style={{ background:'#07090F' }}>
+                        <option key={m} value={m} style={{ background:'#0a0b0e' }}>
                           {m < 60 ? `${m} minutes` : `${m / 60} hour${m === 60 ? '' : 's'}`}
                         </option>
                       ))}
@@ -386,16 +393,16 @@ const CustomAutoReplyTab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="msg" color="var(--green)" bg="rgba(30,191,94,0.1)"
+      <TabHeader icon="msg" color="var(--green)" bg="rgba(53,232,242,0.1)"
         title="Custom Auto Reply" subtitle="Keyword-based automatic replies for common questions">
-        <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Add Trigger</Btn>
+        <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Add Trigger</Btn>
       </TabHeader>
 
       <Banner>Keywords match whole words only — a trigger for “HI” no longer fires on “this”. When two keywords match, the longer one wins.</Banner>
 
       {creating && (
         <div style={{ ...card, padding:'20px', display:'flex', flexDirection:'column', gap:'12px' }}>
-          <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Trigger' : 'New Trigger'}</p>
+          <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Space Grotesk',sans-serif" }}>{editing ? 'Edit Trigger' : 'New Trigger'}</p>
           <div style={{ maxWidth:220 }}>
             <label style={labelStyle}>Keyword</label>
             <input value={kw} onChange={e => setKw(e.target.value.toUpperCase())} placeholder="e.g. STOP"
@@ -422,7 +429,7 @@ const CustomAutoReplyTab = () => {
         )}
         {triggers.map((t, i) => (
           <div key={t.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px', borderBottom: i < triggers.length-1 ? '1px solid var(--bd)' : 'none', opacity: t.isActive ? 1 : 0.55, transition:'opacity .2s' }}>
-            <span style={{ padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:700, fontFamily:'monospace', background:'rgba(30,191,94,0.08)', border:'1px solid var(--gbd)', color:'var(--green)', letterSpacing:'.05em', flexShrink:0 }}>{t.keyword}</span>
+            <span style={{ padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:700, fontFamily:'monospace', background:'rgba(53,232,242,0.08)', border:'1px solid var(--gbd)', color:'var(--green)', letterSpacing:'.05em', flexShrink:0 }}>{t.keyword}</span>
             <p style={{ flex:1, fontSize:13, color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.responseTemplate}</p>
             <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
               <Toggle on={t.isActive} onToggle={() => toggleActive(t)} />
@@ -468,7 +475,7 @@ const ConfirmDialog = ({ title, message, confirmLabel = 'Delete', busy = false, 
           <div style={{ width:38, height:38, borderRadius:10, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
             <I n="alertt" s={17} c="#f87171" />
           </div>
-          <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</p>
+          <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</p>
         </div>
         <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.55 }}>{message}</p>
         <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
@@ -523,11 +530,11 @@ const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit
       <div style={{ border:'1px solid var(--gbd)', background:'var(--gbg)', borderRadius:10, padding:'14px 16px' }}>
         <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
           <div style={{ minWidth:0 }}>
-            <h4 style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:800, color:'var(--t1)' }}>{data.business?.name}</h4>
+            <h4 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:16, fontWeight:800, color:'var(--t1)' }}>{data.business?.name}</h4>
             <a href={data.sourceUrl} target="_blank" rel="noreferrer noopener"
               style={{ fontSize:11.5, color:'var(--t3)', textDecoration:'none', wordBreak:'break-all' }}>{data.sourceUrl}</a>
           </div>
-          <span style={{ padding:'4px 11px', borderRadius:12, fontSize:11.5, fontWeight:700, background:'rgba(30,191,94,0.14)', border:'1px solid var(--gbd)', color:'var(--green)', whiteSpace:'nowrap' }}>
+          <span style={{ padding:'4px 11px', borderRadius:12, fontSize:11.5, fontWeight:700, background:'rgba(53,232,242,0.14)', border:'1px solid var(--gbd)', color:'var(--green)', whiteSpace:'nowrap' }}>
             {data.business?.industry}
           </span>
         </div>
@@ -545,7 +552,7 @@ const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit
 
       {/* Business insights */}
       <div style={{ border:'1px solid var(--bd)', borderRadius:10, background:'rgba(255,255,255,0.02)', padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
-        <p style={{ fontSize:12.5, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>Business insights</p>
+        <p style={{ fontSize:12.5, fontWeight:700, color:'var(--t1)', fontFamily:"'Space Grotesk',sans-serif" }}>Business insights</p>
         <InsightList label="Primary services" items={a.primaryServices} />
         <InsightList label="Products" items={a.products} />
         <InsightList label="Target customers" items={a.targetCustomers} />
@@ -573,7 +580,7 @@ const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit
 
       {/* Recommended workflows */}
       <div>
-        <p style={{ fontSize:12.5, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif", marginBottom:9 }}>
+        <p style={{ fontSize:12.5, fontWeight:700, color:'var(--t1)', fontFamily:"'Space Grotesk',sans-serif", marginBottom:9 }}>
           Recommended workflows ({wfs.length})
         </p>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(290px, 1fr))', gap:10 }}>
@@ -596,7 +603,7 @@ const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit
                 <p style={{ fontSize:11, color:'var(--t3)' }}>{wf.trigger} · {wf.nodes.length} steps</p>
 
                 <button onClick={() => setOpenId(open ? null : wf.id)}
-                  style={{ alignSelf:'flex-start', background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--t2)', fontSize:11.5, fontWeight:600, fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
+                  style={{ alignSelf:'flex-start', background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--t2)', fontSize:11.5, fontWeight:600, fontFamily:"'Manrope',sans-serif" }}>
                   {open ? 'Hide steps' : 'Preview steps'}
                 </button>
                 {open && (
@@ -662,16 +669,33 @@ const WorkflowsTab = () => {
 
   useEffect(() => { fetchWorkflows(); }, [fetchWorkflows]);
 
-  const openCreate = () => { setName(''); setSteps([blankTrigger()]); setEditing(null); setError(''); setCreating(true); };
+  const openCreate = () => { setName(''); setSteps([blankTrigger()]); setEditing(null); setError(''); setCreating(true); setSelectedStepId(null); };
   const openEdit = w => {
     setName(w.name);
     const wSteps = Array.isArray(w.nodes) ? w.nodes : [];
     setSteps(wSteps.length ? wSteps : [blankTrigger()]);
-    setEditing(w); setError(''); setCreating(true);
+    setEditing(w); setError(''); setCreating(true); setSelectedStepId(null);
   };
   const cancel = () => { setCreating(false); setEditing(null); setError(''); };
 
+  // The editor renders the same steps two ways. `list` is the original form —
+  // fastest for typing — and `canvas` is the flow view, which is what makes the
+  // order and the shape of a workflow legible once it is more than three steps.
+  const [editorView, setEditorView] = useState('canvas');
+  const [selectedStepId, setSelectedStepId] = useState(null);
+
   const addActionStep = () => setSteps(p => [...p, { id:`step_${Date.now()}`, type:'action', subtype:'message', value:'Hello, how can I help you today?' }]);
+
+  // Adding from the palette. A second trigger would be ignored by the engine,
+  // which runs the first one it finds, so it replaces the existing trigger
+  // rather than quietly doing nothing.
+  const addFromPalette = (item) => {
+    const node = { id: `step_${Date.now()}`, type: item.type, subtype: item.subtype, value: item.value };
+    setSteps(p => (item.type === 'trigger'
+      ? [node, ...p.filter(x => x.type !== 'trigger')]
+      : [...p, node]));
+    setSelectedStepId(node.id);
+  };
   const updateStep = (id, fields) => setSteps(p => p.map(s => s.id === id ? { ...s, ...fields } : s));
   const removeStep = id => setSteps(p => p.filter(s => s.id !== id));
 
@@ -821,7 +845,7 @@ const WorkflowsTab = () => {
             <Btn variant="outline" onClick={() => { setAiPrompt(''); setAiPreview(null); setAiSite(null); setSavedWfIds(new Set()); setAiError(''); setAiOpen(true); }}>
               <I n="spark" s={14} c="var(--green)" /> Create with AI
             </Btn>
-            <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Create Workflow</Btn>
+            <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Create Workflow</Btn>
           </div>
         )}
       </TabHeader>
@@ -832,7 +856,7 @@ const WorkflowsTab = () => {
         <div style={{ ...card, padding:0, overflow:'hidden' }}>
           <div style={{ padding:'22px 24px 14px', display:'flex', justifyContent:'space-between', gap:16 }}>
             <div>
-              <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:18, fontWeight:800, color:'var(--t1)', marginBottom:6 }}>Create Workflow with AI</h3>
+              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:18, fontWeight:800, color:'var(--t1)', marginBottom:6 }}>Create Workflow with AI</h3>
               <p style={{ fontSize:13, color:'var(--t2)' }}>Describe the automation in plain English &mdash; or paste your website URL and AI will study the business and suggest workflows built for it.</p>
             </div>
             <IconBtn icon="x" onClick={() => { if (!aiLoading && !aiSaving) { setAiOpen(false); setAiPreview(null); setAiSite(null); setSavedWfIds(new Set()); } }} />
@@ -915,7 +939,7 @@ const WorkflowsTab = () => {
       {creating && (
         <div style={{ ...card, padding:'24px', display:'flex', flexDirection:'column', gap:'20px' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <h3 style={{ fontSize:15, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Workflow' : 'Create New Workflow'}</h3>
+            <h3 style={{ fontSize:15, fontWeight:700, color:'var(--t1)', fontFamily:"'Space Grotesk',sans-serif" }}>{editing ? 'Edit Workflow' : 'Create New Workflow'}</h3>
             <Btn variant="ghost" size="sm" onClick={cancel}>Cancel</Btn>
           </div>
 
@@ -925,16 +949,72 @@ const WorkflowsTab = () => {
           </div>
 
           <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
-            <label style={labelStyle}>Steps</label>
-            {steps.map((step, idx) => (
-              <StepRow key={step.id} step={step} index={idx}
-                onChange={fields => updateStep(step.id, fields)}
-                onRemove={() => removeStep(step.id)}
-                canRemove={step.type === 'action'} />
-            ))}
-          </div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+              <label style={{ ...labelStyle, marginBottom:0 }}>Steps</label>
+              <div style={{ display:'flex', gap:4, padding:3, borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
+                {[['canvas', 'Canvas'], ['list', 'List']].map(([id, label]) => {
+                  const on = editorView === id;
+                  return (
+                    <button key={id} onClick={() => setEditorView(id)}
+                      style={{ fontSize:12, fontWeight:600, padding:'5px 12px', borderRadius:7, cursor:'pointer', border:'none', fontFamily:"'Manrope',sans-serif",
+                               background: on ? 'var(--gbg)' : 'transparent', color: on ? 'var(--green)' : 'var(--t2)' }}>{label}</button>
+                  );
+                })}
+              </div>
+            </div>
 
-          <div><Btn variant="outline" size="sm" onClick={addActionStep}><I n="plus" s={12} c="var(--t2)" /> Add Action Step</Btn></div>
+            {editorView === 'list' && (
+              <>
+                {steps.map((step, idx) => (
+                  <StepRow key={step.id} step={step} index={idx}
+                    onChange={fields => updateStep(step.id, fields)}
+                    onRemove={() => removeStep(step.id)}
+                    canRemove={step.type === 'action'} />
+                ))}
+                <div><Btn variant="outline" size="sm" onClick={addActionStep}><I n="plus" s={12} c="var(--t2)" /> Add Action Step</Btn></div>
+              </>
+            )}
+
+            {editorView === 'canvas' && (
+              <>
+                <WorkflowCanvas
+                  steps={steps}
+                  selectedId={selectedStepId}
+                  onSelect={setSelectedStepId}
+                  onChange={updateStep}
+                  onAdd={addFromPalette}
+                  onRemove={id => { removeStep(id); if (selectedStepId === id) setSelectedStepId(null); }}
+                  trace={null}
+                />
+
+                {/* Inspector. Below the canvas rather than beside it: the canvas
+                    already gives up a column to the palette, and a third one
+                    leaves nothing for the flow itself on a laptop. */}
+                <div style={{ border:'1px solid var(--bd)', borderRadius:10, padding:14, background:'rgba(255,255,255,0.02)' }}>
+                  <div style={{ fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.14em', color:'var(--t3)', textTransform:'uppercase', marginBottom:10 }}>Inspector</div>
+                  {(() => {
+                    const idx = steps.findIndex(x => x.id === selectedStepId);
+                    if (idx === -1) {
+                      return <p style={{ fontSize:12.5, color:'var(--t3)', margin:0 }}>Select a node on the canvas to edit it.</p>;
+                    }
+                    const step = steps[idx];
+                    return (
+                      <StepRow step={step} index={idx}
+                        onChange={fields => updateStep(step.id, fields)}
+                        onRemove={() => { removeStep(step.id); setSelectedStepId(null); }}
+                        canRemove={step.type === 'action'}
+                        allowTypeChange />
+                    );
+                  })()}
+                </div>
+
+                <p style={{ fontSize:11, color:'var(--t3)', margin:0, lineHeight:1.55 }}>
+                  Steps run top to bottom in the order shown. Drag a node to reposition it; the order is the list order, which
+                  the List view makes explicit.
+                </p>
+              </>
+            )}
+          </div>
 
           {error && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {error}</p>}
 
@@ -957,7 +1037,7 @@ const WorkflowsTab = () => {
                 <p style={{ fontSize:13, color:'var(--t2)', maxWidth:380, margin:'0 auto' }}>Build multi-step automations that reply, wait, tag contacts and hand off to an agent — all triggered by an incoming message.</p>
               </div>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-                <Btn onClick={() => setAiOpen(true)} style={{ boxShadow:'var(--glow)' }}><I n="spark" s={14} c="#060A10" /> Create with AI</Btn>
+                <Btn onClick={() => setAiOpen(true)} style={{ boxShadow:'var(--glow)' }}><I n="spark" s={14} c="#08090c" /> Create with AI</Btn>
                 <Btn variant="outline" onClick={openCreate}>Create Your First Flow</Btn>
               </div>
             </div>
@@ -978,6 +1058,190 @@ const WorkflowsTab = () => {
 const TRIGGER_SUBTYPES = [['keyword', 'Keyword Match'], ['welcome', 'New Contact Welcome'], ['missed', 'Missed Inbound Call']];
 const ACTION_SUBTYPES = [['message', 'Send message'], ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent']];
 
+// ─── Workflow canvas ─────────────────────────────────────────────────────────
+//
+// The same steps as the list editor, drawn as a flow.
+//
+// It is a chain rather than a branching graph on purpose: the engine runs a
+// workflow's nodes in order, so a canvas with forks in it would draw a
+// behaviour the product does not have. Every node here maps one-to-one to a
+// step, edits write straight back to the same array, and the list view and the
+// canvas are two renderings of one state — switch between them mid-edit and
+// nothing is lost.
+//
+// Positions are stored on the node as `pos` when a node is dragged. The schema
+// takes nodes as opaque JSON and the engine reads only type/subtype/value, so
+// the extra key rides along harmlessly and a workflow built before the canvas
+// existed simply falls back to auto-layout.
+
+const NODE_W = 210;
+const NODE_H = 74;
+const NODE_GAP = 44;
+const CANVAS_PAD = 28;
+
+const PALETTE = [
+  {
+    name: 'TRIGGERS', color: '#f59e0b',
+    items: TRIGGER_SUBTYPES.map(([subtype, label]) => ({
+      type: 'trigger', subtype, label,
+      value: subtype === 'keyword' ? 'HELP' : '',
+    })),
+  },
+  {
+    name: 'ACTIONS', color: 'var(--green)',
+    items: ACTION_SUBTYPES.map(([subtype, label]) => ({
+      type: 'action', subtype, label,
+      value: subtype === 'message' ? 'Thanks for reaching out — how can we help?'
+        : subtype === 'delay' ? '1h'
+        : subtype === 'tag' ? 'VIP'
+        : '',
+    })),
+  },
+];
+
+const NODE_ICON = {
+  keyword: 'key', welcome: 'user', missed: 'phone',
+  message: 'send', delay: 'clock', tag: 'file', agent: 'users',
+};
+
+// Auto-layout: a single column, in execution order. A node that has been
+// dragged keeps where it was put.
+const nodePosition = (step, index) => (
+  step.pos && Number.isFinite(step.pos.x) && Number.isFinite(step.pos.y)
+    ? step.pos
+    : { x: CANVAS_PAD, y: CANVAS_PAD + index * (NODE_H + NODE_GAP) }
+);
+
+const WorkflowCanvas = ({ steps, selectedId, onSelect, onChange, onAdd, onRemove, trace }) => {
+  const [dragging, setDragging] = useState(null);   // { id, dx, dy }
+  const canvasRef = useRef(null);
+
+  const positioned = steps.map((step, i) => ({ step, index: i, pos: nodePosition(step, i) }));
+  const height = Math.max(
+    340,
+    ...positioned.map(n => n.pos.y + NODE_H + CANVAS_PAD),
+  );
+
+  const onPointerDown = (e, node) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    setDragging({ id: node.step.id, dx: e.clientX - rect.left - node.pos.x, dy: e.clientY - rect.top - node.pos.y });
+    onSelect(node.step.id);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const onPointerMove = (e) => {
+    if (!dragging) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    onChange(dragging.id, {
+      pos: {
+        x: Math.max(0, Math.round(e.clientX - rect.left - dragging.dx)),
+        y: Math.max(0, Math.round(e.clientY - rect.top - dragging.dy)),
+      },
+    });
+  };
+
+  const endDrag = () => setDragging(null);
+
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'170px minmax(0,1fr)', gap:12, alignItems:'start' }} className="agent-grid">
+      {/* palette */}
+      <div style={{ border:'1px solid var(--bd)', borderRadius:10, padding:10, background:'rgba(255,255,255,0.02)' }}>
+        <div style={{ fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.14em', color:'var(--t3)', textTransform:'uppercase', marginBottom:9 }}>Click to add</div>
+        {PALETTE.map(group => (
+          <div key={group.name} style={{ marginBottom:12 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+              <span style={{ width:6, height:6, borderRadius:'50%', background:group.color }} />
+              <span style={{ fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.1em', color:'var(--t3)' }}>{group.name}</span>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              {group.items.map(item => (
+                <button key={`${item.type}-${item.subtype}`} onClick={() => onAdd(item)}
+                  style={{ display:'flex', alignItems:'center', gap:7, padding:'7px 9px', borderRadius:8, cursor:'pointer', textAlign:'left',
+                           background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t2)',
+                           fontSize:11.5, fontFamily:"'Manrope',sans-serif" }}>
+                  <I n={NODE_ICON[item.subtype] || 'zap'} s={12} c={group.color} />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* canvas */}
+      <div
+        ref={canvasRef}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerLeave={endDrag}
+        style={{ position:'relative', minHeight:340, height, borderRadius:10, border:'1px solid var(--bd)', overflow:'hidden',
+                 background:'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0) 0 0 / 22px 22px, rgba(5,8,20,0.4)',
+                 touchAction:'none' }}>
+
+        {/* edges, behind the cards */}
+        <svg width="100%" height={height} style={{ position:'absolute', inset:0, pointerEvents:'none' }} aria-hidden="true">
+          {positioned.slice(0, -1).map((node, i) => {
+            const next = positioned[i + 1];
+            const x1 = node.pos.x + NODE_W / 2;
+            const y1 = node.pos.y + NODE_H;
+            const x2 = next.pos.x + NODE_W / 2;
+            const y2 = next.pos.y;
+            const mid = (y1 + y2) / 2;
+            const lit = trace && trace.length > i + 1;
+            return (
+              <path key={node.step.id}
+                d={`M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`}
+                fill="none" strokeWidth="2" strokeDasharray="6 8"
+                stroke={lit ? 'var(--green)' : 'rgba(255,255,255,0.22)'} />
+            );
+          })}
+        </svg>
+
+        {positioned.map((node) => {
+          const { step, index, pos } = node;
+          const isTrigger = step.type === 'trigger';
+          const accent = isTrigger ? '#f59e0b' : 'var(--green)';
+          const on = selectedId === step.id;
+          const lit = trace && trace.length > index;
+          return (
+            <div key={step.id}
+              onPointerDown={e => onPointerDown(e, node)}
+              style={{ position:'absolute', left:pos.x, top:pos.y, width:NODE_W, minHeight:NODE_H,
+                       padding:'11px 13px', borderRadius:13, cursor:'grab',
+                       background: on ? 'rgba(255,255,255,0.07)' : 'rgba(18,20,26,0.96)',
+                       border:`1px solid ${on || lit ? accent : 'var(--bd)'}`,
+                       boxShadow: on || lit ? `0 0 22px ${isTrigger ? 'rgba(245,158,11,0.3)' : 'rgba(53,232,242,0.3)'}` : '0 8px 24px rgba(0,0,0,0.4)',
+                       transition:'box-shadow .2s, border-color .2s' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:6 }}>
+                <I n={NODE_ICON[step.subtype] || 'zap'} s={12} c={accent} />
+                <span style={{ fontFamily:'var(--mono)', fontSize:8.5, letterSpacing:'.12em', color:accent, textTransform:'uppercase' }}>
+                  {isTrigger ? 'Trigger' : `Step ${index}`}
+                </span>
+                <button onClick={e => { e.stopPropagation(); onRemove(step.id); }} aria-label="Remove step"
+                  style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', padding:0, display:'flex', color:'var(--t3)' }}>
+                  <I n="x" s={11} c="var(--t3)" />
+                </button>
+              </div>
+              <div style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)', marginBottom:2 }}>
+                {(isTrigger ? TRIGGER_SUBTYPES : ACTION_SUBTYPES).find(([id]) => id === step.subtype)?.[1] || step.subtype}
+              </div>
+              <div style={{ fontSize:11, color:'var(--t3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                {step.value || '—'}
+              </div>
+            </div>
+          );
+        })}
+
+        {steps.length === 0 && (
+          <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t3)', fontSize:12.5 }}>
+            Add a trigger from the palette to start.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange = false }) => {
   const isTrigger = step.type === 'trigger';
   const options = isTrigger ? TRIGGER_SUBTYPES : ACTION_SUBTYPES;
@@ -989,23 +1253,23 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
 
       {allowTypeChange ? (
         <select value={step.type} onChange={e => onChange({ type: e.target.value })}
-          style={{ ...selectStyle, background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(30,191,94,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', fontWeight:700, textTransform:'uppercase', fontSize:11 }}>
-          <option value="trigger" style={{ background:'#07090F' }}>Trigger</option>
-          <option value="action" style={{ background:'#07090F' }}>Action</option>
+          style={{ ...selectStyle, background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(53,232,242,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', fontWeight:700, textTransform:'uppercase', fontSize:11 }}>
+          <option value="trigger" style={{ background:'#0a0b0e' }}>Trigger</option>
+          <option value="action" style={{ background:'#0a0b0e' }}>Action</option>
         </select>
       ) : (
-        <span style={{ background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(30,191,94,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', border:`1px solid ${isTrigger ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, padding:'3px 9px', borderRadius:6, fontSize:11, fontWeight:700 }}>
+        <span style={{ background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(53,232,242,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', border:`1px solid ${isTrigger ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, padding:'3px 9px', borderRadius:6, fontSize:11, fontWeight:700 }}>
           {isTrigger ? 'TRIGGER' : 'ACTION'}
         </span>
       )}
 
       <select value={step.subtype} onChange={e => onChange({ subtype: e.target.value })} style={{ ...selectStyle, minWidth:150 }}>
-        {options.map(([v, label]) => <option key={v} value={v} style={{ background:'#07090F' }}>{label}</option>)}
+        {options.map(([v, label]) => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{label}</option>)}
       </select>
 
       {step.subtype === 'delay' ? (
         <select value={step.value} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, minWidth:130 }}>
-          {['Immediate', '5 min', '1 hour', '1 day'].map(v => <option key={v} value={v} style={{ background:'#07090F' }}>{v}</option>)}
+          {['Immediate', '5 min', '1 hour', '1 day'].map(v => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{v}</option>)}
         </select>
       ) : (step.subtype === 'welcome' || step.subtype === 'missed') ? (
         <span style={{ fontSize:12, color:'var(--t3)', flex:1 }}>No configuration needed</span>
@@ -1064,7 +1328,7 @@ const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulat
         {(Array.isArray(w.nodes) ? w.nodes : []).map((step, idx) => (
           <div key={step.id || idx} style={{ display:'flex', alignItems:'center', gap:6 }}>
             {idx > 0 && <I n="arrow" s={10} c="var(--t3)" />}
-            <span style={{ fontSize:12, padding:'3px 8px', borderRadius:6, background: step.type === 'trigger' ? 'rgba(245,158,11,0.08)' : 'rgba(30,191,94,0.08)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:600 }}>
+            <span style={{ fontSize:12, padding:'3px 8px', borderRadius:6, background: step.type === 'trigger' ? 'rgba(245,158,11,0.08)' : 'rgba(53,232,242,0.08)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:600 }}>
               {stepLabel(step)}
             </span>
           </div>
@@ -1121,7 +1385,7 @@ const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulat
             </div>
           ) : runs.slice(0, 8).map(run => (
             <div key={run.id} style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
-              <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20, color: run.status === 'COMPLETED' ? 'var(--green)' : run.status === 'FAILED' ? '#f87171' : '#fbbf24', background: run.status === 'COMPLETED' ? 'var(--gbg)' : run.status === 'FAILED' ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.08)' }}>
+              <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20, color: run.status === 'COMPLETED' ? 'var(--success)' : run.status === 'FAILED' ? '#f87171' : '#fbbf24', background: run.status === 'COMPLETED' ? 'var(--sbg)' : run.status === 'FAILED' ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.08)' }}>
                 {run.status}
               </span>
               <span style={{ fontSize:12, color:'var(--t2)', flex:1, minWidth:160 }}>
@@ -1139,13 +1403,174 @@ const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulat
 // ─────────────────────────────────────────────
 // 4. AI INTENT MATCHING
 // ─────────────────────────────────────────────
+// The routing layer in front of the agent. An intent is a named thing
+// customers ask for, the phrases that signal it, and where a match goes.
+//
+// The page keeps the two controls it always had — the global switch and the
+// sensitivity threshold — because they are what decides whether any of this
+// runs at all, and adds the thing that was missing: the rules themselves.
+
+const INTENT_ICONS = ['📦', '💰', '🚚', '↩️', '😡', '📅', '🧾', '❓', '🎁', '🔧'];
+
+const ACTION_TYPES = [
+  { id: 'ai',       label: 'AI agent',       hint: 'Answer with the deployed agent' },
+  { id: 'human',    label: 'Human handoff',  hint: 'Assign to a person or team' },
+  { id: 'trigger',  label: 'Auto-reply',     hint: 'Send a keyword trigger’s reply' },
+  { id: 'workflow', label: 'Workflow',       hint: 'Start an automation workflow' },
+];
+
+// Create/edit sheet. One dialog for both because the fields are identical and
+// two near-identical forms drift the moment either is touched.
+const IntentEditor = ({ intent, onClose, onSaved }) => {
+  const editing = !!intent;
+  const [name, setName] = useState(intent?.name || '');
+  const [icon, setIcon] = useState(intent?.icon && INTENT_ICONS.includes(intent.icon) ? intent.icon : INTENT_ICONS[0]);
+  const [actionType, setActionType] = useState(intent?.actionType || 'ai');
+  const [actionTarget, setActionTarget] = useState(intent?.actionTarget || '');
+  const [phrases, setPhrases] = useState(Array.isArray(intent?.phrases) ? intent.phrases : []);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const addPhrase = () => {
+    const value = draft.trim();
+    if (!value) return;
+    // Case-insensitive de-dupe: "Size 9" and "size 9" match identically, so
+    // storing both only makes the card longer.
+    if (!phrases.some(p => p.toLowerCase() === value.toLowerCase())) setPhrases(list => [...list, value]);
+    setDraft('');
+  };
+
+  const save = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) { setError('Give the intent a name.'); return; }
+    if (phrases.length === 0) { setError('Add at least one phrase — an intent with no phrases can never match.'); return; }
+    setSaving(true); setError(null);
+    const body = JSON.stringify({ name: trimmed, icon, actionType, actionTarget, phrases });
+    const r = editing
+      ? await wJson(`/intents/${intent.id}`, { method: 'PATCH', body })
+      : await wJson('/intents', { method: 'POST', body });
+    setSaving(false);
+    if (!r.ok) { setError(r.error); return; }
+    onSaved();
+  };
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.62)', backdropFilter:'blur(4px)', zIndex:120, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ ...card, width:'100%', maxWidth:520, maxHeight:'88vh', overflowY:'auto', padding:24 }}>
+        <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:17, color:'var(--t1)', marginBottom:18 }}>
+          {editing ? 'Edit intent' : 'New intent'}
+        </h3>
+
+        {error && <div style={{ marginBottom:14 }}><Banner tone="error">{error}</Banner></div>}
+
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          <div>
+            <label style={labelStyle}>Icon</label>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
+              {INTENT_ICONS.map(g => (
+                <button key={g} type="button" onClick={() => setIcon(g)}
+                  style={{ width:36, height:36, borderRadius:9, fontSize:17, cursor:'pointer', lineHeight:1,
+                           background: icon === g ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
+                           border:`1px solid ${icon === g ? 'var(--gbd)' : 'var(--bd)'}` }}>{g}</button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Name</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Product availability" style={inputStyle} />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Route a match to</label>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:8 }}>
+              {ACTION_TYPES.map(a => {
+                const on = actionType === a.id;
+                return (
+                  <button key={a.id} type="button" onClick={() => setActionType(a.id)}
+                    style={{ textAlign:'left', padding:'10px 12px', borderRadius:9, cursor:'pointer', fontFamily:"'Manrope',sans-serif",
+                             background: on ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
+                             border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}` }}>
+                    <div style={{ fontSize:13, fontWeight:600, color: on ? 'var(--green)' : 'var(--t1)' }}>{a.label}</div>
+                    <div style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>{a.hint}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>
+              {actionType === 'human' ? 'Assign to' : actionType === 'trigger' ? 'Keyword' : actionType === 'workflow' ? 'Workflow name' : 'Context note (optional)'}
+            </label>
+            <input value={actionTarget} onChange={e => setActionTarget(e.target.value)} style={inputStyle}
+              placeholder={actionType === 'human' ? 'Support team' : actionType === 'trigger' ? 'SHIPPING' : actionType === 'workflow' ? 'Order lookup' : 'live stock check'} />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Phrases that signal this intent</label>
+            <div style={{ display:'flex', gap:8 }}>
+              <input value={draft} onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addPhrase(); } }}
+                placeholder="in stock?" style={{ ...inputStyle, flex:1 }} />
+              <Btn variant="outline" onClick={addPhrase}>Add</Btn>
+            </div>
+            {phrases.length > 0 && (
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:10 }}>
+                {phrases.map(ph => (
+                  <span key={ph} style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:12, padding:'4px 8px 4px 10px', borderRadius:20, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)' }}>
+                    {ph}
+                    <button type="button" onClick={() => setPhrases(list => list.filter(x => x !== ph))} aria-label={`Remove ${ph}`}
+                      style={{ background:'none', border:'none', cursor:'pointer', display:'flex', padding:0, color:'var(--t3)' }}>
+                      <I n="x" s={10} c="var(--t3)" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <p style={{ fontSize:11, color:'var(--t3)', marginTop:8, lineHeight:1.5 }}>
+              A whole phrase found in the message scores highest; otherwise the score is the share of the phrase’s words present.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginTop:22 }}>
+          <Btn variant="outline" onClick={onClose} disabled={saving}>Cancel</Btn>
+          <Btn onClick={save} disabled={saving}>{saving ? 'Saving…' : editing ? 'Save intent' : 'Create intent'}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AIIntentMatchingTab = () => {
   const [enabled, setEnabled] = useState(false);
   const [threshold, setThreshold] = useState(0.6);
   const [llmAvailable, setLlmAvailable] = useState(true);
-  const [triggerCount, setTriggerCount] = useState(null);
   const [banner, setBanner] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  const [rules, setRules] = useState([]);
+  const [loadingRules, setLoadingRules] = useState(true);
+  const [editor, setEditor] = useState(null);       // { intent } | { intent: null }
+  const [stats, setStats] = useState(null);
+
+  // Live tester
+  const [testInput, setTestInput] = useState('do you have this in size 9?');
+  const [testResult, setTestResult] = useState(null);
+  const [testing, setTesting] = useState(false);
+
+  const loadRules = useCallback(async () => {
+    const r = await wJson('/intents');
+    setLoadingRules(false);
+    if (r.ok && Array.isArray(r.data)) setRules(r.data);
+  }, []);
+
+  const loadStats = useCallback(async () => {
+    const r = await wJson('/intents/accuracy');
+    if (r.ok && r.data) setStats(r.data);
+  }, []);
 
   useEffect(() => {
     wJson('/ai-agent/config').then(r => {
@@ -1154,8 +1579,22 @@ const AIIntentMatchingTab = () => {
       setThreshold(typeof r.data.intentMatchThreshold === 'number' ? r.data.intentMatchThreshold : 0.6);
       setLlmAvailable(r.data.llmAvailable !== false);
     });
-    wJson('/automation/triggers').then(r => setTriggerCount(r.ok && Array.isArray(r.data) ? r.data.length : 0));
-  }, []);
+    loadRules();
+    loadStats();
+  }, [loadRules, loadStats]);
+
+  // Debounced so the tester feels live without a request per keystroke.
+  useEffect(() => {
+    const value = testInput.trim();
+    if (!value) { setTestResult(null); return undefined; }
+    const t = setTimeout(async () => {
+      setTesting(true);
+      const r = await wJson('/intents/test', { method: 'POST', body: JSON.stringify({ message: value }) });
+      setTesting(false);
+      setTestResult(r.ok ? r.data : null);
+    }, 320);
+    return () => clearTimeout(t);
+  }, [testInput, rules]);
 
   const persist = async (next, nextThreshold) => {
     setSaving(true); setBanner(null);
@@ -1165,46 +1604,207 @@ const AIIntentMatchingTab = () => {
     setEnabled(r.data.intentMatchingEnabled);
     setThreshold(r.data.intentMatchThreshold);
     setBanner({ tone:'ok', text: r.data.intentMatchingEnabled
-      ? 'Intent matching is on — inbound messages are fuzzy-routed to your keyword triggers.'
-      : 'Intent matching is off.' });
+      ? 'Intent matching is on — inbound messages are routed by your intents before they reach the agent.'
+      : 'Intent matching is off. Messages go straight to the agent.' });
   };
+
+  const toggleRule = async (rule) => {
+    // Optimistic: the switch is the whole interaction, and waiting a round trip
+    // to move it makes the card feel broken.
+    setRules(list => list.map(r => (r.id === rule.id ? { ...r, isActive: !r.isActive } : r)));
+    const r = await wJson(`/intents/${rule.id}`, { method:'PATCH', body: JSON.stringify({ isActive: !rule.isActive }) });
+    if (!r.ok) {
+      setRules(list => list.map(x => (x.id === rule.id ? { ...x, isActive: rule.isActive } : x)));
+      setBanner({ tone:'error', text:r.error });
+    }
+  };
+
+  const removeRule = async (rule) => {
+    if (!window.confirm(`Delete the intent “${rule.name}”? Messages it used to route will fall through to the AI agent.`)) return;
+    const r = await wJson(`/intents/${rule.id}`, { method:'DELETE' });
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    loadRules();
+  };
+
+  const activeCount = rules.filter(r => r.isActive).length;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="spark" color="#a78bfa" bg="rgba(167,139,250,0.1)"
-        title="AI Intent Matching" subtitle="Route messages to the best keyword trigger, even without an exact match"
+      <TabHeader icon="spark" color="#c4ff46" bg="rgba(196,255,70,0.1)"
+        title="Intent matching" subtitle={`Rules that route messages before the AI · ${activeCount} active`}
         badge={enabled && <Pill>On</Pill>}>
-        <Toggle on={enabled} onToggle={() => persist(!enabled, threshold)} disabled={saving} />
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <Btn variant="outline" onClick={() => setEditor({ intent: null })}>
+            <I n="plus" s={13} c="var(--t2)" /> New intent
+          </Btn>
+          <Toggle on={enabled} onToggle={() => persist(!enabled, threshold)} disabled={saving} />
+        </div>
       </TabHeader>
 
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 
-      <div style={{ ...card, padding:'22px 24px', display:'flex', flexDirection:'column', gap:16 }}>
-        <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.6 }}>
-          When someone writes “my package hasn’t arrived” and you have a trigger for <em>shipping</em>, intent matching connects them —
-          {llmAvailable ? ' using the server’s AI model, with a keyword-similarity fallback.' : ' currently using keyword similarity only (set GEMINI_API_KEY on the server for full AI understanding).'}
-        </p>
+      <div className="intent-grid" style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 320px', gap:16, alignItems:'start' }}>
+        {/* ── the rules ── */}
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {loadingRules && (
+            <div style={{ ...card, padding:'28px', textAlign:'center', color:'var(--t3)', fontSize:13 }}>Loading intents…</div>
+          )}
 
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-            <label style={{ fontSize:12, fontWeight:600, color:'var(--t1)' }}>Match sensitivity</label>
-            <span style={{ fontSize:12, color:'var(--t2)' }}>
-              {Math.round(threshold * 100)}% — {threshold >= 0.75 ? 'strict' : threshold >= 0.5 ? 'balanced' : 'loose'}
-            </span>
-          </div>
-          <input type="range" min="0.3" max="0.9" step="0.05" value={threshold}
-            onChange={e => setThreshold(parseFloat(e.target.value))}
-            onMouseUp={() => enabled && persist(true, threshold)}
-            onTouchEnd={() => enabled && persist(true, threshold)}
-            style={{ width:'100%', accentColor:'var(--green)' }} />
+          {!loadingRules && rules.length === 0 && (
+            <div style={{ ...card, padding:'30px 24px', textAlign:'center' }}>
+              <div style={{ fontSize:26, marginBottom:10 }}>🎯</div>
+              <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:6 }}>No intents yet</p>
+              <p style={{ fontSize:13, color:'var(--t2)', lineHeight:1.6, maxWidth:380, margin:'0 auto 16px' }}>
+                An intent is a thing customers ask for and where that question should go. Until you add one, every inbound
+                message goes straight to the AI agent.
+              </p>
+              <Btn onClick={() => setEditor({ intent: null })}>Create your first intent</Btn>
+            </div>
+          )}
+
+          {rules.map(rule => (
+            <div key={rule.id} style={{ ...card, padding:'16px 18px', opacity: rule.isActive ? 1 : 0.6, transition:'opacity .15s' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                <span style={{ width:36, height:36, borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, flexShrink:0 }}>
+                  {rule.icon}
+                </span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14.5, color:'var(--t1)' }}>{rule.name}</div>
+                  <div style={{ fontSize:12, color:'var(--t2)', marginTop:2 }}>→ {rule.routedTo}</div>
+                </div>
+                <span style={{ fontFamily:'var(--mono)', fontSize:10, color:'var(--t3)', flexShrink:0, whiteSpace:'nowrap' }}>
+                  {rule.matchCount30d}× / 30d
+                </span>
+                <button onClick={() => setEditor({ intent: rule })} aria-label={`Edit ${rule.name}`}
+                  style={{ width:28, height:28, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <I n="pencil" s={12} c="var(--t2)" />
+                </button>
+                <button onClick={() => removeRule(rule)} aria-label={`Delete ${rule.name}`}
+                  style={{ width:28, height:28, borderRadius:7, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <I n="trash" s={12} c="#f87171" />
+                </button>
+                <Toggle on={rule.isActive} onToggle={() => toggleRule(rule)} />
+              </div>
+              {Array.isArray(rule.phrases) && rule.phrases.length > 0 && (
+                <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:12, paddingLeft:48 }}>
+                  {rule.phrases.map(ph => (
+                    <span key={ph} style={{ fontFamily:'var(--mono)', fontSize:10.5, padding:'3px 9px', borderRadius:20, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t2)' }}>{ph}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
 
-        <Banner>
-          {triggerCount === null ? 'Checking your keyword triggers…'
-            : triggerCount === 0 ? 'You have no keyword triggers yet — add some in Custom Auto Reply first; intent matching routes messages to them.'
-            : `Routes to your ${triggerCount} keyword trigger${triggerCount === 1 ? '' : 's'}. Exact matches always win.`}
-        </Banner>
+        {/* ── tester + accuracy ── */}
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div style={{ ...card, padding:'18px' }}>
+            <div style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.14em', color:'var(--t3)', textTransform:'uppercase', marginBottom:10 }}>Test a message</div>
+            <input value={testInput} onChange={e => setTestInput(e.target.value)} placeholder="Type what a customer might say…" style={inputStyle} />
+
+            {testResult && (
+              <div style={{ marginTop:14 }}>
+                <div style={{ fontFamily:'var(--mono)', fontSize:9.5, letterSpacing:'.12em', color:'var(--t3)', textTransform:'uppercase', marginBottom:8 }}>
+                  {testResult.matched ? 'Matched intent' : 'No match'}
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                  <span style={{ fontSize:19 }}>{testResult.matched ? testResult.intent.icon : '🤖'}</span>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontSize:13.5, fontWeight:700, color:'var(--t1)' }}>
+                      {testResult.matched ? testResult.intent.name : 'Falls through to the AI agent'}
+                    </div>
+                    <div style={{ fontSize:11.5, color:'var(--t2)' }}>
+                      confidence {Math.round((testResult.confidence || 0) * 100)}% · threshold {Math.round(testResult.threshold * 100)}%
+                    </div>
+                  </div>
+                </div>
+                {/* The bar is read against the threshold, so the threshold is
+                    drawn on it — a percentage alone does not tell you whether
+                    it was enough. */}
+                <div style={{ position:'relative', height:6, borderRadius:6, background:'rgba(255,255,255,0.07)', overflow:'hidden', marginBottom:4 }}>
+                  <div style={{ width:`${Math.round((testResult.confidence || 0) * 100)}%`, height:'100%', borderRadius:6, background: testResult.matched ? 'var(--green)' : '#fbbf24', transition:'width .2s' }} />
+                </div>
+                <div style={{ position:'relative', height:10, marginBottom:10 }}>
+                  <span style={{ position:'absolute', left:`${Math.round(testResult.threshold * 100)}%`, top:-10, width:1, height:12, background:'var(--t3)' }} />
+                </div>
+                <div style={{ fontSize:12, color:'var(--t2)' }}>
+                  Routed to <strong style={{ color:'var(--t1)' }}>{testResult.routedTo}</strong>
+                </div>
+                {testResult.matched && testResult.matchedPhrase && (
+                  <div style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>
+                    matched on “{testResult.matchedPhrase}”
+                  </div>
+                )}
+                {!testResult.enabled && (
+                  <p style={{ fontSize:11, color:'#fbbf24', marginTop:10, lineHeight:1.5 }}>
+                    Intent matching is switched off, so this routing is a preview — live messages still go straight to the agent.
+                  </p>
+                )}
+              </div>
+            )}
+            {testing && !testResult && <p style={{ fontSize:12, color:'var(--t3)', marginTop:12 }}>Matching…</p>}
+          </div>
+
+          <div style={{ ...card, padding:'18px' }}>
+            <div style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.14em', color:'var(--t3)', textTransform:'uppercase', marginBottom:12 }}>
+              Match accuracy · {stats?.days ?? 30}d
+            </div>
+            {!stats || stats.total === 0 ? (
+              <p style={{ fontSize:12, color:'var(--t3)', lineHeight:1.6 }}>
+                No routed messages yet. Once inbound messages start flowing through these intents, their hit rate appears here.
+              </p>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+                {[
+                  ['Auto-matched',           stats.matched,     'var(--lime)'],
+                  ['Fell through to AI',     stats.fellThrough, 'var(--cyan)'],
+                  ['Mismatched (corrected)', stats.mismatched,  '#fbbf24'],
+                ].map(([label, value, colour]) => (
+                  <div key={label}>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:5 }}>
+                      <span style={{ color:'var(--t2)' }}>{label}</span>
+                      <span style={{ color:colour, fontWeight:700, fontFamily:'var(--mono)' }}>{value.pct}%</span>
+                    </div>
+                    <div style={{ height:4, borderRadius:4, background:'rgba(255,255,255,0.07)', overflow:'hidden' }}>
+                      <div style={{ width:`${value.pct}%`, height:'100%', background:colour, borderRadius:4 }} />
+                    </div>
+                  </div>
+                ))}
+                <p style={{ fontSize:10.5, color:'var(--t3)', marginTop:2 }}>{stats.total.toLocaleString()} routed messages</p>
+              </div>
+            )}
+          </div>
+
+          {/* Sensitivity stays with the tester: it is the number the confidence
+              bar above is measured against. */}
+          <div style={{ ...card, padding:'18px' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+              <label htmlFor="intent-sensitivity" style={{ fontSize:12, fontWeight:600, color:'var(--t1)' }}>Match sensitivity</label>
+              <span style={{ fontSize:12, color:'var(--t2)' }}>
+                {Math.round(threshold * 100)}% — {threshold >= 0.75 ? 'strict' : threshold >= 0.5 ? 'balanced' : 'loose'}
+              </span>
+            </div>
+            <input id="intent-sensitivity" type="range" min="0.3" max="0.9" step="0.05" value={threshold}
+              onChange={e => setThreshold(parseFloat(e.target.value))}
+              onMouseUp={() => enabled && persist(true, threshold)}
+              onTouchEnd={() => enabled && persist(true, threshold)}
+              style={{ width:'100%', accentColor:'var(--green)' }} />
+            <p style={{ fontSize:11, color:'var(--t3)', marginTop:8, lineHeight:1.5 }}>
+              {llmAvailable
+                ? 'Anything below this falls through to the AI agent, which answers in its own words.'
+                : 'The server has no AI model configured, so anything that falls through gets your default auto-reply instead of a generated answer.'}
+            </p>
+          </div>
+        </div>
       </div>
+
+      {editor && (
+        <IntentEditor
+          intent={editor.intent}
+          onClose={() => setEditor(null)}
+          onSaved={() => { setEditor(null); loadRules(); loadStats(); }}
+        />
+      )}
     </div>
   );
 };
@@ -1217,29 +1817,83 @@ const AIIntentMatchingTab = () => {
 // the campaign's real status rather than a made-up on/off: a paused (cancelled)
 // campaign still has customers holding a message with a live CTA.
 const CAMPAIGN_TONE = {
-  RUNNING:   { label:'Active',    fg:'var(--green)', bg:'var(--gbg)',            bd:'var(--gbd)' },
-  SCHEDULED: { label:'Scheduled', fg:'#38bdf8',      bg:'rgba(56,189,248,.08)',  bd:'rgba(56,189,248,.25)' },
-  COMPLETED: { label:'Completed', fg:'var(--green)', bg:'var(--gbg)',            bd:'var(--gbd)' },
+  RUNNING:   { label:'Active',    fg:'var(--success)', bg:'var(--sbg)',          bd:'var(--sbd)' },
+  SCHEDULED: { label:'Scheduled', fg:'#9d6bff',      bg:'rgba(157,107,255,.08)',  bd:'rgba(157,107,255,.25)' },
+  COMPLETED: { label:'Completed', fg:'var(--success)', bg:'var(--sbg)',          bd:'var(--sbd)' },
   DRAFT:     { label:'Draft',     fg:'var(--t2)',    bg:'rgba(255,255,255,.05)', bd:'var(--bd)' },
   CANCELLED: { label:'Paused',    fg:'#fbbf24',      bg:'rgba(245,158,11,.08)',  bd:'rgba(245,158,11,.25)' },
   FAILED:    { label:'Failed',    fg:'#f87171',      bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.25)' },
 };
+// The eight things that make an agent answer well, in the order you configure
+// them. The section rail is the page's spine: each one edits a different part
+// of what the model is handed, and lumping them into one long form was what
+// made the previous version unreadable once it grew past three fields.
+const AGENT_SECTIONS = [
+  { id: 'identity',    icon: 'user',   label: 'Identity',          kicker: 'Identity & tone',        blurb: 'How the agent introduces itself and speaks to customers.' },
+  { id: 'purpose',     icon: 'spark',  label: 'Purpose',           kicker: 'What it is for',         blurb: 'The job this agent exists to do. Given to the model as standing context.' },
+  { id: 'knowledge',   icon: 'db',     label: 'Knowledge',         kicker: 'Knowledge sources',      blurb: 'What the agent is allowed to know. It answers only from these.' },
+  { id: 'instructions',icon: 'note',   label: 'Instructions',      kicker: 'Answering rules',        blurb: 'How to answer — length, formatting, what to do when unsure.' },
+  { id: 'campaign',    icon: 'send',   label: 'Campaign awareness',kicker: 'Campaigns using it',     blurb: 'Where this agent is attached, and what it answers about there.' },
+  { id: 'escalation',  icon: 'wflow',  label: 'Escalation',        kicker: 'Escalation & handoff',   blurb: 'When the agent steps back and brings in a human.' },
+  { id: 'safety',      icon: 'shield', label: 'Safety',            kicker: 'Guardrails',             blurb: 'What the agent must never do, in its own words.' },
+  { id: 'performance', icon: 'chart',  label: 'Performance',       kicker: 'Readiness',              blurb: 'What is still missing before this agent is ready for customers.' },
+];
+
+const AGENT_LANGUAGES = ['English', 'हिंदी', 'Hinglish', 'मराठी', 'বাংলা', 'தமிழ்', 'తెలుగు', 'ગુજરાતી'];
+
+// Escalation rules mirror backend ESCALATION_RULES. The ids are the contract;
+// the labels are this page's business.
+const ESCALATION_RULES = [
+  { id: 'refund',            label: 'Refund or complaint intent',  hint: 'Anything about money going back' },
+  { id: 'negativeSentiment', label: 'Negative sentiment detected',  hint: 'Frustration, anger, repeated complaints' },
+  { id: 'asksForHuman',      label: 'Customer asks for a human',    hint: 'An explicit request always wins' },
+  { id: 'highIntent',        label: 'High purchase intent',         hint: 'Hand a ready buyer to a person' },
+];
+
+const SOURCE_STATUS = {
+  READY:   { label: 'CONNECTED', fg: 'var(--success)', bg: 'var(--sbg)',              bd: 'var(--sbd)' },
+  PENDING: { label: 'INDEXING',  fg: '#fbbf24',        bg: 'rgba(245,158,11,.08)',   bd: 'rgba(245,158,11,.28)' },
+  ERROR:   { label: 'FAILED',    fg: '#f87171',        bg: 'rgba(239,68,68,.08)',    bd: 'rgba(239,68,68,.25)' },
+};
+
+const SectionIntro = ({ section }) => (
+  <div style={{ marginBottom: 18 }}>
+    <div style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.16em', textTransform:'uppercase', color:'var(--t3)', marginBottom:7 }}>Configure</div>
+    <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:19, color:'var(--t1)', letterSpacing:'-.02em' }}>{section.kicker}</h3>
+    <p style={{ fontSize:13, color:'var(--t2)', marginTop:5, lineHeight:1.6, maxWidth:520 }}>{section.blurb}</p>
+  </div>
+);
+
 const WhatsAppAIAgentTab = () => {
   const [cfg, setCfg] = useState(null);
+  const [section, setSection] = useState('identity');
+
+  // Identity
   const [name, setName] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [languages, setLanguages] = useState(['English']);
+  // The sections added alongside it
+  const [purpose, setPurpose] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [safetyNote, setSafetyNote] = useState('');
+  const [escThreshold, setEscThreshold] = useState(0.65);
+  const [escRules, setEscRules] = useState({});
+
   const [knowledge, setKnowledge] = useState('');
   const [uploadingDoc, setUploadingDoc] = useState(false);
-  // What the last upload did — how much was added, and whether the 12k ceiling
-  // forced anything to be dropped.
   const [uploadNote, setUploadNote] = useState(null);
+  const [sources, setSources] = useState([]);
+  const [newSourceUrl, setNewSourceUrl] = useState('');
+  const [addingSource, setAddingSource] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [deploying, setDeploying] = useState(false);
-  const [testMsg, setTestMsg] = useState('What are your business hours?');
-  const [testReply, setTestReply] = useState(null);
-  const [testing, setTesting] = useState(false);
   const [banner, setBanner] = useState(null);
-  // Campaign usage + campaign-context testing.
+
+  // Test Lab
+  const [testMsg, setTestMsg] = useState('What are your business hours?');
+  const [thread, setThread] = useState([]);
+  const [testing, setTesting] = useState(false);
   const [usage, setUsage] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
   const [testMode, setTestMode] = useState('general');
@@ -1247,20 +1901,35 @@ const WhatsAppAIAgentTab = () => {
 
   const load = useCallback(() => wJson('/ai-agent/config').then(r => {
     if (!r.ok || !r.data) return;
-    setCfg(r.data);
-    setName(r.data.aiAgentName || '');
-    setSystemPrompt(r.data.aiAgentPrompt || '');
-    setKnowledge(r.data.aiAgentKnowledge || '');
+    const d = r.data;
+    setCfg(d);
+    setName(d.aiAgentName || '');
+    setSystemPrompt(d.aiAgentPrompt || '');
+    setKnowledge(d.aiAgentKnowledge || '');
+    setPurpose(d.aiAgentPurpose || '');
+    setInstructions(d.aiAgentInstructions || '');
+    setSafetyNote(d.aiAgentSafetyNote || '');
+    setLanguages(Array.isArray(d.aiAgentLanguages) && d.aiAgentLanguages.length ? d.aiAgentLanguages : ['English']);
+    setEscThreshold(typeof d.escalationThreshold === 'number' ? d.escalationThreshold : 0.65);
+    setEscRules(d.escalationRules || {});
   }), []);
   useEffect(() => { load(); }, [load]);
+
+  // Structured knowledge sources are the workspace's one corpus — the same
+  // rows the website widget indexes. Surfacing them here rather than giving the
+  // agent a private second knowledge base is deliberate: two corpora that
+  // disagree is how an agent and a widget end up quoting different return
+  // policies.
+  const loadSources = useCallback(() => wJson('/widgets/knowledge').then(r => {
+    if (r.ok && Array.isArray(r.data)) setSources(r.data);
+  }), []);
+  useEffect(() => { loadSources(); }, [loadSources]);
 
   const loadUsage = useCallback(() => wJson('/ai-agent/campaigns').then(r => {
     if (r.ok && r.data) setUsage(r.data);
   }), []);
   useEffect(() => { loadUsage(); }, [loadUsage]);
 
-  // Every campaign, not only the ones already using the agent: the point of
-  // testing with campaign context is to check the answers *before* launching.
   useEffect(() => {
     wJson('/campaigns?limit=100').then(r => {
       const list = Array.isArray(r.data) ? r.data : r.data?.data;
@@ -1270,36 +1939,42 @@ const WhatsAppAIAgentTab = () => {
 
   const validateFields = () => {
     if (name.trim()) { const e = validateMeaningfulText(name, 'Agent name'); if (e) return e; }
-    if (systemPrompt.trim()) { const e = validateMeaningfulText(systemPrompt, 'System prompt'); if (e) return e; }
+    if (systemPrompt.trim()) { const e = validateMeaningfulText(systemPrompt, 'Persona'); if (e) return e; }
     return null;
   };
+
+  // One payload for every section: the page saves the whole agent, so moving
+  // between sections can never lose an edit made in the one you left.
+  const payload = () => JSON.stringify({
+    name, systemPrompt, knowledge, purpose, instructions, safetyNote,
+    languages, escalationThreshold: escThreshold, escalationRules: escRules,
+  });
 
   const save = async () => {
     const fieldError = validateFields();
     if (fieldError) { setBanner({ tone:'error', text:fieldError }); return; }
     setSaving(true); setBanner(null);
-    const r = await wJson('/ai-agent/config', { method:'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
+    const r = await wJson('/ai-agent/config', { method:'PATCH', body: payload() });
     setSaving(false);
     if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    setCfg(r.data);
     setBanner({ tone:'ok', text:'Configuration saved.' });
-    load();
   };
 
   const deploy = async () => {
     const fieldError = validateFields();
     if (fieldError) { setBanner({ tone:'error', text:fieldError }); return; }
     setDeploying(true); setBanner(null);
-    await wJson('/ai-agent/config', { method:'PATCH', body: JSON.stringify({ name, systemPrompt, knowledge }) });
+    await wJson('/ai-agent/config', { method:'PATCH', body: payload() });
     const r = await wJson(cfg?.aiAgentEnabled ? '/ai-agent/undeploy' : '/ai-agent/deploy', { method:'POST' });
     setDeploying(false);
     if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
-    setBanner({ tone:'ok', text: r.data.aiAgentEnabled ? 'Agent deployed — it now answers inbound messages when no automation rule matches, and can be attached to campaigns.' : 'Agent undeployed.' });
+    setBanner({ tone:'ok', text: r.data.aiAgentEnabled
+      ? 'Agent deployed — it now answers inbound messages when no automation rule matches, and can be attached to campaigns.'
+      : 'Agent undeployed.' });
     load();
   };
 
-  // Appends an uploaded document's text to the knowledge base server-side —
-  // the extraction needs a parser, and the result has to be measured against
-  // the 12,000-character ceiling before it is stored.
   const uploadKnowledgeDoc = async (file) => {
     if (!file) return;
     setUploadingDoc(true);
@@ -1309,8 +1984,6 @@ const WhatsAppAIAgentTab = () => {
     const r = await wJson('/ai-agent/knowledge/upload', { method: 'POST', body: fd });
     setUploadingDoc(false);
     if (!r.ok) { setUploadNote({ error: r.error }); return; }
-    // The server is the source of truth for what was stored, so the textarea
-    // takes what came back rather than what was uploaded.
     const d = r.data;
     setKnowledge(d.knowledge);
     setUploadNote({
@@ -1321,189 +1994,500 @@ const WhatsAppAIAgentTab = () => {
     });
   };
 
+  const addUrlSource = async () => {
+    const url = newSourceUrl.trim();
+    if (!url) return;
+    setAddingSource(true); setBanner(null);
+    const r = await wJson('/widgets/knowledge', { method:'POST', body: JSON.stringify({ kind:'url', url }) });
+    setAddingSource(false);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    setNewSourceUrl('');
+    loadSources();
+    load();   // readiness moves the moment a source connects
+  };
+
+  const removeSource = async (source) => {
+    if (!window.confirm(`Remove "${source.title}" from the agent's knowledge?`)) return;
+    const r = await wJson(`/widgets/knowledge/${source.id}`, { method:'DELETE' });
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    loadSources();
+    load();
+  };
+
   const runTest = async () => {
-    if (!testMsg.trim()) return;
+    const question = testMsg.trim();
+    if (!question) return;
     if (testMode === 'campaign' && !testCampaignId) {
-      setTestReply({ error: 'Select a campaign to test against.' });
+      setThread(t => [...t, { role:'error', text:'Select a campaign to test against.' }]);
       return;
     }
-    setTesting(true); setTestReply(null);
+    setTesting(true);
+    setThread(t => [...t, { role:'customer', text: question }]);
     const r = await wJson('/ai-agent/test', { method:'POST', body: JSON.stringify({
-      message: testMsg,
+      message: question,
       mode: testMode,
       ...(testMode === 'campaign' ? { campaignId: testCampaignId } : {}),
     }) });
     setTesting(false);
-    setTestReply(r.ok && r.data?.ok
-      ? { ok: r.data.reply, context: r.data.context }
-      : { error: r.data?.reason || r.data?.error || r.error || 'Test failed' });
+    setTestMsg('');
+    if (r.ok && r.data?.ok) {
+      setThread(t => [...t, {
+        role: 'agent',
+        text: r.data.reply,
+        sources: r.data.sources || [],
+        grounding: r.data.grounding,
+        context: r.data.context,
+      }]);
+    } else {
+      setThread(t => [...t, { role:'error', text: r.data?.reason || r.data?.error || r.error || 'Test failed' }]);
+    }
   };
 
   const deployed = cfg?.aiAgentEnabled === true;
   const llmMissing = cfg && cfg.llmAvailable === false;
+  const readiness = cfg?.readiness;
+  const active = AGENT_SECTIONS.find(x => x.id === section) || AGENT_SECTIONS[0];
+
+  const toggleLanguage = (lang) => setLanguages(list =>
+    list.includes(lang) ? list.filter(l => l !== lang) : [...list, lang]);
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="bot" color="#38bdf8" bg="rgba(56,189,248,0.1)"
-        title="WhatsApp AI Agent" subtitle="Answers campaign questions from its CTA, and inbound messages when no automation rule matches"
+      <TabHeader icon="bot" color="#9d6bff" bg="rgba(157,107,255,0.1)"
+        title={name || 'WhatsApp AI Agent'}
+        subtitle={deployed
+          ? 'Deployed · answering campaign CTAs and inbound messages'
+          : 'Not deployed · configure it here, then put it live'}
         badge={deployed && <Pill>Live</Pill>}>
-        <Btn onClick={deploy} disabled={deploying || llmMissing}
-          style={deployed ? { background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', boxShadow:'none' } : { boxShadow:'var(--glow)' }}>
-          {deploying ? 'Working…' : deployed ? 'Undeploy Agent' : <><I n="play" s={14} c="#060913"/> Deploy Agent</>}
-        </Btn>
+        <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+          <Btn variant="outline" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Btn>
+          <Btn onClick={deploy} disabled={deploying || llmMissing}
+            style={deployed ? { background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', boxShadow:'none' } : { boxShadow:'var(--glow)' }}>
+            {deploying ? 'Working…' : deployed ? 'Undeploy agent' : <><I n="play" s={14} c="#08090c"/> Deploy agent</>}
+          </Btn>
+        </div>
       </TabHeader>
 
       {llmMissing && <Banner tone="warn">No LLM provider is configured on the server. Set <code>GEMINI_API_KEY</code> in the backend environment to enable deployment and live testing.</Banner>}
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))', gap:16 }}>
-        <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
-          <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, color:'var(--t1)' }}>Configuration</h3>
-          <div><label style={labelStyle}>Agent name</label>
-            <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} maxLength={80} /></div>
-          <div><label style={labelStyle}>System prompt</label>
-            <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4} style={{ ...inputStyle, resize:'vertical' }} maxLength={4000} /></div>
-          <div><label style={labelStyle}>Knowledge base</label>
-            <textarea value={knowledge} onChange={e => setKnowledge(e.target.value)} rows={6} style={{ ...inputStyle, resize:'vertical' }} maxLength={12000}
-              placeholder={"Business hours: Mon-Sat 9am-7pm IST\nReturns: within 7 days with receipt\nShipping: 2-4 business days"} />
+      <div className="agent-grid" style={{ display:'grid', gridTemplateColumns:'190px minmax(0,1fr) 330px', gap:16, alignItems:'start' }}>
 
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginTop:7, flexWrap:'wrap' }}>
-              <label style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:12, color:'var(--t2)', cursor: uploadingDoc ? 'wait' : 'pointer' }}>
-                <span style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 11px', borderRadius:8, border:'1px solid var(--bd)', background:'rgba(255,255,255,0.04)', fontWeight:600 }}>
-                  <I n="file" s={12} c="var(--t2)" />
-                  {uploadingDoc ? 'Reading…' : 'Upload document'}
-                </span>
-                <input type="file" accept=".pdf,.docx,.txt,.md,.csv" disabled={uploadingDoc}
-                  onChange={e => { uploadKnowledgeDoc(e.target.files?.[0]); e.target.value = ''; }}
-                  style={{ display:'none' }} />
-              </label>
-              <span style={{ fontSize:11, color: knowledge.length >= 12000 ? '#fbbf24' : 'var(--t3)' }}>
-                {knowledge.length.toLocaleString()} / 12,000
-              </span>
-            </div>
+        {/* ── section rail + readiness ── */}
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div style={{ ...card, padding:8, display:'flex', flexDirection:'column', gap:2 }}>
+            {AGENT_SECTIONS.map(sec => {
+              const on = sec.id === section;
+              return (
+                <button key={sec.id} onClick={() => setSection(sec.id)}
+                  style={{ display:'flex', alignItems:'center', gap:9, padding:'9px 10px', borderRadius:9, border:'none', cursor:'pointer', textAlign:'left', width:'100%',
+                           fontFamily:"'Manrope',sans-serif", fontSize:13, fontWeight: on ? 700 : 500,
+                           color: on ? 'var(--t1)' : 'var(--t2)',
+                           background: on ? 'rgba(157,107,255,0.12)' : 'transparent',
+                           borderLeft: `2px solid ${on ? '#9d6bff' : 'transparent'}` }}>
+                  <I n={sec.icon} s={14} c={on ? '#9d6bff' : 'var(--t3)'} />
+                  {sec.label}
+                </button>
+              );
+            })}
+          </div>
 
-            <p style={{ fontSize:11, color:'var(--t3)', marginTop:5, lineHeight:1.5 }}>
-              PDF, Word (.docx) or plain text. The text is extracted and appended to whatever is above — the file itself is not stored.
-            </p>
-
-            {uploadNote && (
-              <div style={{ marginTop:8, padding:'8px 11px', borderRadius:8, fontSize:11.5, lineHeight:1.5,
-                background: uploadNote.error ? 'rgba(239,68,68,.08)' : uploadNote.truncated ? 'rgba(245,158,11,.08)' : 'var(--gbg)',
-                border: `1px solid ${uploadNote.error ? 'rgba(239,68,68,.25)' : uploadNote.truncated ? 'rgba(245,158,11,.28)' : 'var(--gbd)'}`,
-                color: uploadNote.error ? '#f87171' : uploadNote.truncated ? '#fbbf24' : 'var(--green)' }}>
-                {uploadNote.error || uploadNote.text}
+          {readiness && (
+            <div style={{ ...card, padding:16 }}>
+              <div style={{ fontFamily:'var(--mono)', fontSize:9.5, letterSpacing:'.14em', textTransform:'uppercase', color:'var(--t3)', marginBottom:8 }}>AI readiness</div>
+              <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:30, color: readiness.score >= 80 ? 'var(--lime)' : readiness.score >= 50 ? 'var(--accent)' : '#fbbf24', letterSpacing:'-.03em', lineHeight:1 }}>
+                {readiness.score}%
               </div>
-            )}
-          </div>
-          <div style={{ display:'flex', justifyContent:'flex-end' }}>
-            <Btn variant="outline" size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Config'}</Btn>
-          </div>
+              <div style={{ height:4, borderRadius:4, background:'rgba(255,255,255,0.07)', overflow:'hidden', margin:'10px 0 9px' }}>
+                <div style={{ width:`${readiness.score}%`, height:'100%', borderRadius:4, background:'var(--grad-cta)', transition:'width .3s' }} />
+              </div>
+              <p style={{ fontSize:11.5, color:'var(--t2)', lineHeight:1.5 }}>
+                {readiness.nextStep ? readiness.nextStep : 'Everything is configured.'}
+              </p>
+            </div>
+          )}
         </div>
 
-        <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
-          <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, color:'var(--t1)' }}>Test the agent</h3>
-          <p style={{ fontSize:12, color:'var(--t2)' }}>Runs your current prompt + knowledge against the model — exactly what a customer would get.</p>
+        {/* ── section body ── */}
+        <div style={{ ...card, padding:22, minWidth:0 }}>
+          <SectionIntro section={active} />
 
-          {/* Campaign mode answers the way someone who tapped that campaign's
-              CTA would be answered, so the offer can be checked before it is
-              paid for and sent. */}
-          <div>
-            <label style={labelStyle}>Test mode</label>
-            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-              {[['general', 'General Agent'], ['campaign', 'Campaign Context']].map(([id, label]) => (
-                <div key={id} onClick={() => { setTestMode(id); setTestReply(null); }}
-                  style={{ display:'flex', alignItems:'center', gap:7, padding:'7px 13px', borderRadius:8, cursor:'pointer', fontSize:12.5, fontWeight:500, border:`1px solid ${testMode === id ? 'var(--green)' : 'var(--bd)'}`, background: testMode === id ? 'var(--gbg)' : 'transparent', color: testMode === id ? 'var(--green)' : 'var(--t2)', transition:'all .15s' }}>
-                  <span style={{ width:12, height:12, borderRadius:'50%', border:`1.5px solid ${testMode === id ? 'var(--green)' : 'var(--bd)'}`, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    {testMode === id && <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--green)' }} />}
+          {section === 'identity' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              <div>
+                <label style={labelStyle}>Agent name</label>
+                <input value={name} onChange={e => setName(e.target.value)} style={inputStyle} maxLength={80} placeholder="Support Agent" />
+              </div>
+              <div>
+                <label style={labelStyle}>Persona & tone</label>
+                <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} maxLength={4000}
+                  style={{ ...inputStyle, resize:'vertical' }}
+                  placeholder="Warm, concise and helpful. Speaks like a knowledgeable store associate — never pushy, never robotic." />
+              </div>
+              <div>
+                <label style={labelStyle}>Languages</label>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
+                  {AGENT_LANGUAGES.map(lang => {
+                    const on = languages.includes(lang);
+                    return (
+                      <button key={lang} type="button" onClick={() => toggleLanguage(lang)}
+                        style={{ fontSize:12.5, fontWeight:600, padding:'6px 13px', borderRadius:100, cursor:'pointer', fontFamily:"'Manrope',sans-serif",
+                                 background: on ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
+                                 border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`,
+                                 color: on ? 'var(--green)' : 'var(--t2)' }}>{lang}</button>
+                    );
+                  })}
+                </div>
+                <p style={{ fontSize:11, color:'var(--t3)', marginTop:8, lineHeight:1.5 }}>
+                  The agent replies in the customer’s language. This tells it which ones you actually support.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {section === 'purpose' && (
+            <div>
+              <label style={labelStyle}>What this agent is for</label>
+              <textarea value={purpose} onChange={e => setPurpose(e.target.value)} rows={6} maxLength={2000}
+                style={{ ...inputStyle, resize:'vertical' }}
+                placeholder="Answer questions about live offers and orders for our D2C footwear store, and hand anything about refunds to the support team." />
+              <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:8, lineHeight:1.6 }}>
+                One or two sentences. This rides along with every reply as standing context, so it is worth being specific
+                about the business rather than the tone — tone belongs in Identity.
+              </p>
+            </div>
+          )}
+
+          {section === 'knowledge' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
+              {/* Structured sources first: they are the ones with a status. */}
+              <div>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:10, flexWrap:'wrap' }}>
+                  <span style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:'var(--t3)' }}>
+                    Connected sources · {sources.length}
                   </span>
-                  {label}
+                </div>
+
+                {sources.length === 0 && (
+                  <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.6, marginBottom:12 }}>
+                    Nothing connected yet. Add your website, product pages or a policy page and the agent can answer from them.
+                  </p>
+                )}
+
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {sources.map(src => {
+                    const tone = SOURCE_STATUS[src.status] || SOURCE_STATUS.PENDING;
+                    return (
+                      <div key={src.id} style={{ display:'flex', alignItems:'center', gap:11, padding:'11px 13px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
+                        <I n={src.kind === 'url' ? 'globe' : src.kind === 'file' ? 'file' : 'note'} s={15} c="var(--t2)" />
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:600, color:'var(--t1)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{src.title}</div>
+                          <div style={{ fontSize:11, color:'var(--t3)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                            {src.error
+                              ? src.error
+                              : `${(src.chars || 0).toLocaleString()} characters${src.fetchedAt ? ` · read ${new Date(src.fetchedAt).toLocaleDateString('en-IN', { day:'numeric', month:'short' })}` : ''}`}
+                          </div>
+                        </div>
+                        <span style={{ fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.06em', padding:'3px 8px', borderRadius:6, flexShrink:0, background:tone.bg, border:`1px solid ${tone.bd}`, color:tone.fg }}>
+                          {tone.label}
+                        </span>
+                        <button onClick={() => removeSource(src)} aria-label={`Remove ${src.title}`}
+                          style={{ width:26, height:26, borderRadius:7, background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                          <I n="trash" s={11} c="#f87171" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ display:'flex', gap:8, marginTop:12, flexWrap:'wrap' }}>
+                  <input value={newSourceUrl} onChange={e => setNewSourceUrl(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addUrlSource(); } }}
+                    placeholder="https://yourstore.com/faq" style={{ ...inputStyle, flex:'1 1 220px' }} />
+                  <Btn variant="outline" onClick={addUrlSource} disabled={addingSource}>
+                    {addingSource ? 'Reading…' : 'Add source'}
+                  </Btn>
+                </div>
+                <p style={{ fontSize:11, color:'var(--t3)', marginTop:7, lineHeight:1.5 }}>
+                  Shared with the website widget — one corpus, so the agent and the widget can never quote different policies.
+                </p>
+              </div>
+
+              {/* The inline base stays: it is what short, hand-written facts
+                  belong in, and it is what the campaign reply path already
+                  reads. */}
+              <div style={{ borderTop:'1px solid var(--bd)', paddingTop:16 }}>
+                <label style={labelStyle}>Notes the agent should always know</label>
+                <textarea value={knowledge} onChange={e => setKnowledge(e.target.value)} rows={6} maxLength={12000}
+                  style={{ ...inputStyle, resize:'vertical' }}
+                  placeholder={"Business hours: Mon-Sat 9am-7pm IST\nReturns: within 7 days with receipt\nShipping: 2-4 business days"} />
+
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginTop:7, flexWrap:'wrap' }}>
+                  <label style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:12, color:'var(--t2)', cursor: uploadingDoc ? 'wait' : 'pointer' }}>
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 11px', borderRadius:8, border:'1px solid var(--bd)', background:'rgba(255,255,255,0.04)', fontWeight:600 }}>
+                      <I n="file" s={12} c="var(--t2)" />
+                      {uploadingDoc ? 'Reading…' : 'Upload document'}
+                    </span>
+                    <input type="file" accept=".pdf,.docx,.txt,.md,.csv" disabled={uploadingDoc}
+                      onChange={e => { uploadKnowledgeDoc(e.target.files?.[0]); e.target.value = ''; }}
+                      style={{ display:'none' }} />
+                  </label>
+                  <span style={{ fontSize:11, color: knowledge.length >= 12000 ? '#fbbf24' : 'var(--t3)' }}>
+                    {knowledge.length.toLocaleString()} / 12,000
+                  </span>
+                </div>
+
+                <p style={{ fontSize:11, color:'var(--t3)', marginTop:5, lineHeight:1.5 }}>
+                  PDF, Word (.docx) or plain text. The text is extracted and appended to whatever is above — the file itself is not stored.
+                </p>
+
+                {uploadNote && (
+                  <div style={{ marginTop:8, padding:'8px 11px', borderRadius:8, fontSize:11.5, lineHeight:1.5,
+                    background: uploadNote.error ? 'rgba(239,68,68,.08)' : uploadNote.truncated ? 'rgba(245,158,11,.08)' : 'var(--gbg)',
+                    border: `1px solid ${uploadNote.error ? 'rgba(239,68,68,.25)' : uploadNote.truncated ? 'rgba(245,158,11,.28)' : 'var(--gbd)'}`,
+                    color: uploadNote.error ? '#f87171' : uploadNote.truncated ? '#fbbf24' : 'var(--green)' }}>
+                    {uploadNote.error || uploadNote.text}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {section === 'instructions' && (
+            <div>
+              <label style={labelStyle}>How the agent should answer</label>
+              <textarea value={instructions} onChange={e => setInstructions(e.target.value)} rows={8} maxLength={4000}
+                style={{ ...inputStyle, resize:'vertical' }}
+                placeholder={"Keep replies to two or three sentences.\nAlways confirm the size before promising stock.\nIf a fact is not in the campaign or the knowledge base, say so and offer a human."} />
+              <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:8, lineHeight:1.6 }}>
+                One instruction per line reads best. These are appended to the persona, so they win where the two disagree.
+              </p>
+            </div>
+          )}
+
+          {section === 'campaign' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                <p style={{ fontSize:13, color:'var(--t2)' }}>
+                  {usage === null ? 'Checking campaigns…'
+                    : usage.total === 0 ? 'No campaign uses this agent yet — turn it on in the AI Agent step of the campaign wizard.'
+                    : `Attached to ${usage.total} campaign${usage.total === 1 ? '' : 's'}.`}
+                </p>
+                <Btn variant="outline" size="sm" onClick={loadUsage}>Refresh</Btn>
+              </div>
+
+              {usage?.campaigns?.length > 0 && (
+                <div style={{ border:'1px solid var(--bd)', borderRadius:10, overflow:'hidden' }}>
+                  {usage.campaigns.map((c, i) => (
+                    <div key={c.id} style={{ padding:'12px 14px', borderBottom: i < usage.campaigns.length - 1 ? '1px solid var(--bd)' : 'none', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                      <div style={{ flex:1, minWidth:180 }}>
+                        <p style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{c.name}</p>
+                        <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:2 }}>
+                          CTA “{c.aiAgentCtaLabel || 'Ask Anything'}”
+                          {c.totalContacts ? ` · ${c.totalContacts} recipient${c.totalContacts === 1 ? '' : 's'}` : ''}
+                        </p>
+                      </div>
+                      {c.activeSessions > 0 && (
+                        <span style={{ fontSize:11, fontWeight:600, color:'var(--green)' }}>
+                          {c.activeSessions} chat{c.activeSessions === 1 ? '' : 's'} live
+                        </span>
+                      )}
+                      <span style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20, textTransform:'capitalize',
+                        color: CAMPAIGN_TONE[c.status]?.fg || 'var(--t2)',
+                        background: CAMPAIGN_TONE[c.status]?.bg || 'rgba(255,255,255,0.05)',
+                        border: `1px solid ${CAMPAIGN_TONE[c.status]?.bd || 'var(--bd)'}` }}>
+                        {CAMPAIGN_TONE[c.status]?.label || c.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ padding:'11px 14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:11.5, color:'var(--t3)', lineHeight:1.6 }}>
+                Reply order on inbound messages: <strong style={{ color:'var(--t2)' }}>active campaign AI chat</strong> → form in progress → workflow → keyword trigger → intent match → welcome/out-of-office → <strong style={{ color:'var(--t2)' }}>this agent</strong>.
+              </div>
+            </div>
+          )}
+
+          {section === 'escalation' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+              <div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8 }}>
+                  <label htmlFor="esc-threshold" style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>Confidence threshold for handoff</label>
+                  <span style={{ fontFamily:'var(--mono)', fontSize:14, fontWeight:700, color:'var(--accent)' }}>{Math.round(escThreshold * 100)}%</span>
+                </div>
+                <input id="esc-threshold" type="range" min="0.3" max="0.95" step="0.05" value={escThreshold}
+                  onChange={e => setEscThreshold(parseFloat(e.target.value))}
+                  style={{ width:'100%', accentColor:'var(--green)' }} />
+                <p style={{ fontSize:12, color:'var(--t2)', marginTop:9, lineHeight:1.6 }}>
+                  Below {Math.round(escThreshold * 100)}% confidence, or on any of the intents below, the agent stops answering
+                  and hands the conversation to a human in the shared inbox.
+                </p>
+              </div>
+
+              <div>
+                <div style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:'var(--t3)', marginBottom:10 }}>Always escalate on</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {ESCALATION_RULES.map(rule => (
+                    <div key={rule.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'11px 13px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{rule.label}</div>
+                        <div style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>{rule.hint}</div>
+                      </div>
+                      <Toggle on={escRules[rule.id] === true} onToggle={() => setEscRules(r => ({ ...r, [rule.id]: !r[rule.id] }))} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {section === 'safety' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              <div style={{ display:'flex', gap:12, alignItems:'flex-start', padding:'14px 16px', borderRadius:10, background:'var(--gbg)', border:'1px solid var(--gbd)' }}>
+                <I n="shield" s={17} c="var(--green)" />
+                <p style={{ fontSize:12.5, color:'var(--t2)', lineHeight:1.6 }}>
+                  Always on: the agent is instructed never to state a discount, price or date that is not in the campaign or a
+                  connected source. Asked something neither covers, it says so and offers a human rather than filling the gap.
+                </p>
+              </div>
+              <div>
+                <label style={labelStyle}>Your own guardrails</label>
+                <textarea value={safetyNote} onChange={e => setSafetyNote(e.target.value)} rows={6} maxLength={2000}
+                  style={{ ...inputStyle, resize:'vertical' }}
+                  placeholder={"Never promise a delivery date for a made-to-order item.\nNever quote a competitor.\nNever ask for card details in chat."} />
+              </div>
+            </div>
+          )}
+
+          {section === 'performance' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              {!readiness && <p style={{ fontSize:13, color:'var(--t3)' }}>Loading…</p>}
+              {readiness?.checks?.map(check => (
+                <div key={check.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', borderRadius:10,
+                  background: check.done ? 'var(--sbg)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${check.done ? 'var(--sbd)' : 'var(--bd)'}` }}>
+                  <I n={check.done ? 'checkc' : 'alertc'} s={16} c={check.done ? 'var(--success)' : 'var(--t3)'} />
+                  <span style={{ flex:1, fontSize:13, color: check.done ? 'var(--t1)' : 'var(--t2)' }}>{check.label}</span>
+                  <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--t3)', flexShrink:0 }}>{check.weight} pts</span>
                 </div>
               ))}
             </div>
+          )}
+        </div>
+
+        {/* ── Test Lab ── */}
+        <div style={{ ...card, padding:18, display:'flex', flexDirection:'column', gap:12, minWidth:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+            <span style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:'var(--t1)' }}>Test lab</span>
+            <span style={{ fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.06em', padding:'2px 7px', borderRadius:5, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t3)' }}>
+              not live · sandbox
+            </span>
+          </div>
+          <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.55 }}>
+            Ask what a customer would ask. Every answer shows the sources it was given and how much of it traces back to them.
+          </p>
+
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+            {[['general', 'General'], ['campaign', 'Campaign context']].map(([id, label]) => {
+              const on = testMode === id;
+              return (
+                <button key={id} onClick={() => { setTestMode(id); setThread([]); }}
+                  style={{ fontSize:12, fontWeight:600, padding:'6px 12px', borderRadius:100, cursor:'pointer', fontFamily:"'Manrope',sans-serif",
+                           background: on ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
+                           border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`,
+                           color: on ? 'var(--green)' : 'var(--t2)' }}>{label}</button>
+              );
+            })}
           </div>
 
           {testMode === 'campaign' && (
-            <div>
-              <label style={labelStyle}>Select campaign</label>
-              <select value={testCampaignId} onChange={e => { setTestCampaignId(e.target.value); setTestReply(null); }} style={inputStyle}>
-                <option value="">— Select a campaign —</option>
-                {campaigns.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}{c.aiAgentEnabled ? ' · agent attached' : ''}</option>
-                ))}
-              </select>
-              {campaigns.length === 0 && (
-                <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:6 }}>No campaigns yet — create one to test with its content.</p>
-              )}
-            </div>
+            <select value={testCampaignId} onChange={e => { setTestCampaignId(e.target.value); setThread([]); }} style={inputStyle}>
+              <option value="">— Select a campaign —</option>
+              {campaigns.map(c => (
+                <option key={c.id} value={c.id}>{c.name}{c.aiAgentEnabled ? ' · agent attached' : ''}</option>
+              ))}
+            </select>
           )}
 
-          <textarea value={testMsg} onChange={e => setTestMsg(e.target.value)} rows={3} style={{ ...inputStyle, resize:'vertical' }} />
-          <Btn variant="outline" size="sm" onClick={runTest} disabled={testing || llmMissing} style={{ alignSelf:'flex-start' }}>
-            {testing ? 'Asking…' : 'Run Test'}
-          </Btn>
-          {testReply && (
-            <div style={{ background: testReply.error ? 'rgba(239,68,68,.06)' : '#ECE5DD', borderRadius:10, padding:12 }}>
-              {testReply.error
-                ? <span style={{ fontSize:12.5, color:'#f87171' }}>{testReply.error}</span>
-                : <div style={{ background:'#fff', borderRadius:'0 8px 8px 8px', padding:'9px 12px', display:'inline-block', maxWidth:'92%' }}>
-                    <p style={{ fontSize:12.5, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', margin:0 }}>{testReply.ok}</p>
-                  </div>}
-            </div>
-          )}
-          {testReply?.context && (
-            <details style={{ fontSize:11.5, color:'var(--t3)' }}>
-              <summary style={{ cursor:'pointer', color:'var(--t2)' }}>Campaign content the agent was given</summary>
-              <pre style={{ marginTop:8, whiteSpace:'pre-wrap', fontFamily:"'Plus Jakarta Sans',sans-serif", lineHeight:1.55 }}>
-                {[testReply.context.header, testReply.context.body, testReply.context.footer].filter(Boolean).join('\n\n') || '(no text content)'}
-              </pre>
-            </details>
-          )}
-          <div style={{ marginTop:'auto', padding:'10px 14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:11.5, color:'var(--t3)', lineHeight:1.6 }}>
-            Reply order on inbound messages: <strong style={{ color:'var(--t2)' }}>active campaign AI chat</strong> → form in progress → workflow → keyword trigger → AI intent match → welcome/out-of-office → <strong style={{ color:'var(--t2)' }}>this agent</strong>.
-          </div>
-        </div>
-      </div>
-
-      {/* ── Campaign usage ── */}
-      <div style={{ ...card, padding:0 }}>
-        <div style={{ padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-          <div>
-            <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, color:'var(--t1)' }}>Campaign Usage</h3>
-            <p style={{ fontSize:12, color:'var(--t2)', marginTop:3 }}>
-              {usage === null ? 'Checking campaigns…'
-                : usage.total === 0 ? 'No campaign uses this agent yet — turn it on in step 5 of the campaign wizard.'
-                : `Used by ${usage.total} campaign${usage.total === 1 ? '' : 's'}`}
-            </p>
-          </div>
-          <Btn variant="outline" size="sm" onClick={loadUsage}>Refresh</Btn>
-        </div>
-
-        {usage?.campaigns?.length > 0 && (
-          <div style={{ borderTop:'1px solid var(--bd)' }}>
-            {usage.campaigns.map((c, i) => (
-              <div key={c.id} style={{ padding:'12px 20px', borderBottom: i < usage.campaigns.length - 1 ? '1px solid var(--bd)' : 'none', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-                <div style={{ flex:1, minWidth:180 }}>
-                  <p style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{c.name}</p>
-                  <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:2 }}>
-                    CTA “{c.aiAgentCtaLabel || 'Ask Anything'}”
-                    {c.totalContacts ? ` · ${c.totalContacts} recipient${c.totalContacts === 1 ? '' : 's'}` : ''}
-                  </p>
+          <div style={{ display:'flex', flexDirection:'column', gap:10, maxHeight:340, overflowY:'auto', padding:'2px 0' }}>
+            {thread.length === 0 && (
+              <p style={{ fontSize:12, color:'var(--t3)', lineHeight:1.6 }}>
+                Nothing tested yet. Answers appear here with their sources.
+              </p>
+            )}
+            {thread.map((m, i) => {
+              if (m.role === 'customer') {
+                return (
+                  <div key={i} style={{ alignSelf:'flex-end', maxWidth:'88%', borderRadius:'13px 4px 13px 13px', background:'rgba(53,232,242,0.14)', border:'1px solid var(--gbd)', padding:'8px 11px' }}>
+                    <p style={{ fontSize:12.5, color:'var(--t1)', lineHeight:1.5 }}>{m.text}</p>
+                  </div>
+                );
+              }
+              if (m.role === 'error') {
+                return (
+                  <div key={i} style={{ borderRadius:9, background:'rgba(239,68,68,.06)', border:'1px solid rgba(239,68,68,.25)', padding:'9px 12px' }}>
+                    <p style={{ fontSize:12, color:'#f87171', lineHeight:1.5 }}>{m.text}</p>
+                  </div>
+                );
+              }
+              const pct = m.grounding == null ? null : Math.round(m.grounding * 100);
+              return (
+                <div key={i} style={{ alignSelf:'flex-start', maxWidth:'96%', minWidth:0 }}>
+                  {m.sources?.length > 0 && (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:6 }}>
+                      {m.sources.map(src => (
+                        <span key={src.kind} style={{ fontFamily:'var(--mono)', fontSize:8.5, letterSpacing:'.06em', textTransform:'uppercase', padding:'2px 7px', borderRadius:5,
+                          background: src.kind === 'campaign' ? 'rgba(53,232,242,0.12)' : src.kind === 'knowledge' ? 'rgba(196,255,70,0.12)' : 'rgba(157,107,255,0.12)',
+                          border: `1px solid ${src.kind === 'campaign' ? 'var(--gbd)' : src.kind === 'knowledge' ? 'rgba(196,255,70,0.3)' : 'rgba(157,107,255,0.3)'}`,
+                          color: src.kind === 'campaign' ? 'var(--cyan)' : src.kind === 'knowledge' ? 'var(--lime)' : 'var(--violet)' }}>
+                          {src.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ borderRadius:'4px 13px 13px 13px', background:'rgba(255,255,255,0.045)', border:'1px solid var(--bd)', padding:'10px 12px' }}>
+                    <p style={{ fontSize:12.5, color:'var(--t1)', lineHeight:1.55, whiteSpace:'pre-wrap' }}>{m.text}</p>
+                  </div>
+                  {pct != null && (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:7 }}
+                      title="Share of the answer's distinctive words that appear in the sources the agent was given. Low means the model supplied it from its own knowledge rather than yours.">
+                      <span style={{ fontFamily:'var(--mono)', fontSize:8.5, letterSpacing:'.1em', color:'var(--t3)', textTransform:'uppercase' }}>Grounding</span>
+                      <span style={{ flex:1, height:4, borderRadius:4, background:'rgba(255,255,255,0.07)', overflow:'hidden' }}>
+                        <span style={{ display:'block', width:`${pct}%`, height:'100%', borderRadius:4, background: pct >= 60 ? 'var(--lime)' : pct >= 30 ? '#fbbf24' : '#f87171' }} />
+                      </span>
+                      <span style={{ fontFamily:'var(--mono)', fontSize:10, color: pct >= 60 ? 'var(--lime)' : pct >= 30 ? '#fbbf24' : '#f87171' }}>{pct}%</span>
+                    </div>
+                  )}
+                  {m.context && (
+                    <details style={{ fontSize:11, color:'var(--t3)', marginTop:7 }}>
+                      <summary style={{ cursor:'pointer', color:'var(--t2)' }}>Campaign content the agent was given</summary>
+                      <pre style={{ marginTop:7, whiteSpace:'pre-wrap', fontFamily:"'Manrope',sans-serif", lineHeight:1.55 }}>
+                        {[m.context.header, m.context.body, m.context.footer].filter(Boolean).join('\n\n') || '(no text content)'}
+                      </pre>
+                    </details>
+                  )}
                 </div>
-                {c.activeSessions > 0 && (
-                  <span style={{ fontSize:11, fontWeight:600, color:'var(--green)' }}>
-                    {c.activeSessions} chat{c.activeSessions === 1 ? '' : 's'} live
-                  </span>
-                )}
-                <span style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20, textTransform:'capitalize',
-                  color: CAMPAIGN_TONE[c.status]?.fg || 'var(--t2)',
-                  background: CAMPAIGN_TONE[c.status]?.bg || 'rgba(255,255,255,0.05)',
-                  border: `1px solid ${CAMPAIGN_TONE[c.status]?.bd || 'var(--bd)'}` }}>
-                  {CAMPAIGN_TONE[c.status]?.label || c.status}
-                </span>
-              </div>
+              );
+            })}
+          </div>
+
+          <div style={{ marginTop:'auto', display:'flex', gap:8 }}>
+            <input value={testMsg} onChange={e => setTestMsg(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runTest(); } }}
+              placeholder="Ask a test question…" style={{ ...inputStyle, flex:1 }} />
+            <Btn variant="outline" onClick={runTest} disabled={testing || llmMissing}>{testing ? '…' : 'Test'}</Btn>
+          </div>
+
+          <div style={{ display:'flex', flexWrap:'wrap', gap:5, paddingTop:4, borderTop:'1px solid var(--bd)' }}>
+            <span style={{ fontFamily:'var(--mono)', fontSize:8.5, letterSpacing:'.1em', color:'var(--t3)', textTransform:'uppercase', marginRight:4, paddingTop:5 }}>Legend</span>
+            {[['Campaign context', 'var(--cyan)'], ['Knowledge base', 'var(--lime)'], ['Persona & profile', 'var(--violet)']].map(([label, colour]) => (
+              <span key={label} style={{ fontFamily:'var(--mono)', fontSize:8.5, letterSpacing:'.06em', textTransform:'uppercase', padding:'2px 7px', borderRadius:5, marginTop:3, color:colour, border:`1px solid ${colour}`, opacity:.75 }}>
+                {label}
+              </span>
             ))}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -1598,7 +2582,7 @@ const InstagramQuickflowsTab = () => {
       <TabHeader icon="insta" color="#dc2743" bg="linear-gradient(45deg,#f09433,#dc2743,#bc1888)"
         title="Instagram Quickflows" subtitle="Auto-reply to Instagram DMs, comments and story replies"
         badge={conn?.connected && <Pill>Connected</Pill>}>
-        {conn?.connected && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060913"/> New IG Flow</Btn>}
+        {conn?.connected && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c"/> New IG Flow</Btn>}
       </TabHeader>
 
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
@@ -1637,7 +2621,7 @@ const InstagramQuickflowsTab = () => {
 
           {form && (
             <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:12 }}>
-              <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Flow' : 'New Instagram Flow'}</p>
+              <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Space Grotesk',sans-serif" }}>{editing ? 'Edit Flow' : 'New Instagram Flow'}</p>
               <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
                 <div style={{ flex:1, minWidth:200 }}>
                   <label style={labelStyle}>Flow name</label>
@@ -1646,7 +2630,7 @@ const InstagramQuickflowsTab = () => {
                 <div style={{ minWidth:180 }}>
                   <label style={labelStyle}>Trigger on</label>
                   <select value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} style={inputStyle}>
-                    {IG_SOURCES.map(([v, l]) => <option key={v} value={v} style={{ background:'#07090F' }}>{l}</option>)}
+                    {IG_SOURCES.map(([v, l]) => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{l}</option>)}
                   </select>
                 </div>
                 <div style={{ minWidth:160 }}>
@@ -1743,13 +2727,13 @@ const VoiceAITab = () => {
   if (!cfg.voiceAiEnabled) {
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-        <TabHeader icon="phone" color="var(--green)" bg="rgba(30,191,94,0.1)"
+        <TabHeader icon="phone" color="var(--green)" bg="rgba(53,232,242,0.1)"
           title="Voice AI - Inbound Calls" subtitle="An AI receptionist that answers calls and captures leads" />
         {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
         <div style={{ ...card, padding:'40px', display:'flex', flexDirection:'column', alignItems:'center', gap:'28px' }}>
           <div style={{ display:'flex', flexWrap:'wrap', gap:'40px', width:'100%', justifyContent:'center' }}>
             <div style={{ flex:1, minWidth:'280px', display:'flex', flexDirection:'column', gap:'16px' }}>
-              <p style={{ fontSize:'20px', fontFamily:"'Syne',sans-serif", fontWeight:700, color:'var(--t1)', lineHeight:1.3 }}>
+              <p style={{ fontSize:'20px', fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, color:'var(--t1)', lineHeight:1.3 }}>
                 Get an <span style={{ color:'var(--green)' }}>AI Receptionist</span> to handle your calls 24/7.
               </p>
               <ul style={{ display:'flex', flexDirection:'column', gap:'12px', padding:0, listStyle:'none' }}>
@@ -1786,7 +2770,7 @@ const VoiceAITab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="phone" color="var(--green)" bg="rgba(30,191,94,0.1)"
+      <TabHeader icon="phone" color="var(--green)" bg="rgba(53,232,242,0.1)"
         title="Voice AI - Receptionist" subtitle="Configure how the AI answers your inbound calls" badge={<Pill>Active</Pill>}>
         <Btn variant="outline" onClick={() => patch({ voiceAiEnabled: false })} style={{ borderColor:'#f8717133', color:'#f87171' }}>Deactivate</Btn>
       </TabHeader>
@@ -1860,7 +2844,7 @@ const VoiceAITab = () => {
               <div style={{ padding:'0 18px 14px', display:'flex', flexDirection:'column', gap:6 }}>
                 {(Array.isArray(c.transcript) ? c.transcript : []).map((t, idx) => (
                   <div key={idx} style={{ display:'flex', gap:8, fontSize:12 }}>
-                    <span style={{ minWidth:52, color: t.role === 'caller' ? '#38bdf8' : 'var(--green)', fontWeight:600 }}>{t.role === 'caller' ? 'Caller' : 'AI'}</span>
+                    <span style={{ minWidth:52, color: t.role === 'caller' ? '#9d6bff' : 'var(--green)', fontWeight:600 }}>{t.role === 'caller' ? 'Caller' : 'AI'}</span>
                     <span style={{ color:'var(--t2)' }}>{t.text}</span>
                   </div>
                 ))}
@@ -1934,7 +2918,7 @@ const FormPreview = ({ name, schema }) => {
           <button disabled={active === 0} onClick={() => setStep(s => Math.max(0, s - 1))}
             style={{ padding:'8px 12px', borderRadius:8, border:'1px solid var(--bd)', background:'transparent', color:'var(--t2)', fontSize:12, cursor: active === 0 ? 'not-allowed' : 'pointer', opacity: active === 0 ? 0.45 : 1 }}>Back</button>
           <button disabled={active >= fields.length - 1} onClick={() => setStep(s => Math.min(fields.length - 1, s + 1))}
-            style={{ flex:1, padding:'8px 12px', borderRadius:8, border:'none', background:'var(--green)', color:'#060913', fontSize:12, fontWeight:700, cursor: active >= fields.length - 1 ? 'not-allowed' : 'pointer', opacity: active >= fields.length - 1 ? 0.45 : 1 }}>Next</button>
+            style={{ flex:1, padding:'8px 12px', borderRadius:8, border:'none', background: 'var(--grad-cta)', color: 'var(--ink)', fontSize:12, fontWeight:700, cursor: active >= fields.length - 1 ? 'not-allowed' : 'pointer', opacity: active >= fields.length - 1 ? 0.45 : 1 }}>Next</button>
         </div>
       </div>
     </div>
@@ -2076,7 +3060,7 @@ const WhatsAppFormsTab = () => {
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <IconBtn icon="arrow" onClick={() => setViewing(null)} />
           <div>
-            <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:18, color:'var(--t1)' }}>{viewing.name}</h2>
+            <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:18, color:'var(--t1)' }}>{viewing.name}</h2>
             <p style={{ fontSize:13, color:'var(--t2)' }}>{submissions.length} submission{submissions.length === 1 ? '' : 's'}</p>
           </div>
         </div>
@@ -2115,7 +3099,7 @@ const WhatsAppFormsTab = () => {
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <TabHeader icon="note" color="var(--t2)" bg="rgba(255,255,255,0.04)"
         title="WhatsApp Forms" subtitle="Collect structured answers one question at a time, right inside the chat">
-        {view === 'list' && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060913"/> Create Form</Btn>}
+        {view === 'list' && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c"/> Create Form</Btn>}
       </TabHeader>
 
       {/* Create New Form / View All Forms */}
@@ -2124,7 +3108,7 @@ const WhatsAppFormsTab = () => {
           <button key={id} onClick={() => { if (id === 'create' && !draft) openCreate(); else setView(id); }}
             style={{ padding:'9px 14px', background:'none', border:'none', borderBottom:`2px solid ${view === id ? 'var(--green)' : 'transparent'}`,
                      color: view === id ? 'var(--t1)' : 'var(--t2)', fontSize:13, fontWeight:600, cursor:'pointer',
-                     fontFamily:"'Plus Jakarta Sans',sans-serif", marginBottom:-1 }}>
+                     fontFamily:"'Manrope',sans-serif", marginBottom:-1 }}>
             {label}
           </button>
         ))}
@@ -2137,7 +3121,7 @@ const WhatsAppFormsTab = () => {
         <div style={{ display:'flex', gap:16, alignItems:'flex-start', flexWrap:'wrap' }}>
         <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14, flex:1, minWidth:340 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-            <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editing ? 'Edit Form' : 'Create WhatsApp Form'}</p>
+            <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Space Grotesk',sans-serif" }}>{editing ? 'Edit Form' : 'Create WhatsApp Form'}</p>
             <div style={{ display:'flex', gap:8 }}>
               <Btn variant="ghost" onClick={() => save('Draft')} disabled={saving}>{saving ? 'Saving…' : 'Save as Draft'}</Btn>
               <Btn onClick={() => save('Active')} disabled={saving} style={{ boxShadow:'var(--glow)' }}>{editing ? 'Update & Publish' : 'Publish'}</Btn>
@@ -2209,7 +3193,7 @@ const WhatsAppFormsTab = () => {
               </button>
               {catOpen && (
                 <div style={{ position:'absolute', zIndex:20, top:'calc(100% + 4px)', left:0, right:0, borderRadius:9,
-                              border:'1px solid var(--bd)', background:'#07090F', boxShadow:'0 12px 30px rgba(0,0,0,0.5)', padding:6,
+                              border:'1px solid var(--bd)', background:'#0a0b0e', boxShadow:'0 12px 30px rgba(0,0,0,0.5)', padding:6,
                               maxHeight:220, overflowY:'auto' }}>
                   {categoryOpts.map(cat => {
                     const on = (draft.categories || []).includes(cat);
@@ -2222,7 +3206,7 @@ const WhatsAppFormsTab = () => {
                                  background: on ? 'var(--gbg)' : 'transparent', fontSize:12.5, color:'var(--t1)' }}>
                         <span style={{ width:14, height:14, borderRadius:4, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
                                        border:`1.5px solid ${on ? 'var(--green)' : 'var(--bd)'}`, background: on ? 'var(--green)' : 'transparent' }}>
-                          {on && <I n="check" s={9} c="#060913" w={3} />}
+                          {on && <I n="check" s={9} c="#08090c" w={3} />}
                         </span>
                         {cat}
                       </label>
@@ -2244,7 +3228,7 @@ const WhatsAppFormsTab = () => {
                   <input value={f.label} onChange={e => setField(idx, { label: e.target.value })}
                     placeholder="What should the customer be asked?" style={{ ...inputStyle, flex:1, minWidth:220 }} />
                   <select value={f.type || 'text'} onChange={e => setField(idx, { type: e.target.value })} style={{ ...inputStyle, width:150 }}>
-                    {FIELD_TYPES.map(([v, l]) => <option key={v} value={v} style={{ background:'#07090F' }}>{l}</option>)}
+                    {FIELD_TYPES.map(([v, l]) => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{l}</option>)}
                   </select>
                   <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, color:'var(--t2)', cursor:'pointer' }}>
                     <input type="checkbox" checked={f.required !== false} onChange={e => setField(idx, { required: e.target.checked })}
@@ -2357,7 +3341,7 @@ const SmartListsTab = () => {
   const [contactPhone, setContactPhone] = useState('');
   const [contactError, setContactError] = useState('');
 
-  const segColors = ['#8b5cf6','#f43f5e','#0ea5e9','#f59e0b','#10b981','#ec4899'];
+  const segColors = ['#8b5cf6','#f43f5e','#9d6bff','#f59e0b','#25d366','#ec4899'];
   const viewingSegment = segments.find(s => s.id === viewingSegmentId) || null;
 
   const fetchSegments = useCallback(async () => {
@@ -2422,16 +3406,16 @@ const SmartListsTab = () => {
           <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
             <IconBtn icon="arrow" onClick={() => setViewingSegmentId(null)} />
             <div>
-              <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>{viewingSegment.name}</h2>
+              <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>{viewingSegment.name}</h2>
               <p style={{ fontSize:'13px', color:'var(--t2)' }}>{viewingSegment.description || viewingSegment.desc || 'No description'}</p>
             </div>
           </div>
-          <Btn onClick={openAddContact} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10"/> Add Customer</Btn>
+          <Btn onClick={openAddContact} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c"/> Add Customer</Btn>
         </div>
 
         {contactFormOpen && (
           <div style={{ ...card, padding:'20px', display:'flex', flexDirection:'column', gap:'12px' }}>
-            <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editingContact ? 'Edit Contact' : 'Add Contact'}</p>
+            <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Space Grotesk',sans-serif" }}>{editingContact ? 'Edit Contact' : 'Add Contact'}</p>
             <div style={{ display:'flex', gap:'12px', flexWrap:'wrap' }}>
               <div style={{ flex:1, minWidth:'200px' }}>
                 <label style={labelStyle}>Name</label>
@@ -2486,12 +3470,12 @@ const SmartListsTab = () => {
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <TabHeader icon="users" color="var(--t2)" bg="rgba(255,255,255,0.04)"
         title="Smart Lists" subtitle="Segment your contacts for targeted messaging">
-        <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Create Segment</Btn>
+        <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Create Segment</Btn>
       </TabHeader>
 
       {segFormOpen && (
         <div style={{ ...card, padding:'20px', display:'flex', flexDirection:'column', gap:'12px' }}>
-          <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Syne',sans-serif" }}>{editingSeg ? 'Edit Segment' : 'New Segment'}</p>
+          <p style={{ fontSize:13, fontWeight:700, color:'var(--t1)', fontFamily:"'Space Grotesk',sans-serif" }}>{editingSeg ? 'Edit Segment' : 'New Segment'}</p>
           <div style={{ maxWidth:400 }}>
             <label style={labelStyle}>Segment Name</label>
             <input value={segName} onChange={e => setSegName(e.target.value)} placeholder="e.g. VIP Customers" style={inputStyle} />
@@ -2514,10 +3498,10 @@ const SmartListsTab = () => {
             <I n="users" s={24} c="var(--t2)" />
           </div>
           <div>
-            <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:17, color:'var(--t1)', marginBottom:6 }}>No Segments Yet</p>
+            <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:17, color:'var(--t1)', marginBottom:6 }}>No Segments Yet</p>
             <p style={{ fontSize:13, color:'var(--t2)' }}>Create your first customer segment to get started.</p>
           </div>
-          <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#060A10" /> Create First Segment</Btn>
+          <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Create First Segment</Btn>
         </div>
       ) : (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:'16px' }}>
@@ -2553,20 +3537,43 @@ const SmartListsTab = () => {
 // ─────────────────────────────────────────────
 const TAB_IDS = new Set(TABS.map(t => t.id));
 
-export default function AutomationView() {
+export default function AutomationView({ initialTab }) {
   // Persist the selected tab in the URL (?tab=) so a refresh or a shared link
   // lands back on the same tab. Dashboard's router only looks at pathname, so
   // this doesn't interact with the outer route.
+  //
+  // `initialTab` seeds it for the sections that are really one tab of this
+  // page given its own route — /dashboard/ai-agent, /dashboard/intent-matching.
+  // An explicit ?tab= still wins, so those routes stay shareable once the user
+  // switches tabs within them.
   const [activeTab, setActiveTab] = useState(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('tab');
-    return TAB_IDS.has(fromUrl) ? fromUrl : 'basic';
+    if (TAB_IDS.has(fromUrl)) return fromUrl;
+    return TAB_IDS.has(initialTab) ? initialTab : 'basic';
   });
 
+  // /dashboard/automation, /dashboard/ai-agent and /dashboard/intent-matching
+  // all render *this* component, so React reconciles them as the same element
+  // and never remounts on a move between them — the lazy useState initialiser
+  // above runs once and never again. Without this, clicking "Intent Matching"
+  // in the sidebar changed the URL but left the panel on whatever tab was
+  // already open. Following the prop is what actually switches the view.
+  useEffect(() => {
+    if (TAB_IDS.has(initialTab)) setActiveTab(initialTab);
+  }, [initialTab]);
+
+  // Tabs that are their own sidebar destination own a path of their own;
+  // everything else lives under Automation as ?tab=. Writing the owning path
+  // keeps the address bar, a refresh, and the sidebar highlight agreeing with
+  // the panel on screen. The popstate tells the router to re-read the path —
+  // it re-renders but does not remount, so no fetch is repeated.
   const selectTab = (id) => {
     setActiveTab(id);
-    const url = new URL(window.location.href);
-    url.searchParams.set('tab', id);
-    window.history.replaceState({}, '', url.pathname + url.search);
+    const owned = TAB_ROUTES[id];
+    const target = owned || `/dashboard/automation?tab=${encodeURIComponent(id)}`;
+    if (window.location.pathname + window.location.search === target) return;
+    window.history.replaceState({}, '', target);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
   const renderContent = () => {
@@ -2593,10 +3600,10 @@ export default function AutomationView() {
             <button key={tab.id} onClick={() => selectTab(tab.id)}
               style={{
                 display:'flex', alignItems:'center', gap:'8px', padding:'12px 16px', cursor:'pointer',
-                background: isActive ? 'rgba(30,191,94,0.1)' : 'transparent', border:'none',
+                background: isActive ? 'rgba(53,232,242,0.1)' : 'transparent', border:'none',
                 borderBottom: isActive ? '2px solid var(--green)' : '2px solid transparent',
                 color: isActive ? 'var(--green)' : 'var(--t2)', transition:'all .15s',
-                whiteSpace:'nowrap', borderRadius:'8px 8px 0 0', fontFamily:"'Plus Jakarta Sans',sans-serif",
+                whiteSpace:'nowrap', borderRadius:'8px 8px 0 0', fontFamily:"'Manrope',sans-serif",
               }}
               onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = 'var(--t1)'; }}
               onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = 'var(--t2)'; }}>

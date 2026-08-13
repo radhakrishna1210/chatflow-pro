@@ -17,7 +17,7 @@ import { widgetOrigin } from './widget.service.js';
 export function widgetLoaderScript() {
   const origin = widgetOrigin();
 
-  return `/* ChatFlow Pro — Smart Website Widget loader */
+  return `/* Spandan — Smart Website Widget loader */
 (function () {
   'use strict';
   if (window.__cfpWidgetLoaded) return;
@@ -293,7 +293,7 @@ export function widgetLoaderScript() {
     panel.appendChild(body);
     if (cfg.ai) panel.appendChild(foot);
     panel.appendChild(waWrap);
-    panel.appendChild(el('div', { class: 'credit', text: 'Powered by ChatFlow Pro' }));
+    panel.appendChild(el('div', { class: 'credit', text: 'Powered by Spandan' }));
 
     // ── launcher ──
     var launcher = el('button', { class: 'launcher', onclick: function () { toggle(); } });

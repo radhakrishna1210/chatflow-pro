@@ -44,3 +44,35 @@ export async function paidMessages(req, res) {
     res.status(500).json({ error: 'Unable to load paid messages insights' });
   }
 }
+
+// Audience analytics: list growth, retention cohorts and the engagement
+// leaderboard behind the User Analytics page.
+export async function audience(req, res) {
+  try {
+    res.json(await analyticsService.getAudienceAnalytics(req.params.workspaceId, req.query.weeks));
+  } catch (err) {
+    console.error('[Analytics] audience error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load audience analytics' });
+  }
+}
+
+// Topic clusters, sentiment mix and knowledge gaps behind the Chat Analysis
+// page. Computed from stored messages, not from a model call.
+export async function insights(req, res) {
+  try {
+    res.json(await analyticsService.getConversationInsights(req.params.workspaceId, req.query.days));
+  } catch (err) {
+    console.error('[Analytics] insights error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load conversation insights' });
+  }
+}
+
+// Funnel, AI/human resolution split and campaign leaderboard.
+export async function performance(req, res) {
+  try {
+    res.json(await analyticsService.getPerformance(req.params.workspaceId, req.query.days));
+  } catch (err) {
+    console.error('[Analytics] performance error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load performance analytics' });
+  }
+}

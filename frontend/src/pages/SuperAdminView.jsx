@@ -17,7 +17,7 @@ const rateLabel = (plan, costRates, key) => {
 const inputStyle = {
   width: '100%', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)',
   border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13,
-  fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "'Manrope',sans-serif", outline: 'none', boxSizing: 'border-box',
 };
 
 const Field = ({ label, hint, children }) => (
@@ -116,7 +116,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...card, width: 560, maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)' }}>
+          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)' }}>
             {isNew ? 'New plan' : `Edit ${src.name} plan`}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
@@ -236,13 +236,161 @@ const optionStyle = { background: '#0b1220', color: '#e8eaf0' };
 const StatCard = ({ label, value, color = 'var(--t1)' }) => (
   <div style={{ ...card, padding: 16 }}>
     <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</span>
-    <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color, marginTop: 4 }}>{value}</div>
+    <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 20, color, marginTop: 4 }}>{value}</div>
   </div>
 );
 
 const money = (v, currency = '₹') => `${currency}${Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // Revenue overview: MRR/ARR estimated from active subscriptions × plan price.
+// ─── Audit & security ────────────────────────────────────────────────────────
+//
+// What operators did, to whom, and when. The control deck could already
+// impersonate a user, suspend a workspace, rewrite a plan's entitlements and
+// move money — none of it leaving a trace anyone could read back.
+//
+// Read-only by construction: there is no endpoint that edits or deletes an
+// entry, which is the entire point of keeping one.
+
+const AUDIT_ICON = {
+  impersonate: 'eye',
+  suspend: 'ban',
+  reinstate: 'checkc',
+  'plan.create': 'plus',
+  'plan.update': 'pencil',
+  'plan.delete': 'trash',
+  'wallet.adjust': 'credit',
+  'ticket.update': 'msg',
+  'number.assign': 'phone',
+  'number.ban': 'ban',
+};
+
+const AUDIT_TONE = {
+  impersonate: '#9d6bff',
+  suspend: '#f87171',
+  'number.ban': '#f87171',
+  'plan.delete': '#f87171',
+  reinstate: 'var(--success)',
+  'wallet.adjust': '#c4ff46',
+};
+
+function AuditTab() {
+  const [entries, setEntries] = useState([]);
+  const [actions, setActions] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [action, setAction] = useState('');
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const load = () => {
+    setLoading(true);
+    const qs = new URLSearchParams();
+    if (action) qs.set('action', action);
+    if (search.trim()) qs.set('search', search.trim());
+    Promise.all([
+      adminFetch(`/platform/audit?${qs.toString()}`).then(r => (r.ok ? r.json() : [])).catch(() => []),
+      adminFetch('/platform/audit/actions').then(r => (r.ok ? r.json() : [])).catch(() => []),
+      adminFetch('/platform/audit/summary').then(r => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([rows, acts, sum]) => {
+      setEntries(Array.isArray(rows) ? rows : []);
+      setActions(Array.isArray(acts) ? acts : []);
+      setSummary(sum);
+      setLoading(false);
+    });
+  };
+
+  // Refetch when a filter changes, debounced so typing in the search box is not
+  // one request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(load, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action, search]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {summary && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12 }}>
+          {[
+            ['Actions logged', summary.total, 'var(--t1)', 'note'],
+            ['Impersonations', summary.impersonations, '#9d6bff', 'eye'],
+            ['Suspensions', summary.suspensions, '#f87171', 'ban'],
+            ['Wallet adjustments', summary.walletAdjustments, '#c4ff46', 'credit'],
+          ].map(([label, value, colour, icon]) => (
+            <div key={label} style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <I n={icon} s={14} c={colour} />
+                <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</span>
+              </div>
+              <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 26, fontWeight: 800, color: 'var(--t1)' }}>
+                {Number(value || 0).toLocaleString('en-IN')}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--t3)' }}>last {summary.days} days</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ ...card, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 15, color: 'var(--t1)' }}>Admin action log</h2>
+            <p style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>Every consequential operator action, newest first. Entries cannot be edited or removed.</p>
+          </div>
+          <div style={{ flex: 1 }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search operator or target…"
+            style={{ ...inputStyle, width: 220 }} />
+          <select value={action} onChange={e => setAction(e.target.value)} style={{ ...inputStyle, width: 190, colorScheme: 'dark' }}>
+            <option value="">All actions</option>
+            {actions.map(a => (
+              <option key={a.action} value={a.action} style={{ background: '#0a0b0e' }}>{a.action} ({a.count})</option>
+            ))}
+          </select>
+          <Btn variant="outline" size="sm" onClick={load}>Refresh</Btn>
+        </div>
+
+        {loading && <div style={{ padding: 30, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>Loading…</div>}
+
+        {!loading && entries.length === 0 && (
+          <div style={{ padding: 34, textAlign: 'center', color: 'var(--t3)', fontSize: 13, lineHeight: 1.7 }}>
+            Nothing logged yet.<br />
+            Impersonating a user, suspending a workspace, editing a plan or adjusting a wallet will appear here.
+          </div>
+        )}
+
+        {!loading && entries.map((entry, i) => {
+          const tone = AUDIT_TONE[entry.action] || 'var(--accent)';
+          return (
+            <div key={entry.id} style={{ padding: '13px 18px', borderBottom: i < entries.length - 1 ? '1px solid var(--bd)' : 'none', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <span style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
+                <I n={AUDIT_ICON[entry.action] || 'note'} s={14} c={tone} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: 'var(--t1)', lineHeight: 1.5 }}>
+                  <strong style={{ fontWeight: 700 }}>{entry.actorEmail}</strong>
+                  <span style={{ color: 'var(--t2)' }}> {entry.action.replace(/[._]/g, ' ')} </span>
+                  {entry.targetLabel && <span style={{ color: 'var(--t1)' }}>{entry.targetLabel}</span>}
+                </div>
+                {entry.reason && (
+                  <div style={{ fontSize: 11.5, color: '#fbbf24', marginTop: 3 }}>reason: {entry.reason}</div>
+                )}
+                {entry.meta && Object.keys(entry.meta).length > 0 && (
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--t3)', marginTop: 3, overflowWrap: 'anywhere' }}>
+                    {Object.entries(entry.meta).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('|') : v}`).join(' · ')}
+                  </div>
+                )}
+              </div>
+              <span style={{ fontSize: 11.5, color: 'var(--t3)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                {new Date(entry.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function RevenueTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -258,8 +406,8 @@ function RevenueTab() {
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 12, marginBottom: 20 }}>
         <StatCard label="MRR" value={money(data.mrr)} color="var(--green)" />
-        <StatCard label="ARR (est.)" value={money(data.arr)} color="#38bdf8" />
-        <StatCard label="Active subscriptions" value={data.activeSubscriptions} color="#a78bfa" />
+        <StatCard label="ARR (est.)" value={money(data.arr)} color="#9d6bff" />
+        <StatCard label="Active subscriptions" value={data.activeSubscriptions} color="#c4ff46" />
       </div>
 
       <div style={{ ...card, overflow: 'hidden' }}>
@@ -345,8 +493,8 @@ function TransactionsTab({ workspaces }) {
             <StatCard label="Total credited" value={money(s.totalCredit)} color="var(--green)" />
             <StatCard label="Total debited" value={money(s.totalDebit)} color="#f87171" />
             <StatCard label="Net" value={money(s.net)} color={s.net >= 0 ? 'var(--green)' : '#f87171'} />
-            <StatCard label="Credit txns" value={s.creditCount} color="#38bdf8" />
-            <StatCard label="Debit txns" value={s.debitCount} color="#a78bfa" />
+            <StatCard label="Credit txns" value={s.creditCount} color="#9d6bff" />
+            <StatCard label="Debit txns" value={s.debitCount} color="#c4ff46" />
           </div>
 
           {s.byReason.length > 0 && (
@@ -446,7 +594,7 @@ function CampaignsTab({ workspaces }) {
             <StatCard label="Recipients" value={t.totalContacts.toLocaleString()} />
             <StatCard label="Sent" value={t.sent.toLocaleString()} />
             <StatCard label="Delivered" value={t.delivered.toLocaleString()} color="var(--green)" />
-            <StatCard label="Read" value={t.read.toLocaleString()} color="#38bdf8" />
+            <StatCard label="Read" value={t.read.toLocaleString()} color="#9d6bff" />
             <StatCard label="Failed" value={t.failed.toLocaleString()} color={t.failed > 0 ? '#f87171' : 'var(--t1)'} />
           </div>
 
@@ -554,9 +702,9 @@ function NumbersTab({ workspaces }) {
     else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Reset failed'); }
   };
 
-  const statusColor = (st) => st === 'AVAILABLE' ? 'var(--green)' : st === 'BANNED' ? '#f87171' : '#38bdf8';
-  const statusBg = (st) => st === 'AVAILABLE' ? 'var(--gbg)' : st === 'BANNED' ? 'rgba(239,68,68,.08)' : 'rgba(56,189,248,.1)';
-  const statusBd = (st) => st === 'AVAILABLE' ? 'var(--gbd)' : st === 'BANNED' ? 'rgba(239,68,68,.25)' : 'rgba(56,189,248,.25)';
+  const statusColor = (st) => st === 'AVAILABLE' ? 'var(--green)' : st === 'BANNED' ? '#f87171' : '#9d6bff';
+  const statusBg = (st) => st === 'AVAILABLE' ? 'var(--gbg)' : st === 'BANNED' ? 'rgba(239,68,68,.08)' : 'rgba(157,107,255,.1)';
+  const statusBd = (st) => st === 'AVAILABLE' ? 'var(--gbd)' : st === 'BANNED' ? 'rgba(239,68,68,.25)' : 'rgba(157,107,255,.25)';
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--t2)', fontSize: 13 }}>Loading number pool…</div>;
 
@@ -567,13 +715,13 @@ function NumbersTab({ workspaces }) {
           {summary && [['Total', summary.total], ['Available', summary.available], ['Assigned', summary.assigned], ['Banned', summary.banned]].map(([l, v]) => (
             <div key={l} style={{ ...card, padding: '10px 16px' }}>
               <div style={{ fontSize: 10, color: 'var(--t3)', fontWeight: 700, textTransform: 'uppercase' }}>{l}</div>
-              <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 18, color: 'var(--t1)' }}>{v}</div>
+              <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 18, color: 'var(--t1)' }}>{v}</div>
             </div>
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Btn variant="outline" size="sm" onClick={doResetAll} style={{ borderColor: 'rgba(239,68,68,.35)', color: '#f87171' }}>Reset all assignments</Btn>
-          <Btn size="sm" onClick={doSync} disabled={syncing}><I n="refresh" s={13} c="#060A10" /> {syncing ? 'Syncing…' : 'Sync from WABA'}</Btn>
+          <Btn size="sm" onClick={doSync} disabled={syncing}><I n="refresh" s={13} c="#08090c" /> {syncing ? 'Syncing…' : 'Sync from WABA'}</Btn>
         </div>
       </div>
 
@@ -685,7 +833,7 @@ function WorkspaceAnalyticsTab() {
         <StatCard label="Workspaces" value={rows.length} />
         <StatCard label="Total sent" value={totals.sent.toLocaleString()} />
         <StatCard label="Total delivered" value={totals.delivered.toLocaleString()} color="var(--green)" />
-        <StatCard label="Avg delivery rate" value={`${avgDeliveryRate}%`} color="#38bdf8" />
+        <StatCard label="Avg delivery rate" value={`${avgDeliveryRate}%`} color="#9d6bff" />
       </div>
 
       <div style={{ ...card, overflow: 'hidden' }}>
@@ -890,7 +1038,7 @@ function PaymentsTab({ workspaces }) {
   const rows = data?.payments || [];
 
   const kindLabel = (k) => k === 'PLAN_SUBSCRIPTION' ? 'Plan subscription' : 'Wallet recharge';
-  const kindColor = (k) => k === 'PLAN_SUBSCRIPTION' ? '#a78bfa' : 'var(--green)';
+  const kindColor = (k) => k === 'PLAN_SUBSCRIPTION' ? '#c4ff46' : 'var(--green)';
 
   return (
     <div>
@@ -911,8 +1059,8 @@ function PaymentsTab({ workspaces }) {
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 12, marginBottom: 20 }}>
             <StatCard label="Total collected" value={money(s.total)} color="var(--green)" />
-            <StatCard label="Plan revenue" value={money(s.planRevenue)} color="#a78bfa" />
-            <StatCard label="Wallet recharges" value={money(s.walletRevenue)} color="#38bdf8" />
+            <StatCard label="Plan revenue" value={money(s.planRevenue)} color="#c4ff46" />
+            <StatCard label="Wallet recharges" value={money(s.walletRevenue)} color="#9d6bff" />
             <StatCard label="Payments" value={s.count} />
           </div>
 
@@ -1015,7 +1163,7 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
       <div style={{ ...card, width: 620, maxHeight: '82vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <div>
-            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)' }}>{data?.workspace?.name || 'Workspace members'}</span>
+            <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)' }}>{data?.workspace?.name || 'Workspace members'}</span>
             {data?.workspace && (
               <span style={{ marginLeft: 10, padding: '2px 9px', borderRadius: 20, fontSize: 10.5, fontWeight: 600,
                 background: data.workspace.suspended ? 'rgba(239,68,68,.08)' : 'var(--gbg)',
@@ -1040,18 +1188,18 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
 
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="colleague@company.com" type="email"
-                  style={{ flex: 1, minWidth: 190, padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none' }} />
+                  style={{ flex: 1, minWidth: 190, padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif", outline: 'none' }} />
                 <select value={role} onChange={(e) => setRole(e.target.value)}
-                  style={{ padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none', colorScheme: 'dark' }}>
-                  <option value="CLIENT" style={{ background: '#07090F' }}>Member</option>
-                  <option value="ADMIN" style={{ background: '#07090F' }}>Admin</option>
+                  style={{ padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif", outline: 'none', colorScheme: 'dark' }}>
+                  <option value="CLIENT" style={{ background: '#0a0b0e' }}>Member</option>
+                  <option value="ADMIN" style={{ background: '#0a0b0e' }}>Admin</option>
                 </select>
                 <button onClick={() => invite('email')} disabled={!email.trim() || busy}
-                  style={{ padding: '9px 14px', borderRadius: 8, background: 'var(--green)', border: 'none', color: '#07090F', fontSize: 12.5, fontWeight: 700, cursor: !email.trim() || busy ? 'not-allowed' : 'pointer', opacity: !email.trim() || busy ? 0.6 : 1, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+                  style={{ padding: '9px 14px', borderRadius: 8, background: 'var(--grad-cta)', border: 'none', color: 'var(--ink)', fontSize: 12.5, fontWeight: 700, cursor: !email.trim() || busy ? 'not-allowed' : 'pointer', opacity: !email.trim() || busy ? 0.6 : 1, fontFamily: "'Manrope',sans-serif" }}>
                   {busy === 'email' ? 'Sending…' : 'Send invite'}
                 </button>
                 <button onClick={() => invite('link')} disabled={!!busy}
-                  style={{ padding: '9px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 12.5, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+                  style={{ padding: '9px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 12.5, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1, fontFamily: "'Manrope',sans-serif" }}>
                   {busy === 'link' ? 'Creating…' : 'Create link'}
                 </button>
               </div>
@@ -1207,12 +1355,12 @@ export default function SuperAdminView({ tab }) {
 
   const statCards = stats ? [
     { label: 'Workspaces', value: stats.workspaces, icon: 'users', color: 'var(--green)' },
-    { label: 'Users', value: stats.users, icon: 'user', color: '#38bdf8' },
-    { label: 'Connected Numbers', value: stats.connectedNumbers, icon: 'phone', color: '#a78bfa' },
+    { label: 'Users', value: stats.users, icon: 'user', color: '#9d6bff' },
+    { label: 'Connected Numbers', value: stats.connectedNumbers, icon: 'phone', color: '#c4ff46' },
     { label: 'Campaigns', value: stats.campaigns, icon: 'send', color: '#f59e0b' },
-    { label: 'Contacts', value: stats.contacts, icon: 'users', color: '#0ea5e9' },
+    { label: 'Contacts', value: stats.contacts, icon: 'users', color: '#9d6bff' },
     { label: 'Messages Sent', value: stats.messagesSent, icon: 'send', color: 'var(--green)' },
-    { label: 'Delivered', value: stats.messagesDelivered, icon: 'check', color: '#22c55e' },
+    { label: 'Delivered', value: stats.messagesDelivered, icon: 'check', color: '#25d366' },
     { label: 'Suspended', value: stats.suspendedWorkspaces, icon: 'alertc', color: '#f87171' },
     { label: 'Open Tickets', value: stats.openTickets, icon: 'msg', color: '#fbbf24' },
   ] : [];
@@ -1227,7 +1375,7 @@ export default function SuperAdminView({ tab }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'var(--surf)', gap: 16 }}>
-        <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)' }}>
+        <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)' }}>
           Platform Admin <span style={{ color: 'var(--t3)', fontWeight: 600 }}>· {TAB_LABELS[tab] || ''}</span>
           {tab === 'support' && openTicketCount > 0 && (
             <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: 'rgba(251,191,36,.1)', color: '#fbbf24', verticalAlign: 'middle' }}>{openTicketCount} open</span>
@@ -1251,7 +1399,7 @@ export default function SuperAdminView({ tab }) {
                   <I n={c.icon} s={14} c={c.color} />
                   <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>{c.label}</span>
                 </div>
-                <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 26, fontWeight: 800, color: 'var(--t1)' }}>{(c.value ?? 0).toLocaleString()}</span>
+                <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 26, fontWeight: 800, color: 'var(--t1)' }}>{(c.value ?? 0).toLocaleString()}</span>
               </div>
             ))}
           </div>
@@ -1264,6 +1412,7 @@ export default function SuperAdminView({ tab }) {
         {!loading && tab === 'campaigns' && <CampaignsTab workspaces={workspaces} />}
         {!loading && tab === 'users' && <UsersTab />}
         {!loading && tab === 'api-management' && <ApiManagementTab />}
+        {!loading && tab === 'audit' && <AuditTab />}
         {!loading && tab === 'numbers' && <NumbersTab workspaces={workspaces} />}
 
         {!loading && tab === 'workspaces' && (
@@ -1317,10 +1466,10 @@ export default function SuperAdminView({ tab }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <div>
-                <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15, color: 'var(--t1)' }}>Subscription plans</h2>
+                <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 15, color: 'var(--t1)' }}>Subscription plans</h2>
                 <p style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>Prices, message quotas, rate limits and feature flags for every plan.</p>
               </div>
-              <Btn size="sm" onClick={() => setEditingPlan('new')}><I n="plus" s={14} c="#060A10" /> New plan</Btn>
+              <Btn size="sm" onClick={() => setEditingPlan('new')}><I n="plus" s={14} c="#08090c" /> New plan</Btn>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 14 }}>
@@ -1329,13 +1478,13 @@ export default function SuperAdminView({ tab }) {
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)' }}>{p.name}</span>
+                        <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)' }}>{p.name}</span>
                         {!p.isActive && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 6px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: 'var(--t3)', textTransform: 'uppercase' }}>Inactive</span>}
                       </div>
                       <span style={{ fontSize: 10.5, color: 'var(--t3)', fontWeight: 600, letterSpacing: '.05em' }}>{p.key}</span>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--green)' }}>{p.currency} {Number(p.priceMonthly).toLocaleString()}</div>
+                      <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--green)' }}>{p.currency} {Number(p.priceMonthly).toLocaleString()}</div>
                       <span style={{ fontSize: 10.5, color: 'var(--t3)' }}>per month</span>
                     </div>
                   </div>
@@ -1399,8 +1548,8 @@ export default function SuperAdminView({ tab }) {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
                     <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                      background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(56,189,248,.1)',
-                      color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#38bdf8' }}>{t.status}</span>
+                      background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(157,107,255,.1)',
+                      color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#9d6bff' }}>{t.status}</span>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {t.status !== 'IN_PROGRESS' && t.status !== 'RESOLVED' && t.status !== 'CLOSED' && <Btn variant="ghost" size="sm" onClick={() => updateTicket(t, 'IN_PROGRESS')}>Start</Btn>}
                       {t.status !== 'RESOLVED' && t.status !== 'CLOSED' && <Btn variant="outline" size="sm" onClick={() => updateTicket(t, 'RESOLVED')}>Resolve</Btn>}

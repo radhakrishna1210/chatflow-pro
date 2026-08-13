@@ -1,6 +1,6 @@
-# ChatFlow Pro — Backend
+# Spandan — Backend
 
-Node.js + Express 5 + Prisma + BullMQ backend for the ChatFlow Pro WhatsApp Business SaaS platform.
+Node.js + Express 5 + Prisma + BullMQ backend for the Spandan WhatsApp Business SaaS platform.
 
 ## Quick Start
 

@@ -12,7 +12,7 @@ import { wFetch } from '../lib/api.js';
 
 const Avatar = ({ name = '?', size = 52 }) => {
   const init = String(name).split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?';
-  const colors = ['#1EBF5E', '#0EA5E9', '#A78BFA', '#F59E0B', '#F472B6'];
+  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: `${c}18`, border: `1.5px solid ${c}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * .34 + 'px', fontWeight: 700, color: c, flexShrink: 0 }}>
@@ -46,7 +46,7 @@ const Field = ({ label, value, mono = false }) => (
 const inputStyle = {
   width: '100%', padding: '7px 10px', borderRadius: 7, background: 'rgba(255,255,255,0.04)',
   border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 12.5,
-  fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none', boxSizing: 'border-box',
+  fontFamily: "'Manrope',sans-serif", outline: 'none', boxSizing: 'border-box',
 };
 
 export default function ContactDetailsPanel({ contactId, onClose, onContactUpdated, asDrawer = false }) {
@@ -170,7 +170,7 @@ export default function ContactDetailsPanel({ contactId, onClose, onContactUpdat
       {asDrawer && <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 59 }} />}
       <div style={shell}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'var(--surf)', zIndex: 1 }}>
-          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13.5, color: 'var(--t1)' }}>Contact Details</p>
+          <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 13.5, color: 'var(--t1)' }}>Contact Details</p>
           {onClose && (
             <button onClick={onClose} aria-label="Close contact details"
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', display: 'flex', padding: 2 }}>
@@ -198,7 +198,7 @@ export default function ContactDetailsPanel({ contactId, onClose, onContactUpdat
                 <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
                   placeholder="Contact name" style={{ ...inputStyle, textAlign: 'center' }} />
               ) : (
-                <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)', textAlign: 'center', wordBreak: 'break-word' }}>{contact.name}</p>
+                <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)', textAlign: 'center', wordBreak: 'break-word' }}>{contact.name}</p>
               )}
               <span style={{
                 padding: '2px 9px', borderRadius: 12, fontSize: 10.5, fontWeight: 600,
@@ -273,11 +273,11 @@ export default function ContactDetailsPanel({ contactId, onClose, onContactUpdat
                   <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>Not in any group.</span>
                 )}
                 {(contact.segments || []).map(sg => (
-                  <span key={sg.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 6px 2px 9px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: `${sg.color || '#0EA5E9'}14`, border: `1px solid ${sg.color || '#0EA5E9'}33`, color: sg.color || '#0EA5E9' }}>
+                  <span key={sg.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 6px 2px 9px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: `${sg.color || '#9d6bff'}14`, border: `1px solid ${sg.color || '#9d6bff'}33`, color: sg.color || '#9d6bff' }}>
                     {sg.name}
                     <button onClick={() => removeFromGroup(sg.id)} disabled={saving} aria-label={`Remove from ${sg.name}`}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', padding: 0, opacity: .7 }}>
-                      <I n="x" s={10} c={sg.color || '#0EA5E9'} />
+                      <I n="x" s={10} c={sg.color || '#9d6bff'} />
                     </button>
                   </span>
                 ))}

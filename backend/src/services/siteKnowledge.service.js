@@ -172,6 +172,80 @@ function siteDocuments() {
     });
   }
 
+  // ── The conversation reactor + platform map ──
+  //
+  // "What does it actually do, end to end?" and "what screens are there?" are
+  // two of the most asked questions, and until these sections existed the site
+  // had no single passage that answered either.
+  docs.push({
+    id: 'site-reactor',
+    source: 'site',
+    title: 'How Spandan works, end to end',
+    topic: 'How it works',
+    body: `${site.REACTOR.sub}
+
+${bulletList(
+      site.REACTOR.chapters.map((c) => `${c.title} ${c.body}`),
+    )}`,
+  });
+  docs.push({
+    id: 'site-platform-map',
+    source: 'site',
+    title: 'Every surface in the product',
+    topic: 'Features',
+    body: bulletList(
+      site.PLATFORM_MAP.groups.map((g) => `${g.name}: ${g.items.join(', ')}`),
+    ),
+  });
+
+  // ── Campaign AI product page ──
+  //
+  // Split the same way FEATURES is: the "what is it" answer and the "what are
+  // its limits" answer are different questions, and one merged chunk answers
+  // neither well. The page's own FAQ joins the site FAQ pool above, because a
+  // visitor asking "will it make up a discount?" does not know or care which
+  // page the answer was written for.
+  const ca = site.CAMPAIGN_AI;
+  docs.push({
+    id: 'site-campaign-ai',
+    source: 'site',
+    title: 'Campaign AI',
+    topic: 'Campaign AI',
+    body: [ca.headline, ca.definition, bulletList(ca.chips)].join('\n\n'),
+  });
+  docs.push({
+    id: 'site-campaign-ai-how',
+    source: 'site',
+    title: 'How Campaign AI works',
+    topic: 'Campaign AI',
+    body: `Campaign AI turns a one-way broadcast into a grounded conversation in four steps:\n\n${bulletList(
+      ca.steps.map((s) => `${s.title}: ${s.body}`),
+    )}`,
+  });
+  docs.push({
+    id: 'site-campaign-ai-capabilities',
+    source: 'site',
+    title: 'What Campaign AI can do',
+    topic: 'Campaign AI',
+    body: bulletList(ca.capabilities.map((c) => `${c.title}: ${c.body}`)),
+  });
+  docs.push({
+    id: 'site-campaign-ai-limits',
+    source: 'site',
+    title: 'Campaign AI limitations and compliance',
+    topic: 'Campaign AI',
+    body: `Limits a customer should know about Campaign AI:\n\n${bulletList(ca.limits)}`,
+  });
+  for (const [question, answer] of ca.faqs) {
+    docs.push({
+      id: `site-faq-${slug(question)}`,
+      source: 'site',
+      title: question,
+      topic: 'FAQ',
+      body: `Question: ${question}\n\nAnswer: ${answer}`,
+    });
+  }
+
   return docs;
 }
 

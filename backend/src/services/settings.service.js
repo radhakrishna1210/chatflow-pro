@@ -18,6 +18,15 @@ export async function getSettings(workspaceId) {
       emailNotifyTemplateApproved: true,
       emailNotifyTemplateRejected: true,
       emailNotifyMemberInvite: true,
+      // Workspace profile and branding, edited from Settings -> Workspace and
+      // Settings -> Branding. `name` is here rather than only on the session
+      // user because a rename has to be readable by the page that performs it.
+      name: true,
+      industry: true,
+      timezone: true,
+      brandColor: true,
+      brandLogoUrl: true,
+      plan: true,
     },
   });
   if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
@@ -39,14 +48,80 @@ const ALLOWED_SETTINGS_FIELDS = [
   'emailNotifyTemplateApproved',
   'emailNotifyTemplateRejected',
   'emailNotifyMemberInvite',
+  // Profile and branding. `plan` is deliberately still absent: it is set by
+  // the subscription flow, and letting it through here would be exactly the
+  // mass-assignment this list exists to prevent.
+  'name',
+  'industry',
+  'timezone',
+  'brandColor',
+  'brandLogoUrl',
 ];
+
+// A colour the UI can actually use. Anything else is rejected rather than
+// silently stored, because a bad value here paints the customer's own widget.
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+// Reachable-looking image URL, or nothing. Same reasoning: a logo field that
+// accepts "javascript:..." is a stored-XSS vector in every surface that renders
+// the brand.
+function assertBranding(data) {
+  if (data.brandColor !== undefined) {
+    const value = String(data.brandColor || '').trim();
+    if (!HEX_COLOR.test(value)) {
+      const e = new Error('Brand colour must be a 6-digit hex value such as #35e8f2');
+      e.status = 400;
+      throw e;
+    }
+    data.brandColor = value;
+  }
+  if (data.brandLogoUrl !== undefined) {
+    const value = String(data.brandLogoUrl || '').trim();
+    if (value && !/^https:\/\//i.test(value)) {
+      const e = new Error('Logo URL must start with https://');
+      e.status = 400;
+      throw e;
+    }
+    data.brandLogoUrl = value || null;
+  }
+  if (data.name !== undefined) {
+    const value = String(data.name || '').trim();
+    if (!value) {
+      const e = new Error('Workspace name is required');
+      e.status = 400;
+      throw e;
+    }
+    data.name = value.slice(0, 120);
+  }
+  if (data.industry !== undefined) {
+    data.industry = String(data.industry || '').trim().slice(0, 80) || null;
+  }
+  if (data.timezone !== undefined) {
+    const value = String(data.timezone || '').trim();
+    // Validated against the runtime's own tz database rather than a list that
+    // would go stale: an unknown zone would otherwise be stored and then throw
+    // every time a campaign tried to schedule against it.
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: value });
+    } catch {
+      const e = new Error(`Unknown time zone "${value}"`);
+      e.status = 400;
+      throw e;
+    }
+    data.timezone = value;
+  }
+}
 
 export async function updateSettings(workspaceId, updates) {
   const data = {};
   for (const key of ALLOWED_SETTINGS_FIELDS) {
     if (updates[key] !== undefined) data[key] = updates[key];
   }
-  return prisma.workspace.update({ where: { id: workspaceId }, data });
+  assertBranding(data);
+  await prisma.workspace.update({ where: { id: workspaceId }, data });
+  // Return the same shape GET does, so a save and a reload can never disagree
+  // about what the workspace now looks like.
+  return getSettings(workspaceId);
 }
 
 export async function getInvoices(workspaceId) {
@@ -82,7 +157,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(number)} — ChatFlow Pro</title>
+<title>${escapeHtml(number)} — Spandan</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -117,7 +192,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
   <div class="sheet">
     <div class="head">
       <div>
-        <p class="brand">ChatFlow<span>Pro</span></p>
+        <p class="brand">spandan</p>
         <p class="muted">WhatsApp Business Platform</p>
       </div>
       <div class="num">
@@ -148,7 +223,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
       </thead>
       <tbody>
         <tr>
-          <td>${escapeHtml(invoice.description || 'ChatFlow Pro services')}</td>
+          <td>${escapeHtml(invoice.description || 'Spandan services')}</td>
           <td class="right">${escapeHtml(symbol)}${escapeHtml(amount)}</td>
         </tr>
       </tbody>
@@ -158,7 +233,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
     </table>
 
     <div class="foot">
-      <p>This invoice was generated automatically by ChatFlow Pro on ${escapeHtml(new Date().toLocaleString('en-IN'))}.</p>
+      <p>This invoice was generated automatically by Spandan on ${escapeHtml(new Date().toLocaleString('en-IN'))}.</p>
       <p>To save it as a PDF, open this file in your browser and choose Print → Save as PDF.</p>
     </div>
   </div>

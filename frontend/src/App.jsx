@@ -7,6 +7,8 @@ import AuthCallback from './pages/AuthCallback.jsx';
 import WorkspaceSetup from './pages/WorkspaceSetup.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
+import Legal from './pages/Legal.jsx';
+import CampaignAI from './pages/CampaignAI.jsx';
 import SiteAssistant from './components/SiteAssistant.jsx';
 import { clearStoredSession } from './lib/api.js';
 
@@ -94,10 +96,19 @@ const clearSession = clearStoredSession;
 
 export default function App() {
   const [path, setPath] = useState(window.location.pathname);
+  // The query string is tracked separately from the pathname. Route matching
+  // below is all pathname equality, so the search must not be folded into
+  // `path` — but it still has to be state, because a navigation that changes
+  // only the query (…/payments?tab=invoices → …/payments) leaves the pathname
+  // identical, setPath is handed the value it already holds, React bails out
+  // of the re-render, and every page that reads `?tab=` keeps showing the old
+  // sub-tab while the address bar says otherwise.
+  const [search, setSearch] = useState(window.location.search);
 
   useEffect(() => {
     const onPop = () => {
       setPath(window.location.pathname);
+      setSearch(window.location.search);
       window.scrollTo({ top: 0, behavior: 'instant' });
     };
     window.addEventListener('popstate', onPop);
@@ -125,7 +136,7 @@ export default function App() {
     }
   }, [path]);
 
-  const page = renderPage(path, nav);
+  const page = renderPage(path, nav, search);
 
   // The website assistant rides above every screen, so a question that occurs
   // to someone on the pricing page is still answerable once they are inside
@@ -139,12 +150,21 @@ export default function App() {
   );
 }
 
-function renderPage(path, nav) {
+function renderPage(path, nav, search) {
   if (path === '/auth/callback') return <AuthCallback />;
   // Deliberately not covered by the route-guard effect above (only handles
   // /dashboard, /setup, /login, /register) — this page must work whether or
   // not the visitor is currently logged in, so it branches internally.
   if (path === '/invite/accept') return <InviteAccept />;
+  // Policy pages are public by design: Meta's WhatsApp onboarding and the
+  // payment gateway both require these URLs to resolve for a signed-out
+  // visitor, so they sit outside every guard.
+  if (path === '/legal' || path.startsWith('/legal/')) return <Legal routePath={path} />;
+  // Product pages are public and stay public for signed-in visitors too: the
+  // only redirect on this side of the guards is the landing page's, and a
+  // logged-in user following a link to a feature page wants to read the page,
+  // not be bounced to their dashboard.
+  if (path === '/product/campaign-ai') return <CampaignAI onNav={nav} />;
   if (path === '/login')         return <Login onNav={nav} mode="login" />;
   if (path === '/register')      return <Register onNav={nav} />;
   // Must work whether or not the visitor is logged in, same as /invite/accept.
@@ -155,7 +175,7 @@ function renderPage(path, nav) {
   }
   if (path.startsWith('/dashboard')) {
     if (!isAuthed() || !canAccessDashboard()) return null; // guard effect redirects
-    return <Dashboard onNav={nav} routePath={path} />;
+    return <Dashboard onNav={nav} routePath={path} routeSearch={search} />;
   }
   if (path === '/' && isAuthed()) {
     // Logged-in users land on the dashboard, matching the pre-router behaviour.

@@ -108,7 +108,7 @@ export default function BlockedNumbers({ isAdmin }) {
     <div style={{ ...card, overflow:'hidden', flexShrink:0 }}>
       <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
         <I n="ban" s={16} c="#f87171" />
-        <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>Blocked Numbers</span>
+        <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>Blocked Numbers</span>
         <span style={{ padding:'2px 9px', borderRadius:10, fontSize:11, fontWeight:700, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.2)', color:'#f87171' }}>
           {activeCount} blocked
         </span>
@@ -135,7 +135,7 @@ export default function BlockedNumbers({ isAdmin }) {
             <I n="search" s={13} c="var(--t2)" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by number, keyword or reason…"
               aria-label="Search blocked numbers"
-              style={{ flex:1, background:'none', border:'none', outline:'none', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", minWidth:0 }} />
+              style={{ flex:1, background:'none', border:'none', outline:'none', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", minWidth:0 }} />
           </div>
           <div style={{ display:'flex', gap:6 }}>
             {FILTERS.map(f => (
@@ -175,7 +175,7 @@ export default function BlockedNumbers({ isAdmin }) {
                 {isAdmin && (
                   <th style={{ padding:'8px 12px', width:36 }}>
                     <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all blocked numbers"
-                      disabled={blockedRows.length === 0} style={{ accentColor:'#1EBF5E', cursor:'pointer' }} />
+                      disabled={blockedRows.length === 0} style={{ accentColor:'#35e8f2', cursor:'pointer' }} />
                   </th>
                 )}
                 {['Phone Number','Blocked Date','Time','Keyword','Reason','Blocked By',''].map(h => (
@@ -190,7 +190,7 @@ export default function BlockedNumbers({ isAdmin }) {
                     <td style={{ padding:'10px 12px' }}>
                       {row.active && (
                         <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row.id)}
-                          aria-label={`Select ${row.phoneNumber}`} style={{ accentColor:'#1EBF5E', cursor:'pointer' }} />
+                          aria-label={`Select ${row.phoneNumber}`} style={{ accentColor:'#35e8f2', cursor:'pointer' }} />
                       )}
                     </td>
                   )}
@@ -209,7 +209,7 @@ export default function BlockedNumbers({ isAdmin }) {
                       <span style={{ fontSize:11, fontWeight:600, color:'var(--t3)' }}>Unblocked</span>
                     ) : isAdmin ? (
                       <button onClick={() => unblock([row.id], row.phoneNumber)} disabled={busy}
-                        style={{ padding:'4px 11px', borderRadius:6, background:'rgba(30,191,94,0.08)', border:'1px solid var(--gbd)', cursor: busy ? 'not-allowed' : 'pointer', fontSize:11.5, fontWeight:600, color:'var(--green)', opacity: busy ? 0.6 : 1 }}>
+                        style={{ padding:'4px 11px', borderRadius:6, background:'rgba(53,232,242,0.08)', border:'1px solid var(--gbd)', cursor: busy ? 'not-allowed' : 'pointer', fontSize:11.5, fontWeight:600, color:'var(--green)', opacity: busy ? 0.6 : 1 }}>
                         Unblock
                       </button>
                     ) : null}

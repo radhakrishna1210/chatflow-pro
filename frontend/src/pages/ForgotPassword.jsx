@@ -29,7 +29,7 @@ export default function ForgotPassword() {
 
   const inp = (name) => ({
     width: '100%', padding: '11px 14px', borderRadius: '9px', outline: 'none',
-    background: 'rgba(255,255,255,0.035)', fontFamily: "'Plus Jakarta Sans',sans-serif",
+    background: 'rgba(255,255,255,0.035)', fontFamily: "'Manrope',sans-serif",
     fontSize: '14px', color: 'var(--t1)', transition: 'border .18s',
     border: focus === name ? '1px solid var(--gbd)' : '1px solid var(--bd)',
   });
@@ -85,18 +85,18 @@ export default function ForgotPassword() {
         <div onClick={() => navigate('/login')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', marginBottom: '28px' }}>
           <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#07090F" />
-              <path d="M5.5 7.5h5M5.5 10h3" stroke="#20C967" strokeWidth="1.3" strokeLinecap="round" />
+              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#0a0b0e" />
+              <path d="M5.5 7.5h5M5.5 10h3" stroke="#35e8f2" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </div>
-          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
-            ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span>
+          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
+            spandan
           </span>
         </div>
 
         {step === 'email' ? (
           <>
-            <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Forgot password?</h1>
+            <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Forgot password?</h1>
             <p style={{ fontSize: '14px', color: 'var(--t2)', marginBottom: '28px' }}>
               Enter your account email and we'll send you a reset code.
             </p>
@@ -108,7 +108,7 @@ export default function ForgotPassword() {
                   style={inp('email')} onFocus={() => setFocus('email')} onBlur={() => setFocus('')} required />
               </div>
               <Btn type="submit" disabled={status === 'loading'} style={{ justifyContent: 'center', boxShadow: status === 'loading' ? 'none' : 'var(--glow)' }}>
-                {status === 'loading' ? 'Sending code…' : <>Send reset code <I n="arrow" s={14} c="#07090F" /></>}
+                {status === 'loading' ? 'Sending code…' : <>Send reset code <I n="arrow" s={14} c="#0a0b0e" /></>}
               </Btn>
             </form>
             <p style={{ fontSize: '14px', color: 'var(--t2)', marginTop: 20, textAlign: 'center' }}>
@@ -117,7 +117,7 @@ export default function ForgotPassword() {
           </>
         ) : (
           <>
-            <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Reset your password</h1>
+            <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Reset your password</h1>
             <p style={{ fontSize: '14px', color: 'var(--t2)', marginBottom: '28px' }}>
               We sent a 6-digit code to <strong style={{ color: 'var(--t1)' }}>{email}</strong>.
             </p>

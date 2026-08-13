@@ -32,29 +32,29 @@ export default function SupportView() {
     } catch (e) { setErr(e.message); setStatus('idle'); }
   };
 
-  const inputStyle = { padding: '11px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif" };
+  const inputStyle = { padding: '11px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', fontFamily: "'Manrope',sans-serif" };
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'var(--surf)' }}>
-        <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)' }}>Help &amp; Support</h1>
+        <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)' }}>Help &amp; Support</h1>
         <p style={{ fontSize: 11.5, color: 'var(--t2)', marginLeft: 10 }}>Report an issue or contact our team</p>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', maxWidth: 720, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         <div style={{ ...card, padding: 24, marginBottom: 20 }}>
-          <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)', marginBottom: 16 }}>Submit a request</h3>
+          <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)', marginBottom: 16 }}>Submit a request</h3>
           {err && <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 13, marginBottom: 14 }}>{err}</div>}
           {status === 'success' && <div style={{ padding: '10px 13px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 13, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}><I n="check" s={14} c="var(--green)" w={2} /> Ticket submitted — we'll get back to you by email.</div>}
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
               <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" style={inputStyle} maxLength={200} />
               <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inputStyle, colorScheme: 'dark' }}>
-                <option value="GENERAL" style={{ background: '#07090F' }}>General</option>
-                <option value="BILLING" style={{ background: '#07090F' }}>Billing</option>
-                <option value="TECHNICAL" style={{ background: '#07090F' }}>Technical</option>
-                <option value="BUG" style={{ background: '#07090F' }}>Bug report</option>
-                <option value="FEATURE" style={{ background: '#07090F' }}>Feature request</option>
+                <option value="GENERAL" style={{ background: '#0a0b0e' }}>General</option>
+                <option value="BILLING" style={{ background: '#0a0b0e' }}>Billing</option>
+                <option value="TECHNICAL" style={{ background: '#0a0b0e' }}>Technical</option>
+                <option value="BUG" style={{ background: '#0a0b0e' }}>Bug report</option>
+                <option value="FEATURE" style={{ background: '#0a0b0e' }}>Feature request</option>
               </select>
             </div>
             <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Describe your issue…" rows={5} maxLength={4000}
@@ -65,7 +65,7 @@ export default function SupportView() {
           </form>
         </div>
 
-        <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 12 }}>Your requests</h3>
+        <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 12 }}>Your requests</h3>
         {tickets.length === 0 ? (
           <div style={{ ...card, padding: 28, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>No requests yet.</div>
         ) : (
@@ -78,8 +78,8 @@ export default function SupportView() {
                   <p style={{ fontSize: 11, color: 'var(--t3)' }}>{new Date(t.createdAt).toLocaleString('en-IN')}</p>
                 </div>
                 <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, flexShrink: 0,
-                  background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(56,189,248,.1)',
-                  color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#38bdf8' }}>
+                  background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(157,107,255,.1)',
+                  color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#9d6bff' }}>
                   {t.status}
                 </span>
               </div>

@@ -8,8 +8,18 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { findOrCreateGoogleUser } from './services/auth.service.js';
 import apiRoutes from './routes/index.js';
 import widgetPublicRoutes from './routes/widgetPublic.routes.js';
+import { logToFile } from './lib/logger.js';
 
 const app = express();
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logToFile(`${req.method} ${req.url} - Status: ${res.statusCode} (${duration}ms)`);
+  });
+  next();
+});
 
 app.use(express.json({
   limit: env.JSON_BODY_LIMIT,

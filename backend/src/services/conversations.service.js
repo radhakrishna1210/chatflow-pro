@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { generateAgentReply } from './aiAgent.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage } from '../lib/meta.js';
 import { consumeMessageCredit } from './subscription.service.js';
@@ -14,7 +15,22 @@ export async function listConversations(workspaceId, { page = 1, limit = 20 } = 
       orderBy: { lastMessageAt: 'desc' },
       include: {
         contact: { select: { id: true, name: true, phoneNumber: true } },
-        messages: { orderBy: { sentAt: 'desc' }, take: 1 },
+        // Two messages rather than one: the preview needs the latest, and
+        // "who is handling this" needs the latest *outbound*, which is often
+        // the one behind it.
+        messages: {
+          orderBy: { sentAt: 'desc' },
+          take: 2,
+          select: { id: true, body: true, direction: true, sentAt: true, senderUserId: true },
+        },
+        assignedTo: { select: { id: true, name: true } },
+        // Present only while a campaign chat window is open — which is exactly
+        // what "AI-handled" means in the inbox filter.
+        aiSessions: {
+          where: { status: 'ACTIVE' },
+          select: { id: true, campaignId: true, turns: true },
+          take: 1,
+        },
       },
     }),
     prisma.conversation.count({ where: { workspaceId } }),
@@ -88,4 +104,231 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   });
 
   return message;
+}
+
+
+// ─── Conversation context ────────────────────────────────────────────────────
+//
+// Everything the inbox's right-hand panel shows about a thread that is not the
+// thread itself: which campaign started it, what the AI did before a human
+// arrived, and what has happened to this customer over time.
+//
+// It is one endpoint rather than four because the panel opens as a unit, and
+// four round trips to fill one sidebar is four chances to render half of it.
+export async function getContext(workspaceId, conversationId) {
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    select: {
+      id: true, status: true, label: true, assignedToUserId: true, createdAt: true, lastMessageAt: true,
+      contact: { select: { id: true, name: true, phoneNumber: true, tags: true, createdAt: true, optedOut: true } },
+      assignedTo: { select: { id: true, name: true, email: true } },
+    },
+  });
+  if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+
+  const contactId = conversation.contact.id;
+
+  const [aiSession, recipient, firstInbound, firstHumanReply, messageCounts] = await Promise.all([
+    prisma.campaignAiSession.findFirst({
+      where: { conversationId },
+      orderBy: { activatedAt: 'desc' },
+      select: {
+        id: true, status: true, turns: true, ctaLabel: true,
+        activatedAt: true, lastActivityAt: true, expiresAt: true,
+        campaign: { select: { id: true, name: true, status: true } },
+      },
+    }),
+    // The most recent campaign this contact was actually sent, whether or not
+    // it opened an AI chat. A thread can start from a campaign the customer
+    // simply replied to.
+    prisma.campaignRecipient.findFirst({
+      where: { contactId, campaign: { workspaceId } },
+      orderBy: { sentAt: 'desc' },
+      select: {
+        sentAt: true, deliveredAt: true, readAt: true, status: true,
+        campaign: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.message.findFirst({
+      where: { conversationId, direction: 'INBOUND' },
+      orderBy: { sentAt: 'asc' },
+      select: { sentAt: true, body: true },
+    }),
+    prisma.message.findFirst({
+      where: { conversationId, direction: 'OUTBOUND', senderUserId: { not: null } },
+      orderBy: { sentAt: 'asc' },
+      select: { sentAt: true, senderUser: { select: { name: true } } },
+    }),
+    prisma.message.groupBy({
+      by: ['direction'],
+      where: { conversationId },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const counts = Object.fromEntries(messageCounts.map((m) => [m.direction, m._count._all]));
+
+  // Outbound messages with no sender are the agent's. That distinction is the
+  // only place "handled by AI" is recorded, so it is also how the timeline
+  // knows a human took over.
+  const botReplies = await prisma.message.count({
+    where: { conversationId, direction: 'OUTBOUND', senderUserId: null },
+  });
+
+  // Built as a list of real, timestamped events, then sorted. Nothing is
+  // inferred that did not happen: an entry exists only because a row does.
+  const timeline = [];
+  const push = (at, text, kind) => { if (at) timeline.push({ at, text, kind }); };
+
+  push(conversation.contact.createdAt, 'Added as a contact', 'contact');
+  if (recipient?.campaign) {
+    push(recipient.sentAt, `Sent “${recipient.campaign.name}”`, 'campaign');
+    push(recipient.deliveredAt, 'Campaign delivered', 'campaign');
+    push(recipient.readAt, 'Campaign read', 'campaign');
+  }
+  if (aiSession) {
+    push(aiSession.activatedAt, `Opened a chat from ${aiSession.campaign?.name || 'a campaign'}`, 'ai');
+  }
+  push(firstInbound?.sentAt, 'First message from the customer', 'inbound');
+  if (firstHumanReply) {
+    push(firstHumanReply.sentAt, `${firstHumanReply.senderUser?.name || 'A teammate'} took over`, 'human');
+  }
+  if (conversation.status !== 'OPEN') {
+    push(conversation.lastMessageAt, `Marked ${conversation.status.toLowerCase()}`, 'status');
+  }
+  timeline.sort((a, b) => new Date(a.at) - new Date(b.at));
+
+  return {
+    conversation: {
+      id: conversation.id,
+      status: conversation.status,
+      label: conversation.label,
+      assignedTo: conversation.assignedTo,
+    },
+    contact: conversation.contact,
+    campaignSource: recipient?.campaign
+      ? {
+          id: recipient.campaign.id,
+          name: recipient.campaign.name,
+          sentAt: recipient.sentAt,
+          deliveredAt: recipient.deliveredAt,
+          readAt: recipient.readAt,
+          status: recipient.status,
+        }
+      : null,
+    aiSession: aiSession
+      ? {
+          status: aiSession.status,
+          turns: aiSession.turns,
+          ctaLabel: aiSession.ctaLabel,
+          campaign: aiSession.campaign,
+          activatedAt: aiSession.activatedAt,
+          expiresAt: aiSession.expiresAt,
+          handedOver: !!firstHumanReply,
+        }
+      : null,
+    messages: {
+      inbound: counts.INBOUND || 0,
+      outbound: counts.OUTBOUND || 0,
+      byAgent: botReplies,
+      byTeam: (counts.OUTBOUND || 0) - botReplies,
+    },
+    timeline,
+  };
+}
+
+// A drafted reply for the composer's suggestion chips.
+//
+// It runs the same agent the customer would have got, against the same
+// conversation history — so accepting a suggestion sends what the AI would have
+// sent, and editing one is a real edit rather than a rewrite of something else.
+export async function suggestReply(workspaceId, conversationId) {
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    select: { id: true, waNumberId: true, contact: { select: { name: true } } },
+  });
+  if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+
+  const lastInbound = await prisma.message.findFirst({
+    where: { conversationId, direction: 'INBOUND' },
+    orderBy: { sentAt: 'desc' },
+    select: { body: true },
+  });
+  if (!lastInbound?.body) return { suggestions: [], reason: 'Nothing from the customer to answer yet.' };
+
+  const reply = await generateAgentReply(workspaceId, lastInbound.body, {
+    contactName: conversation.contact?.name,
+    conversationId,
+    waNumberId: conversation.waNumberId,
+  });
+
+  if (!reply) {
+    return {
+      suggestions: [],
+      reason: 'The AI agent is not deployed, or no model is configured on the server.',
+    };
+  }
+  return { suggestions: [reply], answering: lastInbound.body };
+}
+
+// ─── Internal notes ──────────────────────────────────────────────────────────
+//
+// Private to the team. Nothing here ever reaches WhatsApp — see the model
+// comment on ConversationNote for why these are not Messages.
+
+export async function listNotes(workspaceId, conversationId) {
+  const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
+  if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+  return prisma.conversationNote.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: 'desc' },
+    include: { author: { select: { id: true, name: true } } },
+  });
+}
+
+export async function addNote(workspaceId, conversationId, authorId, body) {
+  const text = String(body || '').trim();
+  if (!text) { const e = new Error('Write something before saving the note'); e.status = 400; throw e; }
+  const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
+  if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+  return prisma.conversationNote.create({
+    data: { conversationId, authorId: authorId || null, body: text.slice(0, 4000) },
+    include: { author: { select: { id: true, name: true } } },
+  });
+}
+
+export async function deleteNote(workspaceId, conversationId, noteId) {
+  const note = await prisma.conversationNote.findFirst({
+    where: { id: noteId, conversation: { id: conversationId, workspaceId } },
+    select: { id: true },
+  });
+  if (!note) { const e = new Error('Note not found'); e.status = 404; throw e; }
+  await prisma.conversationNote.delete({ where: { id: noteId } });
+  return { ok: true };
+}
+
+// Assign a thread to a teammate, or hand it back to the agent by passing null.
+export async function assignConversation(workspaceId, conversationId, assignedToUserId) {
+  const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
+  if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+  return prisma.conversation.update({
+    where: { id: conversationId },
+    data: { assignedToUserId: assignedToUserId || null },
+    include: { assignedTo: { select: { id: true, name: true } } },
+  });
+}
+
+// OPEN | PENDING | RESOLVED | CLOSED, as the schema's ConversationStatus enum
+// defines them. Validated here rather than trusting the body, because an
+// invalid value would fail at the database with a message nobody can act on.
+const CONVERSATION_STATUSES = new Set(['OPEN', 'PENDING', 'RESOLVED', 'CLOSED']);
+
+export async function setConversationStatus(workspaceId, conversationId, status) {
+  const next = String(status || '').toUpperCase();
+  if (!CONVERSATION_STATUSES.has(next)) {
+    const e = new Error(`Unknown conversation status "${status}"`); e.status = 400; throw e;
+  }
+  const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
+  if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+  return prisma.conversation.update({ where: { id: conversationId }, data: { status: next } });
 }

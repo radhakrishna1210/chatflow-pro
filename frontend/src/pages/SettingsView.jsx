@@ -7,6 +7,7 @@ import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
 import BlockedNumbers from '../components/BlockedNumbers.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
+const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
 
 const NOTIF_OPTS = [
   { id:'newConv',         label:'New Conversation',    default:true,  field:'notifyNewConversation'   },
@@ -29,7 +30,7 @@ const SectionCard = ({ icon, title, children }) => (
   <div style={{ ...card, overflow:'hidden', flexShrink:0 }}>
     <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', gap:10 }}>
       <I n={icon} s={16} c="var(--green)" />
-      <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>{title}</span>
+      <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>{title}</span>
     </div>
     <div style={{ padding:'20px' }}>{children}</div>
   </div>
@@ -43,14 +44,40 @@ const Toggle = ({ on, onToggle, disabled=false }) => (
 
 const FInput = ({ value, onChange, placeholder, disabled=false, style:ex={} }) => (
   <input value={value} onChange={onChange} placeholder={placeholder} disabled={disabled}
-    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', boxSizing:'border-box', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'text', ...ex }}
+    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'text', ...ex }}
     onFocus={e=>e.target.style.borderColor='var(--gbd)'}
     onBlur={e=>e.target.style.borderColor='var(--bd)'} />
 );
 
+// The rail. Every existing section keeps its card and its behaviour — the tabs
+// only decide which cards are on screen, because a single scroll of seven
+// unrelated panels is a page nobody can find anything in.
+const SETTINGS_TABS = [
+  { id: 'workspace',     icon: 'building', label: 'Workspace' },
+  { id: 'team',          icon: 'users',    label: 'Team' },
+  { id: 'notifications', icon: 'bell',     label: 'Notifications' },
+  { id: 'branding',      icon: 'spark',    label: 'Branding' },
+  { id: 'security',      icon: 'shield',   label: 'Security' },
+  { id: 'billing',       icon: 'credit',   label: 'Billing' },
+];
+
+// A reasonable set rather than the whole IANA database: these are the zones a
+// business using this product actually operates in, and the field accepts any
+// valid zone typed by hand — the server validates against the real tz database.
+const COMMON_TIMEZONES = [
+  'Asia/Kolkata', 'Asia/Dubai', 'Asia/Singapore', 'Asia/Karachi', 'Asia/Dhaka',
+  'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles',
+  'Australia/Sydney', 'UTC',
+];
+
+const INDUSTRIES = [
+  'D2C / Retail', 'E-commerce', 'Education', 'Healthcare', 'Food & hospitality',
+  'Real estate', 'Travel', 'Professional services', 'Agency', 'Other',
+];
+
 const Avatar = ({ name='?', size=30 }) => {
   const init = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#1EBF5E','#0EA5E9','#A78BFA','#F59E0B'];
+  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
@@ -74,6 +101,40 @@ export default function SettingsView() {
   const canUpgrade = canBill(currentUser);
   const currentUserId = currentUser.id;
   const [settings, setSettings] = useState({});
+  // ── tab rail ──
+  const [tab, setTab] = useState('workspace');
+
+  // ── workspace profile & branding ──
+  // Seeded from the settings payload once it loads; `profileSaved` is the
+  // transient confirmation the other sections already use.
+  const [profile, setProfile] = useState({ name: '', industry: '', timezone: 'Asia/Kolkata', brandColor: '#35e8f2', brandLogoUrl: '' });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileMsg, setProfileMsg] = useState(null);
+
+  const saveProfile = async (fields) => {
+    setSavingProfile(true); setProfileMsg(null);
+    try {
+      const res = await wFetch('/settings', { method: 'PATCH', body: JSON.stringify(fields) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setProfileMsg({ error: data.error || 'Could not save' }); return; }
+      setProfile(p => ({ ...p, ...fields }));
+      setProfileMsg({ ok: 'Saved.' });
+      setTimeout(() => setProfileMsg(null), 2500);
+      // The workspace name is shown in the sidebar and the profile page, both
+      // of which read the cached session user.
+      if (fields.name) {
+        try {
+          const user = JSON.parse(localStorage.getItem('user') || '{}');
+          localStorage.setItem('user', JSON.stringify({ ...user, workspaceName: fields.name }));
+        } catch { /* the server is still the source of truth */ }
+      }
+    } catch (e) {
+      setProfileMsg({ error: e.message });
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   const [memberError, setMemberError] = useState(null);
   const [invoiceError, setInvoiceError] = useState(null);
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
@@ -102,7 +163,14 @@ export default function SettingsView() {
   const [usagePerc, setUsagePerc] = useState(0);
 
   useEffect(() => {
-    wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{ if(d) { setSettings(d); if(d.webhookUrl) setWebhookUrl(d.webhookUrl); if(d.notifyNewConversation!=null) setNotifs({newConv:d.notifyNewConversation,tplApproved:d.notifyTemplateApproved,tplRejected:d.notifyTemplateRejected,campaignDone:d.notifyCampaignCompleted,highOptout:d.notifyHighOptout,rateLimitWarn:d.notifyRateLimit}); setEmailNotifs(Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id, d[o.id]!=null ? d[o.id] : o.default]))); }}).catch(()=>{});
+    wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{ if(d) { setSettings(d); if(d.webhookUrl) setWebhookUrl(d.webhookUrl); if(d.notifyNewConversation!=null) setNotifs({newConv:d.notifyNewConversation,tplApproved:d.notifyTemplateApproved,tplRejected:d.notifyTemplateRejected,campaignDone:d.notifyCampaignCompleted,highOptout:d.notifyHighOptout,rateLimitWarn:d.notifyRateLimit}); setEmailNotifs(Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id, d[o.id]!=null ? d[o.id] : o.default])));
+      setProfile({
+        name: d.name || '',
+        industry: d.industry || '',
+        timezone: d.timezone || 'Asia/Kolkata',
+        brandColor: d.brandColor || '#35e8f2',
+        brandLogoUrl: d.brandLogoUrl || '',
+      }); }}).catch(()=>{});
     wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
     if (canInvite) wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(()=>{});
     wFetch('/settings/invoices').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvoices(d); }).catch(()=>{});
@@ -254,18 +322,166 @@ export default function SettingsView() {
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
       <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
-        <h1 style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Settings</h1>
+        <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Settings</h1>
         <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Workspace configuration</p>
       </div>
 
-      <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:16, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+      <div className="settings-grid" style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'grid', gridTemplateColumns:'184px minmax(0,1fr)', gap:18, alignItems:'start', maxWidth:1020, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+
+        {/* ── tab rail ── */}
+        <div style={{ ...card, padding:8, display:'flex', flexDirection:'column', gap:2, position:'sticky', top:0 }}>
+          {SETTINGS_TABS.map(t => {
+            const on = tab === t.id;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 11px', borderRadius:9, border:'none', cursor:'pointer', textAlign:'left', width:'100%',
+                         fontFamily:"'Manrope',sans-serif", fontSize:13.5, fontWeight: on ? 700 : 500,
+                         color: on ? 'var(--t1)' : 'var(--t2)',
+                         background: on ? 'var(--gbg)' : 'transparent' }}>
+                <I n={t.icon} s={15} c={on ? 'var(--green)' : 'var(--t3)'} />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:16, minWidth:0 }}>
+
+        {tab === 'workspace' && (
+          <SectionCard icon="building" title="Workspace">
+            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              <div>
+                <label style={labelStyle}>Business name</label>
+                <FInput value={profile.name} onChange={e => setProfile(p => ({ ...p, name: e.target.value }))} placeholder="Aarav's Store" />
+                <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Shown in the sidebar, on invoices and to teammates you invite.</p>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:12 }}>
+                <div>
+                  <label style={labelStyle}>Industry</label>
+                  <input list="cfp-industries" value={profile.industry}
+                    onChange={e => setProfile(p => ({ ...p, industry: e.target.value }))}
+                    placeholder="D2C / Retail"
+                    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box' }} />
+                  <datalist id="cfp-industries">
+                    {INDUSTRIES.map(i => <option key={i} value={i} />)}
+                  </datalist>
+                </div>
+                <div>
+                  <label style={labelStyle}>Time zone</label>
+                  <select value={profile.timezone} onChange={e => setProfile(p => ({ ...p, timezone: e.target.value }))}
+                    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box', colorScheme:'dark' }}>
+                    {COMMON_TIMEZONES.map(tz => <option key={tz} value={tz} style={{ background:'#0a0b0e' }}>{tz}</option>)}
+                    {!COMMON_TIMEZONES.includes(profile.timezone) && profile.timezone && (
+                      <option value={profile.timezone} style={{ background:'#0a0b0e' }}>{profile.timezone}</option>
+                    )}
+                  </select>
+                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Used when a scheduled campaign says “9am”.</p>
+                </div>
+              </div>
+              {profileMsg && (
+                <p style={{ fontSize:12, color: profileMsg.error ? '#f87171' : 'var(--green)', margin:0 }}>
+                  {profileMsg.error || profileMsg.ok}
+                </p>
+              )}
+              <div style={{ display:'flex', gap:8 }}>
+                <Btn onClick={() => saveProfile({ name: profile.name, industry: profile.industry, timezone: profile.timezone })} disabled={savingProfile}>
+                  {savingProfile ? 'Saving…' : 'Save changes'}
+                </Btn>
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
+        {tab === 'branding' && (
+          <SectionCard icon="spark" title="Branding">
+            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              <p style={{ fontSize:12.5, color:'var(--t2)', lineHeight:1.6 }}>
+                Used by the website widget and anywhere else this workspace appears to your customers.
+              </p>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))', gap:12 }}>
+                <div>
+                  <label style={labelStyle}>Accent colour</label>
+                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                    <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(profile.brandColor) ? profile.brandColor : '#35e8f2'}
+                      onChange={e => setProfile(p => ({ ...p, brandColor: e.target.value }))}
+                      aria-label="Accent colour"
+                      style={{ width:42, height:38, padding:2, borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer' }} />
+                    <FInput value={profile.brandColor} onChange={e => setProfile(p => ({ ...p, brandColor: e.target.value }))} placeholder="#35e8f2" />
+                  </div>
+                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Six-digit hex, e.g. #35e8f2.</p>
+                </div>
+                <div>
+                  <label style={labelStyle}>Logo URL</label>
+                  <FInput value={profile.brandLogoUrl} onChange={e => setProfile(p => ({ ...p, brandLogoUrl: e.target.value }))} placeholder="https://yourstore.com/logo.png" />
+                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Must be an https:// address your customers can reach.</p>
+                </div>
+              </div>
+
+              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
+                {profile.brandLogoUrl
+                  ? <img src={profile.brandLogoUrl} alt="" style={{ width:34, height:34, borderRadius:9, objectFit:'cover', background:'rgba(255,255,255,0.05)' }} />
+                  : <span style={{ width:34, height:34, borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, color:'#08090c', background: /^#[0-9a-fA-F]{6}$/.test(profile.brandColor) ? profile.brandColor : '#35e8f2' }}>
+                      {(profile.name || 'W').slice(0,1).toUpperCase()}
+                    </span>}
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'var(--t1)' }}>{profile.name || 'Your workspace'}</div>
+                  <div style={{ fontSize:11.5, color:'var(--t3)' }}>Preview</div>
+                </div>
+              </div>
+
+              {profileMsg && (
+                <p style={{ fontSize:12, color: profileMsg.error ? '#f87171' : 'var(--green)', margin:0 }}>
+                  {profileMsg.error || profileMsg.ok}
+                </p>
+              )}
+              <div>
+                <Btn onClick={() => saveProfile({ brandColor: profile.brandColor, brandLogoUrl: profile.brandLogoUrl })} disabled={savingProfile}>
+                  {savingProfile ? 'Saving…' : 'Save branding'}
+                </Btn>
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
+        {tab === 'security' && (
+          <>
+            <SectionCard icon="shield" title="Security">
+              <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                {[
+                  ['Your password', 'Changed from your profile', 'profile'],
+                  ['Active sessions', 'Sign out devices you no longer use', 'profile'],
+                  ['Blocked numbers', 'Numbers that opted out and will never be messaged again', 'settings'],
+                ].map(([title, detail, dest]) => (
+                  <div key={title} style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 15px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{title}</div>
+                      <div style={{ fontSize:11.5, color:'var(--t3)', marginTop:2 }}>{detail}</div>
+                    </div>
+                    {dest === 'profile' && (
+                      <Btn variant="outline" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail:'profile' }))}>
+                        Open profile
+                      </Btn>
+                    )}
+                  </div>
+                ))}
+                <p style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.6, margin:0 }}>
+                  WhatsApp access tokens and integration credentials are encrypted at rest. API keys are shown once at creation
+                  and stored hashed — see API Keys to rotate or revoke one.
+                </p>
+              </div>
+            </SectionCard>
+          </>
+        )}
 
         {/* ── Quick Links ── */}
+        {tab === 'workspace' && (
         <SectionCard icon="columns" title="Quick Links">
           <QuickLinksGrid currentPage="settings" />
         </SectionCard>
+        )}
 
         {/* ── Webhook ── */}
+        {tab === 'workspace' && (
         <SectionCard icon="globe" title="Webhook">
           <div style={{ marginBottom:14 }}>
             <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Webhook URL</label>
@@ -293,8 +509,10 @@ export default function SettingsView() {
             </div>
           )}
         </SectionCard>
+        )}
 
         {/* ── Rate Limit ── */}
+        {tab === 'security' && (
         <SectionCard icon="shield" title="Rate Limit Monitor">
           <div style={{ marginBottom:10 }}>
             <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
@@ -307,12 +525,14 @@ export default function SettingsView() {
             <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Connect your WhatsApp number to track live usage</p>
           </div>
         </SectionCard>
+        )}
 
         {/* ── Team Members ── */}
+        {tab === 'team' && (
         <SectionCard icon="users" title="Team Members">
           {canInvite && (
             <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
-              <Btn size="sm" style={{ background:'rgba(30,191,94,0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={()=>setShowInvite(!showInvite)}>
+              <Btn size="sm" style={{ background:'rgba(53,232,242,0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={()=>setShowInvite(!showInvite)}>
                 <I n="plus" s={13} c="var(--green)" />
                 Invite
               </Btn>
@@ -323,9 +543,9 @@ export default function SettingsView() {
               <div style={{ display:'flex', gap:8 }}>
                 <FInput value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="colleague@company.com" style={{ flex:1 }} />
                 <select value={inviteRole} onChange={e=>setInviteRole(e.target.value)}
-                  style={{ padding:'9px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', colorScheme:'dark' }}>
-                  <option value="CLIENT" style={{ background:'#07090F' }}>Member</option>
-                  <option value="ADMIN" style={{ background:'#07090F' }}>Admin</option>
+                  style={{ padding:'9px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', colorScheme:'dark' }}>
+                  <option value="CLIENT" style={{ background:'#0a0b0e' }}>Member</option>
+                  <option value="ADMIN" style={{ background:'#0a0b0e' }}>Admin</option>
                 </select>
                 <Btn size="sm" onClick={sendInvite} disabled={sendingInvite}>{sendingInvite ? 'Sending…' : 'Send Invite'}</Btn>
               </div>
@@ -450,9 +670,9 @@ export default function SettingsView() {
                         <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                           <select value={memberRoles[m.userId] || m.role} onChange={e=>setRole(m.userId,e.target.value)}
                             disabled={lockRole} title={lockRole ? roleReason : undefined}
-                            style={{ padding:'5px 8px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', colorScheme:'dark', opacity: lockRole ? 0.5 : 1, cursor: lockRole ? 'not-allowed' : 'pointer' }}>
-                            <option value="ADMIN" style={{ background:'#07090F' }}>ADMIN</option>
-                            <option value="CLIENT" style={{ background:'#07090F' }}>CLIENT</option>
+                            style={{ padding:'5px 8px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, fontFamily:"'Manrope',sans-serif", outline:'none', colorScheme:'dark', opacity: lockRole ? 0.5 : 1, cursor: lockRole ? 'not-allowed' : 'pointer' }}>
+                            <option value="ADMIN" style={{ background:'#0a0b0e' }}>ADMIN</option>
+                            <option value="CLIENT" style={{ background:'#0a0b0e' }}>CLIENT</option>
                           </select>
                           {lockRole && <span title={roleReason} style={{ display:'flex' }}><I n="lock" s={12} c="var(--t3)" /></span>}
                         </div>
@@ -476,15 +696,17 @@ export default function SettingsView() {
             </table>
           )}
         </SectionCard>
+        )}
 
         {/* ── Blocked Numbers (opt-outs) ── */}
-        <BlockedNumbers isAdmin={isAdmin} />
+        {tab === 'security' && <BlockedNumbers isAdmin={isAdmin} />}
 
         {/* ── Billing ── */}
+        {tab === 'billing' && (
         <SectionCard icon="credit" title="Billing">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', borderRadius:10, background:'rgba(30,191,94,0.06)', border:'1px solid var(--gbd)', marginBottom:18 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', borderRadius:10, background:'rgba(53,232,242,0.06)', border:'1px solid var(--gbd)', marginBottom:18 }}>
             <div>
-              <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>Growth Plan</p>
+              <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>Growth Plan</p>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Manage your subscription</p>
             </div>
             {canUpgrade && <Btn style={{ boxShadow:'var(--glow)' }}>Upgrade</Btn>}
@@ -521,8 +743,10 @@ export default function SettingsView() {
           </table>
           )}
         </SectionCard>
+        )}
 
         {/* ── Notifications ── */}
+        {tab === 'notifications' && (
         <SectionCard icon="bell" title="In-App Notifications">
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             {NOTIF_OPTS.map(opt => (
@@ -533,8 +757,10 @@ export default function SettingsView() {
             ))}
           </div>
         </SectionCard>
+        )}
 
         {/* ── Email Notifications ── */}
+        {tab === 'notifications' && (
         <SectionCard icon="mail" title="Email Notifications">
           <p style={{ fontSize:12, color:'var(--t2)', marginBottom:16, marginTop:-4, lineHeight:1.5 }}>
             Send emails to all workspace members for these events. Member invites are emailed to the invited person.
@@ -557,6 +783,8 @@ export default function SettingsView() {
             </div>
           )}
         </SectionCard>
+        )}
+        </div>
       </div>
     </div>
   );

@@ -28,6 +28,7 @@ model User {
   workspaceMembers      WorkspaceMember[]
   sentInvitations       Invitation[]
   assignedConversations Conversation[]    @relation("ConversationAssignee")
+  conversationNotes     ConversationNote[]
   notifications         Notification[]
 }
 
@@ -84,6 +85,25 @@ model Workspace {
   aiAgentDeployedAt            DateTime?
   intentMatchingEnabled        Boolean                  @default(false)
   intentMatchThreshold         Float                    @default(0.6)
+  // The agent's configuration beyond name/prompt/knowledge. Split into named
+  // columns rather than one JSON blob because each is edited by its own
+  // section of the AI Agent page and read independently when composing a
+  // reply — a blob would make "did escalation change?" unanswerable.
+  aiAgentPurpose               String                   @default("")
+  aiAgentInstructions          String                   @default("")
+  aiAgentSafetyNote            String                   @default("")
+  // ["English", "Hindi", ...] — null means "no preference stated".
+  aiAgentLanguages             Json?
+  // Below this confidence the agent hands the conversation to a human.
+  escalationThreshold          Float                    @default(0.65)
+  // { refund, negativeSentiment, asksForHuman, highIntent } as booleans.
+  escalationRules              Json?
+  // Workspace profile, surfaced in Settings -> Workspace. `timezone` is the
+  // display default only; businessHours carries its own tz for scheduling.
+  industry                     String?
+  timezone                     String                   @default("Asia/Kolkata")
+  brandColor                   String                   @default("#35e8f2")
+  brandLogoUrl                 String?
   suspended                    Boolean                  @default(false)
   suspendedReason              String?
   walletBalance                Decimal                  @default(0) @db.Decimal(12, 2)
@@ -123,6 +143,8 @@ model Workspace {
   widgetSessions               WidgetSession[]
   widgetEvents                 WidgetEvent[]
   knowledgeSources             KnowledgeSource[]
+  intentRules                  IntentRule[]
+  intentMatchEvents            IntentMatchEvent[]
 }
 
 model WorkspaceMember {
@@ -344,6 +366,12 @@ model Campaign {
   retryConfig     Json?
   trackingConfig  Json?
   fallbackConfig  Json?
+  // What the campaign is for: sales | launch | reengage | nurture. Set in the
+  // first step of the builder and used to tune the suggested template and the
+  // context the agent is given. Nullable because every campaign created before
+  // the step existed has no answer, and inventing one would be a lie about
+  // what the sender chose.
+  goal            String?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @default(now()) @updatedAt
   template        Template            @relation(fields: [templateId], references: [id])
@@ -433,6 +461,7 @@ model Conversation {
   messages         Message[]
   workflowRuns     WorkflowRun[]
   aiSessions       CampaignAiSession[]
+  notes            ConversationNote[]
 }
 
 // One customer's "Ask Anything" conversation with the AI agent attached to a
@@ -1009,7 +1038,7 @@ model SystemSetting {
 // that has run out of quota.
 model SiteKnowledgeChunk {
   id          String    @id @default(cuid())
-  // Null for the platform's own corpus (ChatFlow Pro's marketing site and help
+  // Null for the platform's own corpus (Spandan's marketing site and help
   // docs, which the landing-page assistant answers from). Set for a customer's
   // own website content, which their Smart Website Widget answers from. One
   // table because retrieval, embedding and the incremental sync are identical
@@ -1161,4 +1190,99 @@ model KnowledgeSource {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+}
+
+// --- Intent routing --------------------------------------------------------
+//
+// An intent is a named thing customers ask for, the phrases that signal it, and
+// where a message carrying it should go. It sits in front of the AI agent: an
+// intent match routes deterministically, and only what falls through reaches
+// the model.
+//
+// This is a table rather than a JSON column on Workspace because each rule is
+// toggled, reordered and reported on individually - and because match events
+// below reference a rule by id.
+model IntentRule {
+  id           String             @id @default(cuid())
+  workspaceId  String
+  name         String
+  // Presentation only: the glyph shown on the rule card.
+  icon         String             @default("*")
+  // Where a match goes. 'ai' | 'human' | 'trigger' | 'workflow'
+  actionType   String             @default("ai")
+  // Free text for 'ai', a team/label for 'human', or the id of the
+  // AutomationTrigger / Workflow the other two route to. Deliberately not a
+  // foreign key: deleting a trigger should disable a rule, not cascade-delete
+  // the intent the customer still asks about.
+  actionTarget String             @default("")
+  // The example phrases a customer might use. ["in stock?", "size 9", ...]
+  phrases      Json               @default("[]")
+  isActive     Boolean            @default(true)
+  sortOrder    Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @default(now()) @updatedAt
+  workspace    Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  matchEvents  IntentMatchEvent[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, isActive])
+}
+
+// One routing decision. Written whenever intent matching runs, so the accuracy
+// panel reports what actually happened over the last 30 days instead of a
+// running counter nobody can audit or window.
+model IntentMatchEvent {
+  id           String      @id @default(cuid())
+  workspaceId  String
+  intentRuleId String?
+  // MATCHED | FELL_THROUGH | MISMATCHED - MISMATCHED is set retroactively when
+  // a human corrects the routing, which is why it is not derivable from
+  // confidence alone.
+  outcome      String
+  confidence   Float       @default(0)
+  sample       String      @default("")
+  createdAt    DateTime    @default(now())
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  intentRule   IntentRule? @relation(fields: [intentRuleId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+}
+
+// --- Platform audit trail --------------------------------------------------
+//
+// Every consequential thing an operator does from the Admin control deck.
+// Deliberately not scoped to a workspace: the row survives the workspace it
+// describes being deleted, which is precisely when an audit trail earns its
+// keep. `actorId` is nullable for the same reason.
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  actorEmail  String
+  // impersonate | suspend | reinstate | plan.update | plan.create |
+  // plan.delete | wallet.adjust | ticket.update | number.assign | number.ban
+  action      String
+  targetType  String   @default("")
+  targetLabel String   @default("")
+  reason      String?
+  meta        Json?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+}
+
+// A private note on a conversation. Never sent anywhere: this is the team
+// talking to itself about a customer, which is why it is its own table and not
+// a Message with a flag - one accidental code path treating it as a message
+// would deliver an internal note to the customer it is about.
+model ConversationNote {
+  id             String       @id @default(cuid())
+  conversationId String
+  authorId       String?
+  body           String
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author         User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
 }

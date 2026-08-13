@@ -1,40 +1,70 @@
 :root {
-  --bg:   #080B12;
-  /* Every card on every page is built from `background: var(--surf)`, so the
-     sheen that turns a flat panel into a pane of glass is applied here, once,
-     rather than edited into fourteen page files. It is a paint, not a colour —
-     use --surf-solid anywhere a colour is required (an SVG stroke, say). */
-  --surf: linear-gradient(158deg, rgba(255,255,255,0.055), rgba(255,255,255,0.015)), #0D1121;
-  --surf-solid: #0D1121;
-  --surf2:#131E30;
-  --surf3:#1B2840;
-  --bd:  rgba(255,255,255,0.08);
-  --bdm: rgba(255,255,255,0.14);
-  --bds: rgba(255,255,255,0.20);
-  --t1:  #F0F2F8;
-  /* Secondary and tertiary text. The previous values (#56688A / #2A3550)
-     measured 3.3:1 and 1.5:1 against a card — below the 4.5:1 WCAG AA asks
-     for, and most of this text is set at 11-13px where it matters most. These
-     keep the same slate-blue hue and land at 5.9:1 and 4.4:1, so the
-     three-step hierarchy survives and all of it is actually legible. */
-  --t2:  #7F91B3;
-  --t3:  #6B7B9C;
-  --green:#1EBF5E;
-  --gbg: rgba(30,191,94,0.08);
-  --gbd: rgba(30,191,94,0.20);
-  --glow:0 0 56px rgba(30,191,94,0.18);
-  --card-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 30px rgba(0,0,0,0.40);
-  --r:10px; --rl:14px; --rxl:22px;
+  /* ── Spandan palette ──────────────────────────────────────────────────
+     Token *names* are unchanged from the previous theme so the ~2,800
+     existing var() call sites across the app re-skin themselves. Only the
+     values moved. --green keeps its name but now carries the Spandan accent
+     (cyan); --accent is the preferred alias for new code. */
+  --bg:   #0a0b0e;
+  /* Every card is built from `background: var(--surf)`, so the sheen that
+     turns a flat panel into a pane of glass is applied here, once, rather
+     than edited into fourteen page files. It is a paint, not a colour — use
+     --surf-solid anywhere a colour is required (an SVG stroke, say). */
+  --surf: linear-gradient(158deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)), #0c0d11;
+  --surf-solid: #0c0d11;
+  --surf2:#0d0f13;
+  --surf3:#14161c;
+  --bd:  rgba(255,255,255,0.07);
+  --bdm: rgba(255,255,255,0.10);
+  --bds: rgba(255,255,255,0.16);
+  --t1:  #eef0f3;
+  --t2:  #8b909b;
+  /* Spandan specifies #565c66 here, which measures 2.9:1 on a panel — below
+     the 4.5:1 WCAG AA asks for, and --t3 is used for 330 labels most of which
+     are set at 10-12px. Lifted within the same hue to 4.9:1. This is the one
+     deliberate deviation from the mockups' literal values; the previous theme
+     carried an identical note about the identical bug. */
+  --t3:  #7a808c;
+  --t3-faint: #565c66;   /* exact mockup shade — decorative/large text only */
+
+  /* Accent. Spandan leads with cyan, with violet and lime as the secondary
+     and tertiary voices. */
+  --cyan:  #35e8f2;
+  --violet:#9d6bff;
+  --lime:  #c4ff46;
+  --accent:#35e8f2;
+  --green: #35e8f2;          /* legacy name, accent role */
+  --wa-green:#25d366;        /* WhatsApp brand mark — stays green */
+  /* Status green. The accent is cyan now, so a "Completed"/"Delivered" badge
+     painted with --green would have lost the green-good/amber-warn/red-fail
+     convention that the badge sits inside. Spandan keeps a green in its own
+     palette for exactly this; status badges use it, accents do not. */
+  --success:#25d366;
+  --sbg: rgba(37,211,102,0.08);
+  --sbd: rgba(37,211,102,0.22);
+  --gbg: rgba(53,232,242,0.08);
+  --gbd: rgba(53,232,242,0.20);
+  --glow:0 0 56px rgba(53,232,242,0.18);
+  /* Gradients. The design set leans on exactly two: a lime→cyan wash for
+     primary calls to action (its single most repeated treatment), and a
+     violet→cyan wash for identity marks — avatars, workspace badges. Both are
+     painted on dark ink rather than white, which is what keeps them legible. */
+  --grad-cta: linear-gradient(135deg, #c4ff46, #35e8f2);
+  --grad-cta-hot: linear-gradient(135deg, #d4ff6e, #5cf0f8);
+  --grad-identity: linear-gradient(135deg, #9d6bff, #35e8f2);
+  --grad-wa: linear-gradient(135deg, #25d366, #0f9d58);
+  --ink: #06110f;                /* text/icons that sit on a gradient */
+  --card-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 30px rgba(0,0,0,0.45);
+  --r:9px; --rl:12px; --rxl:18px;
 
   /* Frosted surfaces. Same palette as the solid cards above — this is the
      same material seen through glass, not a second theme. */
-  --glass:    linear-gradient(158deg, rgba(255,255,255,0.065), rgba(255,255,255,0.018));
+  --glass:    linear-gradient(158deg, rgba(255,255,255,0.055), rgba(255,255,255,0.015));
   --glass-bd: rgba(255,255,255,0.10);
-  --glass-sh: inset 0 1px 0 rgba(255,255,255,0.10), 0 18px 50px rgba(0,0,0,0.45);
+  --glass-sh: inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 50px rgba(0,0,0,0.50);
   --blur:     blur(18px) saturate(150%);
   /* Numbers, ticks, payloads and eyebrows. A machine voice next to the two
-     human ones (Syne, Plus Jakarta), so data reads as data. */
-  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+     human ones (Space Grotesk, Manrope), so data reads as data. */
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -42,7 +72,7 @@ html { scroll-behavior: smooth; }
 body {
   background: var(--bg);
   color: var(--t1);
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: 'Manrope', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
@@ -54,16 +84,24 @@ body::before {
   width: 200%;
   height: 200%;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
-  opacity: 0.028;
+  opacity: 0.022;
   pointer-events: none;
   z-index: 9999;
 }
 
-h1,h2,h3,h4,h5 { font-family:'Syne',sans-serif; letter-spacing:-0.025em; line-height:1.1; }
+h1,h2,h3,h4,h5 { font-family:'Space Grotesk',sans-serif; letter-spacing:-0.02em; line-height:1.1; }
 
-::-webkit-scrollbar { width:4px; }
+/* Links. The app styles anchors individually and never wanted the browser's
+   default underline — without this the legal centre's header logo and the
+   landing footer's policy links rendered underlined. Every screen in the
+   design set carries this same reset. Prose links inside .legal-body opt back
+   in below, where an underline is the right affordance for a body-text link. */
+a { color: inherit; text-decoration: none; }
+
+::selection { background:rgba(53,232,242,0.28); color:#fff; }
+::-webkit-scrollbar { width:6px; height:6px; }
 ::-webkit-scrollbar-track { background:transparent; }
-::-webkit-scrollbar-thumb { background:var(--bdm); border-radius:4px; }
+::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.10); border-radius:6px; }
 
 @keyframes fadeUp { from{transform:translateY(20px);opacity:.4} to{transform:translateY(0);opacity:1} }
 @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -132,6 +170,11 @@ h1,h2,h3,h4,h5 { font-family:'Syne',sans-serif; letter-spacing:-0.025em; line-he
 .aurora-a { animation: auroraA 26s ease-in-out infinite; }
 .aurora-b { animation: auroraB 34s ease-in-out infinite; }
 
+/* The logo mark's heartbeat — "spandan" means pulse, and the design set
+   carries this on every header. */
+@keyframes sp-pulse { 0%,100%{opacity:.45;transform:scale(.85)} 50%{opacity:1;transform:scale(1.15)} }
+.sp-pulse { animation: sp-pulse 2.4s ease-in-out infinite; }
+
 @keyframes blink { 0%,100%{opacity:.25} 50%{opacity:1} }
 .dot-typing > span { animation: blink 1.1s ease-in-out infinite; }
 .dot-typing > span:nth-child(2) { animation-delay: .18s; }
@@ -152,7 +195,7 @@ textarea:focus {
   /* !important because several screens set a focus border inline via onFocus;
      one focus treatment beats six slightly different ones. */
   border-color: var(--gbd) !important;
-  box-shadow: 0 0 0 3px rgba(30,191,94,0.10);
+  box-shadow: 0 0 0 3px rgba(53,232,242,0.12);
 }
 input::placeholder, textarea::placeholder { color: var(--t3); }
 
@@ -169,7 +212,7 @@ tbody tr:hover { background: rgba(255,255,255,0.022); }
 
 /* Keyboard users get the same affordances as mouse users. */
 :where(a, button, [tabindex]):focus-visible {
-  outline: 2px solid var(--green);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -182,4 +225,53 @@ tbody tr:hover { background: rgba(255,255,255,0.022); }
     transition-duration: .001ms !important;
   }
   .reveal { opacity: 1; transform: none; }
+}
+
+/* ── Legal centre prose ──────────────────────────────────────────────────
+   Policy documents are the one place in the app with long-form running text,
+   so they get real prose measure and rhythm rather than the dense UI scale
+   everything else uses. Element selectors inside .legal-body, because the
+   copy is rendered from an HTML string and carries no classes. */
+.legal-body p  { font-size:14.5px; line-height:1.75; color:#c2c7d0; margin:0 0 14px; }
+.legal-body h3 { font-family:'Space Grotesk',sans-serif; font-size:19px; font-weight:600; color:var(--t1); margin:30px 0 12px; }
+.legal-body h4 { font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:600; color:var(--t1); margin:20px 0 8px; }
+.legal-body ul { margin:0 0 14px; padding-left:20px; }
+.legal-body li { font-size:14.5px; line-height:1.7; color:#c2c7d0; margin-bottom:7px; }
+.legal-body strong { color:var(--t1); font-weight:700; }
+.legal-body a { color:var(--accent); text-decoration:underline; text-underline-offset:2px; }
+
+/* The policy switcher is sticky beside the document on a wide screen. Below
+   that it would eat the viewport, so it becomes an ordinary block that
+   scrolls away above the text. */
+@media (min-width: 861px) {
+  .legal-aside { position: sticky; top: 96px; }
+}
+@media (max-width: 860px) {
+  .legal-grid { grid-template-columns: 1fr !important; }
+}
+
+/* ── Dashboard two-column work surfaces ─────────────────────────────────────
+   Several dashboard pages put a work area beside a fixed-width rail: intent
+   rules beside the tester, the agent's sections beside the Test Lab, the
+   settings tab rail beside its panel. They all fold at the same width the
+   shell's sidebar becomes a drawer, so the rule lives here once rather than in
+   four inline media queries that would drift apart.
+
+   `!important` because the grid template is set inline on the element — these
+   pages carry their layout in style props, matching the rest of the codebase,
+   and a stylesheet rule cannot otherwise win against that. */
+@media (max-width: 1100px) {
+  .intent-grid,
+  .agent-grid,
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* Below the shell breakpoint the dashboard's own dense grids get one column,
+   and anything that scrolls sideways gets to do so inside its own box rather
+   than dragging the page with it. */
+@media (max-width: 860px) {
+  .dash-split { grid-template-columns: minmax(0, 1fr) !important; }
+  .dash-scroll-x { overflow-x: auto; }
 }

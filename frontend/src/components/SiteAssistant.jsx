@@ -3,7 +3,7 @@ import { I } from './Icons.jsx';
 
 // ─── Website assistant ───────────────────────────────────────────────────────
 //
-// A floating chatbot that answers questions about ChatFlow Pro from the site's
+// A floating chatbot that answers questions about Spandan from the site's
 // own content. Mounted once in App.jsx, so it follows the visitor between the
 // landing page and the dashboard without losing the thread.
 //
@@ -22,12 +22,12 @@ const MONO = 'var(--mono)';
 // Shown on an empty thread. These are prompts, not canned answers — tapping
 // one just types it into the box and asks the server like any other question.
 const SUGGESTIONS = [
-  'What features does ChatFlow Pro provide?',
+  'What features does Spandan provide?',
   'What plans do you have?',
   'How do I create a campaign?',
 ];
 
-const GREETING = "Ask me anything about ChatFlow Pro — features, plans, pricing, or how something works. I answer from this website's content.";
+const GREETING = "Ask me anything about Spandan — features, plans, pricing, or how something works. I answer from this website's content.";
 
 function loadThread() {
   try {
@@ -59,7 +59,7 @@ const Bubble = ({ role, content, error }) => {
         borderRadius: mine ? '12px 12px 3px 12px' : '12px 12px 12px 3px',
         background: mine ? 'var(--green)' : 'rgba(255,255,255,0.045)',
         border: mine ? 'none' : `1px solid ${error ? 'rgba(248,113,113,0.32)' : 'var(--bd)'}`,
-        color: mine ? '#060A10' : error ? '#f87171' : 'var(--t1)',
+        color: mine ? '#08090c' : error ? '#f87171' : 'var(--t1)',
         fontSize: 13.5,
         lineHeight: 1.62,
         // The model answers in plain prose but uses "- " lists, and its line
@@ -199,19 +199,19 @@ export default function SiteAssistant() {
     return (
       <button
         onClick={() => setOpen(true)}
-        aria-label="Open the ChatFlow Pro assistant"
+        aria-label="Open the Spandan assistant"
         style={{
           position: 'fixed', right: 22, bottom: 22, zIndex: 900,
           width: 52, height: 52, borderRadius: '50%',
           background: 'var(--green)', border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 8px 30px rgba(30,191,94,0.38), inset 0 1px 0 rgba(255,255,255,0.25)',
+          boxShadow: '0 8px 30px rgba(53,232,242,0.38), inset 0 1px 0 rgba(255,255,255,0.25)',
           transition: 'transform .18s ease',
         }}
         onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.06)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
       >
-        <I n="bot" s={22} c="#060A10" w={2} />
+        <I n="bot" s={22} c="#08090c" w={2} />
       </button>
     );
   }
@@ -224,13 +224,13 @@ export default function SiteAssistant() {
       <section
         className="cfp-assistant"
         role="dialog"
-        aria-label="ChatFlow Pro assistant"
+        aria-label="Spandan assistant"
         style={{
           position: 'fixed', right: 22, bottom: 22, zIndex: 900,
           width: 386, maxWidth: 'calc(100vw - 32px)',
           height: 560, maxHeight: 'calc(100vh - 44px)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          background: 'var(--surf-solid, #0D1121)',
+          background: 'var(--surf-solid, #0c0d11)',
           border: '1px solid var(--glass-bd)',
           borderRadius: 'var(--rxl)',
           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 24px 70px rgba(0,0,0,0.62)',
@@ -244,14 +244,14 @@ export default function SiteAssistant() {
         }}>
           <div style={{
             width: 30, height: 30, borderRadius: 9, flexShrink: 0,
-            background: 'rgba(30,191,94,0.14)', border: '1px solid var(--gbd, rgba(30,191,94,0.3))',
+            background: 'rgba(53,232,242,0.14)', border: '1px solid var(--gbd, rgba(53,232,242,0.3))',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
             <I n="bot" s={15} c="var(--green)" />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)', letterSpacing: '-.01em' }}>
-              ChatFlow Pro Assistant
+              Spandan Assistant
             </div>
             <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--t3)', letterSpacing: '.06em', textTransform: 'uppercase' }}>
               Answers from this website
@@ -315,14 +315,14 @@ export default function SiteAssistant() {
             onKeyDown={onKeyDown}
             rows={1}
             maxLength={1000}
-            placeholder="Ask about ChatFlow Pro…"
+            placeholder="Ask about Spandan…"
             aria-label="Your question"
             style={{
               flex: 1, resize: 'none', minHeight: 38, maxHeight: 110,
               padding: '9px 12px', borderRadius: 10,
               background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)',
               color: 'var(--t1)', fontSize: 13.5, lineHeight: 1.5,
-              fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none',
+              fontFamily: "'Manrope',sans-serif", outline: 'none',
             }}
           />
           <button
@@ -337,7 +337,7 @@ export default function SiteAssistant() {
               transition: 'background .15s ease',
             }}
           >
-            <I n="send" s={15} c={draft.trim() && !sending ? '#060A10' : 'var(--t3)'} />
+            <I n="send" s={15} c={draft.trim() && !sending ? '#08090c' : 'var(--t3)'} />
           </button>
         </div>
       </section>
@@ -360,11 +360,11 @@ const ASSISTANT_CSS = `
     text-align: left; padding: 9px 12px; border-radius: 9px;
     background: rgba(255,255,255,0.03); border: 1px solid var(--bd);
     color: var(--t2); font-size: 12.5px; line-height: 1.45; cursor: pointer;
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: 'Manrope', sans-serif;
     transition: background .15s, color .15s, border-color .15s;
   }
   .cfp-assistant-suggestion:hover {
-    background: rgba(30,191,94,0.08); border-color: var(--gbd, rgba(30,191,94,0.3)); color: var(--t1);
+    background: rgba(53,232,242,0.08); border-color: var(--gbd, rgba(53,232,242,0.3)); color: var(--t1);
   }
   /* On a phone the panel takes the screen: a 386px card floating over a
      360px viewport is just a broken layout with a shadow. */

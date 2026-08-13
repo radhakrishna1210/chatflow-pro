@@ -111,7 +111,7 @@ const INTEGRATIONS = [
   {
     id: 'yampi', name: 'Yampi', pricing: 'free', category: 'e-Commerce Platform',
     description: 'Create/Update users and send automatic WhatsApp notifications upon different events from your Yampi store',
-    features: ['Order lifecycle notifications', 'Customer auto-creation in ChatFlow', 'Brazilian e-commerce native support'],
+    features: ['Order lifecycle notifications', 'Customer auto-creation in Spandan', 'Brazilian e-commerce native support'],
     actions: ['Know More', 'Connect'],
     videoQuery: 'Yampi WhatsApp integration tutorial',
   },
@@ -268,7 +268,7 @@ const CATEGORY_ICONS = {
   'Accounting Software':     'file',
 };
 
-const LOGO_COLORS = ['#1EBF5E', '#0EA5E9', '#A78BFA', '#F59E0B', '#F472B6', '#34D399', '#60A5FA', '#FB923C'];
+const LOGO_COLORS = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6', '#c4ff46', '#60A5FA', '#FB923C'];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getWorkspaceId() {
@@ -304,7 +304,7 @@ function FieldInput({ field, value, onChange }) {
           onChange={e => onChange(e.target.value)}
           placeholder={field.placeholder}
           style={{ width: '100%', padding: field.password ? '9px 36px 9px 12px' : '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-          onFocus={e => e.target.style.borderColor = 'rgba(30,191,94,0.5)'}
+          onFocus={e => e.target.style.borderColor = 'rgba(53,232,242,0.5)'}
           onBlur={e => e.target.style.borderColor = 'var(--bd)'}
         />
         {field.password && (
@@ -385,7 +385,7 @@ function ConnectModal({ intg, onClose, onSave }) {
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 14 }}>
           <LogoBadge name={intg.name} size={36} />
           <div style={{ flex: 1 }}>
-            <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Connect {intg.name}</p>
+            <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Connect {intg.name}</p>
             <p style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 2 }}>{intg.category}</p>
           </div>
           <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -413,10 +413,10 @@ function ConnectModal({ intg, onClose, onSave }) {
               <div>
                 <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 6 }}>Authorize {cfg.provider}</p>
                 <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.65 }}>
-                  You'll be redirected to {cfg.provider} to grant ChatFlow Pro access to your account. No passwords are stored — only an OAuth token.
+                  You'll be redirected to {cfg.provider} to grant Spandan access to your account. No passwords are stored — only an OAuth token.
                 </p>
               </div>
-              <div style={{ width: '100%', padding: '12px 16px', borderRadius: 10, background: 'rgba(30,191,94,0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, textAlign: 'left', alignItems: 'flex-start' }}>
+              <div style={{ width: '100%', padding: '12px 16px', borderRadius: 10, background: 'rgba(53,232,242,0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, textAlign: 'left', alignItems: 'flex-start' }}>
                 <I n="shield" s={16} c="var(--green)" />
                 <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.6 }}>
                   We only request the minimum permissions needed. You can revoke access from your {cfg.provider} account settings at any time.
@@ -427,7 +427,7 @@ function ConnectModal({ intg, onClose, onSave }) {
 
           {cfg.type === 'webhook' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(30,191,94,0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(53,232,242,0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                 <I n="alertc" s={16} c="var(--green)" />
                 <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.65 }}>{cfg.hint}</p>
               </div>
@@ -438,7 +438,7 @@ function ConnectModal({ intg, onClose, onSave }) {
                     {wUrl}
                   </code>
                   <button onClick={copyUrl}
-                    style={{ padding: '9px 14px', borderRadius: 8, background: copied ? 'rgba(30,191,94,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${copied ? 'var(--gbd)' : 'var(--bd)'}`, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: copied ? 'var(--green)' : 'var(--t2)', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', transition: 'all .2s' }}>
+                    style={{ padding: '9px 14px', borderRadius: 8, background: copied ? 'rgba(53,232,242,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${copied ? 'var(--gbd)' : 'var(--bd)'}`, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: copied ? 'var(--green)' : 'var(--t2)', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', transition: 'all .2s' }}>
                     <I n={copied ? 'check' : 'copy'} s={13} c={copied ? 'var(--green)' : 'var(--t2)'} />
                     {copied ? 'Copied!' : 'Copy'}
                   </button>
@@ -476,11 +476,11 @@ function ConnectModal({ intg, onClose, onSave }) {
             <button
               onClick={handleSave}
               disabled={!canSave() || saving}
-              style={{ padding: '8px 20px', borderRadius: 8, background: canSave() && !saving ? 'var(--green)' : 'rgba(30,191,94,0.3)', border: '1px solid var(--gbd)', color: '#060A10', fontSize: 13, fontWeight: 700, cursor: canSave() && !saving ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 7, transition: 'opacity .15s', boxShadow: canSave() && !saving ? 'var(--glow)' : 'none' }}>
+              style={{ padding: '8px 20px', borderRadius: 8, background: canSave() && !saving ? 'var(--green)' : 'rgba(53,232,242,0.3)', border: '1px solid var(--gbd)', color: '#08090c', fontSize: 13, fontWeight: 700, cursor: canSave() && !saving ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 7, transition: 'opacity .15s', boxShadow: canSave() && !saving ? 'var(--glow)' : 'none' }}>
               {saving ? (
-                <><span style={{ width: 14, height: 14, border: '2px solid rgba(6,10,16,0.3)', borderTopColor: '#060A10', borderRadius: '50%', display: 'inline-block', animation: 'spin .6s linear infinite' }} />Connecting…</>
+                <><span style={{ width: 14, height: 14, border: '2px solid rgba(6,10,16,0.3)', borderTopColor: '#08090c', borderRadius: '50%', display: 'inline-block', animation: 'spin .6s linear infinite' }} />Connecting…</>
               ) : (
-                <><I n={cfg.type === 'oauth' ? 'arrow' : 'checkc'} s={14} c="#060A10" />{cfg.type === 'oauth' ? `Authorize with ${cfg.provider}` : cfg.type === 'webhook' ? 'Activate' : 'Save & Connect'}</>
+                <><I n={cfg.type === 'oauth' ? 'arrow' : 'checkc'} s={14} c="#08090c" />{cfg.type === 'oauth' ? `Authorize with ${cfg.provider}` : cfg.type === 'webhook' ? 'Activate' : 'Save & Connect'}</>
               )}
             </button>
           )}
@@ -498,7 +498,7 @@ function UpgradeModal({ intg, onClose }) {
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 14 }}>
           <LogoBadge name={intg.name} size={36} />
           <div style={{ flex: 1 }}>
-            <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Upgrade to connect {intg.name}</p>
+            <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Upgrade to connect {intg.name}</p>
             <p style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 2 }}>{intg.category}</p>
           </div>
           <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -518,8 +518,8 @@ function UpgradeModal({ intg, onClose }) {
             Not now
           </button>
           <button onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'payments' }))}
-            style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--green)', border: '1px solid var(--gbd)', color: '#060A10', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: 'var(--glow)' }}>
-            <I n="sparkl" s={13} c="#060A10" />
+            style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--grad-cta)', border: '1px solid var(--gbd)', color: 'var(--ink)', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: 'var(--glow)' }}>
+            <I n="sparkl" s={13} c="#08090c" />
             View Plans
           </button>
         </div>
@@ -539,7 +539,7 @@ function InfoModal({ intg, isConnected, locked, onClose, onConnectClick, onUpgra
           <LogoBadge name={intg.name} size={40} />
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>{intg.name}</p>
+              <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>{intg.name}</p>
               <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: intg.pricing === 'free' ? 'var(--gbg)' : 'rgba(245,158,11,0.1)', border: `1px solid ${intg.pricing === 'free' ? 'var(--gbd)' : 'rgba(245,158,11,0.3)'}`, color: intg.pricing === 'free' ? 'var(--green)' : '#fbbf24' }}>
                 {intg.pricing}
               </span>
@@ -603,8 +603,8 @@ function InfoModal({ intg, isConnected, locked, onClose, onConnectClick, onUpgra
           )}
           {!isConnected && !locked && (
             <button onClick={onConnectClick}
-              style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--green)', border: '1px solid var(--gbd)', color: '#060A10', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: 'var(--glow)' }}>
-              <I n="plug" s={13} c="#060A10" />
+              style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--grad-cta)', border: '1px solid var(--gbd)', color: 'var(--ink)', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: 'var(--glow)' }}>
+              <I n="plug" s={13} c="#08090c" />
               Connect
             </button>
           )}
@@ -619,7 +619,7 @@ function IntegrationCard({ intg, isConnected, locked, onAction, onDisconnect }) 
   const catIcon = CATEGORY_ICONS[intg.category] || 'plug';
   return (
     <div style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', gap: 13, transition: 'border-color .15s', position: 'relative' }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = isConnected ? 'var(--gbd)' : 'rgba(30,191,94,0.3)'}
+      onMouseEnter={e => e.currentTarget.style.borderColor = isConnected ? 'var(--gbd)' : 'rgba(53,232,242,0.3)'}
       onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--bd)'}
     >
       {isConnected && (
@@ -652,13 +652,13 @@ function IntegrationCard({ intg, isConnected, locked, onAction, onDisconnect }) 
           const isLockedConnect = isPrimary && locked;
           return (
             <button key={a} onClick={() => onAction(a, intg)}
-              style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, transition: 'opacity .15s, background .15s', background: isLockedConnect ? 'rgba(245,158,11,0.12)' : isPrimary ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: isLockedConnect ? '#fbbf24' : isPrimary ? '#060A10' : 'var(--t2)', border: isLockedConnect ? '1px solid rgba(245,158,11,0.3)' : isPrimary ? '1px solid var(--gbd)' : '1px solid var(--bd)', boxShadow: isPrimary && !isLockedConnect ? 'var(--glow)' : 'none' }}
+              style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, transition: 'opacity .15s, background .15s', background: isLockedConnect ? 'rgba(245,158,11,0.12)' : isPrimary ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: isLockedConnect ? '#fbbf24' : isPrimary ? '#08090c' : 'var(--t2)', border: isLockedConnect ? '1px solid rgba(245,158,11,0.3)' : isPrimary ? '1px solid var(--gbd)' : '1px solid var(--bd)', boxShadow: isPrimary && !isLockedConnect ? 'var(--glow)' : 'none' }}
               onMouseEnter={e => e.currentTarget.style.opacity = '0.82'}
               onMouseLeave={e => e.currentTarget.style.opacity = '1'}
             >
               {a === 'Watch Video' && <I n="play" s={11} c="var(--t2)" />}
               {isLockedConnect && <I n="sparkl" s={11} c="#fbbf24" />}
-              {isPrimary && !isLockedConnect && <I n="plug" s={11} c="#060A10" />}
+              {isPrimary && !isLockedConnect && <I n="plug" s={11} c="#08090c" />}
               {isLockedConnect ? 'Upgrade' : a}
             </button>
           );
@@ -837,7 +837,7 @@ export default function IntegrationsView() {
       {/* Header */}
       <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', gap: 16, flexShrink: 0, background: 'var(--surf)' }}>
         <div style={{ flex: 1 }}>
-          <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>Integrations</h1>
+          <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>Integrations</h1>
           <p style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 1 }}>
             Connect your favourite apps · <span style={{ color: 'var(--green)', fontWeight: 600 }}>{connectedCount} connected</span>
           </p>
@@ -888,7 +888,7 @@ export default function IntegrationsView() {
             const count = cat === 'All' ? INTEGRATIONS.length : INTEGRATIONS.filter(i => i.category === cat).length;
             return (
               <button key={cat} onClick={() => setActiveCategory(cat)}
-                style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: on ? 700 : 500, cursor: 'pointer', transition: 'all .15s', background: on ? 'var(--green)' : 'rgba(255,255,255,0.04)', color: on ? '#060A10' : 'var(--t2)', border: on ? '1px solid var(--gbd)' : '1px solid var(--bd)' }}>
+                style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: on ? 700 : 500, cursor: 'pointer', transition: 'all .15s', background: on ? 'var(--green)' : 'rgba(255,255,255,0.04)', color: on ? '#08090c' : 'var(--t2)', border: on ? '1px solid var(--gbd)' : '1px solid var(--bd)' }}>
                 {cat}
                 <span style={{ marginLeft: 5, opacity: 0.65, fontSize: 11 }}>{count}</span>
               </button>

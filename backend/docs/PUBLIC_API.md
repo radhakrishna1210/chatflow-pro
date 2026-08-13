@@ -1,10 +1,10 @@
-# ChatFlowPro Public API
+# Spandan Public API
 
-The ChatFlowPro Public API allows you to programmatically access your workspace features using API Keys.
+The Spandan Public API allows you to programmatically access your workspace features using API Keys.
 
 ## Authentication
 
-All public API requests must be authenticated using an API Key. You can generate API Keys from your ChatFlowPro Dashboard.
+All public API requests must be authenticated using an API Key. You can generate API Keys from your Spandan Dashboard.
 
 Pass the API Key in the `x-api-key` header for every request:
 
@@ -21,7 +21,7 @@ If the key is missing, invalid, or revoked, you will receive a `401 Unauthorized
 ```text
 https://api.yourdomain.com/api/v1/public
 ```
-*(Replace `api.yourdomain.com` with your actual ChatFlowPro deployment domain, or `http://localhost:3000` for local development.)*
+*(Replace `api.yourdomain.com` with your actual Spandan deployment domain, or `http://localhost:3000` for local development.)*
 
 ---
 
@@ -124,7 +124,7 @@ Returns paginated contacts.
 #### Register Webhook URL
 `POST /webhooks`
 
-Sets or updates the webhook URL for your workspace. ChatFlowPro will send events (message received, delivery receipts, etc.) to this URL.
+Sets or updates the webhook URL for your workspace. Spandan will send events (message received, delivery receipts, etc.) to this URL.
 
 **Request Body:**
 ```json

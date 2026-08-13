@@ -7,7 +7,7 @@ const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderR
 
 const Avatar = ({ name = '?', size = 32 }) => {
   const init = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#1EBF5E','#0EA5E9','#A78BFA','#F59E0B','#F472B6'];
+  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
@@ -38,7 +38,7 @@ const Modal = ({ title, onClose, children, footer, width = 540 }) => (
   <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
     <div style={{ ...card, width, maxHeight:'85vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
       <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
-        <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</span>
+        <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</span>
         <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
           <I n="x" s={18} c="var(--t2)" />
         </button>
@@ -52,7 +52,7 @@ const Modal = ({ title, onClose, children, footer, width = 540 }) => (
 const FInput = ({ value, onChange, placeholder, type = 'text', onKeyDown }) => (
   <input
     type={type} value={value} onChange={onChange} placeholder={placeholder} onKeyDown={onKeyDown}
-    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', boxSizing:'border-box' }}
+    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box' }}
     onFocus={e => e.target.style.borderColor='var(--gbd)'}
     onBlur={e => e.target.style.borderColor='var(--bd)'} />
 );
@@ -226,43 +226,43 @@ const CsvTab = ({ onSaved }) => {
         )}
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9d6bff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
           <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
-        <span style={{ fontSize:12, color:'#7dd3fc', lineHeight:1.5 }}>
-          Phone numbers must include country code (e.g. <code style={{ fontFamily:'monospace', color:'#bae6fd' }}>+919876543210</code>). Tags column is comma-separated.
+        <span style={{ fontSize:12, color:'#b9a3ff', lineHeight:1.5 }}>
+          Phone numbers must include country code (e.g. <code style={{ fontFamily:'monospace', color:'#b9a3ff' }}>+919876543210</code>). Tags column is comma-separated.
         </span>
       </div>
       <div style={{ padding:'14px 16px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9d6bff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
-          <span style={{ fontSize:13, fontWeight:600, color:'#7dd3fc' }}>Instructions for uploading CSV</span>
+          <span style={{ fontSize:13, fontWeight:600, color:'#b9a3ff' }}>Instructions for uploading CSV</span>
         </div>
-        <ul style={{ paddingLeft: 18, margin: 0, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#7dd3fc', lineHeight: 1.5 }}>
+        <ul style={{ paddingLeft: 18, margin: 0, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12, color: '#b9a3ff', lineHeight: 1.5 }}>
           <li>Upload a CSV file to bulk import contacts.</li>
           <li>
             Required columns:
             <ul style={{ listStyleType: 'none', paddingLeft: 16, marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <li>- <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>phoneNumber</code> (required)</li>
-              <li>- <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>name</code> (optional)</li>
-              <li>- <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>email</code> (optional)</li>
-              <li>- <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>tags</code> (optional)</li>
+              <li>- <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>phoneNumber</code> (required)</li>
+              <li>- <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>name</code> (optional)</li>
+              <li>- <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>email</code> (optional)</li>
+              <li>- <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>tags</code> (optional)</li>
             </ul>
           </li>
           <li>
             Phone numbers must include country code.
             <div style={{ marginTop: 4 }}>
               Example:<br />
-              <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>+919876543210</code>
+              <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>+919876543210</code>
             </div>
           </li>
           <li>
             Tags must be comma-separated.
             <div style={{ marginTop: 4 }}>
               Example:<br />
-              <code style={{ fontFamily: 'monospace', color: '#bae6fd' }}>vip,customer</code>
+              <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>vip,customer</code>
             </div>
           </li>
           <li>Duplicate phone numbers in the CSV will be skipped.</li>
@@ -556,7 +556,7 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search contacts…"
-              style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif" }}
+              style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif" }}
             />
           </div>
           <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--bd)', borderRadius: 8, padding: 4, display: 'flex', flexDirection: 'column', gap: 2, background: 'rgba(0,0,0,0.15)' }}>
@@ -571,12 +571,12 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
                   <div
                     key={c.id}
                     onClick={() => toggle(c.id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: sel ? 'rgba(30,191,94,0.08)' : 'transparent', transition: 'background .12s' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: sel ? 'rgba(53,232,242,0.08)' : 'transparent', transition: 'background .12s' }}
                     onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
-                    onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = sel ? 'rgba(30,191,94,0.08)' : 'transparent'; }}
+                    onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = sel ? 'rgba(53,232,242,0.08)' : 'transparent'; }}
                   >
                     <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${sel ? 'var(--green)' : 'var(--bd)'}`, background: sel ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
-                      {sel && <I n="check" s={9} c="#060913" w={3} />}
+                      {sel && <I n="check" s={9} c="#08090c" w={3} />}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                       <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--t1)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{c.name}</span>
@@ -749,7 +749,7 @@ export default function ContactsView() {
 
   const Chk = ({ checked, onChange, indeterminate = false }) => (
     <div onClick={onChange} style={{ width:16, height:16, borderRadius:4, border:`1.5px solid ${checked ? 'var(--green)' : 'var(--bd)'}`, background: checked ? 'var(--green)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0, transition:'all .15s', position:'relative' }}>
-      {checked && <I n="check" s={9} c="#060913" w={3} />}
+      {checked && <I n="check" s={9} c="#08090c" w={3} />}
       {!checked && indeterminate && <div style={{ width:8, height:2, background:'var(--t2)', borderRadius:2 }} />}
     </div>
   );
@@ -761,7 +761,7 @@ export default function ContactsView() {
       {/* header */}
       <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', gap:12, flexShrink:0, background:'var(--surf)' }}>
         <div style={{ flex:1 }}>
-          <h1 style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Contacts</h1>
+          <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Contacts</h1>
           <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:1 }}>{total} total contacts</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -776,7 +776,7 @@ export default function ContactsView() {
             Create Cluster
           </Btn>
           <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
-            <I n="plus" s={14} c="#060A10" />
+            <I n="plus" s={14} c="#08090c" />
             Add Contact
           </Btn>
         </div>
@@ -787,7 +787,7 @@ export default function ContactsView() {
         <div style={{ flex:1, maxWidth:360, minWidth:200, display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
           <I n="search" s={13} c="var(--t2)" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, phone or email…"
-            style={{ flex:1, background:'none', border:'none', outline:'none', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif" }} />
+            style={{ flex:1, background:'none', border:'none', outline:'none', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif" }} />
           {search && (
             <div onClick={() => setSearch('')} style={{ cursor:'pointer', color:'var(--t2)' }}>
               <I n="x" s={12} c="var(--t2)" />
@@ -802,7 +802,7 @@ export default function ContactsView() {
             <I n="filter" s={13} c={activeFilterCount ? 'var(--green)' : 'var(--t2)'} />
             Filter
             {activeFilterCount > 0 && (
-              <span style={{ marginLeft:2, padding:'1px 6px', borderRadius:8, fontSize:10, fontWeight:800, background:'var(--green)', color:'#060913' }}>{activeFilterCount}</span>
+              <span style={{ marginLeft:2, padding:'1px 6px', borderRadius:8, fontSize:10, fontWeight:800, background:'var(--green)', color:'#08090c' }}>{activeFilterCount}</span>
             )}
           </Btn>
 
@@ -818,7 +818,7 @@ export default function ContactsView() {
                     {[['', 'Any'], ['active', 'Active'], ['opted_out', 'Opted Out']].map(([v, label]) => (
                       <button key={v} type="button" onClick={() => setFilters(f => ({ ...f, status: v }))}
                         style={{ flex:1, padding:'7px 8px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight:600,
-                                 fontFamily:"'Plus Jakarta Sans',sans-serif",
+                                 fontFamily:"'Manrope',sans-serif",
                                  border:`1px solid ${filters.status === v ? 'var(--gbd)' : 'var(--bd)'}`,
                                  background: filters.status === v ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
                                  color: filters.status === v ? 'var(--green)' : 'var(--t2)' }}>
@@ -832,7 +832,7 @@ export default function ContactsView() {
                   <div>
                     <FLabel>Group</FLabel>
                     <select value={filters.segmentId} onChange={e => setFilters(f => ({ ...f, segmentId: e.target.value }))}
-                      style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', appearance:'auto', colorScheme:'dark' }}>
+                      style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', appearance:'auto', colorScheme:'dark' }}>
                       <option value="">Any group</option>
                       {segments.map(sg => <option key={sg.id} value={sg.id}>{sg.name}</option>)}
                     </select>
@@ -850,7 +850,7 @@ export default function ContactsView() {
                         return (
                           <button key={t.name} type="button" onClick={() => toggleTag(t.name)}
                             style={{ padding:'4px 10px', borderRadius:20, cursor:'pointer', fontSize:11.5, fontWeight:600,
-                                     fontFamily:"'Plus Jakarta Sans',sans-serif",
+                                     fontFamily:"'Manrope',sans-serif",
                                      border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`,
                                      background: on ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
                                      color: on ? 'var(--green)' : 'var(--t2)' }}>
@@ -1012,7 +1012,7 @@ export default function ContactsView() {
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14 }}>
                             <span>No contacts yet.</span>
                             <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
-                              <I n="plus" s={13} c="#060A10" />
+                              <I n="plus" s={13} c="#08090c" />
                               Add your first contact
                             </Btn>
                           </div>
@@ -1025,7 +1025,7 @@ export default function ContactsView() {
                   const sel = selected.has(c.id);
                   return (
                     <tr key={c.id}
-                      style={{ borderBottom: i < contacts.length - 1 ? '1px solid var(--bd)' : 'none', background: sel ? 'rgba(30,191,94,0.04)' : 'transparent', transition:'background .12s' }}
+                      style={{ borderBottom: i < contacts.length - 1 ? '1px solid var(--bd)' : 'none', background: sel ? 'rgba(53,232,242,0.04)' : 'transparent', transition:'background .12s' }}
                       onMouseEnter={e => { if (!sel) e.currentTarget.style.background = 'rgba(255,255,255,0.015)'; }}
                       onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'transparent'; }}>
                       <td style={{ padding:'12px 16px' }}>
@@ -1050,7 +1050,7 @@ export default function ContactsView() {
                       <td style={{ padding:'12px 16px' }}>
                         <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
                           <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30,191,94,0.1)'; e.currentTarget.style.borderColor = 'var(--gbd)'; }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(53,232,242,0.1)'; e.currentTarget.style.borderColor = 'var(--gbd)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
                             <I n="msg" s={13} c="var(--t2)" />
                           </button>

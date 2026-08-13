@@ -51,12 +51,54 @@ async function refreshExistingFromMeta(workspaceId) {
   }
 }
 
-export async function listNumbers(workspaceId) {
-  const numbers = await prisma.waNumber.findMany({
-    where: { workspaceId },
-    orderBy: { createdAt: 'desc' },
+// Today's send count per number, keyed by waNumberId.
+//
+// Meta's messaging limit is a daily allowance, so "10K limit" only means
+// something next to how much of today is already spent. Counted from campaign
+// recipients rather than a running column: a counter would drift on retries and
+// could not be recomputed after the fact.
+async function sentTodayByNumber(workspaceId) {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const rows = await prisma.campaignRecipient.groupBy({
+    by: ['campaignId'],
+    where: { sentAt: { gte: startOfDay }, campaign: { workspaceId } },
+    _count: { _all: true },
   });
-  return numbers.map(({ encryptedAccessToken: _, ...n }) => n);
+  if (rows.length === 0) return {};
+
+  const campaigns = await prisma.campaign.findMany({
+    where: { id: { in: rows.map((r) => r.campaignId) } },
+    select: { id: true, waNumberId: true },
+  });
+  const numberOf = Object.fromEntries(campaigns.map((c) => [c.id, c.waNumberId]));
+
+  const totals = {};
+  for (const row of rows) {
+    const numberId = numberOf[row.campaignId];
+    if (!numberId) continue;
+    totals[numberId] = (totals[numberId] || 0) + row._count._all;
+  }
+  return totals;
+}
+
+export async function listNumbers(workspaceId) {
+  const [numbers, sentToday] = await Promise.all([
+    prisma.waNumber.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { campaigns: true, conversations: true, templates: true } } },
+    }),
+    sentTodayByNumber(workspaceId),
+  ]);
+  return numbers.map(({ encryptedAccessToken: _, _count, ...n }) => ({
+    ...n,
+    sentToday: sentToday[n.id] || 0,
+    campaigns: _count.campaigns,
+    conversations: _count.conversations,
+    templates: _count.templates,
+  }));
 }
 
 export async function refreshNumbers(workspaceId) {
