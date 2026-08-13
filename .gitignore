@@ -48,3 +48,8 @@ frontend/node_modules/.vite/
 
 # Local notes
 INTERAKT_COMPARISON.md
+
+# Vite writes these while resolving the config; never source
+vite.config.js.timestamp-*
+vite.config.*.timestamp-*
+git_output.txt

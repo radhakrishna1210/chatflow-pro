@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { logToFile } from './lib/logger.js';
+import { logToFile, logToFileSync } from './lib/logger.js';
 
 process.on('uncaughtException', (err) => {
-  logToFile('Uncaught Exception', err);
+  logToFileSync('Uncaught Exception', err);
   console.error('Uncaught Exception:', err);
   process.exit(1);
 });
@@ -327,7 +327,7 @@ async function main() {
 
 main().catch((err) => {
   console.error('[Server] Fatal error:', err);
-  logToFile('Fatal Startup Error', err);
+  logToFileSync('Fatal Startup Error', err);
   process.exit(1);
 });
 
