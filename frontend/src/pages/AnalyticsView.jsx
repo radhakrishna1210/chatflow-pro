@@ -14,14 +14,14 @@ const KpiCard = ({ icon, iconColor, label, value, suffix = '' }) => (
         <I n={icon} s={16} c={iconColor} />
       </div>
     </div>
-    <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)', marginBottom:3, letterSpacing:'-.03em' }}>{value}{suffix}</div>
+    <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)', marginBottom:3, letterSpacing:'-.03em' }}>{value}{suffix}</div>
     <div style={{ fontSize:12, color:'var(--t2)' }}>{label}</div>
   </div>
 );
 
 const Avatar = ({ name='?', size=28 }) => {
   const init = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#1EBF5E','#0EA5E9','#A78BFA','#F59E0B','#F472B6'];
+  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
@@ -36,6 +36,12 @@ export default function AnalyticsView() {
   const [campaigns, setCampaigns] = useState([]);
   const [agents, setAgents]       = useState([]);
   const [loading, setLoading]     = useState(true);
+  // Range for the funnel, resolution split and leaderboard. The KPI cards and
+  // the delivery chart above are all-time and unaffected — they answer
+  // "how big is this account", not "how did the last fortnight go".
+  const [range, setRange] = useState(14);
+  const [perf, setPerf] = useState(null);
+  const [topics, setTopics] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
@@ -73,7 +79,7 @@ export default function AnalyticsView() {
   }, []);
 
   const currentAgent = currentUser ? agents.find(a => a.agentId === currentUser.id) : null;
-  const maxBar = delivery.length ? Math.max(...delivery.map(d => d.sent)) : 1;
+  const maxBar = Math.max(1, ...delivery.map(d => Number(d.sent) || 0));
   const BAR_H  = 100;
 
   const today = () => new Date().toISOString().slice(0, 10);
@@ -115,6 +121,27 @@ export default function AnalyticsView() {
   // Same approach the invoice download already uses (settings.service.js):
   // build a print-styled document and let the browser's Print → Save as PDF
   // produce the file, rather than pulling in a PDF library.
+  useEffect(() => {
+    let alive = true;
+    wFetch(`/analytics/performance?days=${range}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (alive && d) setPerf(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [range]);
+
+  // Topic clusters are computed once for the whole product and shown on both
+  // analytics pages, rather than each page growing its own idea of what
+  // customers ask about.
+  useEffect(() => {
+    let alive = true;
+    wFetch('/analytics/insights?days=30')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (alive && d) setTopics(d.topics || []); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   const downloadPdf = () => {
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => (
       { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
@@ -122,7 +149,7 @@ export default function AnalyticsView() {
     const win = window.open('', '_blank');
     if (!win) return; // popup blocked — nothing we can do from here
     win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<title>ChatFlow Pro — Analytics ${esc(today())}</title>
+<title>Spandan — Analytics ${esc(today())}</title>
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color:#111827; margin:0; padding:32px; }
   h1 { font-size:20px; margin:0 0 4px; letter-spacing:-.02em; }
@@ -139,7 +166,7 @@ export default function AnalyticsView() {
   .foot { margin-top:28px; font-size:12px; color:#6b7280; }
   @media print { body { padding:0; } }
 </style></head><body>
-  <h1>ChatFlow Pro — Analytics</h1>
+  <h1>Spandan — Analytics</h1>
   <p class="muted">Generated ${esc(new Date().toLocaleString('en-IN'))}</p>
   <div class="kpis">
     <div class="kpi"><span>Messages Sent</span><strong>${esc((kpi?.messagesSent ?? 0).toLocaleString())}</strong></div>
@@ -173,9 +200,26 @@ export default function AnalyticsView() {
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-      <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
-        <h1 style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Analytics</h1>
-        <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Performance insights &amp; metrics</p>
+      <div style={{ minHeight:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'10px 28px', gap:12, flexShrink:0, background:'var(--surf)', flexWrap:'wrap' }}>
+        <div style={{ flex:1, minWidth:170 }}>
+          <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Analytics</h1>
+          <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:2 }}>Delivery, conversation and campaign performance</p>
+        </div>
+        <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+          {[[1,'24h'],[7,'7d'],[14,'14d'],[30,'30d'],[90,'90d']].map(([value, label]) => {
+            const on = range === value;
+            return (
+              <button key={value} onClick={() => setRange(value)}
+                style={{ fontSize:12.5, fontWeight:600, padding:'7px 13px', borderRadius:8, cursor:'pointer', fontFamily:"'Manrope',sans-serif",
+                         background: on ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
+                         border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`,
+                         color: on ? 'var(--green)' : 'var(--t2)' }}>{label}</button>
+            );
+          })}
+          <Btn variant="outline" size="sm" onClick={downloadPdf}>
+            <I n="download" s={13} c="var(--t2)" /> Export
+          </Btn>
+        </div>
       </div>
 
       <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18 }}>
@@ -193,11 +237,142 @@ export default function AnalyticsView() {
         <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
           {kpi ? <>
             <KpiCard icon="msg"   iconColor="var(--green)"  label="Messages Sent"  value={(kpi.messagesSent ?? 0).toLocaleString()} />
-            <KpiCard icon="chart" iconColor="#38bdf8"       label="Delivery Rate"  value={kpi.deliveryRate ?? 0} suffix="%" />
+            <KpiCard icon="chart" iconColor="#9d6bff"       label="Delivery Rate"  value={kpi.deliveryRate ?? 0} suffix="%" />
             <KpiCard icon="ban"   iconColor="#f87171"       label="Opt-out Rate"   value={kpi.optOutRate   ?? 0} suffix="%" />
-            <KpiCard icon="users" iconColor="#A78BFA"       label="Total Contacts" value={(kpi.totalContacts ?? 0).toLocaleString()} />
+            <KpiCard icon="users" iconColor="#c4ff46"       label="Total Contacts" value={(kpi.totalContacts ?? 0).toLocaleString()} />
           </> : (
             <div style={{ gridColumn:'1/-1', textAlign:'center', padding:'20px', color:'var(--t2)', fontSize:13 }}>No overview data yet.</div>
+          )}
+        </div>
+
+        {/* ── Funnel + AI resolution ── */}
+        <div className="dash-split" style={{ display:'grid', gridTemplateColumns:'1.25fr 1fr', gap:14 }}>
+          <div style={{ ...card, padding:'20px 22px' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', gap:10, marginBottom:16, flexWrap:'wrap' }}>
+              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>Conversion funnel</h3>
+              <span style={{ fontFamily:'var(--mono)', fontSize:10.5, color:'var(--t3)' }}>last {perf?.days ?? range} days</span>
+            </div>
+            {!perf && <p style={{ fontSize:12.5, color:'var(--t3)' }}>Loading…</p>}
+            {perf && perf.funnel[0].value === 0 && (
+              <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.6 }}>Nothing was sent in this window.</p>
+            )}
+            {perf && perf.funnel[0].value > 0 && (
+              <div style={{ display:'flex', flexDirection:'column', gap:13 }}>
+                {perf.funnel.map((stage, i) => (
+                  <div key={stage.label}>
+                    <div style={{ display:'flex', justifyContent:'space-between', gap:10, marginBottom:5 }}>
+                      <span style={{ fontSize:12.5, color:'var(--t1)', fontWeight:600 }}>{stage.label}</span>
+                      <span style={{ fontFamily:'var(--mono)', fontSize:11.5, color:'var(--t2)', flexShrink:0 }}>
+                        {stage.value.toLocaleString('en-IN')} · {stage.pct}%
+                      </span>
+                    </div>
+                    <div style={{ height:9, borderRadius:9, background:'rgba(255,255,255,0.06)', overflow:'hidden' }}>
+                      <div style={{ width:`${Math.max(stage.pct, stage.value > 0 ? 1.5 : 0)}%`, height:'100%', borderRadius:9,
+                        background: ['linear-gradient(90deg,#35e8f2,#2bc4cd)','linear-gradient(90deg,#35e8f2,#6bb8f0)','linear-gradient(90deg,#9d6bff,#b98aff)','linear-gradient(90deg,#c4ff46,#a8e63a)','linear-gradient(90deg,#25d366,#1fb356)'][i] }} />
+                    </div>
+                    <p style={{ fontSize:10.5, color:'var(--t3)', marginTop:4 }}>{stage.note}</p>
+                  </div>
+                ))}
+                <p style={{ fontSize:11, color:'var(--t3)', lineHeight:1.6, marginTop:2, paddingTop:11, borderTop:'1px solid var(--bd)' }}>
+                  The funnel ends where the data does. Clicks and purchases happen on your own store, so attributing revenue
+                  needs a store or payment provider connected under Integrations.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div style={{ ...card, padding:'20px 22px' }}>
+            <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:16 }}>Who resolved it</h3>
+            {!perf && <p style={{ fontSize:12.5, color:'var(--t3)' }}>Loading…</p>}
+            {perf && perf.resolution.total === 0 && (
+              <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.6 }}>No conversations in this window.</p>
+            )}
+            {perf && perf.resolution.total > 0 && (
+              <>
+                <div style={{ textAlign:'center', marginBottom:18 }}>
+                  <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:38, color:'var(--lime)', letterSpacing:'-.03em', lineHeight:1 }}>
+                    {perf.resolution.byAi.pct}%
+                  </div>
+                  <div style={{ fontSize:12, color:'var(--t2)', marginTop:6 }}>closed without a person</div>
+                </div>
+                <div style={{ display:'flex', height:9, borderRadius:9, overflow:'hidden', marginBottom:14 }}>
+                  <div style={{ width:`${perf.resolution.byAi.pct}%`, background:'var(--lime)' }} />
+                  <div style={{ width:`${perf.resolution.byHuman.pct}%`, background:'var(--violet)' }} />
+                  <div style={{ width:`${perf.resolution.open.pct}%`, background:'rgba(255,255,255,0.18)' }} />
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+                  {[
+                    ['Resolved without a person', perf.resolution.byAi, 'var(--lime)'],
+                    ['Handled by a teammate', perf.resolution.byHuman, 'var(--violet)'],
+                    ['Still open', perf.resolution.open, 'rgba(255,255,255,0.45)'],
+                  ].map(([label, value, colour]) => (
+                    <div key={label} style={{ display:'flex', alignItems:'center', gap:9 }}>
+                      <span style={{ width:8, height:8, borderRadius:'50%', background:colour, flexShrink:0 }} />
+                      <span style={{ flex:1, fontSize:12.5, color:'var(--t2)' }}>{label}</span>
+                      <span style={{ fontFamily:'var(--mono)', fontSize:12, color:'var(--t1)' }}>{value.count.toLocaleString('en-IN')}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ── Top questions ── */}
+        {topics && topics.length > 0 && (
+          <div style={{ ...card, padding:'20px 22px' }}>
+            <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>What customers ask about</h3>
+            <p style={{ fontSize:12, color:'var(--t2)', marginBottom:16 }}>Inbound messages over the last 30 days, clustered by topic</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              {topics.slice(0, 6).map(t => (
+                <div key={t.name} style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  <span style={{ flex:'0 0 40%', fontSize:12.5, color:'var(--t1)', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.name}</span>
+                  <span style={{ flex:1, height:6, borderRadius:6, background:'rgba(255,255,255,0.06)', overflow:'hidden' }}>
+                    <span style={{ display:'block', width:`${t.width}%`, height:'100%', borderRadius:6, background:'var(--cyan)' }} />
+                  </span>
+                  <span style={{ fontFamily:'var(--mono)', fontSize:11.5, color:'var(--t2)', flexShrink:0, minWidth:52, textAlign:'right' }}>
+                    {t.count.toLocaleString('en-IN')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Campaign leaderboard ── */}
+        <div style={{ ...card, padding:'20px 22px' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', gap:10, marginBottom:16, flexWrap:'wrap' }}>
+            <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>Campaign leaderboard</h3>
+            <span style={{ fontFamily:'var(--mono)', fontSize:10.5, color:'var(--t3)' }}>started in the last {perf?.days ?? range} days</span>
+          </div>
+          {!perf && <p style={{ fontSize:12.5, color:'var(--t3)' }}>Loading…</p>}
+          {perf && perf.leaderboard.length === 0 && (
+            <p style={{ fontSize:12.5, color:'var(--t3)' }}>No campaigns started in this window.</p>
+          )}
+          {perf && perf.leaderboard.length > 0 && (
+            <div className="dash-scroll-x">
+              <table style={{ width:'100%', borderCollapse:'collapse', minWidth:560 }}>
+                <thead>
+                  <tr style={{ borderBottom:'1px solid var(--bd)' }}>
+                    {['Campaign', 'Sent', 'Delivered', 'Read', 'Chats', 'Engaged'].map((h, i) => (
+                      <th key={h} style={{ padding:'0 12px 10px', textAlign: i === 0 ? 'left' : 'right', fontFamily:'var(--mono)', fontSize:9.5, fontWeight:600, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.08em', whiteSpace:'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {perf.leaderboard.map(c => (
+                    <tr key={c.id} style={{ borderBottom:'1px solid var(--bd)' }}>
+                      <td style={{ padding:'11px 12px', fontSize:13, color:'var(--t1)', fontWeight:600, maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.name}</td>
+                      <td style={{ padding:'11px 12px', textAlign:'right', fontSize:12.5, color:'var(--t2)', fontVariantNumeric:'tabular-nums' }}>{c.sent.toLocaleString('en-IN')}</td>
+                      <td style={{ padding:'11px 12px', textAlign:'right', fontSize:12.5, color:'var(--t2)', fontVariantNumeric:'tabular-nums' }}>{c.deliveryRate}%</td>
+                      <td style={{ padding:'11px 12px', textAlign:'right', fontSize:12.5, color:'var(--t2)', fontVariantNumeric:'tabular-nums' }}>{c.readRate}%</td>
+                      <td style={{ padding:'11px 12px', textAlign:'right', fontSize:12.5, color:'var(--t2)', fontVariantNumeric:'tabular-nums' }}>{c.conversations.toLocaleString('en-IN')}</td>
+                      <td style={{ padding:'11px 12px', textAlign:'right', fontSize:12.5, fontWeight:700, color:'var(--lime)', fontVariantNumeric:'tabular-nums' }}>{c.engagementRate}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
@@ -205,22 +380,22 @@ export default function AnalyticsView() {
         <div style={{ ...card, padding:'20px' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
             <div>
-              <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>User Analytics</h3>
+              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>User Analytics</h3>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Team activity and agent performance for the workspace.</p>
             </div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
             <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
               <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Active users</div>
-              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{agents.length}</div>
+              <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{agents.length}</div>
             </div>
             <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
               <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Chats handled</div>
-              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{agents.reduce((sum, agent) => sum + (agent.chatsHandled ?? 0), 0)}</div>
+              <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{agents.reduce((sum, agent) => sum + (agent.chatsHandled ?? 0), 0)}</div>
             </div>
             <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
               <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Top performer</div>
-              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>{agents.length ? agents.reduce((best, agent) => (agent.chatsHandled ?? 0) > (best.chatsHandled ?? 0) ? agent : best, agents[0]).name : 'No data'}</div>
+              <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>{agents.length ? agents.reduce((best, agent) => (agent.chatsHandled ?? 0) > (best.chatsHandled ?? 0) ? agent : best, agents[0]).name : 'No data'}</div>
             </div>
           </div>
         </div>
@@ -229,24 +404,24 @@ export default function AnalyticsView() {
         <div style={{ ...card, padding:'20px' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
             <div>
-              <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>Your activity</h3>
+              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>Your activity</h3>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Personal metrics for your account.</p>
             </div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
             <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
               <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Your chats</div>
-              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{currentAgent ? (currentAgent.chatsHandled ?? 0) : '0'}</div>
+              <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{currentAgent ? (currentAgent.chatsHandled ?? 0) : '0'}</div>
             </div>
             <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
               <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Your rank</div>
-              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>
+              <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>
                 {currentAgent ? `${agents.filter(a => (a.chatsHandled ?? 0) > (currentAgent.chatsHandled ?? 0)).length + 1}/${agents.length}` : 'N/A'}
               </div>
             </div>
             <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
               <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>{currentUser ? `${currentUser.name}` : 'User'}</div>
-              <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>{currentAgent ? currentAgent.chatsHandled ?? 0 : 'No data'}</div>
+              <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>{currentAgent ? currentAgent.chatsHandled ?? 0 : 'No data'}</div>
             </div>
           </div>
         </div>
@@ -255,7 +430,7 @@ export default function AnalyticsView() {
         <div style={{ ...card, padding:'22px 24px' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:22 }}>
             <div>
-              <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>7-Day Message Delivery Rate</h3>
+              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>7-Day Message Delivery Rate</h3>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Daily breakdown of delivery performance</p>
             </div>
             <Btn variant="outline" size="sm" onClick={downloadCsv}>
@@ -301,7 +476,7 @@ export default function AnalyticsView() {
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
           {/* Campaign performance */}
           <div style={{ ...card, padding:'20px' }}>
-            <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)', marginBottom:18 }}>Campaign Performance</h3>
+            <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)', marginBottom:18 }}>Campaign Performance</h3>
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               {campaigns.map(c => {
                 const pct = c.totalContacts > 0 ? Math.round((c.delivered / c.totalContacts) * 100) : 0;
@@ -323,7 +498,7 @@ export default function AnalyticsView() {
           {/* Agent performance */}
           <div style={{ ...card, overflow:'hidden' }}>
             <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)' }}>Agent Performance</h3>
+              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)' }}>Agent Performance</h3>
               <Btn variant="outline" size="sm" onClick={downloadPdf}>
                 <I n="download" s={13} c="var(--t2)" />
                 PDF
@@ -346,7 +521,7 @@ export default function AnalyticsView() {
                       </div>
                     </td>
                     <td style={{ padding:'11px 16px' }}>
-                      <span style={{ padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:700, background:'rgba(167,139,250,.1)', border:'1px solid rgba(167,139,250,.25)', color:'#c4b5fd' }}>{a.chatsHandled}</span>
+                      <span style={{ padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:700, background:'rgba(196,255,70,.1)', border:'1px solid rgba(196,255,70,.25)', color:'#d8ff8a' }}>{a.chatsHandled}</span>
                     </td>
                   </tr>
                 ))}

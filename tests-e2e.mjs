@@ -1,4 +1,4 @@
-// ChatFlow Pro — end-to-end API test suite (runs against the live local stack)
+// Spandan — end-to-end API test suite (runs against the live local stack)
 import app from "./backend/src/app.js";
 import http from "http";
 import Redis from "./backend/node_modules/ioredis/built/index.js";

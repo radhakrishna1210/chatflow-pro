@@ -63,7 +63,7 @@ const isSecretKey = (key) => /KEY|TOKEN|SECRET|PASSWORD/.test(key);
 // answerable without reading server logs.
 const SOURCE_TONE = {
   database:    { label: 'Database', fg: 'var(--green)', bg: 'var(--gbg)', bd: 'var(--gbd)' },
-  environment: { label: 'Env',      fg: '#38bdf8', bg: 'rgba(56,189,248,.08)', bd: 'rgba(56,189,248,.25)' },
+  environment: { label: 'Env',      fg: '#9d6bff', bg: 'rgba(157,107,255,.08)', bd: 'rgba(157,107,255,.25)' },
   unset:       { label: 'Not set',  fg: 'var(--t3)', bg: 'rgba(255,255,255,.03)', bd: 'var(--bd)' },
 };
 
@@ -160,7 +160,7 @@ export default function ApiManagementTab() {
             border: '1px solid ' + (edited ? 'var(--gbd)' : 'var(--bd)'),
             color: edited || !secret ? 'var(--t1)' : 'var(--t2)',
             fontSize: 13, outline: 'none', boxSizing: 'border-box',
-            fontFamily: secret ? 'var(--mono)' : "'Plus Jakarta Sans',sans-serif",
+            fontFamily: secret ? 'var(--mono)' : "'Manrope',sans-serif",
           }}
         />
         {hint && <p style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.45 }}>{hint}</p>}
@@ -171,7 +171,7 @@ export default function ApiManagementTab() {
   return (
     <form onSubmit={save} style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20, paddingBottom: 40 }}>
       <div>
-        <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 800, color: 'var(--t1)', marginBottom: 6 }}>
+        <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 18, fontWeight: 800, color: 'var(--t1)', marginBottom: 6 }}>
           Platform credentials
         </h3>
         <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.6 }}>

@@ -35,7 +35,7 @@ async function testEndpoint(name, url, options = {}) {
 }
 
 async function runTests() {
-  console.log('Starting ChatFlowPro Public API Integration Tests...\n');
+  console.log('Starting Spandan Public API Integration Tests...\n');
 
   // 1. Test missing API key
   await testEndpoint('Missing API Key', '/templates', {

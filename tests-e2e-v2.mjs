@@ -1,4 +1,4 @@
-// ChatFlow Pro — v2 end-to-end suite (new features from BUGS-v2)
+// Spandan — v2 end-to-end suite (new features from BUGS-v2)
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 process.env.PRISMA_PG_ADAPTER = '1';
 import app from "./backend/src/app.js";
@@ -30,7 +30,7 @@ let admin, adminWs, client, superAdmin, superWs;
 console.log('\n\u25a0 Cleanup previous fixture data (suite is not run against an ephemeral DB)');
 {
   const fixtureEmails = [
-    'v2admin@test.dev', 'v2client@test.dev', 'super@chatflow.test', 'otto@test.dev',
+    'v2admin@test.dev', 'v2client@test.dev', 'super@spandan.test', 'otto@test.dev',
     'quota-admin@test.dev', 'quota-member@test.dev', 'pro-admin@test.dev',
     'billing-renew@test.dev', 'billing-cancel@test.dev',
   ];
@@ -66,7 +66,7 @@ console.log('\n\u25a0 Setup');
   r = await req('POST', '/auth/login', { body: { email: 'v2client@test.dev', password: 'password123' } });
   check('invited user logs in as CLIENT of the inviter workspace', r.data.user.role === 'CLIENT' && r.data.workspace?.id === adminWs, JSON.stringify(r.data.user));
   client = r.data;
-  r = await req('POST', '/auth/register', { body: { name: 'Super', email: 'super@chatflow.test', password: 'password123' } });
+  r = await req('POST', '/auth/register', { body: { name: 'Super', email: 'super@spandan.test', password: 'password123' } });
   superAdmin = r.data;
   check('super admin registration flags superAdmin', superAdmin.user.superAdmin === true, JSON.stringify(superAdmin.user));
   r = await req('POST', '/workspaces', { token: superAdmin.accessToken, body: { name: 'Super Workspace' } });
@@ -152,7 +152,7 @@ let ticketId;
 
 console.log('\n\u25a0 Super Admin platform (bug #9)');
 // NOTE: this fixture's "super admin" email doesn't match this environment's
-// ADMIN_EMAIL (a real address, not the sandbox's super@chatflow.test), so
+// ADMIN_EMAIL (a real address, not the sandbox's super@spandan.test), so
 // isPlatformAdmin() never flags it and every super-admin-only call below
 // legitimately 403s \u2014 pre-existing environment mismatch, unrelated to this
 // phase's work. Wrapped in try/catch so its cascading failures (unguarded

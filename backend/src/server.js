@@ -1,8 +1,22 @@
-
-
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { logToFile, logToFileSync } from './lib/logger.js';
+
+process.on('uncaughtException', (err) => {
+  logToFileSync('Uncaught Exception', err);
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  logToFile('Unhandled Rejection', err);
+  console.error('Unhandled Rejection:', err);
+});
+
+logToFile('Server starting up...');
+
 
 import app from './app.js';
 import { env } from './config/env.js';
@@ -306,13 +320,14 @@ async function main() {
   }
 
   httpServer = app.listen(env.PORT, () => {
-    console.log(`[Server] ChatFlow Pro backend running on port ${env.PORT}`);
+    console.log(`[Server] Spandan backend running on port ${env.PORT}`);
     console.log(`[Server] Environment: ${env.NODE_ENV}`);
   });
 }
 
 main().catch((err) => {
   console.error('[Server] Fatal error:', err);
+  logToFileSync('Fatal Startup Error', err);
   process.exit(1);
 });
 

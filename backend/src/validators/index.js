@@ -88,6 +88,7 @@ export const campaignSchemas = {
     trackingConfig: z.any().optional(),
     fallbackConfig: z.any().optional(),
     aiAgent: aiAgentConfig.optional(),
+    goal: z.enum(['sales', 'launch', 'reengage', 'nurture']).optional(),
   }).passthrough().refine((v) => v.numberId || v.whatsappNumberId, { message: 'numberId is required' }),
   addRecipients: z.object({ contactIds: z.array(id).min(1, 'At least one contact is required').max(10_000) }),
   // Replacing an audience may legitimately empty it — a draft mid-edit does
@@ -105,6 +106,7 @@ export const campaignSchemas = {
     numberId: id.optional(),
     whatsappNumberId: id.optional(),
     scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
+    goal: z.enum(['sales', 'launch', 'reengage', 'nurture']).optional(),
   }).passthrough(),
   launch: z.object({
     scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
@@ -340,6 +342,14 @@ export const settingsSchemas = {
     emailNotifyTemplateApproved: z.boolean().optional(),
     emailNotifyTemplateRejected: z.boolean().optional(),
     emailNotifyMemberInvite: z.boolean().optional(),
+    // Workspace profile and branding. The service validates the colour, the
+    // logo scheme and the time zone properly — this layer only keeps obvious
+    // junk and oversized payloads out of it.
+    name: z.string().trim().min(1, 'Workspace name is required').max(120).optional(),
+    industry: z.union([z.string().trim().max(80), z.literal('')]).optional(),
+    timezone: z.string().trim().min(1).max(64).optional(),
+    brandColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Use a 6-digit hex colour').optional(),
+    brandLogoUrl: z.union([z.string().trim().url().max(500), z.literal('')]).optional(),
   }),
 };
 

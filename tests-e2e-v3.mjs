@@ -3,7 +3,7 @@ import http from "http";
 const _server = http.createServer(app);
 await new Promise((res) => _server.listen(4000, res));
 
-// ChatFlow Pro — v3 suite: the 4 previously-"Coming Soon" features
+// Spandan — v3 suite: the 4 previously-"Coming Soon" features
 const BASE = 'http://localhost:4000/api/v1';
 let pass = 0, fail = 0; const failures = [];
 function check(n, c, x = '') { if (c) { pass++; console.log(`  \u2714 ${n}`); } else { fail++; failures.push(n); console.log(`  \u2718 ${n} ${x}`); } }

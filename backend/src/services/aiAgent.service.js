@@ -24,6 +24,96 @@ import {
 
 // ---- Config CRUD --------------------------------------------------------------
 
+// Escalation rules the agent understands. Stored as a JSON object rather than
+// four booleans because the set grows: a new rule is a key here and a row in
+// the UI, not a migration.
+export const ESCALATION_RULES = [
+  { id: 'refund',            label: 'Refund or complaint intent',  default: true  },
+  { id: 'negativeSentiment', label: 'Negative sentiment detected', default: true  },
+  { id: 'asksForHuman',      label: 'Customer asks for a human',   default: true  },
+  { id: 'highIntent',        label: 'High purchase intent',        default: false },
+];
+
+const defaultEscalationRules = () =>
+  Object.fromEntries(ESCALATION_RULES.map((r) => [r.id, r.default]));
+
+const normaliseEscalationRules = (value) => {
+  const base = defaultEscalationRules();
+  if (!value || typeof value !== 'object') return base;
+  for (const rule of ESCALATION_RULES) {
+    if (typeof value[rule.id] === 'boolean') base[rule.id] = value[rule.id];
+  }
+  return base;
+};
+
+// How ready the agent is to answer, 0-100, with the reason it is not 100.
+//
+// Every component is something the operator can act on from this page, and the
+// weights say what actually breaks an answer: an agent with no knowledge source
+// invents things, an agent that is never deployed answers nobody. Purpose and
+// instructions are polish by comparison.
+function readiness({ ws, knowledgeSourceCount, intentRuleCount }) {
+  const checks = [
+    { id: 'identity',     label: 'Give the agent a name and a persona',        weight: 15, done: !!(ws.aiAgentName || '').trim() && (ws.aiAgentPrompt || '').trim().length > 30 },
+    { id: 'purpose',      label: 'Describe what the agent is for',             weight: 10, done: (ws.aiAgentPurpose || '').trim().length > 10 },
+    { id: 'knowledge',    label: 'Connect at least one knowledge source',      weight: 25, done: knowledgeSourceCount > 0 || (ws.aiAgentKnowledge || '').trim().length > 40 },
+    { id: 'instructions', label: 'Add answering instructions',                 weight: 10, done: (ws.aiAgentInstructions || '').trim().length > 10 },
+    { id: 'routing',      label: 'Add an intent so routing is not guesswork',  weight: 10, done: intentRuleCount > 0 },
+    { id: 'escalation',   label: 'Choose when a human takes over',             weight: 10, done: ws.escalationRules != null },
+    { id: 'safety',       label: 'State a safety guardrail',                   weight: 10, done: (ws.aiAgentSafetyNote || '').trim().length > 10 },
+    { id: 'deployed',     label: 'Deploy the agent',                           weight: 10, done: ws.aiAgentEnabled === true },
+  ];
+  const score = checks.reduce((sum, c) => sum + (c.done ? c.weight : 0), 0);
+  const next = checks.find((c) => !c.done) || null;
+  return { score, nextStep: next ? next.label : null, checks };
+}
+
+// The columns that make up the agent's effective persona. Every call site that
+// generates a reply selects exactly this set, so none of them can quietly miss
+// one and start answering without the operator's safety rules.
+export const AGENT_PROMPT_SELECT = {
+  aiAgentName: true,
+  aiAgentPrompt: true,
+  aiAgentKnowledge: true,
+  aiAgentPurpose: true,
+  aiAgentInstructions: true,
+  aiAgentSafetyNote: true,
+  aiAgentLanguages: true,
+};
+
+// Folds the AI Agent page's sections into the one system prompt the model
+// actually receives.
+//
+// The alternative — passing seven fields down to the generator — would have
+// meant touching every call site and every prompt template. Composing here
+// means the campaign path, the inbound path and the Test Lab all get the same
+// agent, and a section added to the page later has one place to appear.
+//
+// Order matters: persona sets the voice, purpose sets the job, instructions
+// constrain the form of the answer, and the guardrails come last so they read
+// as the final word.
+export function composeAgentPrompt(ws) {
+  const parts = [];
+  const persona = String(ws?.aiAgentPrompt || '').trim();
+  parts.push(persona || 'You are a helpful customer support agent. Answer briefly and politely.');
+
+  const purpose = String(ws?.aiAgentPurpose || '').trim();
+  if (purpose) parts.push(`What you are for:\n${purpose}`);
+
+  const instructions = String(ws?.aiAgentInstructions || '').trim();
+  if (instructions) parts.push(`How to answer:\n${instructions}`);
+
+  const languages = Array.isArray(ws?.aiAgentLanguages) ? ws.aiAgentLanguages.filter(Boolean) : [];
+  if (languages.length) {
+    parts.push(`Reply in the customer's own language. Languages this business supports: ${languages.join(', ')}.`);
+  }
+
+  const safety = String(ws?.aiAgentSafetyNote || '').trim();
+  if (safety) parts.push(`Rules you must never break:\n${safety}`);
+
+  return parts.join('\n\n');
+}
+
 export async function getAgentConfig(workspaceId) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -31,10 +121,28 @@ export async function getAgentConfig(workspaceId) {
       aiAgentEnabled: true, aiAgentName: true, aiAgentPrompt: true,
       aiAgentKnowledge: true, aiAgentModel: true, aiAgentDeployedAt: true,
       intentMatchingEnabled: true, intentMatchThreshold: true,
+      aiAgentPurpose: true, aiAgentInstructions: true, aiAgentSafetyNote: true,
+      aiAgentLanguages: true, escalationThreshold: true, escalationRules: true,
     },
   });
   if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
-  return { ...ws, llmAvailable: llmAvailable() };
+
+  // Counted rather than fetched: the page loads knowledge sources from their
+  // own endpoint, and this only needs to know whether there are any.
+  const [knowledgeSourceCount, intentRuleCount] = await Promise.all([
+    prisma.knowledgeSource.count({ where: { workspaceId } }),
+    prisma.intentRule.count({ where: { workspaceId } }),
+  ]);
+
+  return {
+    ...ws,
+    aiAgentLanguages: Array.isArray(ws.aiAgentLanguages) ? ws.aiAgentLanguages : ['English'],
+    escalationRules: normaliseEscalationRules(ws.escalationRules),
+    llmAvailable: llmAvailable(),
+    knowledgeSourceCount,
+    intentRuleCount,
+    readiness: readiness({ ws, knowledgeSourceCount, intentRuleCount }),
+  };
 }
 
 // Rejects emoji/symbol-only text using the same shared rule validators/index.js
@@ -61,11 +169,39 @@ export async function updateAgentConfig(workspaceId, updates) {
   }
   if (typeof updates.knowledge === 'string') data.aiAgentKnowledge = updates.knowledge.slice(0, 12000);
   if (typeof updates.model === 'string') data.aiAgentModel = updates.model.slice(0, 60);
-  const ws = await prisma.workspace.update({ where: { id: workspaceId }, data, select: {
-    aiAgentEnabled: true, aiAgentName: true, aiAgentPrompt: true, aiAgentKnowledge: true,
-    aiAgentModel: true, aiAgentDeployedAt: true,
-  }});
-  return ws;
+
+  // The sections added alongside Identity. These are free prose handed to the
+  // model, not commands it executes, so they are length-capped and otherwise
+  // passed through. assertMeaningfulIfPresent is deliberately not applied here:
+  // clearing a section back to empty is a valid edit, unlike clearing the
+  // agent's name.
+  if (typeof updates.purpose === 'string') data.aiAgentPurpose = updates.purpose.slice(0, 2000);
+  if (typeof updates.instructions === 'string') data.aiAgentInstructions = updates.instructions.slice(0, 4000);
+  if (typeof updates.safetyNote === 'string') data.aiAgentSafetyNote = updates.safetyNote.slice(0, 2000);
+  if (Array.isArray(updates.languages)) {
+    data.aiAgentLanguages = updates.languages
+      .map((l) => String(l || '').trim().slice(0, 40))
+      .filter(Boolean)
+      .slice(0, 12);
+  }
+  if (updates.escalationThreshold !== undefined) {
+    const n = Number(updates.escalationThreshold);
+    if (!Number.isFinite(n) || n < 0 || n > 1) {
+      const e = new Error('Escalation threshold must be between 0 and 1');
+      e.status = 400;
+      throw e;
+    }
+    data.escalationThreshold = n;
+  }
+  if (updates.escalationRules && typeof updates.escalationRules === 'object') {
+    data.escalationRules = normaliseEscalationRules(updates.escalationRules);
+  }
+
+  await prisma.workspace.update({ where: { id: workspaceId }, data });
+  // Re-read through getAgentConfig so the caller gets the recomputed readiness
+  // score in the same response that saved the change. That score is the whole
+  // feedback loop of the page, and a stale one is worse than none.
+  return getAgentConfig(workspaceId);
 }
 
 // The knowledge base is one text column with a hard ceiling, so an uploaded
@@ -281,7 +417,7 @@ export async function matchIntent(workspaceId, messageBody) {
 export async function generateAgentReply(workspaceId, messageBody, { contactName, conversationId = null, waNumberId = null } = {}) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: { aiAgentEnabled: true, aiAgentName: true, aiAgentPrompt: true, aiAgentKnowledge: true },
+    select: { aiAgentEnabled: true, ...AGENT_PROMPT_SELECT },
   });
   if (!ws?.aiAgentEnabled) return null;
   if (!llmAvailable()) return null;
@@ -307,7 +443,7 @@ export async function generateAgentReply(workspaceId, messageBody, { contactName
   // Same generator as the campaign path, so both modes share one prompt, one
   // set of answer rules and one Gemini call — the only difference is whether
   // `context` is null.
-  const agent = { name: ws.aiAgentName, prompt: ws.aiAgentPrompt, knowledge: ws.aiAgentKnowledge };
+  const agent = { name: ws.aiAgentName, prompt: composeAgentPrompt(ws), knowledge: ws.aiAgentKnowledge };
   return generateCampaignReply({ agent, context, business, messageBody, contactName, history });
 }
 
@@ -333,10 +469,54 @@ async function recentConversationHistory(conversationId, take = 12) {
 // would be answered: same prompt, same knowledge base, same campaign snapshot,
 // same accuracy rules. That is the point — an admin has to be able to check the
 // answers before spending money sending the campaign.
+// ─── Grounding ───────────────────────────────────────────────────────────────
+//
+// The Test Lab shows, next to every answer, how much of that answer is
+// traceable to material the agent was actually given.
+//
+// This is a measured quantity, not a model self-report. It is the share of the
+// reply's distinctive content words that appear somewhere in the sources the
+// agent was handed for this test. A reply built out of the campaign's own
+// wording scores high; one the model produced from its own priors scores low —
+// which is exactly the answer worth a second look before it reaches customers.
+//
+// It deliberately is not called "confidence". A model's confidence is its own
+// opinion of itself; this is an external check on where the words came from.
+
+// Words too common to be evidence of anything. Short enough to stay honest:
+// the point is to drop filler, not to hand-tune the score.
+const GROUNDING_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'if', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'to', 'of', 'in', 'on', 'at', 'for', 'with', 'from', 'by', 'as', 'that', 'this', 'these', 'those',
+  'it', 'its', 'you', 'your', 'we', 'our', 'i', 'me', 'my', 'they', 'them', 'their', 'he', 'she',
+  'can', 'will', 'would', 'should', 'could', 'may', 'might', 'do', 'does', 'did', 'have', 'has', 'had',
+  'not', 'no', 'yes', 'so', 'than', 'then', 'there', 'here', 'what', 'when', 'where', 'which', 'who',
+  'how', 'why', 'all', 'any', 'some', 'more', 'most', 'let', 'get', 'please', 'thanks', 'thank',
+  'hi', 'hello', 'about', 'just', 'also', 'up', 'out', 'over', 'into', 'one', 'two',
+]);
+
+const contentWords = (text) => new Set(
+  String(text || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !GROUNDING_STOPWORDS.has(w)),
+);
+
+export function groundingScore(reply, sourceTexts) {
+  const replyWords = contentWords(reply);
+  if (replyWords.size === 0) return null;
+  const haystack = contentWords(sourceTexts.filter(Boolean).join(' \n '));
+  if (haystack.size === 0) return 0;
+  let hits = 0;
+  for (const w of replyWords) if (haystack.has(w)) hits += 1;
+  return Math.round((hits / replyWords.size) * 100) / 100;
+}
+
 export async function testAgent(workspaceId, sampleMessage, { mode = 'general', campaignId = null } = {}) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: { aiAgentPrompt: true, aiAgentKnowledge: true, aiAgentName: true },
+    select: AGENT_PROMPT_SELECT,
   });
   if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
   if (!llmAvailable()) {
@@ -356,23 +536,51 @@ export async function testAgent(workspaceId, sampleMessage, { mode = 'general', 
     // reflects production rather than a thinner version of it.
     const business = await loadBusinessContext(workspaceId);
     const reply = await generateCampaignReply({
-      agent: { name: ws.aiAgentName, prompt: ws.aiAgentPrompt, knowledge: ws.aiAgentKnowledge },
+      agent: { name: ws.aiAgentName, prompt: composeAgentPrompt(ws), knowledge: ws.aiAgentKnowledge },
       context,
       business,
       messageBody: sampleMessage,
     });
-    return reply
-      ? { ok: true, reply, mode: 'campaign', context }
-      : { ok: false, reason: 'The model did not return a reply. Try again.', reply: null, mode: 'campaign', context };
+    if (!reply) {
+      return { ok: false, reason: 'The model did not return a reply. Try again.', reply: null, mode: 'campaign', context };
+    }
+    // What the agent was actually handed, named the way the Test Lab labels it.
+    // Reported rather than assumed: an empty knowledge base must not show up as
+    // a source the answer could have come from.
+    const contextText = [context.header, context.body, context.footer].filter(Boolean).join('\n');
+    const sources = [{ kind: 'campaign', label: 'Campaign context' }];
+    if ((ws.aiAgentKnowledge || '').trim()) sources.push({ kind: 'knowledge', label: 'Knowledge base' });
+    if (business && Object.keys(business).length) sources.push({ kind: 'business', label: 'Business profile' });
+
+    return {
+      ok: true,
+      reply,
+      mode: 'campaign',
+      context,
+      sources,
+      grounding: groundingScore(reply, [contextText, ws.aiAgentKnowledge, JSON.stringify(business || {})]),
+    };
   }
 
   const system = [
-    ws.aiAgentPrompt || 'You are a helpful support agent.',
+    composeAgentPrompt(ws),
     ws.aiAgentKnowledge ? `\nKnowledge base:\n${ws.aiAgentKnowledge}` : '',
     `\nReply in 1-3 short sentences.`,
   ].join('');
   const reply = await llmText(`Customer: ${sampleMessage}\n\n${ws.aiAgentName || 'Assistant'}:`, system);
-  return reply
-    ? { ok: true, reply: reply.replace(/^["']|["']$/g, '').trim(), mode: 'general' }
-    : { ok: false, reason: 'The model did not return a reply. Try again.', reply: null, mode: 'general' };
+  if (!reply) {
+    return { ok: false, reason: 'The model did not return a reply. Try again.', reply: null, mode: 'general' };
+  }
+  const clean = reply.replace(/^["']|["']$/g, '').trim();
+  const sources = [];
+  if ((ws.aiAgentKnowledge || '').trim()) sources.push({ kind: 'knowledge', label: 'Knowledge base' });
+  if ((ws.aiAgentPrompt || '').trim()) sources.push({ kind: 'persona', label: 'Persona & instructions' });
+
+  return {
+    ok: true,
+    reply: clean,
+    mode: 'general',
+    sources,
+    grounding: groundingScore(clean, [ws.aiAgentKnowledge, ws.aiAgentPrompt]),
+  };
 }

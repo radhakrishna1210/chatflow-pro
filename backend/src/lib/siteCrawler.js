@@ -19,7 +19,7 @@ const MAX_BYTES = 1_500_000;      // ~1.5 MB of HTML is far beyond any real page
 const MAX_REDIRECTS = 3;
 const MAX_PAGES = 6;              // homepage + up to 5 discovered key pages
 
-const USER_AGENT = 'ChatFlowProBot/1.0 (+https://chatflow.pro/bot; website analysis for WhatsApp automation)';
+const USER_AGENT = 'SpandanBot/1.0 (+https://spandan.pro/bot; website analysis for WhatsApp automation)';
 
 // ── Address safety ──────────────────────────────────────────────────────────
 

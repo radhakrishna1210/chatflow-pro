@@ -113,7 +113,7 @@ export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) 
   };
 }
 
-export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent }, user = null) {
+export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent, goal }, user = null) {
   if (!name || !String(name).trim()) { const e = new Error('Campaign name is required'); e.status = 400; throw e; }
   // Plan's campaign cap (null = unlimited); reads the plan live so admin edits
   // in the Plans tab apply immediately.
@@ -147,13 +147,14 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
       replyRules: replyRules ?? undefined,
       retryConfig: retryConfig ? normalizeRetryConfig(retryConfig) : undefined,
       trackingConfig: trackingConfig ?? undefined,
+      goal: goal ?? undefined,
       fallbackConfig: fallbackConfig ?? undefined,
     },
   });
 }
 
 export async function updateCampaign(workspaceId, campaignId, {
-  name, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent,
+  name, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent, goal,
   templateId, numberId, whatsappNumberId, scheduledAt,
 }) {
   const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
@@ -214,6 +215,7 @@ export async function updateCampaign(workspaceId, campaignId, {
   if (replyRules !== undefined) data.replyRules = replyRules;
   if (retryConfig !== undefined) data.retryConfig = retryConfig ? normalizeRetryConfig(retryConfig) : null;
   if (trackingConfig !== undefined) data.trackingConfig = trackingConfig;
+  if (goal !== undefined) data.goal = goal;
   if (fallbackConfig !== undefined) data.fallbackConfig = fallbackConfig;
   const aiConfig = await resolveAiAgentConfig(workspaceId, aiAgent);
   if (aiConfig) Object.assign(data, aiConfig);

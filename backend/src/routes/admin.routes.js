@@ -66,6 +66,12 @@ router.get('/platform/users',                    adminController.listUsers);
 router.post('/platform/users/:id/impersonate',   adminController.impersonateUser);
 
 // Plan / billing configuration (prices, quotas, rate limits, features)
+// ── Audit & security ──
+// Read-only by construction: there is no write endpoint for the log.
+router.get('/platform/audit',         adminController.auditLog);
+router.get('/platform/audit/actions', adminController.auditActions);
+router.get('/platform/audit/summary', adminController.auditSummary);
+
 router.get('/platform/plans',                    adminController.listPlans);
 router.post('/platform/plans',                   adminController.createPlan);
 router.patch('/platform/plans/:id',              adminController.updatePlan);

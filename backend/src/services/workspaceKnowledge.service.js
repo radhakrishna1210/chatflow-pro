@@ -112,7 +112,7 @@ export async function fetchSourceContent(url) {
       maxRedirects: 3,
       responseType: 'text',
       // Some sites serve a different (or no) page to an unrecognised client.
-      headers: { 'User-Agent': 'ChatFlowProBot/1.0 (+website widget indexer)', Accept: 'text/html,*/*' },
+      headers: { 'User-Agent': 'SpandanBot/1.0 (+website widget indexer)', Accept: 'text/html,*/*' },
       validateStatus: (s) => s >= 200 && s < 400,
     });
     const type = String(res.headers?.['content-type'] || '');

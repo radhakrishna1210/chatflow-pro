@@ -100,8 +100,8 @@ export default function InviteAccept() {
 
   const btnStyle = (primary) => ({
     width: '100%', padding: '11px', borderRadius: 9, border: primary ? 'none' : '1px solid var(--bd)',
-    cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, fontWeight: 700,
-    color: primary ? '#07090F' : 'var(--t1)', background: primary ? 'var(--green)' : 'rgba(255,255,255,0.035)',
+    cursor: 'pointer', fontFamily: "'Manrope',sans-serif", fontSize: 14, fontWeight: 700,
+    color: primary ? '#0a0b0e' : 'var(--t1)', background: primary ? 'var(--green)' : 'rgba(255,255,255,0.035)',
     boxShadow: primary ? 'var(--glow)' : 'none',
   });
 
@@ -159,7 +159,7 @@ export default function InviteAccept() {
     const hasAccount = invite?.hasAccount === true;
     return shell(
       <>
-        <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--t1)' }}>You're invited!</p>
+        <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--t1)' }}>You're invited!</p>
         {inviteSummary}
         <p style={{ fontSize: 12.5, color: 'var(--t3)', lineHeight: 1.5 }}>
           {/* A shared link has no address to reason about, so neither path is
@@ -194,7 +194,7 @@ export default function InviteAccept() {
   const otherAdminWorkspaces = (otherWorkspaces || []).filter((w) => w.role === 'ADMIN');
   return shell(
     <>
-      <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--t1)' }}>Join {invite?.workspaceName}</p>
+      <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--t1)' }}>Join {invite?.workspaceName}</p>
       {inviteSummary}
       {otherWorkspaces && otherWorkspaces.length > 0 && (
         <p style={{ fontSize: 12.5, color: 'var(--t3)', lineHeight: 1.5 }}>

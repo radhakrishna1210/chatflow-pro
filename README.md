@@ -1,4 +1,4 @@
-# ChatFlow Pro
+# Spandan
 
 A full-stack, multi-tenant WhatsApp Business messaging platform — conversations (inbox), bulk campaigns, contacts/segments, message templates, automation workflows, analytics, a wallet/billing ledger, and platform-level super-admin tools. Built with Node.js/Express on the backend and React (Vite, no router library — custom history-based router) on the frontend, backed by PostgreSQL, Redis/BullMQ, and the Meta WhatsApp Business (Cloud API) platform.
 
@@ -27,7 +27,7 @@ This document is meant to be a complete standalone reference for anyone (human o
 ## 2. Repository Layout
 
 ```
-chatflow-pro/
+spandan/
 ├── backend/                       Express API + BullMQ workers
 │   ├── src/
 │   │   ├── app.js                 Express app: middleware, CORS, Passport, route mounting, error handler
@@ -59,7 +59,7 @@ chatflow-pro/
 ├── tests-e2e-v2.mjs               End-to-end test suite (v2, newer features)
 ├── BUGS.md / BUGS-v2.md           Historical bug audits from prior stabilization sprints
 ├── STABILIZATION_REPORT.md / _V2.md  Write-ups of what was fixed in each stabilization pass
-└── ChatFlow Pro.html              Standalone static demo/landing page (not part of the app build)
+└── Spandan.html              Standalone static demo/landing page (not part of the app build)
 ```
 
 ---
@@ -136,14 +136,14 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `META_DISPLAY_NAME` | **yes** | — | |
 | `META_WEBHOOK_VERIFY_TOKEN` | **yes** | — | Token Meta must echo back to verify the webhook subscription (`GET /webhook/meta`) |
 | `META_API_VERSION` | no | `v21.0` | Graph API version pinned across `lib/meta.js` |
-| `META_REDIRECT_URI` | no | `{APP_URL}/api/v1/auth/meta/callback` | Must exactly match the redirect URI configured in the Meta dashboard for Embedded Signup |
+| `META_REDIRECT_URI` | no | `{API_PUBLIC_URL}/api/v1/auth/meta/callback` | Must exactly match the redirect URI configured in the Meta dashboard for Embedded Signup |
 | `META_ES_CONFIG_ID` | referenced by frontend/backend for Embedded Signup | — | Facebook Login for Business config ID (see STABILIZATION_REPORT_V2.md) |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | no | — | Present as a dependency; optional/partial integration |
 | `CAMPAIGN_BATCH_SIZE` | no | `50` | |
 | `CAMPAIGN_WORKER_CONCURRENCY` | no | `2` | BullMQ worker concurrency for campaign sends |
 | `CAMPAIGN_RATE_DELAY_MS` | no | `250` (floor enforced in code) | Delay between sends — Meta Tier-1 numbers allow ~250 msgs/min, so 250ms ≈ 240/min |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **yes** | — | Google OAuth 2.0 ("Sign in with Google") |
-| `GOOGLE_CALLBACK_URL` | no | `{APP_URL}/api/v1/auth/google/callback` | |
+| `GOOGLE_CALLBACK_URL` | no | `{API_PUBLIC_URL}/api/v1/auth/google/callback` | Must be registered verbatim in Google Cloud Console → Credentials → Authorized redirect URIs, and must point at the API origin (`localhost:4000` in dev), not the Vite dev server. A mismatch shows up only on Google's consent screen as `Error 400: redirect_uri_mismatch` |
 | `GEMINI_API_KEY` | no | — | Enables Gemini for AI onboarding / workflow generation; falls back to Ollama, then a deterministic canned-response generator if absent |
 | `OPENAI_API_KEY` | no | — | Enables OpenAI for AI template **header images**. Preferred over Gemini for images, because image models are not on the Gemini free tier at all. Text generation still uses Gemini |
 | `OPENAI_IMAGE_MODEL` | no | `gpt-image-1` | `gpt-image-1` needs a verified OpenAI org; use `dall-e-3` if verification is the blocker |
@@ -154,7 +154,7 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `OLLAMA_URL` | no | `http://127.0.0.1:11434` | Local LLM fallback |
 | `OLLAMA_MODEL` | no | `phi3` | |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASSWORD` | no | `SMTP_PORT=587`, `SMTP_SECURE=false` | Transactional email (welcome, OTP, invites, campaign-complete, etc.) — email sending is skipped gracefully if unconfigured |
-| `EMAIL_FROM_NAME` | no | `ChatFlow Pro` | |
+| `EMAIL_FROM_NAME` | no | `Spandan` | |
 | `EMAIL_FROM` | no | — | |
 | `APP_URL` | no | `http://localhost:{PORT}` | Backend's own public URL, used to derive default OAuth/webhook callback URLs |
 
@@ -196,7 +196,7 @@ All routes are mounted under `/api/v1` (see `backend/src/app.js` + `backend/src/
 
 ### 5.1 Website Assistant (RAG chatbot)
 
-A retrieval-grounded chatbot that answers questions about ChatFlow Pro from the site's own content. It is not a general-purpose assistant: asked about anything the indexed content does not cover, it declines rather than answering from the model's world knowledge.
+A retrieval-grounded chatbot that answers questions about Spandan from the site's own content. It is not a general-purpose assistant: asked about anything the indexed content does not cover, it declines rather than answering from the model's world knowledge.
 
 ```
 site content + help guides + Plan table

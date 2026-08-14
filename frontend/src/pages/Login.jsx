@@ -69,7 +69,7 @@ export default function Login({ onNav, mode = 'login' }) {
 
   const inp = (focused) => ({
     width: '100%', padding: '11px 14px', borderRadius: '9px', outline: 'none',
-    background: 'rgba(255,255,255,0.035)', fontFamily: "'Plus Jakarta Sans',sans-serif",
+    background: 'rgba(255,255,255,0.035)', fontFamily: "'Manrope',sans-serif",
     fontSize: '14px', color: 'var(--t1)', transition: 'border .18s',
     border: focused ? '1px solid var(--gbd)' : '1px solid var(--bd)',
   });
@@ -84,21 +84,21 @@ export default function Login({ onNav, mode = 'login' }) {
         }
       `}</style>
       {/* Left panel */}
-      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#07090F 0%,#0a0f1e 60%,#07090F 100%)', borderRight: '1px solid var(--bd)' }}>
+      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#0a0b0e 0%,#0a0f1e 60%,#0a0b0e 100%)', borderRight: '1px solid var(--bd)' }}>
         {/* Same drifting aurora as the landing page, so signing in feels like
             the same product rather than a bolted-on form. */}
-        <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(30,191,94,0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
+        <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(53,232,242,0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
         <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(14,165,233,0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
 
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', position: 'relative', zIndex: 1 }}>
           <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#07090F" />
-              <path d="M5.5 7.5h5M5.5 10h3" stroke="#20C967" strokeWidth="1.3" strokeLinecap="round" />
+              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#0a0b0e" />
+              <path d="M5.5 7.5h5M5.5 10h3" stroke="#35e8f2" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </div>
-          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
-            ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span>
+          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
+            spandan
           </span>
         </div>
 
@@ -107,15 +107,15 @@ export default function Login({ onNav, mode = 'login' }) {
             <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s ease infinite' }} />
             <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--green)', letterSpacing: '.03em' }}>Meta Verified Business Partner</span>
           </div>
-          <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '36px', color: 'var(--t1)', marginBottom: '14px', lineHeight: 1.1 }}>Welcome back</h2>
+          <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '36px', color: 'var(--t1)', marginBottom: '14px', lineHeight: 1.1 }}>Welcome back</h2>
           <p style={{ fontSize: '15px', color: 'var(--t2)', lineHeight: 1.65, marginBottom: '36px', maxWidth: '340px' }}>
             Sign in to manage your WhatsApp campaigns, monitor conversations, and grow your audience.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {[
               { icon: 'send', label: 'Launch campaigns in minutes', color: 'var(--green)' },
-              { icon: 'bot', label: 'An AI agent that answers about your campaign', color: '#0EA5E9' },
-              { icon: 'chart', label: 'Delivery and spend, per campaign', color: '#A78BFA' },
+              { icon: 'bot', label: 'An AI agent that answers about your campaign', color: '#9d6bff' },
+              { icon: 'chart', label: 'Delivery and spend, per campaign', color: '#c4ff46' },
               { icon: 'wflow', label: 'Workflows, forms and auto-replies', color: '#F59E0B' },
             ].map(f => (
               <div key={f.label} className="glass" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 13px', borderRadius: 'var(--r)' }}>
@@ -140,9 +140,9 @@ export default function Login({ onNav, mode = 'login' }) {
 
       {/* Right panel */}
       <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', position: 'relative' }}>
-        <div className="aurora-b" style={{ position: 'absolute', top: '10%', right: '-10%', width: '420px', height: '420px', background: 'radial-gradient(circle,rgba(30,191,94,0.07) 0%,transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+        <div className="aurora-b" style={{ position: 'absolute', top: '10%', right: '-10%', width: '420px', height: '420px', background: 'radial-gradient(circle,rgba(53,232,242,0.07) 0%,transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
         <div className="glass auth-card" style={{ width: '100%', maxWidth: '420px', padding: '34px 32px', borderRadius: 'var(--rxl)', position: 'relative' }}>
-          <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>
+          <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>
             {isRegister ? 'Create your account' : 'Sign in to your account'}
           </h1>
           <p style={{ fontSize: '14px', color: 'var(--t2)', marginBottom: '32px' }}>
@@ -153,7 +153,7 @@ export default function Login({ onNav, mode = 'login' }) {
           </p>
 
           <button
-            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '11px 16px', borderRadius: '9px', background: 'rgba(255,255,255,0.035)', border: '1px solid var(--bd)', color: 'var(--t1)', fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: '14px', fontWeight: 600, cursor: 'pointer', transition: 'background .18s, border .18s', marginBottom: '22px' }}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '11px 16px', borderRadius: '9px', background: 'rgba(255,255,255,0.035)', border: '1px solid var(--bd)', color: 'var(--t1)', fontFamily: "'Manrope',sans-serif", fontSize: '14px', fontWeight: 600, cursor: 'pointer', transition: 'background .18s, border .18s', marginBottom: '22px' }}
             onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = 'var(--bdm)'; }}
             onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.035)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}
             onClick={() => window.location.href = inviteToken ? `/api/v1/auth/google?invite=${encodeURIComponent(inviteToken)}` : '/api/v1/auth/google'}
@@ -215,17 +215,19 @@ export default function Login({ onNav, mode = 'login' }) {
             </div>
 
             <button type="submit" disabled={status === 'loading' || status === 'success'}
-              style={{ width: '100%', padding: '13px', borderRadius: '9px', border: 'none', cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: '14px', fontWeight: 700, color: status === 'success' ? 'var(--t1)' : '#07090F', background: status === 'success' ? 'var(--gbg)' : 'var(--green)', boxShadow: status === 'success' ? 'none' : 'var(--glow)', transition: 'all .18s', opacity: status === 'loading' ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              {(status === 'idle' || status === 'error') && <><I n="arrow" s={14} c="#07090F" /> {isRegister ? 'Create Account' : 'Sign In'}</>}
-              {status === 'loading' && <><svg width="14" height="14" viewBox="0 0 14 14" style={{ animation: 'spin 1s linear infinite' }}><circle cx="7" cy="7" r="5" fill="none" stroke="#07090F" strokeWidth="2" strokeDasharray="20" strokeDashoffset="5" /></svg> {isRegister ? 'Creating account…' : 'Signing in…'}</>}
+              style={{ width: '100%', padding: '13px', borderRadius: '9px', border: 'none', cursor: 'pointer', fontFamily: "'Manrope',sans-serif", fontSize: '14px', fontWeight: 700, color: status === 'success' ? 'var(--t1)' : '#0a0b0e', background: status === 'success' ? 'var(--gbg)' : 'var(--green)', boxShadow: status === 'success' ? 'none' : 'var(--glow)', transition: 'all .18s', opacity: status === 'loading' ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              {(status === 'idle' || status === 'error') && <><I n="arrow" s={14} c="#0a0b0e" /> {isRegister ? 'Create Account' : 'Sign In'}</>}
+              {status === 'loading' && <><svg width="14" height="14" viewBox="0 0 14 14" style={{ animation: 'spin 1s linear infinite' }}><circle cx="7" cy="7" r="5" fill="none" stroke="#0a0b0e" strokeWidth="2" strokeDasharray="20" strokeDashoffset="5" /></svg> {isRegister ? 'Creating account…' : 'Signing in…'}</>}
               {status === 'success' && <><I n="check" s={14} c="var(--green)" w={2} /> <span style={{ color: 'var(--green)' }}>Done!</span></>}
             </button>
           </form>
 
           <p style={{ marginTop: '24px', fontSize: '12px', color: 'var(--t3)', textAlign: 'center' }}>
             By signing in you agree to our{' '}
-            <a href="#" style={{ color: 'var(--t2)', textDecoration: 'none' }}>Terms of Service</a> and{' '}
-            <a href="#" style={{ color: 'var(--t2)', textDecoration: 'none' }}>Privacy Policy</a>.
+            {/* These were href="#" — the sign-in screen asked people to agree to
+                two documents it gave them no way to read. */}
+            <a href="/legal" onClick={e => { e.preventDefault(); navigate('/legal'); }} style={{ color: 'var(--t2)' }}>Terms of Service</a> and{' '}
+            <a href="/legal/privacy" onClick={e => { e.preventDefault(); navigate('/legal/privacy'); }} style={{ color: 'var(--t2)' }}>Privacy Policy</a>.
           </p>
         </div>
       </div>

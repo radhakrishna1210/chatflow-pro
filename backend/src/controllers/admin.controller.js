@@ -2,6 +2,12 @@ import * as adminService from '../services/admin.service.js';
 import * as platformSettings from '../services/platformSettings.service.js';
 import * as authService from '../services/auth.service.js';
 import * as invitationsService from '../services/invitations.service.js';
+import * as audit from '../services/audit.service.js';
+
+// Whatever the auth layer resolved for this request. Every audited action reads
+// the operator from here rather than the body, so the log records who actually
+// held the token and not who the request claimed to be.
+const actorOf = (req) => ({ id: req.user?.id, email: req.user?.email });
 
 export async function getPool(req, res) {
   const result = await adminService.getPoolSummary();
@@ -35,6 +41,10 @@ export async function resetPoolEntry(req, res) {
 
 export async function banPoolEntry(req, res) {
   const entry = await adminService.banPoolEntry(req.params.id);
+  await audit.record({
+    actor: actorOf(req), action: 'number.ban', targetType: 'number',
+    targetLabel: entry?.phoneNumber || req.params.id,
+  });
   res.json(entry);
 }
 
@@ -74,6 +84,11 @@ export async function assignToWorkspace(req, res) {
     return res.status(400).json({ error: 'poolEntryId and workspaceId are required' });
   }
   const result = await adminService.assignToWorkspace(poolEntryId, workspaceId);
+  await audit.record({
+    actor: actorOf(req), action: 'number.assign', targetType: 'number',
+    targetLabel: result?.phoneNumber || poolEntryId,
+    meta: { workspaceId, poolEntryId },
+  });
   res.status(201).json(result);
 }
 
@@ -88,6 +103,14 @@ export async function listWorkspacesDetailed(req, res) {
 export async function suspendWorkspace(req, res) {
   const { suspended, reason } = req.body;
   const result = await adminService.setWorkspaceSuspended(req.params.id, suspended, reason);
+  await audit.record({
+    actor: actorOf(req),
+    action: suspended ? 'suspend' : 'reinstate',
+    targetType: 'workspace',
+    targetLabel: result?.name || req.params.id,
+    reason: reason || null,
+    meta: { workspaceId: req.params.id },
+  });
   res.json(result);
 }
 
@@ -96,7 +119,13 @@ export async function listTickets(req, res) {
 }
 
 export async function updateTicket(req, res) {
-  res.json(await adminService.updateTicket(req.params.id, req.body || {}));
+  const ticket = await adminService.updateTicket(req.params.id, req.body || {});
+  await audit.record({
+    actor: actorOf(req), action: 'ticket.update', targetType: 'ticket',
+    targetLabel: ticket?.subject || req.params.id,
+    meta: { ticketId: req.params.id, status: req.body?.status },
+  });
+  res.json(ticket);
 }
 
 export async function transactionAnalysis(req, res) {
@@ -152,7 +181,19 @@ export async function listUsers(req, res) {
 }
 
 export async function impersonateUser(req, res) {
-  res.json(await authService.impersonateUser(req.params.id));
+  const result = await authService.impersonateUser(req.params.id);
+  // Audited after the fact deliberately: a failed impersonation is an
+  // authorisation event the auth layer already reports, and logging the attempt
+  // as if it succeeded would be worse than not logging it.
+  await audit.record({
+    actor: actorOf(req),
+    action: 'impersonate',
+    targetType: 'user',
+    targetLabel: result?.user?.email || req.params.id,
+    reason: req.body?.reason || null,
+    meta: { userId: req.params.id, workspaceId: result?.user?.workspaceId || null },
+  });
+  res.json(result);
 }
 
 // ─── Plan management ──────────────────────────────────────────
@@ -161,15 +202,33 @@ export async function listPlans(req, res) {
 }
 
 export async function createPlan(req, res) {
-  res.status(201).json(await adminService.createPlan(req.body || {}));
+  const plan = await adminService.createPlan(req.body || {});
+  await audit.record({
+    actor: actorOf(req), action: 'plan.create', targetType: 'plan',
+    targetLabel: plan?.name || '', meta: { planId: plan?.id },
+  });
+  res.status(201).json(plan);
 }
 
 export async function updatePlan(req, res) {
-  res.json(await adminService.updatePlan(req.params.id, req.body || {}));
+  const plan = await adminService.updatePlan(req.params.id, req.body || {});
+  // The changed keys, not the values: entitlements can carry pricing, and an
+  // audit log is read by more people than the billing screen is.
+  await audit.record({
+    actor: actorOf(req), action: 'plan.update', targetType: 'plan',
+    targetLabel: plan?.name || req.params.id,
+    meta: { planId: req.params.id, changed: Object.keys(req.body || {}) },
+  });
+  res.json(plan);
 }
 
 export async function deletePlan(req, res) {
-  res.json(await adminService.deletePlan(req.params.id));
+  const result = await adminService.deletePlan(req.params.id);
+  await audit.record({
+    actor: actorOf(req), action: 'plan.delete', targetType: 'plan',
+    targetLabel: req.params.id,
+  });
+  res.json(result);
 }
 
 // ── Platform credentials (API Management) ────────────────────────────────────
@@ -185,4 +244,23 @@ export async function getSystemSettings(req, res) {
 export async function updateSystemSettings(req, res) {
   const result = await platformSettings.updateSettings(req.body || {});
   res.json({ success: true, ...result, settings: await platformSettings.getAllSettings() });
+}
+
+
+// ─── Audit & security ─────────────────────────────────────────
+//
+// Read-only. The log is written from the actions above and from the wallet
+// service; nothing exposes a way to edit or delete an entry, which is the point
+// of having one.
+export async function auditLog(req, res) {
+  const { action, search, limit } = req.query;
+  res.json(await audit.list({ action, search, limit: Number(limit) || 100 }));
+}
+
+export async function auditActions(req, res) {
+  res.json(await audit.actions());
+}
+
+export async function auditSummary(req, res) {
+  res.json(await audit.summary(Math.min(365, Math.max(1, Number(req.query.days) || 30))));
 }

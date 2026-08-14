@@ -76,6 +76,14 @@ export default function PaymentsView({ initialTab } = {}) {
   // Paying is the one thing members do not do.
   const isAdmin = canBill();
   const [activeSubTab, setActiveSubTab] = useState(() => SUB_TABS.some(t => t.id === initialTab) ? initialTab : 'wallet');
+  // Same reconciliation trap as AutomationView: the route can change while
+  // React keeps this instance mounted, so a lazy useState initialiser only ever
+  // runs for the first route that rendered it. Following the prop is what
+  // actually moves the panel.
+  useEffect(() => {
+    if (SUB_TABS.some(t => t.id === initialTab)) setActiveSubTab(initialTab);
+  }, [initialTab]);
+
   
   // Wallet state — server-authoritative. Balance and transactions come from the
   // backend wallet ledger, never localStorage.
@@ -145,7 +153,7 @@ export default function PaymentsView({ initialTab } = {}) {
     window._reloadWallet = loadWallet;
 
     // 2. Billing details (still local until a billing backend exists)
-    const savedBilling = localStorage.getItem('chatflow_billing_details');
+    const savedBilling = localStorage.getItem('spandan_billing_details');
     if (savedBilling) {
       try {
         const parsed = JSON.parse(savedBilling);
@@ -156,7 +164,7 @@ export default function PaymentsView({ initialTab } = {}) {
       } catch {}
     }
 
-    const savedAddons = localStorage.getItem('chatflow_subscribed_addons');
+    const savedAddons = localStorage.getItem('spandan_subscribed_addons');
     if (savedAddons) {
       try { setAddons(JSON.parse(savedAddons)); } catch {}
     }
@@ -217,10 +225,10 @@ export default function PaymentsView({ initialTab } = {}) {
         amount: order.amount,
         currency: order.currency,
         order_id: order.orderId,
-        name: 'ChatFlow Pro',
+        name: 'Spandan',
         description: 'Wallet recharge',
         prefill: { email: user.email, name: user.name },
-        theme: { color: '#1EBF5E' },
+        theme: { color: '#35e8f2' },
         handler: async (response) => {
           try {
             const verifyRes = await wFetch('/wallet/checkout/verify', {
@@ -285,10 +293,10 @@ export default function PaymentsView({ initialTab } = {}) {
         amount: order.amount,
         currency: order.currency,
         order_id: order.orderId,
-        name: 'ChatFlow Pro',
+        name: 'Spandan',
         description: `${plan.name} plan`,
         prefill: { email: user.email, name: user.name },
-        theme: { color: '#1EBF5E' },
+        theme: { color: '#35e8f2' },
         handler: async (response) => {
           try {
             const verifyRes = await wFetch('/subscription/checkout/verify', {
@@ -337,7 +345,7 @@ export default function PaymentsView({ initialTab } = {}) {
 
   const handleSaveBilling = () => {
     const data = { bizName, bizEmail, bizAddress, gstNum };
-    localStorage.setItem('chatflow_billing_details', JSON.stringify(data));
+    localStorage.setItem('spandan_billing_details', JSON.stringify(data));
     setSaveStatus('success');
     setTimeout(() => setSaveStatus(''), 2000);
   };
@@ -345,7 +353,7 @@ export default function PaymentsView({ initialTab } = {}) {
   const toggleAddon = (key) => {
     const updated = { ...addons, [key]: !addons[key] };
     setAddons(updated);
-    localStorage.setItem('chatflow_subscribed_addons', JSON.stringify(updated));
+    localStorage.setItem('spandan_subscribed_addons', JSON.stringify(updated));
   };
 
   // Render Inner Tabs
@@ -358,11 +366,11 @@ export default function PaymentsView({ initialTab } = {}) {
       <div style={{ ...card, padding: 24, background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 6 }}>Total Wallet Balance</p>
-          <h2 style={{ fontFamily: "'Syne',sans-serif", fontSize: 36, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-.02em' }}>
+          <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 36, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-.02em' }}>
             ₹ {balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </h2>
         </div>
-        <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(30,191,94,0.1)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(53,232,242,0.1)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <I n="credit" s={24} c="var(--green)" />
         </div>
       </div>
@@ -370,7 +378,7 @@ export default function PaymentsView({ initialTab } = {}) {
       {/* Quick Recharge Box */}
       {isAdmin ? (
         <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Recharge Wallet</h3>
+          <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Recharge Wallet</h3>
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
@@ -412,7 +420,7 @@ export default function PaymentsView({ initialTab } = {}) {
 
   const renderExpenses = () => (
     <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Transaction History</h3>
+      <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Transaction History</h3>
       <p style={{ fontSize: 13, color: 'var(--t2)' }}>Real wallet credits and usage deductions from your account ledger.</p>
 
       {walletTxns.length === 0 ? (
@@ -473,21 +481,21 @@ export default function PaymentsView({ initialTab } = {}) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
           {[
             { label: 'Total Paid Messages', val: totals.totalPaidMessages || 0, color: 'var(--green)' },
-            { label: 'Utility', val: totals.utility || 0, color: '#a78bfa' },
+            { label: 'Utility', val: totals.utility || 0, color: '#c4ff46' },
             { label: 'Marketing', val: totals.marketing || 0, color: '#f59e0b' },
-            { label: 'Marketing Lite', val: totals.marketingLite || 0, color: '#0ea5e9' },
+            { label: 'Marketing Lite', val: totals.marketingLite || 0, color: '#9d6bff' },
             { label: 'Auth Messages', val: totals.authMessages || 0, color: '#f43f5e' }
           ].map((m, idx) => (
             <div key={idx} style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
               <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600 }}>{m.label}</span>
-              <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 24, fontWeight: 800, color: m.val > 0 ? m.color : 'var(--t1)' }}>{m.val}</span>
+              <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 24, fontWeight: 800, color: m.val > 0 ? m.color : 'var(--t1)' }}>{m.val}</span>
             </div>
           ))}
         </div>
 
         {/* Chart Card */}
         <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>Paid Message Analytics</h3>
+          <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>Paid Message Analytics</h3>
           
           {/* Custom SVG Bar Chart */}
           <div style={{ width: '100%', height: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', paddingBottom: 20, borderBottom: '1px solid var(--bd)' }}>
@@ -511,7 +519,7 @@ export default function PaymentsView({ initialTab } = {}) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <WalletStatusBanner hideWhenHealthy />
       <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Billing details</h3>
+      <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Billing details</h3>
       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -572,7 +580,7 @@ export default function PaymentsView({ initialTab } = {}) {
                   {subscription?.status || '—'}
                 </span>
               </div>
-              <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 22, fontWeight: 800, color: 'var(--t1)' }}>
+              <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 22, fontWeight: 800, color: 'var(--t1)' }}>
                 {subscription?.plan?.name || 'Loading…'}
               </h3>
             </div>
@@ -632,14 +640,14 @@ export default function PaymentsView({ initialTab } = {}) {
         {/* Plan catalog */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-            <h4 style={{ fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Plans</h4>
+            <h4 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Plans</h4>
             <div style={{ display: 'flex', padding: 3, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
               {[['monthly', 'Monthly'], ['quarterly', 'Quarterly']].map(([id, label]) => (
                 <button key={id} onClick={() => setBillingCycle(id)}
                   style={{ padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                           fontFamily: "'Plus Jakarta Sans',sans-serif",
+                           fontFamily: "'Manrope',sans-serif",
                            background: billingCycle === id ? 'var(--green)' : 'transparent',
-                           color: billingCycle === id ? '#060A10' : 'var(--t2)' }}>
+                           color: billingCycle === id ? '#08090c' : 'var(--t2)' }}>
                   {label}
                 </button>
               ))}
@@ -662,7 +670,7 @@ export default function PaymentsView({ initialTab } = {}) {
                 <div key={plan.id} style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 12, border: isCurrent ? '1px solid var(--gbd)' : '1px solid var(--bd)' }}>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <h5 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 800, color: 'var(--t1)' }}>{plan.name}</h5>
+                      <h5 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 800, color: 'var(--t1)' }}>{plan.name}</h5>
                       {isCurrent && (
                         <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)' }}>Current</span>
                       )}
@@ -722,7 +730,7 @@ export default function PaymentsView({ initialTab } = {}) {
 
         {/* Add-ons Section */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <h4 style={{ fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Add-ons</h4>
+          <h4 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Add-ons</h4>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
             {[
@@ -742,7 +750,7 @@ export default function PaymentsView({ initialTab } = {}) {
                     <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.desc}</p>
                   </div>
                   {isAdmin ? (
-                    <Btn variant={hasAddon ? 'outline' : 'primary'} onClick={() => toggleAddon(addon.id)} style={{ width: '100%', borderColor: hasAddon ? '#f8717144' : 'var(--bd)', color: hasAddon ? '#f87171' : '#07090F' }}>
+                    <Btn variant={hasAddon ? 'outline' : 'primary'} onClick={() => toggleAddon(addon.id)} style={{ width: '100%', borderColor: hasAddon ? '#f8717144' : 'var(--bd)', color: hasAddon ? '#f87171' : '#0a0b0e' }}>
                       {hasAddon ? 'Remove Add-on' : 'Add to Plan'}
                     </Btn>
                   ) : (
@@ -809,7 +817,7 @@ export default function PaymentsView({ initialTab } = {}) {
                 {/* Was an <a href="#"> with preventDefault — it looked like a
                     link and did nothing. It downloads the real invoice now. */}
                 <button onClick={() => downloadInvoice(inv.id)} disabled={downloadingInvoice === inv.id}
-                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 13, color: 'var(--green)', fontWeight: 600, cursor: downloadingInvoice === inv.id ? 'wait' : 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", opacity: downloadingInvoice === inv.id ? 0.6 : 1 }}>
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 13, color: 'var(--green)', fontWeight: 600, cursor: downloadingInvoice === inv.id ? 'wait' : 'pointer', fontFamily: "'Manrope',sans-serif", opacity: downloadingInvoice === inv.id ? 0.6 : 1 }}>
                   {downloadingInvoice === inv.id ? 'Preparing…' : 'Download Invoice'}
                 </button>
               </td>
@@ -826,7 +834,7 @@ export default function PaymentsView({ initialTab } = {}) {
       {/* Subtab Left Sidebar */}
       <div style={{ width: 232, background: 'rgba(255, 255, 255, 0.01)', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div style={{ padding: '24px 20px 14px 20px' }}>
-          <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 17, color: 'var(--t1)', letterSpacing: '-.02em' }}>Payments</h2>
+          <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 17, color: 'var(--t1)', letterSpacing: '-.02em' }}>Payments</h2>
           <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Manage funds, plans, and invoices</p>
         </div>
 
@@ -835,7 +843,7 @@ export default function PaymentsView({ initialTab } = {}) {
             const on = activeSubTab === tab.id;
             return (
               <div key={tab.id} onClick={() => setActiveSubTab(tab.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', background: on ? 'rgba(30,191,94,0.1)' : 'transparent' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', background: on ? 'rgba(53,232,242,0.1)' : 'transparent' }}
                 onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
                 onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}>
                 <I n={tab.icon} s={16} c={on ? 'var(--green)' : 'var(--t2)'} />
@@ -851,7 +859,7 @@ export default function PaymentsView({ initialTab } = {}) {
         <div style={{ maxWidth: 840, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--bd)', paddingBottom: 16 }}>
-            <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 800, color: 'var(--t1)' }}>
+            <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 20, fontWeight: 800, color: 'var(--t1)' }}>
               {SUB_TABS.find(t => t.id === activeSubTab)?.label}
             </h1>
           </div>

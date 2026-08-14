@@ -1,11 +1,11 @@
-# Deploying ChatFlow Pro to Render
+# Deploying Spandan to Render
 
 Single-service deploy: one Node web service runs the Express API **and** serves the
 built Vite SPA from `frontend/dist`. The frontend's relative `/api/...` calls are
 therefore same-origin — no CORS config, no rewrite rules, no `VITE_API_URL`.
 
 ```
-Render Web Service  "chatflow-pro"     (backend/ as rootDir)
+Render Web Service  "spandan"     (backend/ as rootDir)
 ├── build:  npm ci
 │           └─ postinstall -> scripts/render-build.js
 │                             ├─ prisma generate
@@ -16,7 +16,7 @@ Render Web Service  "chatflow-pro"     (backend/ as rootDir)
             /*         ->  frontend/dist/index.html  (SPA fallback)
 
 Supabase Postgres   (pooler, ap-southeast-1, session mode / port 5432)
-Render Key Value    "chatflow-redis"  (BullMQ campaign / email / billing queues)
+Render Key Value    "spandan-redis"  (BullMQ campaign / email / billing queues)
 ```
 
 Postgres and Redis are **external** — the blueprint creates neither, it just
@@ -83,7 +83,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `DATABASE_URL` | Supabase → Project Settings → Database → Connection string → **Session mode (port 5432)**. Same value as in `backend/.env` |
 | `DIRECT_URL` | Optional while the pooler is in session mode — leave blank and it defaults to `DATABASE_URL` |
 | `REDIS_URL` | Render Key Value → **Internal** URL (`redis://red-...`). Local dev stays on `redis://localhost:6379` — see `backend/docs/local-redis-setup.md` |
-| `CLIENT_URL` | Leave as `https://chatflow-pro.onrender.com` for now — corrected in step 5 |
+| `CLIENT_URL` | Leave as `https://spandan.onrender.com` for now — corrected in step 5 |
 | `APP_URL` | Same value as `CLIENT_URL` |
 | `ENCRYPTION_KEY` | From step 2 |
 | `ADMIN_EMAIL` | Your admin login email |
@@ -112,7 +112,7 @@ Expected log sequence:
 [Worker] Campaign worker started
 [Worker] Email worker started
 [Worker] Billing worker started
-[Server] ChatFlow Pro backend running on port 10000
+[Server] Spandan backend running on port 10000
 ```
 
 `server.js` calls `process.exit(1)` if Postgres **or** Redis is unreachable, so a
@@ -122,7 +122,7 @@ crash-loop here means a connection string didn't wire up — check that
 ## 5. Fix the URLs, then redeploy
 
 Render assigns the real hostname only after the service exists. Copy it (e.g.
-`https://chatflow-pro-xxxx.onrender.com`) and set **both** `CLIENT_URL` and
+`https://spandan-xxxx.onrender.com`) and set **both** `CLIENT_URL` and
 `APP_URL` to it in the service's Environment tab, then **Manual Deploy → Deploy
 latest commit**.
 

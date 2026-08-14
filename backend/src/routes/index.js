@@ -29,6 +29,7 @@ import supportRoutes from './support.routes.js';
 import workspacesRoutes from './workspaces.routes.js';
 import subscriptionRoutes from './subscription.routes.js';
 import aiAgentRoutes from './aiAgent.routes.js';
+import intentRoutes from './intent.routes.js';
 import invitationsRoutes, { publicInvitationsRouter } from './invitations.routes.js';
 import workspaceSwitchRoutes from './workspaceSwitch.routes.js';
 import usersRoutes from './users.routes.js';
@@ -88,6 +89,7 @@ ws.use('/subscription', subscriptionRoutes);
 ws.use('/integrations', integrationsRoutes);
 ws.use('/support', supportRoutes);
 ws.use('/ai-agent', aiAgentRoutes);
+ws.use('/intents', intentRoutes);
 ws.use('/invitations', invitationsRoutes);
 ws.use('/switch', workspaceSwitchRoutes);
 

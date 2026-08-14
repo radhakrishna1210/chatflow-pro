@@ -142,7 +142,7 @@ const CASES = {
     ['is my data secure?', ['help-security-data', 'site-faq-who-can-see-my-data']],
     ['are access tokens encrypted?', ['help-security-data', 'site-faq-who-can-see-my-data']],
     ['how do I contact support?', ['help-support', 'site-contact']],
-    ['what is ChatFlow Pro?', ['site-about', 'site-overview']],
+    ['what is Spandan?', ['site-about', 'site-overview']],
     ['what industries use this?', ['site-use-cases']],
   ],
   'Troubleshooting': [

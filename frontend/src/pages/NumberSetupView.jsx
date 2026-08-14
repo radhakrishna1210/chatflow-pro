@@ -6,7 +6,7 @@ import { wFetch, adminFetch } from '../lib/api.js';
 
 const statusColor = s => ({
   AVAILABLE: { bg:'var(--gbg)',              bd:'var(--gbd)',              c:'var(--green)' },
-  ASSIGNED:  { bg:'rgba(14,165,233,.1)',     bd:'rgba(14,165,233,.25)',    c:'#38bdf8' },
+  ASSIGNED:  { bg:'rgba(14,165,233,.1)',     bd:'rgba(14,165,233,.25)',    c:'#9d6bff' },
   BANNED:    { bg:'rgba(239,68,68,.08)',     bd:'rgba(239,68,68,.2)',      c:'#f87171' },
 }[s] || { bg:'rgba(255,255,255,.04)', bd:'var(--bd)', c:'var(--t2)' });
 
@@ -25,7 +25,7 @@ const Label = ({ children, hint, required }) => (
 
 const FInput = ({ type='text', value, onChange, placeholder, style:ex={} }) => (
   <input type={type} value={value} onChange={onChange} placeholder={placeholder}
-    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Plus Jakarta Sans',sans-serif", outline:'none', boxSizing:'border-box', ...ex }}
+    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box', ...ex }}
     onFocus={e => e.target.style.borderColor='var(--gbd)'}
     onBlur={e => e.target.style.borderColor='var(--bd)'} />
 );
@@ -34,7 +34,7 @@ const Modal = ({ title, onClose, children, footer }) => (
   <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
     <div style={{ ...card, width:480, maxHeight:'80vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
       <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
-        <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</span>
+        <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</span>
         <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
           <I n="x" s={18} c="var(--t2)" />
         </button>
@@ -52,7 +52,81 @@ const CheckItem = ({ text }) => (
   </div>
 );
 
+// One connected number, with what Meta actually allows it to do today.
+//
+// The four figures are the ones that decide whether a campaign can go out:
+// the daily tier, how much of it is spent, the quality rating that sets the
+// tier, and the connection state. They were previously either missing or
+// scattered across three badges on a single number.
+const NumberCard = ({ number, isPrimary, onDisconnect, disconnecting }) => {
+  const quality = number.quality || 'Unknown';
+  const qc = qualityColor(quality);
+  const connected = String(number.status || '').toUpperCase() === 'ACTIVE';
+
+  const stats = [
+    ['Daily limit', number.messagingLimit || 'Not reported', 'var(--t1)'],
+    ['Sent today', (number.sentToday ?? 0).toLocaleString('en-IN'), 'var(--accent)'],
+    ['Quality', quality, qc],
+    ['Campaigns', (number.campaigns ?? 0).toLocaleString('en-IN'), 'var(--lime)'],
+  ];
+
+  return (
+    <div style={{ ...card, padding: '18px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <div style={{ width: 42, height: 42, borderRadius: 12, background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <I n="phone" s={19} c="var(--green)" />
+        </div>
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)', letterSpacing: '-.02em' }}>
+              {number.phoneNumber}
+            </span>
+            {isPrimary && (
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '.08em', padding: '2px 7px', borderRadius: 5, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', color: 'var(--t3)' }}>
+                PRIMARY
+              </span>
+            )}
+          </div>
+          <p style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 3 }}>
+            {number.displayName || 'No display name'}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', flexShrink: 0 }}>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '.06em', padding: '3px 8px', borderRadius: 6, background: `${qc}1f`, border: `1px solid ${qc}44`, color: qc }}>
+            QUALITY: {quality.toUpperCase()}
+          </span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '.06em', padding: '3px 8px', borderRadius: 6,
+            background: connected ? 'var(--sbg)' : 'rgba(245,158,11,.08)',
+            border: `1px solid ${connected ? 'var(--sbd)' : 'rgba(245,158,11,.28)'}`,
+            color: connected ? 'var(--success)' : '#fbbf24' }}>
+            {String(number.status || 'UNKNOWN').toUpperCase()}
+          </span>
+          {onDisconnect && (
+            <button onClick={() => onDisconnect(number)} disabled={disconnecting}
+              style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: disconnecting ? 'wait' : 'pointer',
+                       background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.22)', color: '#f87171', fontFamily: "'Manrope',sans-serif" }}>
+              Disconnect
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(112px,1fr))', gap: 10, marginTop: 16 }}>
+        {stats.map(([label, value, colour]) => (
+          <div key={label} style={{ padding: '11px 13px', borderRadius: 9, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)' }}>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 5 }}>{label}</div>
+            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: colour, letterSpacing: '-.01em' }}>{value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export default function NumberSetupView() {
+  // Every number the workspace has connected. `number` is the first of these,
+  // kept because the single-number call sites still read it.
+  const [numbers, setNumbers]         = useState([]);
   const [number, setNumber]           = useState(null);
   const [refreshing, setRefreshing]   = useState(false);
   const [pool, setPool]               = useState([]);
@@ -84,7 +158,12 @@ export default function NumberSetupView() {
   const [assignError, setAssignError]     = useState(null);
 
   const load = () =>
-    wFetch('/whatsapp/numbers').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d) && d[0]) setNumber(d[0]); }).catch(() => {});
+    wFetch('/whatsapp/numbers').then(r => r.ok && r.json()).then(d => {
+      // The page used to keep only numbers[0], so a workspace on a plan that
+      // allows three had two of them invisible — including the one a campaign
+      // was actually sending from.
+      if (Array.isArray(d)) { setNumbers(d); setNumber(d[0] || null); }
+    }).catch(() => {});
 
   useEffect(() => {
     load();
@@ -351,11 +430,34 @@ export default function NumberSetupView() {
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
       <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
-        <h1 style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Number Setup</h1>
+        <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Number Setup</h1>
         <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Manage your WhatsApp Business numbers</p>
       </div>
 
       <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:16, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+
+        {/* Every connected number. The detailed panel below stays as the place
+            to connect, refresh and disconnect; this is the answer to "what do
+            I have, and how much of today is left on it". */}
+        {numbers.length > 0 && (
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
+              <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>
+                Connected numbers
+              </h2>
+              <span style={{ fontFamily:'var(--mono)', fontSize:10.5, color:'var(--t3)' }}>
+                {numbers.length} connected
+              </span>
+            </div>
+            {numbers.map((n, i) => (
+              <NumberCard key={n.id} number={n} isPrimary={i === 0} />
+            ))}
+            <p style={{ fontSize:11, color:'var(--t3)', lineHeight:1.6, margin:0 }}>
+              Daily limit and quality are set by Meta from your sending history. Keeping quality high is what raises the tier —
+              see the note at the bottom of this page.
+            </p>
+          </div>
+        )}
 
         {/* Active number */}
         <div style={{ ...card, padding:'22px 24px' }}>
@@ -364,7 +466,7 @@ export default function NumberSetupView() {
               <I n={number ? 'checkc' : 'alertc'} s={24} c={number ? 'var(--green)' : '#fbbf24'} />
             </div>
             <div style={{ flex:1 }}>
-              <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:22, color:'var(--t1)', letterSpacing:'-.03em', marginBottom:6 }}>{number?.phoneNumber || 'No number connected'}</p>
+              <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:22, color:'var(--t1)', letterSpacing:'-.03em', marginBottom:6 }}>{number?.phoneNumber || 'No number connected'}</p>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
                 {number?.quality && (
                   <span style={{ padding:'2px 9px', borderRadius:12, fontSize:11, fontWeight:700, background:fmtQ(number.quality).bg, border:`1px solid ${fmtQ(number.quality).bd}`, color:fmtQ(number.quality).color }}>Quality: {number.quality}</span>
@@ -387,7 +489,7 @@ export default function NumberSetupView() {
                 <Btn variant="outline" onClick={async () => {
                   setRefreshing(true);
                   wFetch('/whatsapp/numbers/refresh', { method:'POST' })
-                    .then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)&&d[0]) setNumber(d[0]); })
+                    .then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) { setNumbers(d); setNumber(d[0] || null); } })
                     .catch(()=>{}).finally(()=>setRefreshing(false));
                 }}>
                   <I n="refresh" s={13} c="var(--t2)" />
@@ -407,7 +509,7 @@ export default function NumberSetupView() {
                       background:'rgba(239,68,68,0.08)',
                       border:'1px solid rgba(239,68,68,0.25)',
                       color:'#f87171',
-                      fontFamily:"'Plus Jakarta Sans',sans-serif",
+                      fontFamily:"'Manrope',sans-serif",
                       display:'inline-flex',
                       alignItems:'center',
                       gap:6,
@@ -444,12 +546,12 @@ export default function NumberSetupView() {
 
         {/* Connect via Meta */}
         {isAdmin && <div style={{ ...card, border:'2px solid var(--gbd)', padding:'22px 24px', position:'relative' }}>
-          <span style={{ position:'absolute', top:-11, left:20, padding:'2px 10px', borderRadius:10, fontSize:11, fontWeight:700, background:'var(--green)', color:'#060913' }}>Recommended</span>
+          <span style={{ position:'absolute', top:-11, left:20, padding:'2px 10px', borderRadius:10, fontSize:11, fontWeight:700, background:'var(--green)', color:'#08090c' }}>Recommended</span>
           <div style={{ display:'flex', alignItems:'flex-start', gap:18 }}>
             <div style={{ flex:1 }}>
               <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M8 12c0-2.21 1.79-4 4-4s4 1.79 4 4-1.79 4-4 4"/><circle cx="12" cy="12" r="2"/></svg>
-                <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>Connect via Meta</span>
+                <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>Connect via Meta</span>
               </div>
               <p style={{ fontSize:13, color:'var(--t2)', marginBottom:12, lineHeight:1.55 }}>The easiest way to connect your WhatsApp Business account — no tokens to copy.</p>
               <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
@@ -469,8 +571,8 @@ export default function NumberSetupView() {
           {/* Get a Number */}
           <div style={{ ...card, padding:'20px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-              <I n="sparkl" s={18} c="#A78BFA" />
-              <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)' }}>Get a Number</span>
+              <I n="sparkl" s={18} c="#c4ff46" />
+              <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)' }}>Get a Number</span>
             </div>
             <p style={{ fontSize:13, color:'var(--t2)', marginBottom:12, lineHeight:1.55 }}>We'll assign you a ready-to-use WhatsApp Business number instantly.</p>
             <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:16 }}>
@@ -486,8 +588,8 @@ export default function NumberSetupView() {
           {/* Connect Own */}
           <div style={{ ...card, padding:'20px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-              <I n="plug" s={18} c="#38bdf8" />
-              <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)' }}>Connect Your Own</span>
+              <I n="plug" s={18} c="#9d6bff" />
+              <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)' }}>Connect Your Own</span>
             </div>
             <p style={{ fontSize:13, color:'var(--t2)', marginBottom:12, lineHeight:1.55 }}>Already have a WhatsApp Business number? Connect it using your Meta credentials.</p>
             <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:16 }}>
@@ -504,7 +606,7 @@ export default function NumberSetupView() {
           <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
             <I n="alertt" s={18} c="#fbbf24" />
             <div>
-              <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:14, color:'#fbbf24', marginBottom:5 }}>Keep your quality rating high</p>
+              <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14, color:'#fbbf24', marginBottom:5 }}>Keep your quality rating high</p>
               <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.6 }}>High opt-out rates and spam reports lower your quality rating, which can reduce your messaging limits or temporarily suspend your number. Always send relevant, opted-in messages.</p>
             </div>
           </div>
@@ -515,7 +617,7 @@ export default function NumberSetupView() {
           <div style={{ ...card, padding:'22px 24px' }}>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
               <div>
-                <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:15, color:'var(--t1)', marginBottom:3 }}>Number Pool</p>
+                <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:15, color:'var(--t1)', marginBottom:3 }}>Number Pool</p>
                 <p style={{ fontSize:12, color:'var(--t2)' }}>Platform-wide inventory of WhatsApp numbers available for assignment</p>
               </div>
               <div style={{ display:'flex', gap:8 }}>
@@ -550,11 +652,11 @@ export default function NumberSetupView() {
                 {[
                   { label:'Total',     val: adminPool.summary.total,     c:'var(--t1)' },
                   { label:'Available', val: adminPool.summary.available,  c:'var(--green)' },
-                  { label:'Assigned',  val: adminPool.summary.assigned,   c:'#38bdf8' },
+                  { label:'Assigned',  val: adminPool.summary.assigned,   c:'#9d6bff' },
                   { label:'Banned',    val: adminPool.summary.banned,     c:'#f87171' },
                 ].map(s => (
                   <div key={s.label} style={{ background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:10, padding:'12px 14px', textAlign:'center' }}>
-                    <p style={{ fontSize:22, fontWeight:800, fontFamily:"'Syne',sans-serif", color:s.c, marginBottom:3 }}>{s.val}</p>
+                    <p style={{ fontSize:22, fontWeight:800, fontFamily:"'Space Grotesk',sans-serif", color:s.c, marginBottom:3 }}>{s.val}</p>
                     <p style={{ fontSize:11, color:'var(--t2)' }}>{s.label}</p>
                   </div>
                 ))}
@@ -604,7 +706,7 @@ export default function NumberSetupView() {
                             <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                               {e.status === 'AVAILABLE' && (
                                 <button onClick={() => openAssignDialog(e)}
-                                  style={{ padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', background:'rgba(14,165,233,.1)', border:'1px solid rgba(14,165,233,.25)', color:'#38bdf8' }}>
+                                  style={{ padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', background:'rgba(14,165,233,.1)', border:'1px solid rgba(14,165,233,.25)', color:'#9d6bff' }}>
                                   Assign
                                 </button>
                               )}
@@ -681,7 +783,7 @@ export default function NumberSetupView() {
                     <button
                       onClick={() => assignToWorkspace(w.id)}
                       disabled={assigning}
-                      style={{ padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:600, cursor: assigning ? 'not-allowed' : 'pointer', background:'rgba(14,165,233,.1)', border:'1px solid rgba(14,165,233,.25)', color:'#38bdf8', flexShrink:0, opacity: assigning ? 0.6 : 1 }}>
+                      style={{ padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:600, cursor: assigning ? 'not-allowed' : 'pointer', background:'rgba(14,165,233,.1)', border:'1px solid rgba(14,165,233,.25)', color:'#9d6bff', flexShrink:0, opacity: assigning ? 0.6 : 1 }}>
                       {assigning ? 'Assigning…' : 'Assign'}
                     </button>
                   </div>
@@ -715,7 +817,7 @@ export default function NumberSetupView() {
               <div style={{ display:'flex', justifyContent:'center', marginBottom:16 }}>
                 <I n="checkc" s={48} c="var(--green)" />
               </div>
-              <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:20, color:'var(--green)', marginBottom:8 }}>{gotNumber.phoneNumber}</p>
+              <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:20, color:'var(--green)', marginBottom:8 }}>{gotNumber.phoneNumber}</p>
               <p style={{ fontSize:13, color:'var(--t2)' }}>Your number is live and ready to use.</p>
             </div>
           ) : poolLoading ? (

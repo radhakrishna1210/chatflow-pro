@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { composeAgentPrompt, AGENT_PROMPT_SELECT } from './aiAgent.service.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
 import { contactVariableResolver, fillVariables } from '../lib/templateParams.js';
 import { sendAutomatedReply } from './outbound.service.js';
@@ -462,13 +463,15 @@ async function loadAgent(workspaceId, agentId = null) {
   }
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: { aiAgentEnabled: true, aiAgentName: true, aiAgentPrompt: true, aiAgentKnowledge: true },
+    select: { aiAgentEnabled: true, ...AGENT_PROMPT_SELECT },
   });
   if (!ws) return null;
   return {
     id: workspaceId,
     name: ws.aiAgentName,
-    prompt: ws.aiAgentPrompt,
+    // Composed rather than raw, so a campaign reply obeys the same purpose,
+    // instructions, languages and guardrails as every other surface.
+    prompt: composeAgentPrompt(ws),
     knowledge: ws.aiAgentKnowledge,
     deployed: ws.aiAgentEnabled === true,
   };

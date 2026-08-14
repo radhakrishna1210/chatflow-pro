@@ -3,7 +3,7 @@ import { retrieve } from './siteRetrieval.service.js';
 import { SITE_NAME } from '../data/siteContent.js';
 
 // The website assistant: a retrieval-grounded chatbot that answers questions
-// about ChatFlow Pro and nothing else.
+// about Spandan and nothing else.
 //
 //   question (+ conversation so far) → retrieve → guard → answer from context
 //
