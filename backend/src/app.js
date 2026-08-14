@@ -51,6 +51,23 @@ app.use((req, res, next) => {
   next();
 });
 
+// An explicit GOOGLE_CALLBACK_URL pointing somewhere other than the API's own
+// origin is almost always a stale override — the classic one aims at the Vite
+// dev server (5173) instead of the API (4000). Google only reports it as
+// `Error 400: redirect_uri_mismatch` on the consent screen, which never reaches
+// the server logs, so say it out loud at boot instead.
+{
+  const callbackOrigin = new URL(env.GOOGLE_CALLBACK_URL).origin;
+  const apiOrigin = new URL(env.API_PUBLIC_URL).origin;
+  if (callbackOrigin !== apiOrigin) {
+    console.warn(
+      `[Google OAuth] GOOGLE_CALLBACK_URL (${env.GOOGLE_CALLBACK_URL}) is not on the API origin ${apiOrigin}. ` +
+        'Google will reject the sign-in with redirect_uri_mismatch unless this exact URL is registered in ' +
+        'Google Cloud Console → Credentials → Authorized redirect URIs.'
+    );
+  }
+}
+
 passport.use(
   new GoogleStrategy(
     {

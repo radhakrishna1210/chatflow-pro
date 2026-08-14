@@ -162,6 +162,19 @@ if (!process.env.DIRECT_URL) process.env.DIRECT_URL = base.DATABASE_URL;
 
 const backendBase = base.APP_URL ?? `http://localhost:${base.PORT}`;
 
+// Every OAuth callback and provider webhook must point at the host that
+// actually serves /api/v1 — which is not always APP_URL. APP_URL doubles as the
+// public app origin baked into the website-widget install snippet, so it gets
+// pointed at the deployed service even while the API is running locally. When
+// that happens the callbacks have to follow the API, not the widget, or the
+// provider hands back a redirect_uri the app never registered
+// (Google answers that with `Error 400: redirect_uri_mismatch`).
+//
+// API_PUBLIC_URL is that single base: set it once and Google, Meta and
+// Instagram all stay in agreement instead of drifting apart one env var at a
+// time.
+const apiBase = base.API_PUBLIC_URL ?? backendBase;
+
 // The environment as the app reads it, with database overrides layered on top.
 //
 // A platform credential (an API key, an SMTP password) can be changed from the
@@ -177,16 +190,16 @@ const baseEnv = {
 
   ...base,
   DIRECT_URL: base.DIRECT_URL ?? base.DATABASE_URL,
-  GOOGLE_CALLBACK_URL:
-    base.GOOGLE_CALLBACK_URL ?? `${backendBase}/api/v1/auth/google/callback`,
-  META_REDIRECT_URI:
-    base.META_REDIRECT_URI ?? `${backendBase}/api/v1/auth/meta/callback`,
   // Twilio validates its signature against the exact URL it called, and the
   // Instagram redirect_uri must match the app config byte-for-byte — both
-  // resolve off the same backend base as the OAuth callbacks above.
-  API_PUBLIC_URL: base.API_PUBLIC_URL ?? backendBase,
+  // resolve off the same API base as the OAuth callbacks below.
+  API_PUBLIC_URL: apiBase,
+  GOOGLE_CALLBACK_URL:
+    base.GOOGLE_CALLBACK_URL ?? `${apiBase}/api/v1/auth/google/callback`,
+  META_REDIRECT_URI:
+    base.META_REDIRECT_URI ?? `${apiBase}/api/v1/auth/meta/callback`,
   INSTAGRAM_REDIRECT_URI:
-    base.INSTAGRAM_REDIRECT_URI ?? `${backendBase}/api/v1/auth/instagram/callback`,
+    base.INSTAGRAM_REDIRECT_URI ?? `${apiBase}/api/v1/auth/instagram/callback`,
   CORS_ORIGINS: [
     base.CLIENT_URL,
     ...(base.CORS_EXTRA_ORIGINS ? base.CORS_EXTRA_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean) : []),

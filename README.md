@@ -136,14 +136,14 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `META_DISPLAY_NAME` | **yes** | — | |
 | `META_WEBHOOK_VERIFY_TOKEN` | **yes** | — | Token Meta must echo back to verify the webhook subscription (`GET /webhook/meta`) |
 | `META_API_VERSION` | no | `v21.0` | Graph API version pinned across `lib/meta.js` |
-| `META_REDIRECT_URI` | no | `{APP_URL}/api/v1/auth/meta/callback` | Must exactly match the redirect URI configured in the Meta dashboard for Embedded Signup |
+| `META_REDIRECT_URI` | no | `{API_PUBLIC_URL}/api/v1/auth/meta/callback` | Must exactly match the redirect URI configured in the Meta dashboard for Embedded Signup |
 | `META_ES_CONFIG_ID` | referenced by frontend/backend for Embedded Signup | — | Facebook Login for Business config ID (see STABILIZATION_REPORT_V2.md) |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | no | — | Present as a dependency; optional/partial integration |
 | `CAMPAIGN_BATCH_SIZE` | no | `50` | |
 | `CAMPAIGN_WORKER_CONCURRENCY` | no | `2` | BullMQ worker concurrency for campaign sends |
 | `CAMPAIGN_RATE_DELAY_MS` | no | `250` (floor enforced in code) | Delay between sends — Meta Tier-1 numbers allow ~250 msgs/min, so 250ms ≈ 240/min |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **yes** | — | Google OAuth 2.0 ("Sign in with Google") |
-| `GOOGLE_CALLBACK_URL` | no | `{APP_URL}/api/v1/auth/google/callback` | |
+| `GOOGLE_CALLBACK_URL` | no | `{API_PUBLIC_URL}/api/v1/auth/google/callback` | Must be registered verbatim in Google Cloud Console → Credentials → Authorized redirect URIs, and must point at the API origin (`localhost:4000` in dev), not the Vite dev server. A mismatch shows up only on Google's consent screen as `Error 400: redirect_uri_mismatch` |
 | `GEMINI_API_KEY` | no | — | Enables Gemini for AI onboarding / workflow generation; falls back to Ollama, then a deterministic canned-response generator if absent |
 | `OPENAI_API_KEY` | no | — | Enables OpenAI for AI template **header images**. Preferred over Gemini for images, because image models are not on the Gemini free tier at all. Text generation still uses Gemini |
 | `OPENAI_IMAGE_MODEL` | no | `gpt-image-1` | `gpt-image-1` needs a verified OpenAI org; use `dall-e-3` if verification is the blocker |
