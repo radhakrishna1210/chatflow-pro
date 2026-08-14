@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { apiFetch } from '../lib/api.js';
 import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -136,7 +137,7 @@ const ProfileSkeleton = () => (
     </div>
     <div className="cf-profile-grid">
       <SectionCard icon="user" title="Personal Information">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           {Array.from({ length: 8 }).map((_, i) => <Skel key={i} h={36} />)}
         </div>
       </SectionCard>
@@ -572,12 +573,13 @@ export default function ProfileView() {
         }
       `}</style>
 
-      <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'var(--surf)' }}>
+      <div className="dash-page-head" style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'var(--surf)' }}>
+        <MobileNavButton />
         <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>Profile</h1>
         <p style={{ fontSize: 11.5, color: 'var(--t2)', marginLeft: 10 }}>Your personal account</p>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', maxWidth: 1080, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', maxWidth: 1080, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
         {loading && <ProfileSkeleton />}
 
         {!loading && loadError && (

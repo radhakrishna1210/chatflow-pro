@@ -4,6 +4,7 @@ import { Btn } from '../components/Btn.jsx';
 import { adminFetch } from '../lib/api.js';
 import { useMessageRates } from '../lib/pricing.js';
 import ApiManagementTab from './ApiManagementTab.jsx';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14 };
 
@@ -114,7 +115,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ ...card, width: 560, maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="modal-card" style={{ ...card, width: 560, maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)' }}>
             {isNew ? 'New plan' : `Edit ${src.name} plan`}
@@ -127,7 +128,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           {err && <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 12.5 }}>{err}</div>}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <Field label="Plan key" hint={isNew ? 'Uppercase, e.g. STARTER — permanent' : 'Cannot be changed'}>
               <TInput value={f.key} disabled={!isNew} placeholder="STARTER"
                 onChange={e => set('key', e.target.value.toUpperCase())}
@@ -140,7 +141,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
 
           <div>
             <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Pricing</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14 }}>
+            <div className="rgrid-4" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14 }}>
               <Field label="Monthly price">
                 <TInput type="number" min="0" step="0.01" value={f.priceMonthly} onChange={e => set('priceMonthly', e.target.value)} />
               </Field>
@@ -162,7 +163,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
               Leave blank to charge cost
               {costRates ? ` — Marketing ${costRates.MARKETING}, Utility ${costRates.UTILITY}, Auth ${costRates.AUTHENTICATION}.` : '.'}
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+            <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
               <Field label="Marketing / msg" hint="Blank = cost">
                 <TInput type="number" min="0" step="0.0001" value={f.ovMarketing} placeholder={costRates ? String(costRates.MARKETING) : 'cost'} onChange={e => set('ovMarketing', e.target.value)} />
               </Field>
@@ -177,7 +178,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
 
           <div>
             <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Rate limits &amp; quotas</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <Field label="Message quota / cycle" hint="-1 = unlimited">
                 <TInput type="number" step="1" value={f.messageQuota} onChange={e => set('messageQuota', e.target.value)} />
               </Field>
@@ -198,7 +199,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
 
           <div>
             <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Features</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {Object.keys(features).map((flag) => (
                 <label key={flag} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--t1)', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--bd)', background: features[flag] ? 'var(--gbg)' : 'transparent' }}>
                   <input type="checkbox" checked={features[flag]} onChange={e => setFeatures(p => ({ ...p, [flag]: e.target.checked }))} />
@@ -410,8 +411,8 @@ function RevenueTab() {
         <StatCard label="Active subscriptions" value={data.activeSubscriptions} color="#c4ff46" />
       </div>
 
-      <div style={{ ...card, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div style={{ ...card, overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--bd)' }}>
               {['Plan', 'Price / mo', 'Subscribers', 'MRR contribution'].map(h => (
@@ -511,8 +512,8 @@ function TransactionsTab({ workspaces }) {
             </div>
           )}
 
-          <div style={{ ...card, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div style={{ ...card, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 805 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                   {['Date', 'Workspace', 'Type', 'Reason', 'Amount', 'Balance after', 'Reference'].map(h => (
@@ -598,8 +599,8 @@ function CampaignsTab({ workspaces }) {
             <StatCard label="Failed" value={t.failed.toLocaleString()} color={t.failed > 0 ? '#f87171' : 'var(--t1)'} />
           </div>
 
-          <div style={{ ...card, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div style={{ ...card, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                   {['Campaign', 'Workspace', 'Status', 'Sent', 'Delivered', 'Read', 'Failed', 'Date'].map(h => (
@@ -725,8 +726,8 @@ function NumbersTab({ workspaces }) {
         </div>
       </div>
 
-      <div style={{ ...card, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div style={{ ...card, overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 690 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--bd)' }}>
               {['Phone number', 'Display name', 'Status', 'Assigned to', 'Registered', ''].map(h => (
@@ -836,7 +837,7 @@ function WorkspaceAnalyticsTab() {
         <StatCard label="Avg delivery rate" value={`${avgDeliveryRate}%`} color="#9d6bff" />
       </div>
 
-      <div style={{ ...card, overflow: 'hidden' }}>
+      <div style={{ ...card, overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--bd)' }}>
@@ -954,8 +955,8 @@ function UsersTab() {
 
       {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--t2)', fontSize: 13 }}>Loading users…</div> : (
         <>
-          <div style={{ ...card, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div style={{ ...card, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 690 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                   {['User', 'Email', 'Auth', 'Workspaces', 'Joined', ''].map(h => (
@@ -1078,8 +1079,8 @@ function PaymentsTab({ workspaces }) {
             </div>
           )}
 
-          <div style={{ ...card, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div style={{ ...card, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 690 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                   {['Date', 'Workspace', 'Type', 'Description', 'Amount', 'Reference'].map(h => (
@@ -1160,7 +1161,7 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ ...card, width: 620, maxHeight: '82vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="modal-card" style={{ ...card, width: 620, maxHeight: '82vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <div>
             <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)' }}>{data?.workspace?.name || 'Workspace members'}</span>
@@ -1249,7 +1250,8 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
           )}
 
           {data && (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="table-scroll">
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 575 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                   {['Member', 'Email', 'Role', 'Auth method', 'Joined'].map(h => (
@@ -1277,6 +1279,7 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
                 )}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>
@@ -1374,7 +1377,8 @@ export default function SuperAdminView({ tab }) {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'var(--surf)', gap: 16 }}>
+      <div className="dash-page-head" style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'var(--surf)', gap: 16 }}>
+        <MobileNavButton />
         <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)' }}>
           Platform Admin <span style={{ color: 'var(--t3)', fontWeight: 600 }}>· {TAB_LABELS[tab] || ''}</span>
           {tab === 'support' && openTicketCount > 0 && (
@@ -1386,7 +1390,7 @@ export default function SuperAdminView({ tab }) {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
        <div style={{ maxWidth: 1180, margin: '0 auto' }}>
         {err && <div style={{ padding: '12px 16px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 13, marginBottom: 16 }}>{err}</div>}
         {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--t2)', fontSize: 13 }}>Loading platform data…</div>}
@@ -1416,8 +1420,8 @@ export default function SuperAdminView({ tab }) {
         {!loading && tab === 'numbers' && <NumbersTab workspaces={workspaces} />}
 
         {!loading && tab === 'workspaces' && (
-          <div style={{ ...card, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div style={{ ...card, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                   {['Workspace', 'Owner', 'Members', 'Campaigns', 'Contacts', 'Numbers', 'Wallet', 'Status', 'View', 'Action'].map(h => (
@@ -1464,7 +1468,7 @@ export default function SuperAdminView({ tab }) {
 
         {!loading && tab === 'plans' && (
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', rowGap: 10 }}>
               <div>
                 <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 15, color: 'var(--t1)' }}>Subscription plans</h2>
                 <p style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>Prices, message quotas, rate limits and feature flags for every plan.</p>

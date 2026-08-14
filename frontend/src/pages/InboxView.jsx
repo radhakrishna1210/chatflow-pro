@@ -4,6 +4,7 @@ import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import ContactDetailsPanel from '../components/ContactDetailsPanel.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const labelCfg = {
   urgent:   { bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.22)',   c:'#f87171' },
@@ -155,6 +156,13 @@ export default function InboxView() {
   // opens on demand instead of permanently eating the chat width.
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 1100px)').matches);
+  // Four fixed columns (nav 232 + list 320 + thread context 300 + details 300)
+  // leave the conversation itself whatever is left, which below ~1400px is not
+  // enough to read a chat in — the header controls collided with the contact's
+  // name long before the column got that narrow. Above this width all four fit;
+  // below it the thread context rides inside the details panel instead of
+  // claiming a column of its own, and nothing is lost.
+  const [wide, setWide] = useState(() => window.matchMedia('(min-width: 1400px)').matches);
   // Below the shell's mobile breakpoint the inbox stops being three columns
   // and becomes two screens: the conversation list, and the conversation. Which
   // one is showing is `activeId` — selecting pushes into the thread, the back
@@ -192,6 +200,14 @@ export default function InboxView() {
       setDetailsOpen(!e.matches);
     };
     setDetailsOpen(!mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1400px)');
+    const onChange = (e) => setWide(e.matches);
+    setWide(mq.matches);
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
@@ -373,7 +389,8 @@ export default function InboxView() {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
-      <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
+      <div className="dash-page-head" style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
+        <MobileNavButton />
         <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Inbox</h1>
         <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Manage customer conversations</p>
       </div>
@@ -425,7 +442,7 @@ export default function InboxView() {
                   <div style={{ display:'flex', gap:10 }}>
                     <Avatar name={c.contact.name} size={36} />
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3, flexWrap: 'wrap', rowGap: 10 }}>
                         <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:140 }}>{c.contact?.name || c.contact?.phoneNumber}</span>
                         <span style={{ fontSize:10, color:'var(--t2)', flexShrink:0 }}>{fmtTime(c.lastMessageAt)}</span>
                       </div>
@@ -464,14 +481,24 @@ export default function InboxView() {
           </div>
         </div>
 
-        {/* ── right panel ── */}
+        {/* ── right panel ──
+            minWidth:0 on the column is load-bearing: flex items refuse to
+            shrink below their min-content width by default, so with the two
+            right-hand columns docked this column stayed as wide as its own
+            header wanted and the header's contents overlapped instead of the
+            column giving way. */}
         {active ? (
-          <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+          <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', overflow:'hidden' }}>
             {/* chat header — on a phone this is the screen's own title bar, so
                 it carries the back affordance and takes WhatsApp's colour, the
                 way the design set's conversation screen does. */}
-            <div style={{ padding: mobile ? '9px 12px' : '10px 20px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, background: mobile ? 'var(--grad-wa)' : 'var(--surf)', flexShrink:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
+            {/* overflow:hidden plus a shrinkable right group is what keeps the
+                two halves from colliding: with the contact panel open the chat
+                column gets narrow enough that the fixed-width controls used to
+                overrun the contact's name and phone number and paint on top of
+                them. Both sides shrink now, and nothing escapes the bar. */}
+            <div style={{ padding: mobile ? '9px 12px' : '10px 20px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, background: mobile ? 'var(--grad-wa)' : 'var(--surf)', flexShrink:0, overflow:'hidden' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:'1 1 auto', overflow:'hidden' }}>
                 {mobile && (
                   <button onClick={() => setActiveId(null)} aria-label="Back to conversations"
                     style={{ background:'none', border:'none', cursor:'pointer', padding:'2px 4px 2px 0', display:'flex', alignItems:'center', color:'#fff', flexShrink:0 }}>
@@ -481,16 +508,16 @@ export default function InboxView() {
                 <Avatar name={active.contact.name} size={mobile ? 32 : 36} />
                 <div style={{ minWidth:0 }}>
                   <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14, color: mobile ? '#fff' : 'var(--t1)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{active.contact.name}</p>
-                  <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:5, minWidth:0 }}>
                     {!mobile && <I n="phone" s={10} c="var(--t2)" />}
-                    <p style={{ fontSize:11, color: mobile ? 'rgba(255,255,255,0.85)' : 'var(--t2)' }}>
+                    <p style={{ fontSize:11, color: mobile ? 'rgba(255,255,255,0.85)' : 'var(--t2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                       {mobile && isBot ? 'Spandan AI active' : active.contact.phoneNumber}
                     </p>
                   </div>
                 </div>
               </div>
-              <div style={{ display:'flex', alignItems:'center', gap: mobile ? 8 : 12, flexShrink:0 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+              <div style={{ display:'flex', alignItems:'center', gap: mobile ? 8 : 12, minWidth:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:7, flexShrink:0 }}>
                   <I n={isBot ? 'bot' : 'user'} s={14} c={isBot ? (mobile ? '#fff' : 'var(--green)') : (mobile ? 'rgba(255,255,255,0.8)' : 'var(--t2)')} />
                   <div onClick={() => setIsBot(!isBot)} style={{ width:38, height:21, borderRadius:20, background: isBot ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor:'pointer', transition:'background .2s', position:'relative', border:'1px solid var(--bd)' }}>
                     <div style={{ position:'absolute', top:2, left: isBot ? 19 : 2, width:15, height:15, borderRadius:'50%', background:'white', transition:'left .2s', boxShadow:'0 1px 4px rgba(0,0,0,0.4)' }} />
@@ -505,7 +532,11 @@ export default function InboxView() {
                     value={context?.conversation?.assignedTo?.id || ''}
                     disabled={busyAction}
                     onChange={e => assignTo(e.target.value)}
-                    style={{ padding:'6px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)', fontSize:12, fontFamily:"'Manrope',sans-serif", outline:'none', colorScheme:'dark' }}>
+                    style={{ padding:'6px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)', fontSize:12, fontFamily:"'Manrope',sans-serif", outline:'none', colorScheme:'dark',
+                             // The assignee names are arbitrary length, so this
+                             // is the one control allowed to give up width when
+                             // the column is tight.
+                             flex:'0 1 auto', minWidth:0, maxWidth:150, textOverflow:'ellipsis' }}>
                     <option value="">Unassigned</option>
                     {members.map(m => (
                       <option key={m.id || m.userId} value={m.userId || m.id}>{m.name || m.user?.name || m.email}</option>
@@ -513,7 +544,7 @@ export default function InboxView() {
                   </select>
                 )}
                 {!mobile && (
-                  <Btn variant="outline" size="sm" disabled={busyAction}
+                  <Btn variant="outline" size="sm" disabled={busyAction} style={{ flexShrink:0 }}
                     onClick={() => setStatus(active.status === 'RESOLVED' ? 'OPEN' : 'RESOLVED')}>
                     {active.status === 'RESOLVED' ? 'Reopen' : 'Resolve'}
                   </Btn>
@@ -659,7 +690,7 @@ export default function InboxView() {
         {/* One column: thread context on top, then the contact record. The
             panel is already a drawer on a narrow viewport, so this rides with
             it rather than claiming a fourth column that does not exist. */}
-        {active?.contact?.id && detailsOpen && !narrow && (
+        {active?.contact?.id && detailsOpen && !narrow && wide && (
           <div style={{ width: 300, flexShrink: 0, borderLeft: '1px solid var(--bd)', overflowY: 'auto', background: 'var(--surf)' }}>
             <ThreadContext
               context={context}
@@ -674,6 +705,16 @@ export default function InboxView() {
             key={active.contact.id}
             contactId={active.contact.id}
             asDrawer={narrow}
+            // Below the four-column width the thread context has no column of
+            // its own, so it rides at the top of this panel — including in the
+            // drawer, where it was previously dropped altogether.
+            topSlot={!wide && context ? (
+              <ThreadContext
+                context={context}
+                busy={busyAction}
+                onHandBackToAI={() => assignTo(null)}
+              />
+            ) : null}
             onClose={() => setDetailsOpen(false)}
             onContactUpdated={(updated) => {
               // Keep the list and chat header in step with a rename made here,

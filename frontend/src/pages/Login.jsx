@@ -199,7 +199,7 @@ export default function Login({ onNav, mode = 'login' }) {
             </div>
 
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '7px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '7px', flexWrap: 'wrap', rowGap: 10 }}>
                 <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--t1)' }}>Password</label>
                 <a href="/forgot-password" onClick={(e) => { e.preventDefault(); navigate('/forgot-password'); }} style={{ fontSize: '12px', color: 'var(--green)', textDecoration: 'none', fontWeight: 500 }}>Forgot password?</a>
               </div>

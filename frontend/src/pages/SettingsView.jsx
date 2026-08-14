@@ -5,6 +5,7 @@ import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
 import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
 import BlockedNumbers from '../components/BlockedNumbers.jsx';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
@@ -321,12 +322,13 @@ export default function SettingsView() {
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-      <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
+      <div className="dash-page-head" style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
+        <MobileNavButton />
         <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Settings</h1>
         <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Workspace configuration</p>
       </div>
 
-      <div className="settings-grid" style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'grid', gridTemplateColumns:'184px minmax(0,1fr)', gap:18, alignItems:'start', maxWidth:1020, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+      <div className="settings-grid dash-page" style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'grid', gridTemplateColumns:'184px minmax(0,1fr)', gap:18, alignItems:'start', maxWidth:1020, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
 
         {/* ── tab rail ── */}
         <div style={{ ...card, padding:8, display:'flex', flexDirection:'column', gap:2, position:'sticky', top:0 }}>
@@ -515,7 +517,7 @@ export default function SettingsView() {
         {tab === 'security' && (
         <SectionCard icon="shield" title="Rate Limit Monitor">
           <div style={{ marginBottom:10 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6, flexWrap: 'wrap', rowGap: 10 }}>
               <span style={{ fontSize:13, color:'var(--t1)', fontWeight:600 }}>Daily Usage</span>
               <span style={{ fontSize:13, color:'var(--t1)', fontWeight:700 }}>{(usagePerc/100 * 10000).toLocaleString()} / 10,000</span>
             </div>
@@ -567,7 +569,7 @@ export default function SettingsView() {
           )}
           {lastInvite && (
             <div style={{ marginBottom:14, padding:'12px 14px', borderRadius:10, border:`1px solid ${lastInvite.emailQueued ? 'var(--gbd)' : 'rgba(245,158,11,0.3)'}`, background: lastInvite.emailQueued ? 'var(--gbg)' : 'rgba(245,158,11,0.08)' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:8 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:8, flexWrap: 'wrap', rowGap: 10 }}>
                 <p style={{ fontSize:12.5, color: lastInvite.kind === 'LINK' ? 'var(--green)' : lastInvite.emailQueued ? 'var(--green)' : '#fbbf24', fontWeight:600 }}>
                   {lastInvite.kind === 'LINK'
                     ? `Invite link ready — anyone who opens it joins as ${lastInvite.role === 'ADMIN' ? 'an Admin' : 'a Member'}.`
@@ -633,7 +635,8 @@ export default function SettingsView() {
           {members.length === 0 ? (
             <p style={{ fontSize:13, color:'var(--t2)', textAlign:'center', padding:'16px 0' }}>No members yet.</p>
           ) : (
-            <table style={{ width:'100%', borderCollapse:'collapse' }}>
+            <div className="table-scroll">
+            <table style={{ width:'100%', borderCollapse:'collapse', minWidth: 480 }}>
               <thead>
                 <tr style={{ borderBottom:'1px solid var(--bd)' }}>
                   {['Name','Email','Role',''].map(h => (
@@ -694,6 +697,7 @@ export default function SettingsView() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </SectionCard>
         )}
@@ -704,7 +708,7 @@ export default function SettingsView() {
         {/* ── Billing ── */}
         {tab === 'billing' && (
         <SectionCard icon="credit" title="Billing">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', borderRadius:10, background:'rgba(53,232,242,0.06)', border:'1px solid var(--gbd)', marginBottom:18 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', borderRadius:10, background:'rgba(53,232,242,0.06)', border:'1px solid var(--gbd)', marginBottom:18, flexWrap: 'wrap', rowGap: 10 }}>
             <div>
               <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>Growth Plan</p>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Manage your subscription</p>
@@ -715,7 +719,8 @@ export default function SettingsView() {
           {invoices.length === 0 ? (
             <p style={{ fontSize:13, color:'var(--t2)', textAlign:'center', padding:'16px 0' }}>No invoices yet.</p>
           ) : (
-          <table style={{ width:'100%', borderCollapse:'collapse' }}>
+          <div className="table-scroll">
+          <table style={{ width:'100%', borderCollapse:'collapse', minWidth: 575 }}>
             <thead>
               <tr style={{ borderBottom:'1px solid var(--bd)' }}>
                 {['Invoice','Date','Amount','Status',''].map(h=>(
@@ -741,6 +746,7 @@ export default function SettingsView() {
               ))}
             </tbody>
           </table>
+          </div>
           )}
         </SectionCard>
         )}

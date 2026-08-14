@@ -842,7 +842,7 @@ const HomeView = () => {
 
         {showLoginModal && (
           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
-            <div style={{ background:'#070B14', border:'1px solid rgba(255,255,255,0.08)', width: 400, borderRadius: 12, padding: 24, display:'flex', flexDirection:'column', alignItems:'center', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
+            <div className="modal-card" style={{ background:'#070B14', border:'1px solid rgba(255,255,255,0.08)', width: 400, borderRadius: 12, padding: 24, display:'flex', flexDirection:'column', alignItems:'center', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
               <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                 <div style={{ fontSize: '24px' }}>🔒</div>
               </div>
@@ -982,7 +982,7 @@ const HomeView = () => {
             by side on a laptop and stack on a phone without a second grid. */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
           <div style={{ ...card, padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', rowGap: 10 }}>
               <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.1em' }}>WhatsApp Number</span>
               {number ? <StatusBadge s={number.status === 'ACTIVE' ? 'Approved' : (number.status ?? 'Pending')} /> : (
                 <span style={{ padding: '3px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, background: 'rgba(245,158,11,.1)', border: '1px solid rgba(245,158,11,.25)', color: '#fbbf24' }}>Not connected</span>
@@ -1003,7 +1003,7 @@ const HomeView = () => {
             </div>
           </div>
           <div style={{ ...card, padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', rowGap: 10 }}>
               <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.1em' }}>Instagram</span>
               <span style={{ padding: '3px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)' }}>Coming Soon</span>
             </div>
@@ -1133,7 +1133,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                   message still owed an attempt counts under Retrying, not
                   Failed. Skipped counts numbers that opted out: they were
                   never sent to and never charged for. */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+              <div className="rgrid-3" style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
                 {[
                   ['Total Contacts', c.report?.totalContacts ?? c.totalContacts, 'var(--t1)'],
                   ['Sent',           c.report?.sent ?? c.sent,                   'var(--t1)'],
@@ -1177,7 +1177,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
               )}
 
               {c.totalCost != null && (
-                <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(53,232,242,0.05)', border:'1px solid var(--gbd)', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px 16px' }}>
+                <div className="rgrid-4" style={{ padding:'14px 16px', borderRadius:10, background:'rgba(53,232,242,0.05)', border:'1px solid var(--gbd)', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px 16px' }}>
                   {[
                     ['Cost / message', `₹${Number(c.costPerMessage ?? 0).toFixed(2)}`],
                     ['Campaign cost',  `₹${Number(c.totalCost ?? 0).toFixed(2)}`],
@@ -1197,7 +1197,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                 </div>
               )}
 
-              <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 20px' }}>
+              <div className="rgrid-2" style={{ padding:'14px 16px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 20px' }}>
                 {[
                   ['Created',        fmtDate(c.createdAt)],
                   ['Scheduled for',  fmtDate(c.scheduledAt)],
@@ -1342,7 +1342,7 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <DashHeader title="Campaigns" subtitle="Manage and monitor your broadcasts"
         searchPlaceholder="Search campaigns…" onSearch={setSearch} />
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
         {/* Every workspace member can create a campaign — the button used to
             be admin-only, which left members on a Free plan able to import
             contacts and then do nothing with them. */}
@@ -1357,8 +1357,8 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
             {q ? `No campaigns match “${search.trim()}”.` : 'No campaigns yet. Create your first campaign.'}
           </div>
         ) : (
-          <div style={{ ...card, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div style={{ ...card, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                   {['Campaign', 'Status', 'Sent', 'Delivered', 'Read', 'Failed', 'Retries', 'Skipped', 'Cost', 'Rate', 'Date', ''].map(h => (
@@ -2170,7 +2170,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
-      <div style={{ ...card, width:620, maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+      <div className="modal-card" style={{ ...card, width:620, maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
             <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{isEdit ? 'Edit Template' : 'New Message Template'}</p>
@@ -2211,7 +2211,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
           {/* Category */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Category <span style={{ color:'#f87171' }}>*</span></label>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+            <div className="rgrid-3" style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
               {cats.map(c => (
                 <div key={c.id} onClick={() => setCategory(c.id)}
                   style={{ padding:'10px 12px', borderRadius:8, border:`1.5px solid ${category === c.id ? 'var(--green)' : 'var(--bd)'}`, background: category === c.id ? 'var(--gbg)' : 'rgba(255,255,255,0.02)', cursor:'pointer' }}>
@@ -2860,7 +2860,7 @@ const TemplatesView = () => {
         searchKey={tab}
         searchPlaceholder={tab === 'library' ? 'Search library…' : 'Search templates…'}
         onSearch={tab === 'library' ? setLibSearch : setSearch} />
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
         {/* Sending an approved template spends from the wallet, so the warning
             states belong here too — but not the healthy one, which would just
             be noise on a screen that is mostly authoring. */}
@@ -2980,7 +2980,7 @@ const TemplatesView = () => {
         </div>
 
         {isAdmin && view === 'ACTIVE' && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', rowGap: 10 }}>
             <Btn variant="outline" onClick={syncFromMeta} disabled={syncing}>
               <I n="refresh" s={13} c={syncing ? 'var(--t3)' : 'var(--green)'} />
               {syncing ? 'Syncing from Meta…' : 'Sync from Meta'}
@@ -3046,14 +3046,14 @@ const TemplatesView = () => {
             )}
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' }}>
+          <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' }}>
             {visibleTemplates.map(t => {
               const bodyText = getBodyText(t.components);
               return (
                 <div key={t.id} style={{ ...card, padding: '20px', transition: 'border-color .2s,transform .2s' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--bdm)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--bd)'; e.currentTarget.style.transform = 'none'; }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px', flexWrap: 'wrap', rowGap: 10 }}>
                     <div style={{ flex:1, minWidth:0 }}>
                       <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '14px', color: 'var(--t1)', marginBottom: '5px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.name}</p>
                       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
@@ -3543,7 +3543,7 @@ const NAV_GROUPS = [
   { name: 'GROW',       ids: ['campaigns', 'templates', 'contacts'] },
   { name: 'AUTOMATE',   ids: ['ai-agent', 'automation', 'intent-matching'] },
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
-  { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'settings', 'legal'] },
+  { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'settings'] },
 ];
 
 // Super admins get their own banding: the platform sections have no analogue
@@ -3553,9 +3553,17 @@ const SUPERADMIN_GROUPS = [
   { name: 'PLATFORM', ids: ['admin-overview', 'admin-analytics'] },
   { name: 'REVENUE',  ids: ['admin-revenue', 'admin-transactions', 'admin-payments'] },
   { name: 'OPERATE',  ids: ['admin-campaigns', 'admin-workspaces', 'admin-users', 'admin-numbers', 'admin-plans'] },
-  { name: 'ATTEND',   ids: ['admin-support', 'admin-api-management', 'settings', 'legal'] },
+  { name: 'ATTEND',   ids: ['admin-support', 'admin-api-management', 'settings'] },
   { name: 'GOVERN',   ids: ['admin-audit'] },
 ];
+
+// Sections the sidebar renders in its fixed bottom block rather than in the
+// scrolling bands. Legal has to be reachable without scrolling the nav — the
+// policy links are what Meta's onboarding and the payment gateway check for —
+// so it lives next to Sign out and is deliberately absent from NAV_GROUPS.
+// Listed here so navGroupsForUser does not hand it back under "MORE" and give
+// us the same entry twice.
+const PINNED_NAV_IDS = new Set(['legal']);
 
 // Resolves a group spec against the flat nav for this user, so the two can
 // never drift: whatever ADMIN_NAV/ADMIN_TABS contain is what gets rendered.
@@ -3569,7 +3577,7 @@ function navGroupsForUser(user) {
     items.forEach(i => used.add(i.id));
     return { name: g.name, items };
   }).filter(g => g.items.length);
-  const rest = flat.filter(i => !used.has(i.id));
+  const rest = flat.filter(i => !used.has(i.id) && !PINNED_NAV_IDS.has(i.id));
   return rest.length ? [...bands, { name: 'MORE', items: rest }] : bands;
 }
 
@@ -3673,6 +3681,7 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
   // On mobile every navigation also dismisses the drawer — leaving it open
   // over the page the user just asked for is the classic drawer bug.
   const go = (id) => { setPage(id); if (mobile) onClose?.(); };
+  const legalOn = page === 'legal';
 
   const panel = (
     <div style={{
@@ -3759,6 +3768,17 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
             <p style={{ fontFamily: 'var(--mono)', fontSize: '9.5px', letterSpacing: '.08em', textTransform: 'uppercase', color: isAdmin ? 'var(--accent)' : 'var(--t2)' }}>{planLabel}</p>
           </div>
         </div>}
+        {/* Pinned rather than banded with the rest of the nav: this is the only
+            entry point to the policies inside the app now, and it has to be
+            visible without scrolling the nav on a short viewport. Kept out of
+            NAV_GROUPS — see PINNED_NAV_IDS. */}
+        <div onClick={() => go('legal')} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', justifyContent: col ? 'center' : 'flex-start', background: legalOn ? 'rgba(53,232,242,0.10)' : 'transparent' }}
+          onMouseEnter={e => { if (!legalOn) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+          onMouseLeave={e => { if (!legalOn) e.currentTarget.style.background = 'transparent'; }}
+          title={col ? 'Legal & Policies' : ''}>
+          <I n="file" s={16} c={legalOn ? 'var(--accent)' : 'var(--t2)'} />
+          {!col && <span style={{ fontSize: '13px', color: legalOn ? 'var(--t1)' : 'var(--t2)', fontWeight: legalOn ? 700 : 500 }}>Legal &amp; Policies</span>}
+        </div>
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', justifyContent: col ? 'center' : 'flex-start' }}
           onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}

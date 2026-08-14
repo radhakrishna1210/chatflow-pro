@@ -4,6 +4,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -478,7 +479,7 @@ export default function PaymentsView({ initialTab } = {}) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* Metric Cards Row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+        <div className="rgrid-5" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
           {[
             { label: 'Total Paid Messages', val: totals.totalPaidMessages || 0, color: 'var(--green)' },
             { label: 'Utility', val: totals.utility || 0, color: '#c4ff46' },
@@ -521,7 +522,7 @@ export default function PaymentsView({ initialTab } = {}) {
       <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Billing details</h3>
       
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+      <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Legal Business Name</label>
           <input value={bizName} onChange={e => setBizName(e.target.value)} placeholder="e.g. Acme Corp" disabled={!isAdmin}
@@ -540,7 +541,7 @@ export default function PaymentsView({ initialTab } = {}) {
           style={{ width: '100%', padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', resize: 'vertical', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+      <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>GST / Tax Details</label>
           <input value={gstNum} onChange={e => setGstNum(e.target.value)} placeholder="e.g. 29AAAAA0000A1Z5" disabled={!isAdmin}
@@ -604,7 +605,7 @@ export default function PaymentsView({ initialTab } = {}) {
           )}
 
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', rowGap: 10 }}>
               <span style={{ fontSize: 12, color: 'var(--t2)' }}>Messages used this cycle</span>
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--t1)' }}>
                 {messagesUsed.toLocaleString()} / {unlimited ? 'Unlimited' : messageQuota.toLocaleString()}
@@ -669,7 +670,7 @@ export default function PaymentsView({ initialTab } = {}) {
               return (
                 <div key={plan.id} style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 12, border: isCurrent ? '1px solid var(--gbd)' : '1px solid var(--bd)' }}>
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', rowGap: 10 }}>
                       <h5 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 800, color: 'var(--t1)' }}>{plan.name}</h5>
                       {isCurrent && (
                         <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)' }}>Current</span>
@@ -732,7 +733,7 @@ export default function PaymentsView({ initialTab } = {}) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <h4 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Add-ons</h4>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+          <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
             {[
               { id: 'crm', title: 'Sales CRM Add-on', price: '₹1499/month', desc: 'Native lead owners, auto-assignments, pipeline management' },
               { id: 'events', title: 'Pack of 3 Custom Events', price: '₹499/month', desc: 'Track external triggers and coordinate custom actions via Webhook' },
@@ -743,7 +744,7 @@ export default function PaymentsView({ initialTab } = {}) {
               return (
                 <div key={addon.id} style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14 }}>
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, flexWrap: 'wrap', rowGap: 10 }}>
                       <h5 style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)' }}>{addon.title}</h5>
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--green)' }}>{addon.price}</span>
                     </div>
@@ -768,11 +769,11 @@ export default function PaymentsView({ initialTab } = {}) {
   };
 
   const renderInvoices = () => (
-    <div style={{ ...card, overflow: 'hidden' }}>
+    <div style={{ ...card, overflowX: 'auto' }}>
       {invoiceError && (
         <p style={{ margin: 0, padding: '10px 20px', fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.06)' }}>{invoiceError}</p>
       )}
-      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 575 }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--bd)', background: 'rgba(255,255,255,0.01)' }}>
             {['Date', 'Description', 'Amount', 'Status', 'Invoice'].map(h => (
@@ -829,11 +830,12 @@ export default function PaymentsView({ initialTab } = {}) {
   );
 
   return (
-    <div style={{ flex: 1, display: 'flex', height: '100%', overflow: 'hidden', background: '#060B18' }}>
+    <div className="subnav-shell" style={{ flex: 1, display: 'flex', height: '100%', overflow: 'hidden', background: '#060B18' }}>
       
       {/* Subtab Left Sidebar */}
-      <div style={{ width: 232, background: 'rgba(255, 255, 255, 0.01)', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-        <div style={{ padding: '24px 20px 14px 20px' }}>
+      <div className="subnav-rail" style={{ width: 232, background: 'rgba(255, 255, 255, 0.01)', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <MobileNavButton />
+        <div className="subnav-rail-title" style={{ padding: '24px 20px 14px 20px' }}>
           <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 17, color: 'var(--t1)', letterSpacing: '-.02em' }}>Payments</h2>
           <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Manage funds, plans, and invoices</p>
         </div>
@@ -855,7 +857,7 @@ export default function PaymentsView({ initialTab } = {}) {
       </div>
 
       {/* Main Content Area */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }}>
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '32px' }}>
         <div style={{ maxWidth: 840, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--bd)', paddingBottom: 16 }}>

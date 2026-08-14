@@ -273,5 +273,108 @@ tbody tr:hover { background: rgba(255,255,255,0.022); }
    than dragging the page with it. */
 @media (max-width: 860px) {
   .dash-split { grid-template-columns: minmax(0, 1fr) !important; }
-  .dash-scroll-x { overflow-x: auto; }
+}
+
+/* Unconditional: the elements carrying this hold a table with its own minimum
+   width, so they can outgrow their column at any viewport — the fold width is
+   not where the problem starts. */
+.dash-scroll-x { overflow-x: auto; }
+
+/* ── Responsive grid utilities ───────────────────────────────────────────────
+   The dashboard carries its layout in inline style props, so a fixed
+   `repeat(4, 1fr)` stayed four columns at every width and the cards inside it
+   were squeezed to unreadable slivers on a laptop and off the screen on a
+   phone. These classes are the fold rules for the column counts the app
+   actually uses: put the desired desktop template inline as before, add the
+   matching class, and the grid steps down on its own.
+
+   `!important` for the same reason the rules above need it — a stylesheet
+   cannot otherwise beat an inline style property.
+
+   Steps are chosen so a card never gets narrower than roughly 260px:
+     rgrid-2   2 → 1
+     rgrid-3   3 → 2 → 1
+     rgrid-4   4 → 2 → 1
+     rgrid-5   wide strips → 3 → 2 (it holds small stats, not cards)
+   `rail-split` is the fixed-rail-plus-content pattern (a nav rail, a preview
+   column) that has to become one column before the content half collapses. */
+@media (max-width: 1240px) {
+  .rgrid-5 { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 1100px) {
+  .rgrid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .rail-split { grid-template-columns: minmax(0, 1fr) !important; }
+}
+@media (max-width: 900px) {
+  .rgrid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 720px) {
+  .rgrid-2,
+  .rgrid-3,
+  .rgrid-4 { grid-template-columns: minmax(0, 1fr) !important; }
+  .rgrid-5 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+/* Tables carry a minWidth so their columns stay legible; without a scroller
+   around them that minWidth becomes the page's minimum width and the whole
+   dashboard scrolls sideways. This is that scroller — it is unconditional,
+   not inside a media query, because a table wider than its column is a
+   problem at every viewport, not only below a breakpoint. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Anything that must not be wider than the phone it is on. Modals and popovers
+   set a comfortable desktop width inline; this keeps that width from becoming
+   a horizontal scrollbar on a small screen. */
+.modal-card { max-width: calc(100vw - 32px); }
+
+/* ── Page chrome ─────────────────────────────────────────────────────────────
+   Roughly half the dashboard's pages build their own 58px header instead of
+   using DashHeader. Fixed 28px gutters and a locked height are fine on a
+   desktop and wrong on a phone: the title, the actions and the hamburger have
+   to share 360px, and when they cannot the row has to be allowed to grow. */
+@media (max-width: 720px) {
+  .dash-page-head {
+    height: auto !important;
+    min-height: 58px;
+    padding: 10px 16px !important;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    /* only applies where the header does not already set `gap` inline — it
+       keeps the hamburger off the title on the ones that do not. */
+    column-gap: 10px;
+  }
+  .dash-page {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+}
+@media (max-width: 420px) {
+  .dash-page {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+}
+
+/* Payments carries a second 232px nav rail *inside* the page. On a phone that
+   is two thirds of the screen before any content is drawn, so below the shell
+   breakpoint the rail lies down into a horizontally scrolling tab strip and
+   drops its title block, which the page header already says. */
+@media (max-width: 860px) {
+  .subnav-shell { flex-direction: column !important; }
+  .subnav-rail {
+    width: 100% !important;
+    flex-direction: row !important;
+    align-items: center;
+    border-right: none !important;
+    border-bottom: 1px solid var(--bd);
+    overflow-x: auto;
+    gap: 6px;
+    padding: 8px 12px;
+  }
+  .subnav-rail > * { flex-shrink: 0; }
+  .subnav-rail > div:not(.subnav-rail-title) { flex-direction: row !important; }
+  .subnav-rail-title { display: none !important; }
 }

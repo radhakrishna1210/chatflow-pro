@@ -544,7 +544,7 @@ const Faq = () => {
 // ─── features ────────────────────────────────────────────────────────────────
 
 const AgentChainVisual = () => (
-  <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+  <div className="rgrid-3" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
     {[
       ['1 · Attach', 'Pick a deployed agent and a CTA label while you build the campaign.', 'var(--green)'],
       ['2 · Tap', 'The button carries the recipient’s id, so the agent opens on the right message.', '#9d6bff'],
@@ -651,7 +651,7 @@ const UseCases = () => (
         {USE_CASES.map((c, i) => (
           <Reveal key={c.title} delay={(i % 3) * 70}>
             <Glass style={{ padding: 22, height: '100%' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', rowGap: 10 }}>
                 <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <I n={c.icon} s={16} c={c.color} />
                 </div>
@@ -901,7 +901,7 @@ const Playground = () => {
               <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--t3)' }}>Campaign fields</div>
               <PlaygroundField label="Offer name" value={pg.title} onChange={set('title')} />
               <PlaygroundField label="Product" value={pg.product} onChange={set('product')} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <PlaygroundField label="Discount" value={pg.discount} onChange={set('discount')} />
                 <PlaygroundField label="CTA" value={pg.cta} onChange={set('cta')} />
               </div>

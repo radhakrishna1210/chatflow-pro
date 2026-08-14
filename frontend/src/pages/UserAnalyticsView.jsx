@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 // ─── User analytics ──────────────────────────────────────────────────────────
 //
@@ -23,7 +24,7 @@ const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRad
 
 const StatCard = ({ title, value, subtitle, color = 'var(--green)', icon = 'users' }) => (
   <div style={{ ...card, padding:'18px 20px' }}>
-    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10, gap:8 }}>
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10, gap:8, flexWrap: 'wrap', rowGap: 10 }}>
       <span style={{ fontFamily:'var(--mono)', fontSize:9.5, fontWeight:600, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.1em' }}>{title}</span>
       <I n={icon} s={16} c={color} />
     </div>
@@ -153,7 +154,8 @@ export default function UserAnalyticsView() {
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-      <div style={{ minHeight:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'10px 28px', gap:12, background:'var(--surf)', flexWrap:'wrap', flexShrink:0 }}>
+      <div className="dash-page-head" style={{ minHeight:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'10px 28px', gap:12, background:'var(--surf)', flexWrap:'wrap', flexShrink:0 }}>
+        <MobileNavButton />
         <div style={{ flex:1, minWidth:180 }}>
           <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>User analytics</h1>
           <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:2 }}>Audience growth, retention and engagement</p>
@@ -173,7 +175,7 @@ export default function UserAnalyticsView() {
         </div>
       </div>
 
-      <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18 }}>
+      <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18 }}>
         {loading && (
           <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'60px 0', color:'var(--t2)', fontSize:13 }}>
             <div style={{ width:24, height:24, border:'2px solid var(--green)', borderTopColor:'transparent', borderRadius:'50%', animation:'spin 1s linear infinite', marginRight:12 }} />
@@ -271,7 +273,7 @@ export default function UserAnalyticsView() {
                       <div key={a.agentId} style={{ display:'flex', alignItems:'center', gap:12 }}>
                         <Avatar name={a.name || '?'} size={28} />
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:'flex', justifyContent:'space-between', gap:8, marginBottom:5 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', gap:8, marginBottom:5, flexWrap: 'wrap', rowGap: 10 }}>
                             <span style={{ fontSize:12.5, color: isYou ? 'var(--t1)' : 'var(--t2)', fontWeight: isYou ? 700 : 500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                               {a.name}{isYou ? ' · you' : ''}
                             </span>

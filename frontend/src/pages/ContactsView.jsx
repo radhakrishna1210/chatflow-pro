@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -759,7 +760,8 @@ export default function ContactsView() {
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
       {/* header */}
-      <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', gap:12, flexShrink:0, background:'var(--surf)' }}>
+      <div className="dash-page-head" style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', gap:12, flexShrink:0, background:'var(--surf)' }}>
+        <MobileNavButton />
         <div style={{ flex:1 }}>
           <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Contacts</h1>
           <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:1 }}>{total} total contacts</p>
@@ -810,7 +812,7 @@ export default function ContactsView() {
             <>
               {/* click-away */}
               <div onClick={() => setFilterOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
-              <div style={{ ...card, position:'absolute', top:'calc(100% + 8px)', left:0, width:320, zIndex:41, padding:16, display:'flex', flexDirection:'column', gap:14, maxHeight:'70vh', overflowY:'auto' }}>
+              <div className="modal-card" style={{ ...card, position:'absolute', top:'calc(100% + 8px)', left:0, width:320, zIndex:41, padding:16, display:'flex', flexDirection:'column', gap:14, maxHeight:'70vh', overflowY:'auto' }}>
 
                 <div>
                   <FLabel>Status</FLabel>
@@ -976,8 +978,8 @@ export default function ContactsView() {
         </div>
 
         {/* table */}
-        <div style={{ flex:1, overflowY:'auto', padding:'20px 28px' }}>
-          <div style={{ ...card, overflow:'hidden' }}>
+        <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'20px 28px' }}>
+          <div style={{ ...card, overflowX: 'auto' }}>
             <table style={{ width:'100%', borderCollapse:'collapse' }}>
               <thead>
                 <tr style={{ borderBottom:'1px solid var(--bd)' }}>

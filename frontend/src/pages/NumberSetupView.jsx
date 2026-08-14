@@ -3,6 +3,7 @@ import { canManage } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, adminFetch } from '../lib/api.js';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const statusColor = s => ({
   AVAILABLE: { bg:'var(--gbg)',              bd:'var(--gbd)',              c:'var(--green)' },
@@ -32,7 +33,7 @@ const FInput = ({ type='text', value, onChange, placeholder, style:ex={} }) => (
 
 const Modal = ({ title, onClose, children, footer }) => (
   <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
-    <div style={{ ...card, width:480, maxHeight:'80vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+    <div className="modal-card" style={{ ...card, width:480, maxHeight:'80vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
       <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
         <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</span>
         <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
@@ -429,12 +430,13 @@ export default function NumberSetupView() {
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-      <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
+      <div className="dash-page-head" style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
+        <MobileNavButton />
         <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Number Setup</h1>
         <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Manage your WhatsApp Business numbers</p>
       </div>
 
-      <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:16, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+      <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:16, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
 
         {/* Every connected number. The detailed panel below stays as the place
             to connect, refresh and disconnect; this is the answer to "what do
@@ -567,7 +569,7 @@ export default function NumberSetupView() {
         </div>}
 
         {/* Two-option grid */}
-        {isAdmin && <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+        {isAdmin && <div className="rgrid-2" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
           {/* Get a Number */}
           <div style={{ ...card, padding:'20px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
@@ -615,7 +617,7 @@ export default function NumberSetupView() {
         {/* Admin: Number Pool Management */}
         {isSuperAdmin && (
           <div style={{ ...card, padding:'22px 24px' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18, flexWrap: 'wrap', rowGap: 10 }}>
               <div>
                 <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:15, color:'var(--t1)', marginBottom:3 }}>Number Pool</p>
                 <p style={{ fontSize:12, color:'var(--t2)' }}>Platform-wide inventory of WhatsApp numbers available for assignment</p>
@@ -648,7 +650,7 @@ export default function NumberSetupView() {
 
             {/* Summary stats */}
             {adminPool?.summary && (
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:18 }}>
+              <div className="rgrid-4" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:18 }}>
                 {[
                   { label:'Total',     val: adminPool.summary.total,     c:'var(--t1)' },
                   { label:'Available', val: adminPool.summary.available,  c:'var(--green)' },
@@ -683,7 +685,7 @@ export default function NumberSetupView() {
               </div>
             ) : (
               <div style={{ overflowX:'auto' }}>
-                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth: 575 }}>
                   <thead>
                     <tr style={{ borderBottom:'1px solid var(--bd)' }}>
                       {['Phone Number','Display Name','Status','Assigned To','Actions'].map(h => (

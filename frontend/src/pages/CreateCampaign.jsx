@@ -164,13 +164,13 @@ const Step1 = ({ campaignType, setCampaignType, numbers, selectedNumberId, setSe
           No number connected yet. Go to <strong style={{ color:'var(--t2)' }}>Number Setup</strong> to connect one.
         </div>
       ) : (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px' }}>
+      <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px' }}>
         {numbers.map(n => {
           const sel = selectedNumberId === n.id;
           return (
             <div key={n.id} onClick={() => setSelectedNumberId(n.id)}
               style={{ padding: '14px', borderRadius: '10px', border: `1.5px solid ${sel ? 'var(--green)' : 'var(--bd)'}`, background: sel ? 'var(--gbg)' : 'rgba(255,255,255,0.02)', cursor: 'pointer', transition: 'all .15s' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', rowGap: 10 }}>
                 <StatusBadge s={n.status === 'ACTIVE' ? 'Active' : (n.status ?? 'Active')} />
                 {sel && (
                   <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -304,7 +304,7 @@ const Step2 = ({ templates, selectedTemplateId, setSelectedTemplateId, templateB
                 style={{ padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--bd)', background: 'rgba(255,255,255,0.02)', cursor: 'pointer', transition: 'border-color .15s' }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--bdm)'}
                 onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--bd)'}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '7px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '7px', flexWrap: 'wrap', rowGap: 10 }}>
                   <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--t1)' }}>{t.name}</span>
                   <div style={{ display:'flex', gap:6, alignItems:'center' }}>
                     <span style={{ fontSize:'10px', color:'var(--t3)' }}>{t.language}</span>
@@ -723,13 +723,13 @@ const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, sum
         </div>
       )}
       <div style={{ ...card, padding: '18px 20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', rowGap: 10 }}>
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '14px', color: 'var(--t1)' }}>Campaign Summary</span>
           <span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 700, background: ready ? 'var(--gbg)' : 'rgba(245,158,11,.1)', border: `1px solid ${ready ? 'var(--gbd)' : 'rgba(245,158,11,.25)'}`, color: ready ? 'var(--green)' : '#fbbf24' }}>
             {ready ? 'Ready' : 'Incomplete'}
           </span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px' }}>
+        <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px' }}>
           {[
             ['Campaign Name', summary.campaignName || '—'],
             ['Type',          summary.campaignType === 'onetime' ? 'One Time' : 'Ongoing'],
@@ -750,7 +750,7 @@ const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, sum
       {/* Cost breakdown, priced by the server against the same rules the
           launch uses — so what's approved here is exactly what's charged. */}
       <div style={{ ...card, padding: '18px 20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', rowGap: 10 }}>
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '14px', color: 'var(--t1)' }}>Cost &amp; Wallet</span>
           {estimating && <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>Calculating…</span>}
         </div>
@@ -761,7 +761,7 @@ const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, sum
           <p style={{ fontSize: 12.5, color: 'var(--t3)' }}>Select your audience to see the campaign cost.</p>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '9px 24px' }}>
+            <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '9px 24px' }}>
               {costRows.map(([k, v, color]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                   <span style={{ fontSize: 12.5, color: 'var(--t2)' }}>{k}</span>
@@ -1088,7 +1088,7 @@ const StepRetries = ({ initial = null, onRetryToggle, onSaved, onCommit }) => {
             </div>
           </div>
           {pattern === 'smart' && (
-            <div style={{ ...card, overflow: 'hidden' }}>
+            <div style={{ ...card, overflowX: 'auto' }}>
               <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--bd)' }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em' }}>Smart Retry Schedule</span>
               </div>
@@ -1157,7 +1157,7 @@ const StepTracking = ({ onSaved }) => {
       <div>
         <CBox checked={utmOn} onToggle={() => setUtmOn(!utmOn)} label="Via UTM Parameters" />
         {utmOn && (
-          <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px' }}>
+          <div className="rgrid-3" style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px' }}>
             {utmFields.map(f => (
               <div key={f.k} style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', letterSpacing: '.04em' }}>
@@ -1215,7 +1215,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
 
   const ChannelCard = ({ id, label, icon, enabled, setEnabled, supported, children }) => (
     <div style={{ padding: '14px 16px', borderRadius: '10px', border: `1px solid ${enabled ? 'var(--green)' : 'var(--bd)'}`, background: 'rgba(255,255,255,0.01)', opacity: supported ? 1 : 0.45 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: enabled ? '14px' : 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: enabled ? '14px' : 0, flexWrap: 'wrap', rowGap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <I n={icon} s={16} c={enabled ? 'var(--green)' : 'var(--t2)'} />
           <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)' }}>{label}</span>
@@ -1234,7 +1234,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
           Fallback channels cannot be enabled when Retries are active. Disable Retries in Step 6 to configure Fallbacks.
         </div>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', opacity: canEnable ? 1 : 0.5, pointerEvents: canEnable ? 'auto' : 'none' }}>
+      <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', opacity: canEnable ? 1 : 0.5, pointerEvents: canEnable ? 'auto' : 'none' }}>
         <ChannelCard id="sms" label="SMS Fallback" icon="phone" enabled={smsEnabled} setEnabled={setSmsEnabled} supported={caps.sms}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
             <div>

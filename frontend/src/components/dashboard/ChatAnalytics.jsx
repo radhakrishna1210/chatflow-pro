@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import { I } from '../Icons.jsx';
 import { wFetch } from '../../lib/api.js';
+import MobileNavButton from '../MobileNavButton.jsx';
 
 // Shared surface used across all dashboard cards.
 const card = {
@@ -37,7 +38,7 @@ const minutes = (ms) => {
 
 const StatCard = ({ icon, color, label, value, sub }) => (
   <div style={{ ...card, padding: 18, minHeight: 116 }}>
-    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap', rowGap: 10 }}>
       <div style={{ width: 34, height: 34, borderRadius: 8, background: `${color}16`, border: `1px solid ${color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <I n={icon} s={15} c={color} />
       </div>
@@ -144,7 +145,8 @@ export default function ChatAnalytics({ workspaceId }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'var(--surf)', gap: 12 }}>
+      <div className="dash-page-head" style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', flexShrink: 0, background: 'var(--surf)', gap: 12 }}>
+        <MobileNavButton />
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>Chat Analysis</h1>
           <p style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 1 }}>Chat performance, campaigns, contacts, and agent activity</p>
@@ -174,7 +176,7 @@ export default function ChatAnalytics({ workspaceId }) {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 18 }}>
         {loading && (
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '60px 0', color: 'var(--t2)', fontSize: 13 }}>
             <div style={{ width: 26, height: 26, border: '2px solid var(--green)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', marginRight: 12 }} />
@@ -226,7 +228,7 @@ export default function ChatAnalytics({ workspaceId }) {
             {/* Campaign counters + latency */}
             <div style={{ ...card, padding: 20 }}>
               <SectionTitle title="Campaigns" sub="Counter totals and average recipient event latency" />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
+              <div className="rgrid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
                 {[
                   ['Sent', campaigns.sent],
                   ['Delivered', campaigns.delivered],
@@ -239,7 +241,7 @@ export default function ChatAnalytics({ workspaceId }) {
                   </div>
                 ))}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+              <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
                 <div style={{ fontSize: 12, color: 'var(--t2)' }}>Delivery rate <strong style={{ color: 'var(--t1)' }}>{pct(campaigns.deliveryRate)}</strong></div>
                 <div style={{ fontSize: 12, color: 'var(--t2)' }}>Delivery latency <strong style={{ color: 'var(--t1)' }}>{minutes(campaigns.deliveryLatencyMs)}</strong></div>
                 <div style={{ fontSize: 12, color: 'var(--t2)' }}>Read latency <strong style={{ color: 'var(--t1)' }}>{minutes(campaigns.readLatencyMs)}</strong></div>
@@ -247,7 +249,7 @@ export default function ChatAnalytics({ workspaceId }) {
             </div>
 
             {/* Two-column: labels + top agents */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 }}>
+            <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 }}>
               {/* Conversation labels */}
               <div style={{ ...card, padding: 20 }}>
                 <SectionTitle title="Conversation Labels" sub="Current label distribution" />
@@ -255,7 +257,7 @@ export default function ChatAnalytics({ workspaceId }) {
                   {labels.length === 0 && <p style={{ fontSize: 12, color: 'var(--t3)' }}>No labels yet.</p>}
                   {labels.map((row) => (
                     <div key={row.label}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 4, flexWrap: 'wrap', rowGap: 10 }}>
                         <span style={{ fontSize: 12, color: 'var(--t2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
                         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)' }}>{fmt(row.count)}</span>
                       </div>
@@ -319,7 +321,7 @@ export default function ChatAnalytics({ workspaceId }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                     {insights.topics.map((t) => (
                       <div key={t.name}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5, flexWrap: 'wrap', rowGap: 10 }}>
                           <span style={{ fontSize: 12.5, color: 'var(--t1)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
                           <span style={{ fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--t2)', flexShrink: 0 }}>
                             {fmt(t.count)} · {t.share}%

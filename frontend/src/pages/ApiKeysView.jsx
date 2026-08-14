@@ -4,6 +4,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import { navigate } from '../App.jsx';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -266,12 +267,13 @@ export default function ApiKeysView() {
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-      <div style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
+      <div className="dash-page-head" style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
+        <MobileNavButton />
         <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>API Keys</h1>
         <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Manage API access, webhooks &amp; testing</p>
       </div>
 
-      <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+      <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
 
         {/* ── API Keys card ── */}
         <div style={{ ...card, overflow:'hidden' }}>
@@ -298,7 +300,7 @@ export default function ApiKeysView() {
             const badge = envBadge(k.environment);
             return (
               <div key={k.id} style={{ padding:'14px 20px', borderBottom: i < keys.length-1 ? '1px solid var(--bd)' : 'none' }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8, flexWrap: 'wrap', rowGap: 10 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                     <span style={{ fontSize:14, fontWeight:600, color:'var(--t1)' }}>{k.name}</span>
                     <span style={{ padding:'2px 8px', borderRadius:8, fontSize:10, fontWeight:700, background:badge.bg, border:`1px solid ${badge.bd}`, color:badge.c }}>{k.environment}</span>
@@ -388,7 +390,7 @@ export default function ApiKeysView() {
             <I n="send" s={16} c="var(--green)" />
             <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>API Playground</span>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:4 }}>
+          <div className="rgrid-2" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:4 }}>
             <div>
               <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Phone Number</label>
               {inp(testPhone,setTestPhone,'+91 98765 43210')}
