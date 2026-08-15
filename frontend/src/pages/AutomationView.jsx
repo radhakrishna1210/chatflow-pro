@@ -1761,7 +1761,7 @@ const AIIntentMatchingTab = () => {
                   ['Mismatched (corrected)', stats.mismatched,  '#fbbf24'],
                 ].map(([label, value, colour]) => (
                   <div key={label}>
-                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:5 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:5, flexWrap: 'wrap', rowGap: 10 }}>
                       <span style={{ color:'var(--t2)' }}>{label}</span>
                       <span style={{ color:colour, fontWeight:700, fontFamily:'var(--mono)' }}>{value.pct}%</span>
                     </div>
@@ -1778,7 +1778,7 @@ const AIIntentMatchingTab = () => {
           {/* Sensitivity stays with the tester: it is the number the confidence
               bar above is measured against. */}
           <div style={{ ...card, padding:'18px' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8, flexWrap: 'wrap', rowGap: 10 }}>
               <label htmlFor="intent-sensitivity" style={{ fontSize:12, fontWeight:600, color:'var(--t1)' }}>Match sensitivity</label>
               <span style={{ fontSize:12, color:'var(--t2)' }}>
                 {Math.round(threshold * 100)}% — {threshold >= 0.75 ? 'strict' : threshold >= 0.5 ? 'balanced' : 'loose'}
@@ -2312,7 +2312,7 @@ const WhatsAppAIAgentTab = () => {
           {section === 'escalation' && (
             <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
               <div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8, flexWrap: 'wrap', rowGap: 10 }}>
                   <label htmlFor="esc-threshold" style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>Confidence threshold for handoff</label>
                   <span style={{ fontFamily:'var(--mono)', fontSize:14, fontWeight:700, color:'var(--accent)' }}>{Math.round(escThreshold * 100)}%</span>
                 </div>
@@ -3614,7 +3614,7 @@ export default function AutomationView({ initialTab }) {
         })}
       </div>
 
-      <div style={{ flex:1, overflowY:'auto', padding:'32px' }}>
+      <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'32px' }}>
         <div style={{ maxWidth:'1000px', margin:'0 auto' }}>
           {renderContent()}
         </div>

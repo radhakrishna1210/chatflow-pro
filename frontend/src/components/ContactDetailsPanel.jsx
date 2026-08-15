@@ -26,7 +26,7 @@ const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-IN', { day: 'nume
 
 const Section = ({ title, children, action }) => (
   <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--bd)' }}>
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9, flexWrap: 'wrap', rowGap: 10 }}>
       <p style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em' }}>{title}</p>
       {action}
     </div>
@@ -49,7 +49,7 @@ const inputStyle = {
   fontFamily: "'Manrope',sans-serif", outline: 'none', boxSizing: 'border-box',
 };
 
-export default function ContactDetailsPanel({ contactId, onClose, onContactUpdated, asDrawer = false }) {
+export default function ContactDetailsPanel({ contactId, onClose, onContactUpdated, asDrawer = false, topSlot = null }) {
   const [contact, setContact] = useState(null);
   const [segments, setSegments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -158,6 +158,9 @@ export default function ContactDetailsPanel({ contactId, onClose, onContactUpdat
     flexDirection: 'column',
     flexShrink: 0,
     overflowY: 'auto',
+    // The site assistant is a fixed 52px bubble in the bottom-right corner, so
+    // without this the last rows of the panel sit underneath it.
+    paddingBottom: 86,
     ...(asDrawer
       ? { position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 60, boxShadow: '-8px 0 32px rgba(0,0,0,0.45)' }
       : {}),
@@ -178,6 +181,8 @@ export default function ContactDetailsPanel({ contactId, onClose, onContactUpdat
             </button>
           )}
         </div>
+
+        {topSlot}
 
         {loading && <p style={{ padding: '24px 16px', fontSize: 12, color: 'var(--t2)', textAlign: 'center' }}>Loading…</p>}
 

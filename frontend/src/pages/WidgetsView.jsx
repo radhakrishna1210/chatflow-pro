@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 // Smart Website Widget management.
 //
@@ -40,7 +41,7 @@ const Field = ({ label, hint, children }) => (
 
 const Section = ({ title, children, right }) => (
   <div style={{ ...card, padding: 18, marginBottom: 16 }}>
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', rowGap: 10 }}>
       <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--t1)' }}>{title}</p>
       {right}
     </div>
@@ -380,7 +381,8 @@ const WidgetEditor = ({ widget, numbers, onClose, onSaved }) => {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', gap: 12, flexShrink: 0, background: 'var(--surf)' }}>
+      <div className="dash-page-head" style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', gap: 12, flexShrink: 0, background: 'var(--surf)' }}>
+        <MobileNavButton />
         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', display: 'flex' }}>
           <I n="arrow" s={16} c="var(--t2)" />
         </button>
@@ -397,12 +399,12 @@ const WidgetEditor = ({ widget, numbers, onClose, onSaved }) => {
         </Btn>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
         {err && (
           <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 12, marginBottom: 16 }}>{err}</div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 380px', gap: 20, alignItems: 'start' }}>
+        <div className="rail-split" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 380px', gap: 20, alignItems: 'start' }}>
           <div>
             <Section title="Basics">
               <Field label="Widget Name" hint="only you see this">
@@ -411,7 +413,7 @@ const WidgetEditor = ({ widget, numbers, onClose, onSaved }) => {
               </Field>
 
               <Field label="Widget Type">
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+                <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
                   {TYPES.map(t => (
                     <div key={t.id} onClick={() => setForm(f => ({ ...f, type: t.id }))}
                       style={{ padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
@@ -445,7 +447,7 @@ const WidgetEditor = ({ widget, numbers, onClose, onSaved }) => {
             </Section>
 
             <Section title="Appearance">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <Field label="Business Name"><input value={form.config.businessName} onChange={e => setConfig({ businessName: e.target.value })} placeholder="Acme Robotics" style={inputBase} /></Field>
                 <Field label="Widget Title"><input value={form.config.title} onChange={e => setConfig({ title: e.target.value })} style={inputBase} /></Field>
                 <Field label="Logo URL"><input value={form.config.logoUrl} onChange={e => setConfig({ logoUrl: e.target.value })} placeholder="https://…/logo.png" style={inputBase} /></Field>
@@ -467,7 +469,7 @@ const WidgetEditor = ({ widget, numbers, onClose, onSaved }) => {
                   style={{ ...inputBase, resize: 'vertical', lineHeight: 1.5 }} />
               </Field>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <Field label="Position">
                   <div style={{ display: 'flex', gap: 6 }}>
                     {[['bottom-right', 'Bottom Right'], ['bottom-left', 'Bottom Left']].map(([id, label]) => (
@@ -680,7 +682,8 @@ export default function WidgetsView() {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', gap: 12, flexShrink: 0, background: 'var(--surf)' }}>
+      <div className="dash-page-head" style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', gap: 12, flexShrink: 0, background: 'var(--surf)' }}>
+        <MobileNavButton />
         <div style={{ flex: 1 }}>
           <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)' }}>Website Widget</h1>
           <p style={{ fontSize: 11.5, color: 'var(--t2)' }}>An AI assistant, lead capture and WhatsApp handoff on your own website</p>
@@ -690,7 +693,7 @@ export default function WidgetsView() {
         </Btn>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
         {err && <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 12, marginBottom: 16 }}>{err}</div>}
 
         {analytics && (

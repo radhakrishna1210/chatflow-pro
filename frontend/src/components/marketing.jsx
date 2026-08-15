@@ -187,6 +187,16 @@ export const MarketingNav = ({ onNav, links = [['Product', '#story'], ['Live dem
   );
 };
 
+// Footer column links are plain labels in siteContent.js, so the ones that are
+// real destinations rather than sections of the landing page are mapped here.
+// "Privacy" in particular pointed at #features, which meant the site's most
+// load-bearing policy link scrolled you to the feature grid.
+const FOOTER_LINK_HREFS = {
+  'Campaign AI Agent': '/product/campaign-ai',
+  'Privacy': '/legal/privacy',
+  'Legal Center': '/legal',
+};
+
 export const MarketingFooter = ({ onNav }) => (
   <footer style={{ borderTop: '1px solid var(--bd)', padding: '56px clamp(18px,4vw,32px) 30px', background: 'rgba(13,17,33,0.5)' }}>
     <div style={{ maxWidth: 1240, margin: '0 auto' }}>
@@ -205,9 +215,9 @@ export const MarketingFooter = ({ onNav }) => (
             <h4 style={{ fontFamily: MONO, fontWeight: 600, fontSize: 11, color: 'var(--t1)', marginBottom: 15, textTransform: 'uppercase', letterSpacing: '.14em' }}>{col.title}</h4>
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
               {col.links.map(l => {
-                // "Campaign AI Agent" is a page now, not an anchor on the
-                // landing page. Everything else still scrolls to Features.
-                const href = l === 'Campaign AI Agent' ? '/product/campaign-ai' : '#features';
+                // Anything in FOOTER_LINK_HREFS is a real route; everything
+                // else still scrolls to Features on the landing page.
+                const href = FOOTER_LINK_HREFS[l] || '#features';
                 return (
                   <li key={l}>
                     <a href={href}

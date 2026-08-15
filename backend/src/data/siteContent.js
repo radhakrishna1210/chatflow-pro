@@ -172,7 +172,7 @@ export const CTA = {
 export const FOOTER_COLS = [
   { title: 'Product', links: ['Features', 'Pricing', 'Campaign AI Agent', 'Workflows', 'API'] },
   { title: 'Solutions', links: ['E-commerce', 'Education', 'Clinics', 'Real estate', 'Agencies'] },
-  { title: 'Company', links: ['About', 'Blog', 'Careers', 'Contact', 'Privacy'] },
+  { title: 'Company', links: ['About', 'Blog', 'Careers', 'Contact', 'Privacy', 'Legal Center'] },
 ];
 
 export const FOOTER_BLURB = 'WhatsApp Business API for teams that would rather their campaigns answered for themselves.';

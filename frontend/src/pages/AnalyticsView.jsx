@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -9,7 +10,7 @@ const barColor = r => r > 97 ? 'var(--green)' : r >= 93 ? '#fbbf24' : '#f87171';
 
 const KpiCard = ({ icon, iconColor, label, value, suffix = '' }) => (
   <div style={{ ...card, padding:'20px' }}>
-    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:14 }}>
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:14, flexWrap: 'wrap', rowGap: 10 }}>
       <div style={{ width:36, height:36, borderRadius:9, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center' }}>
         <I n={icon} s={16} c={iconColor} />
       </div>
@@ -200,7 +201,8 @@ export default function AnalyticsView() {
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-      <div style={{ minHeight:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'10px 28px', gap:12, flexShrink:0, background:'var(--surf)', flexWrap:'wrap' }}>
+      <div className="dash-page-head" style={{ minHeight:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'10px 28px', gap:12, flexShrink:0, background:'var(--surf)', flexWrap:'wrap' }}>
+        <MobileNavButton />
         <div style={{ flex:1, minWidth:170 }}>
           <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Analytics</h1>
           <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:2 }}>Delivery, conversation and campaign performance</p>
@@ -222,7 +224,7 @@ export default function AnalyticsView() {
         </div>
       </div>
 
-      <div style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18 }}>
+      <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18 }}>
 
         {loading && (
           <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'60px 0', color:'var(--t2)' }}>
@@ -234,7 +236,7 @@ export default function AnalyticsView() {
         {!loading && (
         <>
         {/* KPI grid */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
+        <div className="rgrid-4" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
           {kpi ? <>
             <KpiCard icon="msg"   iconColor="var(--green)"  label="Messages Sent"  value={(kpi.messagesSent ?? 0).toLocaleString()} />
             <KpiCard icon="chart" iconColor="#9d6bff"       label="Delivery Rate"  value={kpi.deliveryRate ?? 0} suffix="%" />
@@ -260,7 +262,7 @@ export default function AnalyticsView() {
               <div style={{ display:'flex', flexDirection:'column', gap:13 }}>
                 {perf.funnel.map((stage, i) => (
                   <div key={stage.label}>
-                    <div style={{ display:'flex', justifyContent:'space-between', gap:10, marginBottom:5 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', gap:10, marginBottom:5, flexWrap: 'wrap', rowGap: 10 }}>
                       <span style={{ fontSize:12.5, color:'var(--t1)', fontWeight:600 }}>{stage.label}</span>
                       <span style={{ fontFamily:'var(--mono)', fontSize:11.5, color:'var(--t2)', flexShrink:0 }}>
                         {stage.value.toLocaleString('en-IN')} · {stage.pct}%
@@ -378,13 +380,13 @@ export default function AnalyticsView() {
 
         {/* User analytics summary */}
         <div style={{ ...card, padding:'20px' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap: 'wrap', rowGap: 10 }}>
             <div>
               <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>User Analytics</h3>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Team activity and agent performance for the workspace.</p>
             </div>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+          <div className="rgrid-3" style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
             <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
               <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Active users</div>
               <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{agents.length}</div>
@@ -402,13 +404,13 @@ export default function AnalyticsView() {
 
         {/* Current user analytics */}
         <div style={{ ...card, padding:'20px' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap: 'wrap', rowGap: 10 }}>
             <div>
               <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>Your activity</h3>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Personal metrics for your account.</p>
             </div>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+          <div className="rgrid-3" style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
             <div style={{ padding:'18px', borderRadius:'16px', background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
               <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, textTransform:'uppercase', letterSpacing:'.08em' }}>Your chats</div>
               <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:28, color:'var(--t1)' }}>{currentAgent ? (currentAgent.chatsHandled ?? 0) : '0'}</div>
@@ -428,7 +430,7 @@ export default function AnalyticsView() {
 
         {/* Bar chart */}
         <div style={{ ...card, padding:'22px 24px' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:22 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:22, flexWrap: 'wrap', rowGap: 10 }}>
             <div>
               <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>7-Day Message Delivery Rate</h3>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Daily breakdown of delivery performance</p>
@@ -473,7 +475,7 @@ export default function AnalyticsView() {
         </div>
 
         {/* bottom two-column */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+        <div className="rgrid-2" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
           {/* Campaign performance */}
           <div style={{ ...card, padding:'20px' }}>
             <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)', marginBottom:18 }}>Campaign Performance</h3>
@@ -482,7 +484,7 @@ export default function AnalyticsView() {
                 const pct = c.totalContacts > 0 ? Math.round((c.delivered / c.totalContacts) * 100) : 0;
                 return (
                   <div key={c.id}>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5, flexWrap: 'wrap', rowGap: 10 }}>
                       <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'60%' }}>{c.name}</span>
                       <span style={{ fontSize:12, color:'var(--t2)', flexShrink:0 }}>{pct}% delivered</span>
                     </div>
