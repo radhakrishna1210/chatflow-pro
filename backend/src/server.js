@@ -12,6 +12,8 @@ import { startBillingWorker } from './workers/billing.worker.js';
 import { startWorkflowWorker } from './workers/workflow.worker.js';
 import { startSequenceWorker } from './workers/sequence.worker.js';
 import { startSequenceSweep } from './queues/sequence.queue.js';
+import { startAgentWorker } from './workers/agent.worker.js';
+import { startAgentSchedules } from './queues/agent.queue.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
@@ -28,6 +30,7 @@ let campaignWorker = null;
 let emailWorker = null;
 let billingWorker = null;
 let workflowWorker = null;
+let agentWorker = null;
 let sequenceWorker = null;
 let httpServer = null;
 
@@ -265,6 +268,15 @@ async function main() {
     console.log('[Worker] Workflow worker started');
     sequenceWorker = startSequenceWorker();
     console.log('[Worker] Sequence worker started');
+    agentWorker = startAgentWorker();
+
+    // The autonomous agent's tick and sweep. Failing to schedule them must not
+    // stop the server — the rest of the product works without the agent.
+    try {
+      await startAgentSchedules();
+    } catch (err) {
+      console.error('[Agent] Could not schedule the agent:', err.message);
+    }
 
     // The repeating sweep is what recovers enrollments whose delayed job was
     // lost with Redis — nextRunAt lives in the database, so nothing strands.

@@ -12,6 +12,7 @@ import { WalletSummaryCards } from '../components/WalletSummaryCards.jsx';
 const CrmDashboardView = lazy(() =>
   import('./CrmDashboardView.jsx').then(m => ({ default: m.CrmDashboardView })));
 import { CommandPalette } from '../components/CommandPalette.jsx';
+import Copilot from '../components/Copilot.jsx';
 import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 import ContactsView from './ContactsView.jsx';
 import LeadsView from './LeadsView.jsx';
@@ -2799,6 +2800,8 @@ export default function Dashboard({ onNav, routePath }) {
   const isAdmin = user?.role === 'ADMIN';
   const NAV = navForUser(user);
 
+  const [copilotOpen, setCopilotOpen] = useState(false);
+
   const page = sectionFromPath(routePath ?? window.location.pathname, user);
   const setPage = (p, subTab) => {
     if (!p) return;
@@ -2909,6 +2912,27 @@ export default function Dashboard({ onNav, routePath }) {
         </div>
       </div>
       <CommandPalette />
+
+      {/* Reachable from anywhere in the dashboard, because the question you
+          want to ask it rarely arrives while you are on the right screen. */}
+      {!copilotOpen && (
+        <button
+          onClick={() => setCopilotOpen(true)}
+          aria-label="Ask your CRM"
+          className="m-lift"
+          style={{
+            position: 'fixed', right: 22, bottom: 22, zIndex: 90,
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '11px 16px', borderRadius: 999, cursor: 'pointer',
+            background: 'var(--green)', color: '#060A10', border: 'none',
+            fontFamily: 'inherit', fontSize: 13, fontWeight: 700,
+            boxShadow: '0 8px 28px rgba(30,191,94,.32)',
+          }}
+        >
+          <I n="spark" s={15} c="#060A10" /> Ask your CRM
+        </button>
+      )}
+      {copilotOpen && <Copilot onClose={() => setCopilotOpen(false)} />}
     </div>
   );
 }

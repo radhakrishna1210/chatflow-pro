@@ -158,6 +158,9 @@ model Workspace {
   campaignAiSessions           CampaignAiSession[]
   tasks                        Task[]
   crmActivities                CrmActivity[]
+  agentTasks    AgentTask[]
+  agentRuns     AgentRun[]
+  agentFacts    AgentFact[]
 }
 
 model WorkspaceMember {
@@ -1710,4 +1713,115 @@ model CrmActivity {
   @@index([workspaceId, leadId, createdAt])
   @@index([workspaceId, dealId, createdAt])
   @@index([workspaceId, contactId, createdAt])
+}
+
+// ─── Autonomous agent ────────────────────────────────────────────────────────
+//
+// The agent runs on its own schedule against its own work queue, the way
+// trycompai/crm (MIT) structures it: the CRM is where the agent keeps its
+// notes, rather than the agent being a chat feature bolted onto the CRM.
+
+enum AgentTaskStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  // Deliberately distinct from DONE: the agent looked and decided there was
+  // nothing worth doing. "It ran and did nothing" and "it never ran" are
+  // different answers to "why has this deal not been touched".
+  SKIPPED
+}
+
+// A unit of work: one record the agent should look at, and when.
+model AgentTask {
+  id          String          @id @default(cuid())
+  workspaceId String
+  kind        String
+  targetType  String
+  targetId    String
+  status      AgentTaskStatus @default(PENDING)
+  runAfter    DateTime        @default(now())
+  attempts    Int             @default(0)
+  // Lease fields. Claiming is done in a transaction with SKIP LOCKED so two
+  // dispatchers take disjoint work instead of racing the same row.
+  lockedAt    DateTime?
+  lockedBy    String?
+  lastError   String?
+  // Why the agent scheduled this, in words a rep would understand.
+  reason      String?
+  // Set to `kind:targetType:targetId` while the task is live, and NULL the
+  // moment it finishes. Postgres treats NULLs as distinct, so this allows any
+  // number of completed rows for a record while permitting only one active
+  // one — which is what "do not queue the same work twice" actually means.
+  // Putting `status` in the unique key instead made a second finished run
+  // collide with the first.
+  activeKey   String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @default(now()) @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs      AgentRun[]
+
+  @@unique([workspaceId, activeKey])
+  @@index([workspaceId, status, runAfter])
+}
+
+// One pass over one record: what the agent read, what it changed, what it
+// declined to change. This is what the Agent tab renders.
+model AgentRun {
+  id          String   @id @default(cuid())
+  workspaceId String
+  taskId      String?
+  targetType  String
+  targetId    String
+  // Human-readable outcome: "Scheduled a follow-up — nothing logged for 21 days".
+  summary     String
+  // [{ tool, args, ok, error? }] — every step, including refusals.
+  steps       Json
+  // Writes that actually landed, and writes that were held back.
+  applied     Int      @default(0)
+  withheld    Int      @default(0)
+  degraded    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      AgentTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, targetType, targetId, createdAt])
+}
+
+enum FactBand {
+  // Written to the record without asking.
+  STRONG
+  // Kept as a suggestion for a human to settle.
+  WEAK
+}
+
+// A claim the agent made about a record, with the evidence that decided
+// whether it was applied. Keeping withheld facts is the point: "what did it
+// consider and reject" is the question reps actually ask.
+model AgentFact {
+  id          String   @id @default(cuid())
+  workspaceId String
+  targetType  String
+  targetId    String
+  field       String
+  value       String
+  // [{ kind, detail, sourceUrl? }] as observed.
+  evidence    Json
+  score       Float
+  band        FactBand
+  applied     Boolean  @default(false)
+  // Why it was or was not applied, in one line.
+  rationale   String
+  // Set when a human accepts or rejects a withheld suggestion.
+  settledAt   DateTime?
+  settledBy   String?
+  accepted    Boolean?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, targetType, targetId, createdAt])
+  @@index([workspaceId, band, applied])
 }

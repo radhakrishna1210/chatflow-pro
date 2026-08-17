@@ -737,3 +737,22 @@ export const clusterSchemas = {
     contactIds: z.array(z.string().min(1)).min(1, 'At least one contact must be selected').max(10_000).optional(),
   }),
 };
+
+// Copilot. The message is free text by nature, so the only guarantees worth
+// making here are size ones — the real safety property is that the model's
+// output can never reach a write path, which lives in copilot.tools.js.
+export const copilotSchemas = {
+  ask: z.object({
+    message: z.string().trim().min(1, 'Ask me something').max(2000),
+    history: z.array(z.object({
+      role: z.enum(['user', 'assistant']),
+      content: z.string().max(4000),
+    })).max(20).optional(),
+  }).strict(),
+  // `tool` and `args` are re-validated against the write registry in the
+  // service; this only bounds the shape.
+  confirm: z.object({
+    tool: z.string().trim().min(1).max(60),
+    args: z.record(z.unknown()).optional(),
+  }).strict(),
+};
