@@ -9,6 +9,7 @@ import { wFetch } from '../lib/api.js';
 import { SavedViews } from '../components/SavedViews.jsx';
 import { ImportExport } from '../components/ImportExport.jsx';
 import { CustomFieldInputs } from '../components/CustomFields.jsx';
+import RelationshipCard from '../components/RelationshipCard.jsx';
 
 const STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST'];
 const STAGES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
@@ -327,6 +328,15 @@ const LeadDetail = ({ lead, members, onChanged, onConverted }) => {
           </div>
         )}
       </div>
+
+      {/* Sits under the score deliberately: the score says how promising this
+          lead looks, the relationship says how the conversation is actually
+          going. They answer different questions and can disagree. */}
+      {lead.contact?.id && (
+        <div style={{ marginBottom: 20 }}>
+          <RelationshipCard contactId={lead.contact.id} contactName={lead.contact.name} />
+        </div>
+      )}
 
       {customDefs.length > 0 && (
         <div style={{ marginBottom: 20 }}>

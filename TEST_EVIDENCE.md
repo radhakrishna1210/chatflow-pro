@@ -1512,6 +1512,72 @@ is read from the live DOM and the network log instead.
 
 ---
 
+## Next-best-action and relationship — verified in the browser
+
+Both services were already exposed at `/insights`; what was missing was anywhere
+to see them.
+
+### Recommendations rank correctly and cite their evidence
+
+Fixtures created through the API: a task two days overdue, a ticket inside its
+breach window, and a deal with neither an amount nor an open task. Rendered in
+the "Do next" panel on the CRM overview:
+
+```
+1  Complete "Send the revised proposal"                    NOW
+     This was committed to and the date has passed.
+     [Due 2 days ago]
+2  Respond to T-0001: Payment deducted but order not…      NOW
+     The response target is about to be missed.
+     [Target in 2h]  [Priority URGENT]
+3  Agree a next step on Nair Retail Rollout (Meera Nair)   WHEN YOU CAN
+     There is no open task, so nothing is scheduled to happen next.
+     [No open task — there is no agreed next step.]
+4  Add an amount to Nair Retail Rollout (Meera Nair)       WHEN YOU CAN
+     Without a value this deal contributes nothing to the pipeline or forecast.
+     [No amount set, so this deal contributes nothing to pipeline value.]
+```
+
+That order matches `URGENCY` exactly — the overdue task (100 + 2 days late)
+outranks the breaching ticket (95), and both outrank the deal hygiene items
+(40, 30). A breached commitment beating a drifting deal is the intended
+ordering, not a coincidence of the fixture.
+
+Urgency renders as a band rather than the raw number. "87" reads like a
+measurement, and this is a ranking heuristic, not a measurement.
+
+The evidence renders inline on every card rather than behind a disclosure. It is
+the only thing that makes a recommendation checkable, and a recommendation
+nobody can check is one people learn to ignore.
+
+The action button navigates: clicking "Open ticket" moved to `/dashboard/tickets`.
+
+### Relationship strength keeps its hedge attached
+
+The service returns a band, named factors and a stated confidence, precisely
+because the spec warns against pretending relationship health is scientifically
+precise. The card keeps the confidence next to the band and spells out what a
+weak signal means. Both paths, live:
+
+```
+Relationship with Kabir Shah     Weak · low confidence
+  No reply yet. Nothing has been exchanged yet.
+  "Based on very little contact so far — treat this as a first impression,
+   not a finding."
+
+Relationship with Ananya Iyer    At risk · certain confidence
+  Opted out. This contact has asked not to be messaged.
+```
+
+The opted-out verdict carries no hedge, correctly — that one is a fact, not an
+inference, and padding it with caveats would be its own kind of dishonesty.
+
+The card sits under the lead score rather than beside it: the score says how
+promising a lead looks, the relationship says how the conversation is actually
+going, and the two can legitimately disagree.
+
+---
+
 ## Current full-suite output
 
 ```

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { wFetch } from '../lib/api.js';
 import { fmtMoney, fmtMoneyShort } from '../lib/format.js';
+import NextBestActions from '../components/NextBestActions.jsx';
 
 const STAGE_COLORS = {
   QUALIFICATION: '#3b82f6',
@@ -63,6 +64,8 @@ export function CrmDashboardView({ user }) {
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>Welcome back</h1>
           <p style={{ color: 'var(--t2)', fontSize: 13, margin: 0 }}>What the team has closed, what is still in play, and what needs you today.</p>
+          {/* The header already promises "what needs you today" — this is the
+              part that actually answers it, so it sits above the metrics. */}
         </div>
         <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', padding: 4, borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)' }}>
           <button 
@@ -74,6 +77,18 @@ export function CrmDashboardView({ user }) {
             style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, background: filter === 'everyone' ? 'rgba(255,255,255,0.1)' : 'transparent', color: filter === 'everyone' ? '#fff' : 'var(--t2)', border: '1px solid ' + (filter === 'everyone' ? 'rgba(255,255,255,0.1)' : 'transparent'), borderRadius: 4, cursor: 'pointer' }}
           >Everyone</button>
         </div>
+      </div>
+
+      {/* Next best actions */}
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ marginBottom: 12 }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: '#fff', margin: '0 0 4px 0' }}>Do next</h3>
+          <p style={{ fontSize: 11, color: 'var(--t3)', margin: 0 }}>
+            Ranked by urgency, with the facts behind each one. Nothing here is predicted — every item
+            cites what it read.
+          </p>
+        </div>
+        <NextBestActions limit={6} />
       </div>
 
       {/* KPIs */}
