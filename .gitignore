@@ -60,3 +60,9 @@ frontend/node_modules/.vite/
 
 # Local notes
 INTERAKT_COMPARISON.md
+
+# Throwaway debug scripts and stray SQL. These are scratch work, not source —
+# they were committed once by a broad `git add -A` and removed again.
+backend/query*.js
+backend/migration.sql
+open-chrome-profile.mjs
