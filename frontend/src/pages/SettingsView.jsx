@@ -5,6 +5,7 @@ import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
 import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
 import BlockedNumbers from '../components/BlockedNumbers.jsx';
+import { TeamsAdmin } from '../components/TeamsAdmin.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -475,6 +476,13 @@ export default function SettingsView() {
               </tbody>
             </table>
           )}
+        </SectionCard>
+
+        {/* ── Teams & record visibility ──
+            Sits directly after Team Members: that section decides who is in the
+            workspace, this one decides who can see whose records. */}
+        <SectionCard icon="users" title="Teams & Record Visibility">
+          <TeamsAdmin isAdmin={isAdmin} />
         </SectionCard>
 
         {/* ── Blocked Numbers (opt-outs) ── */}
