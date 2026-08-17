@@ -4,6 +4,7 @@ import { computeLeadScore } from './leadScoring.service.js';
 import { validateCustomFields } from './customFields.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 import { scopeFilter } from './recordScope.service.js';
+import { awardXp, unlockAchievement } from './gamification.service.js';
 
 const LEAD_INCLUDE = {
   contact: { select: { id: true, name: true, phoneNumber: true, email: true, tags: true, optedOut: true } },
@@ -116,6 +117,12 @@ export async function updateLead(workspaceId, id, updates, user = null) {
   else data.customFields = customFields;
 
   const updated = await prisma.lead.update({ where: { id }, data, include: LEAD_INCLUDE });
+
+  if (updates.status === 'QUALIFIED' && lead.status !== 'QUALIFIED' && updated.ownerUserId) {
+    awardXp(workspaceId, updated.ownerUserId, 'qualified_lead', { recordType: 'lead', recordId: id })
+      .then(() => unlockAchievement(workspaceId, updated.ownerUserId, 'first_qualified'))
+      .catch((e) => console.error('[Gamification] award failed:', e.message));
+  }
 
   if (updates.status && updates.status !== lead.status) {
     emitCrmEvent(workspaceId, 'lead_status_changed', {

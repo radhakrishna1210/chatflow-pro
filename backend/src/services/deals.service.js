@@ -3,6 +3,7 @@ import { computeWorkspaceDealHealth, computeDealHealth } from './dealHealth.serv
 import { validateCustomFields } from './customFields.service.js';
 import { scopeFilter } from './recordScope.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
+import { awardXp, unlockAchievement } from './gamification.service.js';
 
 const CLOSED_STAGES = ['CLOSED_WON', 'CLOSED_LOST'];
 
@@ -132,6 +133,14 @@ export async function updateDealStage(workspaceId, id, { stage, lostReason }, us
 
     return { ...updated, previousStage: deal.stage };
   });
+
+  // Rewarded on the outcome, not the activity: only entering CLOSED_WON pays,
+  // and the dedupe key means re-closing the same deal cannot farm points.
+  if (stage === 'CLOSED_WON' && updated.previousStage !== 'CLOSED_WON' && updated.ownerUserId) {
+    awardXp(workspaceId, updated.ownerUserId, 'won_deal', { recordType: 'deal', recordId: id })
+      .then(() => unlockAchievement(workspaceId, updated.ownerUserId, 'first_win'))
+      .catch((e) => console.error('[Gamification] award failed:', e.message));
+  }
 
   // Emitted after the transaction commits, so a workflow can never observe a
   // stage change that later rolled back.

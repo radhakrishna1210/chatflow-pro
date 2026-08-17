@@ -3,10 +3,130 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ChatFlow Pro — WhatsApp Business Platform</title>
+
+  <title>ChatFlow Pro — WhatsApp messaging and a sales CRM in one workspace</title>
+  <meta name="description" content="ChatFlow Pro is a WhatsApp Business platform with a built-in sales CRM. Run campaigns, answer conversations, and track the leads and deals they produce — without moving data between two tools." />
+  <link rel="canonical" href="https://chatflow.mannmate.com/" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="ChatFlow Pro" />
+  <meta property="og:title" content="ChatFlow Pro — WhatsApp messaging and a sales CRM in one workspace" />
+  <meta property="og:description" content="Your WhatsApp campaigns already create pipeline. ChatFlow Pro turns replies into scored leads and tracked deals, in one workspace." />
+  <meta property="og:url" content="https://chatflow.mannmate.com/" />
+  <meta property="og:locale" content="en_IN" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="ChatFlow Pro — WhatsApp messaging and a sales CRM in one workspace" />
+  <meta name="twitter:description" content="Turn WhatsApp campaign replies into scored leads and tracked deals, without moving data between tools." />
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+
+  <!--
+    Structured data is emitted statically rather than injected by React.
+
+    This is a client-rendered SPA: a crawler that does not execute JavaScript
+    receives an empty #root. Anything injected at runtime is therefore invisible
+    to exactly the crawlers most likely to skip JS — which includes several AI
+    answer engines. Keeping the JSON-LD here means the machine-readable
+    description of the product is served in the HTML itself.
+
+    §81: only schema that accurately describes content actually on the page.
+  -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://chatflow.mannmate.com/#organization",
+        "name": "ChatFlow Pro",
+        "url": "https://chatflow.mannmate.com/",
+        "description": "WhatsApp Business platform with a built-in sales CRM."
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://chatflow.mannmate.com/#website",
+        "url": "https://chatflow.mannmate.com/",
+        "name": "ChatFlow Pro",
+        "publisher": { "@id": "https://chatflow.mannmate.com/#organization" },
+        "inLanguage": "en"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "ChatFlow Pro",
+        "applicationCategory": "BusinessApplication",
+        "applicationSubCategory": "CRM",
+        "operatingSystem": "Web browser",
+        "url": "https://chatflow.mannmate.com/",
+        "description": "ChatFlow Pro combines WhatsApp Business messaging with a sales CRM. Campaigns, a shared inbox, lead scoring, a deal pipeline, sequences, quotes and support tickets share one workspace, so a WhatsApp reply can become a tracked lead without copying data between tools.",
+        "featureList": [
+          "WhatsApp Business campaigns and shared inbox",
+          "Lead management with explainable scoring",
+          "Deal pipeline with health indicators and stage history",
+          "Follow-up sequences that exit on reply and honour opt-outs",
+          "Weighted forecasting by pipeline stage",
+          "Products, quotes and customer support tickets",
+          "Workflow automation triggered by CRM events"
+        ],
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "INR",
+          "description": "Free plan with no card required. Paid plans add higher message quotas, more team members and integrations."
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is ChatFlow Pro?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "ChatFlow Pro is a WhatsApp Business platform with a built-in sales CRM. It sends campaigns, manages conversations through a shared inbox, and tracks the leads, deals, quotes and tickets that come out of them — in a single workspace."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Do I need a separate CRM alongside ChatFlow Pro?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Leads, deals, pipeline stages, forecasting, products, quotes, tasks and support tickets are built in. The point is that the messaging and the CRM share one database, so a WhatsApp reply can become a scored lead without anyone copying data between tools."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How does lead scoring work in ChatFlow Pro?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Scores are calculated from six observable signals: reply recency, reply volume, campaign read rate, whether a conversation is open, profile completeness, and how recently the contact was added. Each factor shows the points it contributed, so a score can always be explained. It is deterministic — no model, no black box."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Will ChatFlow Pro message someone who has opted out?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Opt-out is checked immediately before each step and again at the moment of sending. A contact who opts out mid-sequence stops receiving messages from that point, and a blocked number is never messaged at all."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Which WhatsApp API does ChatFlow Pro use?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The official WhatsApp Business Platform API from Meta. Templates go through Meta approval, and message pricing follows Meta published category rates."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
   <div id="root"></div>

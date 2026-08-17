@@ -83,7 +83,8 @@ const DealCard = ({ deal, onDragStart, onClick, dragging, onMoveStage }) => (
         onMoveStage?.(deal, e.key === 'ArrowRight' ? 1 : -1);
       }
     }}
-    style={{ ...card, padding: '11px 13px', marginBottom: 8, cursor: 'grab', opacity: dragging ? .4 : 1, transition: 'opacity .15s ease, transform .15s ease' }}>
+    className="m-lift m-press"
+    style={{ ...card, padding: '11px 13px', marginBottom: 8, cursor: 'grab', opacity: dragging ? .4 : 1, transition: 'opacity var(--dur-fast) var(--ease-standard)' }}>
     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', lineHeight: 1.35 }}>{deal.title}</div>
       <HealthDot health={deal.health} />

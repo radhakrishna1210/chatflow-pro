@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
+import { MarketingFaq, MarketingFeatures, MarketingIntegrations, MarketingSecurity } from '../components/MarketingFaq.jsx';
 
 // ─── Landing page ────────────────────────────────────────────────────────────
 //
@@ -643,60 +644,6 @@ const CostCalculator = () => {
 
 // ─── questions people ask before signing up ──────────────────────────────────
 
-const FAQ_ITEMS = [
-  ['Do I need my own WhatsApp Business API access?',
-   'No. Connect a number you already own through Meta’s embedded signup, or have one assigned to you from the pool. Either way the number, its templates and its access token stay bound to your workspace.'],
-  ['What happens when a message fails?',
-   'Retryable failures are retried on a backoff schedule you control, with SMS or email as a fallback channel. A recipient is billed once no matter how many attempts it took, and anything that never reached Meta is refunded when the campaign settles.'],
-  ['Can the AI agent invent a price or a date?',
-   'It is given the campaign message that specific customer received, plus your knowledge base, and is instructed to answer from those only. Asked something neither covers, it says it does not have that and offers a human — it does not fill the gap.'],
-  ['What if someone wants to stop hearing from us?',
-   'A reply of STOP blocks that number for good. It is skipped on every future campaign, excluded from the cost before you are charged, and no automation replies to it again.'],
-  ['Who can see my data?',
-   'Everything — contacts, campaigns, conversations, wallet — is scoped to your workspace, and members only reach it through their membership. WhatsApp access tokens are encrypted at rest.'],
-];
-
-const FaqRow = ({ q, a, open, onToggle, index }) => (
-  <Reveal delay={index * 50}>
-    <Glass lit={false} style={{ borderRadius: 'var(--rl)', overflow: 'hidden' }}>
-      <button
-        onClick={onToggle}
-        aria-expanded={open}
-        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, padding: '18px 22px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: "'Plus Jakarta Sans',sans-serif" }}
-      >
-        <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'var(--t1)', letterSpacing: '-.01em' }}>{q}</span>
-        <span style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform .3s cubic-bezier(.2,.7,.3,1)', transform: open ? 'rotate(45deg)' : 'none' }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={open ? 'var(--green)' : 'var(--t2)'} strokeWidth="2.4" strokeLinecap="round">
-            <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </span>
-      </button>
-      {/* Grid-rows trick: animates to the answer's real height without
-          measuring it or hardcoding a max-height that clips longer copy. */}
-      <div style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', transition: 'grid-template-rows .32s cubic-bezier(.2,.7,.3,1)' }}>
-        <div style={{ overflow: 'hidden' }}>
-          <p style={{ padding: '0 22px 20px', fontSize: 13.5, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 760 }}>{a}</p>
-        </div>
-      </div>
-    </Glass>
-  </Reveal>
-);
-
-const Faq = () => {
-  const [open, setOpen] = useState(0);
-  return (
-    <section style={{ padding: '20px 0 100px' }}>
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 32px' }}>
-        <SectionHead eyebrow="Before you ask" title={<>The questions that<br />come up <span style={{ color: 'var(--green)' }}>every time</span></>} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {FAQ_ITEMS.map(([q, a], i) => (
-            <FaqRow key={q} q={q} a={a} index={i} open={open === i} onToggle={() => setOpen(open === i ? -1 : i)} />
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-};
 
 // ─── features ────────────────────────────────────────────────────────────────
 
@@ -1030,10 +977,21 @@ export default function Landing({ onNav }) {
       <ProofStrip />
       <AIPromptSection onNav={onNav} />
       <Features />
+      {/* <Features/> above covers the messaging half. This covers the CRM half —
+          leads, pipeline, forecasting, gamification — which the SoftwareApplication
+          featureList in index.html claims, so it has to be on the page (§81).
+          Each card leads with a standalone answer an engine can quote (§78). */}
+      <MarketingFeatures />
       <UseCases />
       <CostCalculator />
       <Pricing onNav={onNav} />
-      <Faq />
+      {/* Sourced from src/content/marketing.js, which is also what the JSON-LD
+          in index.html describes — §81 requires the structured data to match
+          what is actually on the page. The previous FAQ kept all but one
+          answer out of the DOM, which §77 warns against. */}
+      <MarketingIntegrations />
+      <MarketingSecurity />
+      <MarketingFaq />
       <CTA onNav={onNav} />
       <Footer onNav={onNav} />
     </div>

@@ -4,7 +4,11 @@ Verification record for the advanced CRM expansion. Each entry follows the
 reproduce → fix → reproduce discipline required by `MS_Prompt.md` §98–§99:
 a fix is not recorded here unless it was seen failing first and passing after.
 
-Last full run: **2026-08-16** — `cd backend && npm test` → **22/22 passing**.
+Last full run: **2026-08-17** — `cd backend && npm test` → **230/230 passing**.
+
+Every run is preceded by `node --env-file=.env scripts/assert-local-db.js`, which
+aborts unless `DATABASE_URL` resolves to a loopback host and contains no managed-
+provider marker. No test in this file has ever been run against a shared database.
 
 ---
 
@@ -1160,9 +1164,91 @@ or consumer pair to verify and no rename regression to guard against. The
 platform's billing surface uses `WalletTransaction`, `Invoice` and `Subscription`,
 none of which were touched by this work.
 
+## Tier 3 — gamification, motion, marketing
+
+### Gamification: the anti-spam constraint is the design
+
+The risk with points is that they reward whatever is cheapest to do. Sending
+messages is the cheapest thing in this product and also the thing that gets a
+WhatsApp number blocked, so **no rule awards XP for message volume**. Every rule
+pays for an outcome someone else had to agree to: a lead qualified, a deal won,
+an overdue task cleared, a quote accepted, a ticket resolved.
+
+Idempotency is enforced in the database, not in application logic. Each award
+carries `dedupeKey = "${kind}:${recordId}"` under `unique(userId, dedupeKey)`, so
+a replayed webhook or a double-clicked button raises P2002 and awards nothing.
+
+```
+✔ winning the same deal twice awards XP once
+✔ a replayed event raises P2002 and is swallowed, not double-counted
+✔ no XP rule references message or campaign send volume
+✔ level is derived from total XP, not stored and drifted
+✔ a streak survives exactly one missed day, then resets
+```
+
+### Motion: reduced-motion handled in the tokens, not at each call site
+
+The usual bug is that CSS honours `prefers-reduced-motion` while JS animation
+keeps its own hardcoded durations. Here the media query overrides the duration
+custom properties themselves to `0ms`, and `lib/motion.js` reads those properties
+at call time — so a caller that never thought about accessibility still degrades
+correctly.
+
+Verified in the browser with the setting emulated: `--dur-normal` resolved to
+`0ms` and `prefersReducedMotion()` returned `true`.
+
+### Marketing: what was verified, and the limit that remains
+
+Verified in the running page (`http://localhost:5173/`, logged out):
+
+```
+sections present:  features, how-it-works, usecases, pricing, integrations, security, faq
+FAQ questions rendered:            7
+FAQ answers present without any click: 7   (aria-expanded=true on all)
+CRM feature cards:                 5   (lead-management, pipeline, automation, forecasting, gamification)
+dead in-page anchors:              0
+horizontal overflow:               false
+h1 count:                          1
+```
+
+Built output (`dist/index.html`) carries meta description, canonical, robots,
+Open Graph, Twitter Card and a JSON-LD `@graph` of Organization, WebSite,
+SoftwareApplication and FAQPage; `robots.txt` and `sitemap.xml` are emitted.
+
+**A §81 violation was caught here by an automated check and fixed.** Two FAQPage
+answers in the JSON-LD were lightly reworded versions of the page text ("The
+messaging and the CRM…" vs the rendered "The point is that the messaging and the
+CRM…"). Structured data that does not match visible content is exactly what §81
+forbids, so a check now compares every schema answer against `marketing.js`:
+
+```
+before:  page FAQ entries: 7 | schema entries: 5
+         SCHEMA-ONLY: Do I need a separate CRM alongside ChatFlow Pro?
+         SCHEMA-ONLY: Will ChatFlow Pro message someone who has opted out?
+         FAIL - 2 schema entries not on page
+
+after:   OK - every schema answer appears verbatim on the page (subset is valid)
+```
+
+A second defect was found the same way: `MarketingFeatures` was written and
+exported but never rendered, so the CRM half of the product — the exact features
+the `SoftwareApplication.featureList` claims — had no copy on the page at all.
+It is now rendered as `#how-it-works`.
+
+**The limit, stated plainly:** this is a client-rendered Vite SPA. A crawler that
+does not execute JavaScript receives an empty `#root`. The static `<head>` is
+fully machine-readable, which is why the JSON-LD lives there rather than being
+injected by React, but the body copy is not. Per-route SEO and reliable ingestion
+by non-JS answer engines require prerendering or SSR, which is not built.
+
+---
+
 ## Current full-suite output
 
 ```
+tests 230 | pass 230 | fail 0 | duration 5.06s
+
+(selection — the isolation and scoring cases this document opens with)
 ✔ open pipeline totals only open deals in this workspace
 ✔ win rate and average deal use only the last 90 days
 ✔ deals in progress are the highest-value open deals, newest arithmetic intact
@@ -1185,6 +1271,4 @@ none of which were touched by this work.
 ✔ a task cannot be attached to another workspace's deal
 ✔ an activity cannot be attached to another workspace's contact
 ✔ completing a task stamps completedAt, reopening clears it
-
-tests 22 | pass 22 | fail 0
 ```

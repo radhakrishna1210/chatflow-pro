@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { calculateLine, calculateDocument } from './lineItems.js';
+import { awardXp } from './gamification.service.js';
 
 const QUOTE_INCLUDE = {
   contact: { select: { id: true, name: true, phoneNumber: true, email: true } },
@@ -165,11 +166,17 @@ export async function changeQuoteStatus(workspaceId, id, status) {
     REJECTED: { rejectedAt: new Date() },
   };
 
-  return prisma.quote.update({
+  const result = await prisma.quote.update({
     where: { id },
     data: { status, ...(stamps[status] ?? {}) },
     include: QUOTE_INCLUDE,
   });
+
+  if (status === 'ACCEPTED' && result.createdByUserId) {
+    awardXp(workspaceId, result.createdByUserId, 'accepted_quote', { recordType: 'quote', recordId: id })
+      .catch((e) => console.error('[Gamification] award failed:', e.message));
+  }
+  return result;
 }
 
 export async function deleteQuote(workspaceId, id) {

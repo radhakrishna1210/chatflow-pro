@@ -51,6 +51,7 @@ import teamsRoutes from './teams.routes.js';
 import leadFormsRoutes from './leadForms.routes.js';
 import ticketsRoutes from './tickets.routes.js';
 import insightsRoutes from './insights.routes.js';
+import gamificationRoutes from './gamification.routes.js';
 import publicFormsRoutes from './publicForms.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 
@@ -106,6 +107,7 @@ ws.use('/teams', teamsRoutes);
 ws.use('/lead-forms', leadFormsRoutes);
 ws.use('/tickets', ticketsRoutes);
 ws.use('/insights', insightsRoutes);
+ws.use('/progress', gamificationRoutes);
 ws.use('/conversations', conversationsRoutes);
 ws.use('/analytics', analyticsRoutes);
 ws.use('/automation', automationRoutes);

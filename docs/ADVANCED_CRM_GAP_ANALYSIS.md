@@ -85,9 +85,9 @@ noted per row.
 
 | Capability | Notes | Effort |
 |---|---|---|
-| Gamification (XP, levels, streaks, missions, achievements) | Must reward outcomes, not activity volume, or it drives spam | L |
-| Marketing website + SEO/AEO/GEO | `Landing.jsx` exists but is a single in-app page, not a content-architected site. Spec §80 wants marketing copy separated from app logic — this repo has no MDX/content layer | XL |
-| Motion design system | No animation library installed; a few CSS keyframes only | M |
+| ~~Gamification (XP, levels, streaks, missions, achievements)~~ | **DONE** — XP awarded only for outcomes (qualified lead, won deal, cleared overdue task, accepted quote, resolved ticket); nothing rewards message volume. Idempotent via `unique(userId, dedupeKey)`, so replaying an event cannot farm points. 6 levels, streaks with one grace day. **No profile UI yet** | L |
+| ~~Marketing website + SEO/AEO/GEO~~ | **DONE, with one honest limit** — copy extracted to `src/content/marketing.js` (§80), static JSON-LD + meta + OG in `index.html`, `robots.txt`, `sitemap.xml`, and Features/Integrations/Security/FAQ sections rendered from the content layer. **Limit: this is a CSR SPA** — a crawler that does not run JS gets an empty `#root`, so only the static `<head>` is machine-readable. Per-route SEO needs prerendering | XL |
+| ~~Motion design system~~ | **DONE** — duration/easing tokens + 5 keyframes in `index.css`, `lib/motion.js` reads the tokens. Under `prefers-reduced-motion` the **tokens themselves collapse to 0ms**, so JS that reads them degrades without its own branch | M |
 | ~~Next-best-action / relationship intelligence~~ | **DONE** — deterministic, evidence-cited recommendations; banded relationship strength with stated confidence. No new tables. **No UI yet** | L |
 
 ## Duplication risks to avoid

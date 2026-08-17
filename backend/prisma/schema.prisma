@@ -39,6 +39,8 @@ model User {
   teamMemberships       TeamMember[]
   leadFormsOwned        LeadForm[]         @relation("LeadFormOwner")
   ticketsOwned          CrmTicket[]        @relation("TicketOwner")
+  xpEvents              XpEvent[]
+  achievements          Achievement[]
 }
 
 model Workspace {
@@ -146,6 +148,8 @@ model Workspace {
   leadForms                    LeadForm[]
   leadFormSubmissions          LeadFormSubmission[]
   crmTickets                   CrmTicket[]
+  xpEvents                     XpEvent[]
+  achievements                 Achievement[]
   products                     Product[]
   dealLineItems                DealLineItem[]
   quotes                       Quote[]
@@ -1078,6 +1082,48 @@ model CrmTicket {
   @@unique([workspaceId, ticketNumber])
   @@index([workspaceId, status, dueAt])
   @@index([workspaceId, ownerUserId])
+}
+
+// Append-only XP ledger.
+//
+// One row per award, with a deterministic `dedupeKey` so the same outcome can
+// never be paid twice — reopening and re-closing a deal must not farm XP.
+// A ledger rather than a running total because "why is my score that?" has to
+// be answerable, and a single counter cannot answer it.
+model XpEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  // qualified_lead | won_deal | cleared_overdue | accepted_quote | resolved_ticket
+  kind        String
+  points      Int
+  // kind + the record it came from. Unique per user, so re-awarding is a no-op.
+  dedupeKey   String
+  recordType  String?
+  recordId    String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([workspaceId, userId, createdAt])
+}
+
+// Unlocked once, kept forever. Separate from XpEvent because an achievement is
+// a milestone rather than a payment, and re-earning one should be impossible.
+model Achievement {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  key         String
+  unlockedAt  DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([workspaceId, userId])
 }
 
 model Lead {

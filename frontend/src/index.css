@@ -65,10 +65,60 @@ h1,h2,h3,h4,h5 { font-family:'Syne',sans-serif; letter-spacing:-0.025em; line-he
 ::-webkit-scrollbar-track { background:transparent; }
 ::-webkit-scrollbar-thumb { background:var(--bdm); border-radius:4px; }
 
+/* ── Motion system ─────────────────────────────────────────────────────────
+   Durations and easings live here so the product moves at one speed rather
+   than at whatever each component happened to hardcode.
+
+   The product tier is deliberately fast: §69 asks for motion on drawers, tabs,
+   drag/drop and task completion, but "operational workflows must remain fast".
+   Anything a rep does fifty times a day should feel instant. The expressive
+   tier is for the marketing site, where a moment of delight is the point.
+
+   Every token collapses under prefers-reduced-motion, further down. */
+:root {
+  --dur-instant: 90ms;   /* state flips: checkbox, toggle, hover */
+  --dur-fast:    150ms;  /* the product default */
+  --dur-normal:  240ms;  /* drawers, modals, tab panels */
+  --dur-slow:    420ms;  /* celebrations, first paint */
+
+  /* Standard: symmetric, for things that move and stop. */
+  --ease-standard: cubic-bezier(.4, 0, .2, 1);
+  /* Decelerate: enters fast, settles gently — for things arriving. */
+  --ease-out: cubic-bezier(0, 0, .2, 1);
+  /* Accelerate: for things leaving, which should not linger. */
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  /* A restrained overshoot. Used only for celebration, never for UI state. */
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+}
+
 @keyframes fadeUp { from{transform:translateY(20px);opacity:.4} to{transform:translateY(0);opacity:1} }
 @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:.3} }
 @keyframes floatY { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
 @keyframes spin   { to{transform:rotate(360deg)} }
+
+/* Something arriving in a list — a new recommendation, a saved view. */
+@keyframes riseIn { from{transform:translateY(6px);opacity:0} to{transform:translateY(0);opacity:1} }
+/* A row leaving after being completed or dismissed. */
+@keyframes settleOut { to{transform:translateX(8px);opacity:0} }
+/* Task completion. One small confirmation beat, not a fireworks display. */
+@keyframes checkPop { 0%{transform:scale(.7);opacity:0} 60%{transform:scale(1.12)} 100%{transform:scale(1);opacity:1} }
+/* An XP award or level-up. The only place overshoot is warranted. */
+@keyframes celebrate { 0%{transform:scale(.85);opacity:0} 55%{transform:scale(1.06);opacity:1} 100%{transform:scale(1);opacity:1} }
+/* A number that changed — score, forecast, pipeline total. Draws the eye
+   without moving layout, which would shift everything around it. */
+@keyframes valueShift { 0%{color:var(--green)} 100%{color:inherit} }
+
+.m-rise      { animation: riseIn var(--dur-normal) var(--ease-out) both; }
+.m-settle    { animation: settleOut var(--dur-fast) var(--ease-in) both; }
+.m-check     { animation: checkPop var(--dur-normal) var(--ease-spring) both; }
+.m-celebrate { animation: celebrate var(--dur-slow) var(--ease-spring) both; }
+.m-value     { animation: valueShift 1.2s var(--ease-out) both; }
+
+/* Interactive surfaces: one hover treatment, applied consistently. */
+.m-lift { transition: transform var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard); }
+.m-lift:hover { transform: translateY(-1px); }
+.m-press { transition: transform var(--dur-instant) var(--ease-standard); }
+.m-press:active { transform: scale(.97); }
 
 .fu0{animation:fadeUp .5s ease both}
 .fu1{animation:fadeUp .5s .07s ease both}
@@ -188,10 +238,27 @@ tbody tr:hover { background: rgba(255,255,255,0.022); }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+
+  /* The tokens collapse too, not only the blanket override below. A component
+     that reads var(--dur-normal) directly — in an inline style or a JS
+     animation — then honours the preference without knowing about it. */
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-normal: 0ms;
+    --dur-slow: 0ms;
+  }
+
   *, *::before, *::after {
     animation-duration: .001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .001ms !important;
   }
   .reveal { opacity: 1; transform: none; }
+
+  /* Reduced motion must not mean reduced information: anything whose only
+     purpose was to animate into view stays fully visible and in place. */
+  .m-rise, .m-check, .m-celebrate, .m-value { animation: none; opacity: 1; transform: none; }
+  .m-settle { animation: none; }
+  .m-lift:hover, .m-press:active { transform: none; }
 }

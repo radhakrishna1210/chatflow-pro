@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { scopeFilter } from './recordScope.service.js';
+import { awardXp } from './gamification.service.js';
 
 // Customer-facing support tickets.
 //
@@ -177,7 +178,13 @@ export async function changeTicketStatus(workspaceId, id, status, user = null) {
     data.dueAt = slaDueAt(ticket.priority);
   }
 
-  return prisma.crmTicket.update({ where: { id }, data, include: TICKET_INCLUDE });
+  const result = await prisma.crmTicket.update({ where: { id }, data, include: TICKET_INCLUDE });
+
+  if (status === 'RESOLVED' && !SETTLED.includes(ticket.status) && result.ownerUserId) {
+    awardXp(workspaceId, result.ownerUserId, 'resolved_ticket', { recordType: 'ticket', recordId: id })
+      .catch((e) => console.error('[Gamification] award failed:', e.message));
+  }
+  return result;
 }
 
 // Stamped once, on the first outbound reply. Used for first-response reporting,
