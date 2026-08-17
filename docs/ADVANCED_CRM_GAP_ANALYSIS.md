@@ -88,7 +88,7 @@ noted per row.
 | Gamification (XP, levels, streaks, missions, achievements) | Must reward outcomes, not activity volume, or it drives spam | L |
 | Marketing website + SEO/AEO/GEO | `Landing.jsx` exists but is a single in-app page, not a content-architected site. Spec §80 wants marketing copy separated from app logic — this repo has no MDX/content layer | XL |
 | Motion design system | No animation library installed; a few CSS keyframes only | M |
-| Next-best-action / relationship intelligence | Needs the evidence discipline of §55 to avoid inventing facts | L |
+| ~~Next-best-action / relationship intelligence~~ | **DONE** — deterministic, evidence-cited recommendations; banded relationship strength with stated confidence. No new tables. **No UI yet** | L |
 
 ## Duplication risks to avoid
 

@@ -1056,6 +1056,88 @@ different measure from resolution time:
 ✔ a contact from another workspace cannot be attached
 ```
 
+## Next-best-action and relationship intelligence — 2026-08-17
+
+`nextBestAction.service.js` and `relationship.service.js`, exposed at
+`/insights/recommendations` and `/insights/relationship/:contactId`.
+18 new tests; suite 200 → **218**.
+
+**No new tables.** Both derive entirely from records that already exist, which
+is the point — the CRM already held the evidence, nothing was surfacing it.
+
+### Every recommendation carries its evidence (§52)
+
+Nothing here comes from a model. Each rule reads facts already in the database
+and cites them, because a recommendation a rep cannot verify is one they will
+learn to ignore. Asserted structurally rather than by example:
+
+```
+✔ every recommendation states why and cites evidence
+```
+
+That test walks every generated recommendation and fails if any lacks a title,
+a reason, at least one piece of evidence, a target record, or an offered action.
+
+Live output against seeded data:
+
+```
+[100] Complete "Follow up with Deal 2"
+      why: This was committed to and the date has passed.
+      evidence: Due today · Related to Enterprise Q3 Expansion - Deal 2
+
+[ 90] Update the close date on Enterprise Q3 Expansion - Deal 1
+      why: The expected close date has passed, so this deal is distorting the forecast.
+      evidence: Close date slipped 1 day ago and has not been updated.
+
+[ 40] Agree a next step on Enterprise Q3 Expansion - Deal 4
+      why: There is no open task, so nothing is scheduled to happen next.
+      evidence: No open task — there is no agreed next step.
+```
+
+### Ranking reflects obligation, not novelty
+
+An overdue task outranks a drifting deal: one is a commitment already broken,
+the other is merely drifting.
+
+```
+✔ an overdue task outranks a merely drifting deal
+✔ recommendations are ranked and capped
+✔ a low-scoring lead is not nagged about
+✔ a closed deal generates nothing
+✔ an empty workspace produces no recommendations rather than filler
+```
+
+Those last three matter as much as the positives: a list padded with noise
+trains people to stop reading it.
+
+### Relationship strength is banded, not scored (§53)
+
+§53 asks for this and then warns against overclaiming — *"do not pretend
+relationship health is scientifically precise."* So the service returns a band,
+the observable facts behind it, and an explicit **confidence** that is `low`
+when there is barely any history. Two data points is not a trend, and saying so
+beats a confident-looking band built on almost nothing.
+
+```
+✔ a contact who has never replied is weak, not strong
+✔ repeated unanswered outreach is at risk
+✔ an opted-out contact short-circuits to at risk
+✔ a long silence pulls the band down however deep the history
+✔ a one-sided thread is named as such
+✔ confidence is reported low when there is barely any history
+```
+
+A thread where ten messages went out and one came back is named "mostly
+one-sided" rather than quietly scored down — that is a broadcast, not a
+relationship.
+
+## DEF-013 — "Due 0 days ago"
+
+**Severity:** Trivial · Found reading live output
+
+A task due today rendered as `Due 0 days ago`. Fixed to `Due today`, with a
+test pinning it — this is how a date reads when nobody checks the copy.
+
 ## Regression baselines required by §102–§103
 
 `AUDIT_REPORT.md` and `COMPLETION_REPORT.md` were searched for across the
