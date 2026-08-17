@@ -978,6 +978,84 @@ attribution kept     -> {"utm_source":"newsletter"}      (evil_key dropped)
 ip hashed not raw    -> eff8e7ca5066... (32 chars)
 ```
 
+## CRM support tickets — 2026-08-17
+
+`CrmTicket` with SLA tracking, a status lifecycle and named queues.
+12 new tests; suite 188 → **200**. **Tier 2 is complete.**
+
+### A separate model, deliberately
+
+The existing `SupportTicket` carries `userId` and `adminNote` — it is a
+workspace writing to the *platform* about the product. Customer-facing tickets
+are a different audience entirely, and merging them would conflate the two.
+The gap analysis warned against exactly this.
+
+### SLA is stored, not computed on read
+
+`dueAt` is written at creation from the priority (`URGENT` 2h, `HIGH` 8h,
+`NORMAL` 24h, `LOW` 72h). Computing it on read would mean a later change to the
+SLA policy retroactively made historical tickets look breached.
+
+**Escalating measures from when the ticket was filed, not from now** —
+otherwise raising priority would hand back the time already spent:
+
+```
+✔ raising priority tightens the deadline from when it was filed
+```
+
+**A settled ticket is never overdue.** The clock stops on resolve, and the
+`overdue` queue drops it:
+
+```
+✔ a settled ticket is never overdue
+```
+
+### Lifecycle
+
+```
+NEW      -> OPEN, WAITING, RESOLVED, CLOSED
+OPEN     -> WAITING, RESOLVED, CLOSED
+WAITING  -> OPEN, RESOLVED, CLOSED
+RESOLVED -> OPEN, CLOSED          (reopening is normal — the customer replied)
+CLOSED   -> OPEN
+```
+
+Reopening clears `resolvedAt`/`closedAt` and issues a fresh deadline, so a
+reopened ticket is never reported as both resolved and open.
+
+`status` is **absent from the update schema by design** — it moves only through
+`/status`, which is what enforces the transitions and stamps the timestamps.
+The service is asserted to hold that line even when reached directly:
+
+```
+✔ status cannot be changed through the general update path
+✔ the status lifecycle is enforced
+✔ reopening restarts the clock and clears the settled stamps
+```
+
+### Queues
+
+`mine`, `unassigned`, `overdue`, `open`, `all` — resolved to a where-fragment
+in one place, so the counts and the list can never disagree about what
+"overdue" means:
+
+```
+✔ counts agree with the lists they describe
+✔ queues select the right tickets
+✔ the queue is ordered by urgency, not by age
+```
+
+Ordering is priority first, then closest to breaching. Sorting by creation date
+buries the ticket that is about to miss its target.
+
+`firstRespondedAt` is stamped once and never moved, since first response is a
+different measure from resolution time:
+
+```
+✔ first response is stamped once and never moved
+✔ a contact from another workspace cannot be attached
+```
+
 ## Regression baselines required by §102–§103
 
 `AUDIT_REPORT.md` and `COMPLETION_REPORT.md` were searched for across the

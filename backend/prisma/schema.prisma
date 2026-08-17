@@ -38,6 +38,7 @@ model User {
   crmActivitiesAuthored CrmActivity[]      @relation("CrmActivityAuthor")
   teamMemberships       TeamMember[]
   leadFormsOwned        LeadForm[]         @relation("LeadFormOwner")
+  ticketsOwned          CrmTicket[]        @relation("TicketOwner")
 }
 
 model Workspace {
@@ -144,6 +145,7 @@ model Workspace {
   teams                        Team[]
   leadForms                    LeadForm[]
   leadFormSubmissions          LeadFormSubmission[]
+  crmTickets                   CrmTicket[]
   products                     Product[]
   dealLineItems                DealLineItem[]
   quotes                       Quote[]
@@ -320,6 +322,7 @@ model Contact {
   deals               Deal[]
   tasks               Task[]
   crmActivities       CrmActivity[]
+  CrmTicket           CrmTicket[]
 
   @@unique([workspaceId, phoneNumber])
 }
@@ -462,6 +465,7 @@ model Conversation {
   messages         Message[]
   workflowRuns     WorkflowRun[]
   aiSessions       CampaignAiSession[]
+  CrmTicket        CrmTicket[]
 }
 
 // One customer's "Ask Anything" conversation with the AI agent attached to a
@@ -936,6 +940,7 @@ model Team {
 
   workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members   TeamMember[]
+  tickets   CrmTicket[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
@@ -1016,6 +1021,63 @@ model LeadFormSubmission {
   lead      Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, formId, createdAt])
+}
+
+enum TicketStatus {
+  NEW
+  OPEN
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// A customer-facing support ticket.
+//
+// Deliberately separate from SupportTicket, which is the workspace writing to
+// the *platform* about the product (it carries userId and adminNote). Merging
+// the two would conflate two different audiences — see the gap analysis.
+model CrmTicket {
+  id               String         @id @default(cuid())
+  workspaceId      String
+  // Human-facing reference, sequential per workspace: T-0001.
+  ticketNumber     String
+  subject          String
+  description      String?
+  status           TicketStatus   @default(NEW)
+  priority         TicketPriority @default(NORMAL)
+  category         String?
+  contactId        String?
+  ownerUserId      String?
+  teamId           String?
+  // Linking a ticket to the thread it came from is what makes "what did we
+  // actually say to them" answerable without leaving the ticket.
+  conversationId   String?
+  // Response deadline, derived from priority at creation. Stored rather than
+  // computed on read so changing the SLA policy later cannot retroactively
+  // make historical tickets look breached.
+  dueAt            DateTime?
+  firstRespondedAt DateTime?
+  resolvedAt       DateTime?
+  closedAt         DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @default(now()) @updatedAt
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  owner        User?         @relation("TicketOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  team         Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, ticketNumber])
+  @@index([workspaceId, status, dueAt])
+  @@index([workspaceId, ownerUserId])
 }
 
 model Lead {

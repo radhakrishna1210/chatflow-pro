@@ -521,6 +521,35 @@ export const sequenceSchemas = {
   }).strict(),
 };
 
+const TICKET_STATUSES = ['NEW', 'OPEN', 'WAITING', 'RESOLVED', 'CLOSED'];
+const TICKET_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+
+export const ticketSchemas = {
+  create: z.object({
+    subject: z.string().trim().min(1, 'A ticket needs a subject').max(200),
+    description: z.union([z.string().trim().max(5000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    priority: z.enum(TICKET_PRIORITIES).optional(),
+    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    contactId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    teamId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    conversationId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  }),
+  // `status` is absent by design — it moves only through /status, which is what
+  // enforces the transition rules and stamps resolvedAt/closedAt.
+  update: z.object({
+    subject: z.string().trim().min(1).max(200).optional(),
+    description: z.union([z.string().trim().max(5000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    priority: z.enum(TICKET_PRIORITIES).optional(),
+    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    teamId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  }).strict(),
+  status: z.object({
+    status: z.enum(TICKET_STATUSES),
+  }).strict(),
+};
+
 const leadFormField = z.object({
   key: z.string().trim().max(60).optional(),
   label: z.string().trim().min(1).max(80),

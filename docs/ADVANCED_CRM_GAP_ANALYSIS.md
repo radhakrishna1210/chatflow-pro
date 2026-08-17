@@ -67,6 +67,9 @@ name.
 
 ### Tier 2 — genuinely new subsystems
 
+**Tier 2 is complete.** Remaining UI gaps (lead-form builder, ticket views) are
+noted per row.
+
 | Capability | Existing foundation | What's needed | Effort |
 |---|---|---|---|
 | ~~Products & services + line items~~ | — | **DONE** — `Product`, `DealLineItem`, server-side totals | M |
@@ -75,7 +78,7 @@ name.
 | ~~Campaigns → leads integration~~ | — | **DONE** — attributed, scored lead on campaign reply; opt-in per workspace, opt-out respected | M |
 | ~~Workflow triggers for CRM events~~ | — | **DONE** — 4 CRM triggers + 4 CRM actions on the existing engine, with a chain-depth guard. **Builder UI not extended** — CRM nodes are API-configurable only | M |
 | ~~Public lead forms~~ | — | **DONE** — unauthenticated endpoint with honeypot, rate limiting, consent capture, allow-listed attribution, hashed IPs, dedupe. **No builder UI yet** — forms are API-defined | M |
-| CRM support tickets | Platform `SupportTicket` is unrelated | Ticket model with SLA, queues, assignment | M |
+| ~~CRM support tickets~~ | — | **DONE** — `CrmTicket` with stored SLA, enforced lifecycle, queues. Separate from platform `SupportTicket`. **No UI yet** | M |
 | ~~Teams & granular permissions~~ | — | **DONE** — `Team`/`TeamMember` + per-workspace ALL/TEAM/OWN record scoping, server-enforced on leads, deals and tasks. Roles deliberately left at ADMIN/CLIENT — see TEST_EVIDENCE.md. Admin UI in Settings | L |
 
 ### Tier 3 — large, mostly independent
