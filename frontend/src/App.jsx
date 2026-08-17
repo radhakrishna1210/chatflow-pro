@@ -7,6 +7,7 @@ import AuthCallback from './pages/AuthCallback.jsx';
 import WorkspaceSetup from './pages/WorkspaceSetup.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
+import PublicForm from './pages/PublicForm.jsx';
 import { clearStoredSession } from './lib/api.js';
 
 // ─── Tiny history-based router ────────────────────────────────────────────────
@@ -133,6 +134,12 @@ export default function App() {
   if (path === '/register')      return <Register onNav={nav} />;
   // Must work whether or not the visitor is logged in, same as /invite/accept.
   if (path === '/forgot-password') return <ForgotPassword />;
+  // Public lead-capture form: /forms/:workspaceId/:slug. Rendered for
+  // strangers, so it is never guarded and never assumes a session.
+  if (path.startsWith('/forms/')) {
+    const [, , workspaceId, slug] = path.split('/');
+    if (workspaceId && slug) return <PublicForm workspaceId={workspaceId} slug={slug} />;
+  }
   if (path === '/setup') {
     if (!isAuthed() || canAccessDashboard()) return null; // guard effect redirects
     return <WorkspaceSetup onNav={nav} />;

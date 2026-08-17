@@ -77,7 +77,7 @@ noted per row.
 | ~~Sequences / cadences~~ | — | **DONE** — durable engine, queue + worker + recovering sweep, business hours, reply detection, opt-out enforcement, builder UI | L |
 | ~~Campaigns → leads integration~~ | — | **DONE** — attributed, scored lead on campaign reply; opt-in per workspace, opt-out respected | M |
 | ~~Workflow triggers for CRM events~~ | — | **DONE** — 4 CRM triggers + 4 CRM actions on the existing engine, with a chain-depth guard. **Builder UI not extended** — CRM nodes are API-configurable only | M |
-| ~~Public lead forms~~ | — | **DONE** — unauthenticated endpoint with honeypot, rate limiting, consent capture, allow-listed attribution, hashed IPs, dedupe. **No builder UI yet** — forms are API-defined | M |
+| ~~Public lead forms~~ | — | **DONE, end to end** — unauthenticated endpoint with honeypot, rate limiting, consent capture, allow-listed attribution, hashed IPs, dedupe. Builder UI at `LeadFormsView.jsx` (field editor, activation, submission log) and the visitor-facing page at `PublicForm.jsx` (`/forms/:workspaceId/:slug`), which did not exist before — the API returned JSON only, so a published link had nothing to fill in | M |
 | ~~CRM support tickets~~ | — | **DONE** — `CrmTicket` with stored SLA, enforced lifecycle, queues. Separate from platform `SupportTicket`. **No UI yet** | M |
 | ~~Teams & granular permissions~~ | — | **DONE** — `Team`/`TeamMember` + per-workspace ALL/TEAM/OWN record scoping, server-enforced on leads, deals and tasks. Roles deliberately left at ADMIN/CLIENT — see TEST_EVIDENCE.md. Admin UI in Settings | L |
 

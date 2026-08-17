@@ -1243,6 +1243,92 @@ by non-JS answer engines require prerendering or SSR, which is not built.
 
 ---
 
+## Lead-form builder — verified end to end in the browser
+
+Two pieces were built over the existing API: the builder (`LeadFormsView.jsx`)
+and the page a visitor actually fills in (`PublicForm.jsx`). The second was not
+optional — `/api/v1/forms/:workspaceId/:slug` returns JSON, and `App.jsx` had no
+`/forms` route, so before this the builder would have produced a link that
+nothing could open.
+
+### The warning that matters most is not a server error
+
+`submitForm` needs a phone number to create a contact, and therefore a lead. A
+form that collects only an email saves without complaint, publishes without
+complaint, and then records every submission as `REJECTED`. Nothing in the API
+is wrong, and nothing tells the person who built it. The builder calls this out
+while the form is being edited:
+
+```
+This form collects an email but no phone number. A contact in ChatFlow is
+identified by phone, so submissions will be stored and shown below as
+"Rejected", and no leads will be created. Add a phone field if you want this
+form to produce leads.
+```
+
+It is a warning, not a block — an email-only form is a legitimate thing to
+build, it just will not produce leads. Verified live: warning shown, save still
+enabled.
+
+The two rules the server does enforce are surfaced as blocks, so they never
+reach the API as a 400:
+
+```
+no phone and no email field    → "Add a phone or email field — without one, a
+                                  submission cannot identify anyone and no lead
+                                  can be created."           save disabled: true
+choice list with no options    → "Field 3 is a choice list with no options."
+                                                             save disabled: true
+```
+
+### Full path, exercised in the browser
+
+Built a form in the UI (three fields, consent text, live), then opened its
+public URL as an unauthenticated visitor with UTM parameters attached:
+
+```
+submissionOutcome   CREATED
+answers             { full_name: "Priya Raman", phone_number: "+919876500123",
+                      how_did_you_hear_about_us: "Referral" }
+attributionStored   { utm_source: "e2e-test", utm_campaign: "builder-verification",
+                      gclid: "abc123" }
+consentCaptured     text: "I agree to be contacted about my enquiry."  at: true
+ipHashed            3e48ef9d22e0… (32 chars, not an IP)
+leadCreated         true
+leadSource          "Form: E2E Contact Form"
+leadScore           10
+leadContact         "Priya Raman"
+```
+
+Honeypot, submitted the way a bot would — filling every input including the
+hidden one:
+
+```
+response to the bot   { ok: true, message: "Thanks — we'll be in touch shortly." }
+recorded outcome      REJECTED
+recorded reason       "Honeypot triggered"
+answers stored        {}          (discarded, not kept)
+lead created          false
+```
+
+The bot receives a response identical to a real success. Telling it that it was
+caught would tell it what to change.
+
+Honeypot field, as rendered: `tabIndex = -1`, inside `aria-hidden="true"`,
+positioned off-screen, and absent from the tab order — so no keyboard or
+screen-reader user can reach it.
+
+### Deliberate omissions, carried over from the API
+
+- The slug is editable only at creation. `updateForm` deletes it from the
+  payload, and `update` is `.strict()`, so sending it would be a 400 rather than
+  a silent no-op. The editor shows it read-only afterwards with the reason.
+- An inactive form, an unknown slug and a deleted form are indistinguishable on
+  the public page — all three render "This form is not available" — because the
+  API 404s all three so the URL cannot be used to enumerate forms.
+
+---
+
 ## Current full-suite output
 
 ```
