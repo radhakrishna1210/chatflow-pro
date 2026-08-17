@@ -9,6 +9,13 @@ backend/node_modules/
 .env.*.local
 backend/.env
 backend/.env.production
+# Backups and local overrides of env files hold real credentials just as the
+# originals do. backend/.env.bak was untracked but committable, and contained a
+# live connection string for a shared database — see OPEN-009.
+.env.bak
+*.env.bak
+backend/.env.*
+!backend/.env.example
 
 # Build output
 frontend/dist/

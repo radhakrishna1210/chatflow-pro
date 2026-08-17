@@ -10,6 +10,8 @@ import { startCampaignWorker } from './workers/campaign.worker.js';
 import { startEmailWorker } from './workers/email.worker.js';
 import { startBillingWorker } from './workers/billing.worker.js';
 import { startWorkflowWorker } from './workers/workflow.worker.js';
+import { startSequenceWorker } from './workers/sequence.worker.js';
+import { startSequenceSweep } from './queues/sequence.queue.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
@@ -17,6 +19,7 @@ import { campaignQueue } from './queues/campaign.queue.js';
 import { emailQueue } from './queues/email.queue.js';
 import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
 import { workflowQueue } from './queues/workflow.queue.js';
+import { sequenceQueue } from './queues/sequence.queue.js';
 import { prisma } from './lib/prisma.js';
 import { loadPlatformSettings } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
@@ -25,6 +28,7 @@ let campaignWorker = null;
 let emailWorker = null;
 let billingWorker = null;
 let workflowWorker = null;
+let sequenceWorker = null;
 let httpServer = null;
 
 async function initializeSubscriptions() {
@@ -196,10 +200,14 @@ async function main() {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const prismaCliPath = path.resolve(__dirname, '../scripts/prisma-cli.js');
     console.log('[Migration] Running auto-migrations...');
-    execFileSync(process.execPath, [prismaCliPath, 'migrate', 'deploy'], {
-      stdio: 'inherit'
-    });
-    console.log('[Migration] Auto-migrations completed successfully.');
+    if (process.env.NODE_ENV !== 'development') {
+      execFileSync(process.execPath, [prismaCliPath, 'migrate', 'deploy'], {
+        stdio: 'inherit'
+      });
+      console.log('[Migration] Auto-migrations completed successfully.');
+    } else {
+      console.log('[Migration] Skipped migrate deploy in development (use db push).');
+    }
   } catch (err) {
     console.error('[Migration] Failed to run migration:', err);
   }
@@ -255,6 +263,16 @@ async function main() {
     console.log('[Worker] Billing worker started');
     workflowWorker = startWorkflowWorker();
     console.log('[Worker] Workflow worker started');
+    sequenceWorker = startSequenceWorker();
+    console.log('[Worker] Sequence worker started');
+
+    // The repeating sweep is what recovers enrollments whose delayed job was
+    // lost with Redis — nextRunAt lives in the database, so nothing strands.
+    try {
+      await startSequenceSweep();
+    } catch (err) {
+      console.error('[Sequence] Could not schedule the sweep:', err.message);
+    }
 
     // Re-queue SCHEDULED campaigns whose jobs were lost (server/Redis restart).
     try {
@@ -325,8 +343,9 @@ async function shutdown(signal) {
       emailWorker?.close(),
       billingWorker?.close(),
       workflowWorker?.close(),
+      sequenceWorker?.close(),
     ]);
-    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close()]);
+    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close()]);
     await Promise.allSettled([redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);

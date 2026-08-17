@@ -377,6 +377,263 @@ export const userSchemas = {
   }),
 };
 
+const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST'];
+const DEAL_STAGES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
+
+export const leadSchemas = {
+  create: z.object({
+    contactId: id.optional(),
+    name: z.string().trim().min(1).max(120).optional(),
+    phoneNumber: z.string().trim().min(6).max(20).optional(),
+    email: z.union([z.string().trim().email(), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  }).refine((d) => d.contactId || (d.name && d.phoneNumber) || d.phoneNumber, {
+    message: 'Provide contactId, or a phoneNumber to create the contact',
+  }),
+  update: z.object({
+    status: z.enum(LEAD_STATUSES).optional(),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    // Shape only. The values are validated against the workspace's field
+    // definitions in customFields.service.js, which is the only place that
+    // knows what a given key is allowed to contain.
+    customFields: z.record(z.any()).nullable().optional(),
+  }).strict(),
+  convert: z.object({
+    title: z.string().trim().min(1, 'Deal title is required').max(160),
+    value: z.coerce.number().nonnegative().optional().nullable(),
+    currency: z.string().trim().length(3).optional(),
+    stage: z.enum(DEAL_STAGES).optional(),
+    expectedCloseDate: z.coerce.date().optional().nullable(),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  }),
+};
+
+// Line-item money is never accepted from the client — subtotal, taxAmount and
+// total are absent from these schemas by design and are computed server-side.
+const lineItemBase = {
+  productId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  name: z.string().trim().min(1).max(160).optional(),
+  quantity: z.coerce.number().positive().max(1_000_000).optional(),
+  unitPrice: z.coerce.number().nonnegative().max(1_000_000_000).optional(),
+  discountPct: z.coerce.number().min(0).max(100).optional(),
+  taxRate: z.coerce.number().min(0).max(100).optional(),
+};
+
+export const productSchemas = {
+  create: z.object({
+    name: z.string().trim().min(1, 'Product name is required').max(160),
+    sku: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    unitPrice: z.coerce.number().nonnegative().max(1_000_000_000),
+    currency: z.string().trim().length(3).optional(),
+    unit: z.union([z.string().trim().max(24), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    taxRate: z.coerce.number().min(0).max(100).optional(),
+    isService: z.boolean().optional(),
+  }),
+  update: z.object({
+    name: z.string().trim().min(1).max(160).optional(),
+    sku: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    unitPrice: z.coerce.number().nonnegative().max(1_000_000_000).optional(),
+    currency: z.string().trim().length(3).optional(),
+    unit: z.union([z.string().trim().max(24), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    taxRate: z.coerce.number().min(0).max(100).optional(),
+    isService: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  }).strict(),
+};
+
+export const quoteSchemas = {
+  create: z.object({
+    dealId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    contactId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    currency: z.string().trim().length(3).optional(),
+    discountPct: z.coerce.number().min(0).max(100).optional(),
+    validUntil: z.coerce.date().optional().nullable(),
+    terms: z.union([z.string().trim().max(4000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    fromDealLineItems: z.boolean().optional(),
+  }),
+  update: z.object({
+    discountPct: z.coerce.number().min(0).max(100).optional(),
+    validUntil: z.coerce.date().optional().nullable(),
+    terms: z.union([z.string().trim().max(4000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  }).strict(),
+  status: z.object({
+    status: z.enum(['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']),
+  }).strict(),
+  lineItem: z.object(lineItemBase),
+};
+
+export const pipelineStageSchemas = {
+  update: z.object({
+    label: z.string().trim().min(1, 'Stage label is required').max(40).optional(),
+    probability: z.coerce.number().int().min(0).max(100).optional(),
+    isActive: z.boolean().optional(),
+  }).strict(),
+  reorder: z.object({
+    keys: z.array(z.enum(DEAL_STAGES)).min(1),
+  }).strict(),
+};
+
+// Step shape is checked properly by validateSteps() in the engine, which is
+// also what runs on publish. This only keeps obvious junk out of the body.
+const sequenceStep = z.object({
+  kind: z.enum(['MESSAGE', 'WAIT', 'TASK', 'UPDATE_FIELD', 'EXIT']),
+  body: z.string().max(4096).optional(),
+  minutes: z.coerce.number().optional(),
+  title: z.string().max(200).optional(),
+  dueInDays: z.coerce.number().optional(),
+  status: z.string().max(40).optional(),
+  reason: z.string().max(200).optional(),
+}).passthrough();
+
+export const sequenceSchemas = {
+  create: z.object({
+    name: z.string().trim().min(1, 'A sequence needs a name').max(120),
+    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    steps: z.array(sequenceStep).min(1).max(50),
+    respectBusinessHours: z.boolean().optional(),
+    exitOnReply: z.boolean().optional(),
+  }),
+  update: z.object({
+    name: z.string().trim().min(1).max(120).optional(),
+    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    steps: z.array(sequenceStep).min(1).max(50).optional(),
+    respectBusinessHours: z.boolean().optional(),
+    exitOnReply: z.boolean().optional(),
+  }).strict(),
+  status: z.object({
+    status: z.enum(['DRAFT', 'PUBLISHED', 'PAUSED']),
+  }).strict(),
+  enroll: z.object({
+    contactIds: z.array(id).max(1000).optional().default([]),
+    leadIds: z.array(id).max(1000).optional().default([]),
+  }).strict(),
+};
+
+const CUSTOM_FIELD_TYPES = [
+  'TEXT', 'TEXTAREA', 'NUMBER', 'CURRENCY', 'DATE', 'BOOLEAN',
+  'DROPDOWN', 'MULTISELECT', 'URL', 'EMAIL', 'PHONE', 'USER',
+];
+
+export const customFieldSchemas = {
+  create: z.object({
+    entity: z.enum(['lead', 'deal']),
+    label: z.string().trim().min(1, 'A field needs a label').max(60),
+    type: z.enum(CUSTOM_FIELD_TYPES).optional(),
+    options: z.array(z.string().trim().min(1).max(80)).max(100).optional(),
+    helpText: z.union([z.string().trim().max(200), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    required: z.boolean().optional(),
+  }),
+  // Neither `key` nor `type` appears here: values already stored are shaped by
+  // them, so changing either after the fact would reinterpret existing data.
+  update: z.object({
+    label: z.string().trim().min(1).max(60).optional(),
+    options: z.array(z.string().trim().min(1).max(80)).max(100).optional(),
+    helpText: z.union([z.string().trim().max(200), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    required: z.boolean().optional(),
+    sortOrder: z.coerce.number().int().min(0).optional(),
+    isActive: z.boolean().optional(),
+  }).strict(),
+};
+
+const SAVED_VIEW_ENTITIES = ['leads', 'deals', 'tasks'];
+
+export const savedViewSchemas = {
+  create: z.object({
+    entity: z.enum(SAVED_VIEW_ENTITIES),
+    name: z.string().trim().min(1, 'View name is required').max(60),
+    // The stored query is whatever the list screen understands. Capped so a
+    // saved view cannot be used to stash arbitrary payloads in the database.
+    filters: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).default({}),
+    isShared: z.boolean().optional().default(false),
+  }),
+  update: z.object({
+    name: z.string().trim().min(1).max(60).optional(),
+    filters: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+    isShared: z.boolean().optional(),
+  }).strict(),
+};
+
+export const dealSchemas = {
+  create: z.object({
+    contactId: id,
+    leadId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    title: z.string().trim().min(1, 'Deal title is required').max(160),
+    value: z.coerce.number().nonnegative().optional().nullable(),
+    currency: z.string().trim().length(3).optional(),
+    stage: z.enum(DEAL_STAGES).optional(),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    expectedCloseDate: z.coerce.date().optional().nullable(),
+  }),
+  update: z.object({
+    title: z.string().trim().min(1).max(160).optional(),
+    value: z.coerce.number().nonnegative().optional().nullable(),
+    currency: z.string().trim().length(3).optional(),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    expectedCloseDate: z.coerce.date().optional().nullable(),
+    customFields: z.record(z.any()).nullable().optional(),
+  }).strict(),
+  stageUpdate: z.object({
+    stage: z.enum(DEAL_STAGES),
+    lostReason: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  }).strict(),
+  lineItem: z.object(lineItemBase),
+  lineItemUpdate: z.object(lineItemBase).strict(),
+};
+
+const TASK_STATUSES = ['PENDING', 'COMPLETED'];
+const CRM_ACTIVITY_TYPES = ['NOTE', 'CALL', 'EMAIL', 'MEETING'];
+
+// A nullable foreign key supplied by the client. The schema only proves the
+// shape — services still have to prove the referenced row is in this
+// workspace, which is what stops a task being pinned to someone else's deal.
+const optionalRef = z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null));
+
+export const taskSchemas = {
+  create: z.object({
+    title: z.string().trim().min(1, 'Task title is required').max(200),
+    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    status: z.enum(TASK_STATUSES).optional(),
+    dueDate: z.coerce.date().optional().nullable(),
+    assignedToUserId: optionalRef,
+    leadId: optionalRef,
+    dealId: optionalRef,
+    contactId: optionalRef,
+  }),
+  // .strict() is what keeps `workspaceId` out of the update payload — without
+  // it the service spreads the body into prisma.task.update and the task
+  // silently moves to whatever workspace the caller names.
+  update: z.object({
+    title: z.string().trim().min(1).max(200).optional(),
+    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    status: z.enum(TASK_STATUSES).optional(),
+    dueDate: z.coerce.date().optional().nullable(),
+    assignedToUserId: optionalRef,
+    leadId: optionalRef,
+    dealId: optionalRef,
+    contactId: optionalRef,
+  }).strict(),
+};
+
+export const crmActivitySchemas = {
+  create: z.object({
+    type: z.enum(CRM_ACTIVITY_TYPES).optional(),
+    content: z.string().trim().min(1, 'Activity content is required').max(5000),
+    leadId: optionalRef,
+    dealId: optionalRef,
+    contactId: optionalRef,
+  }),
+};
+
 export const clusterSchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'Cluster name is required').max(120),

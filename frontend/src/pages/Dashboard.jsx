@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { canManage } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
@@ -6,8 +6,21 @@ import CreateCampaign from './CreateCampaign.jsx';
 import { wFetch, apiFetch } from '../lib/api.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import { useMessageRates, inr as inrRate } from '../lib/pricing.js';
+import { WalletSummaryCards } from '../components/WalletSummaryCards.jsx';
+// Chart-heavy screens are loaded on demand so Recharts stays out of the
+// initial bundle for anyone who never opens them.
+const CrmDashboardView = lazy(() =>
+  import('./CrmDashboardView.jsx').then(m => ({ default: m.CrmDashboardView })));
+import { CommandPalette } from '../components/CommandPalette.jsx';
 import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 import ContactsView from './ContactsView.jsx';
+import LeadsView from './LeadsView.jsx';
+import DealsView from './DealsView.jsx';
+import TasksView from './TasksView.jsx';
+const ForecastView = lazy(() => import('./ForecastView.jsx'));
+const ProductsView = lazy(() => import('./ProductsView.jsx'));
+const QuotesView = lazy(() => import('./QuotesView.jsx'));
+const SequencesView = lazy(() => import('./SequencesView.jsx'));
 import InboxView from './InboxView.jsx';
 import AutomationView from './AutomationView.jsx';
 import AnalyticsView from './AnalyticsView.jsx';
@@ -482,52 +495,6 @@ const createTemplatePayload = (prompt, body) => {
 };
 
 const inr = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-// Wallet & spend at a glance (spec Part 5). Refreshes on the same
-// wallet:balance-updated event the sidebar listens to, so a recharge or a
-// campaign deduction shows here immediately.
-const WalletSummaryCards = () => {
-  const [summary, setSummary] = useState(null);
-
-  useEffect(() => {
-    let alive = true;
-    const load = () => wFetch('/wallet/summary')
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (alive && d) setSummary(d); })
-      .catch(() => {});
-    load();
-    const onUpdated = () => load();
-    window.addEventListener('wallet:balance-updated', onUpdated);
-    return () => { alive = false; window.removeEventListener('wallet:balance-updated', onUpdated); };
-  }, []);
-
-  if (!summary) return null;
-
-  const tiles = [
-    { label: 'Wallet Balance',   value: inr(summary.balance), accent: summary.balance <= 0 ? '#f87171' : 'var(--green)' },
-    { label: "Today's Spend",    value: inr(summary.todaySpend) },
-    { label: 'Campaign Spend',   value: inr(summary.campaignSpend) },
-    { label: 'Total Campaigns',  value: (summary.totalCampaigns || 0).toLocaleString() },
-    { label: 'Avg / Campaign',   value: inr(summary.averageCostPerCampaign) },
-    {
-      label: 'Last Recharge',
-      value: summary.lastRecharge ? inr(summary.lastRecharge.amount) : '—',
-      sub: summary.lastRecharge ? new Date(summary.lastRecharge.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'No recharges yet',
-    },
-  ];
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-      {tiles.map(t => (
-        <div key={t.label} style={{ ...card, padding: '14px 16px' }}>
-          <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>{t.label}</p>
-          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 19, color: t.accent || 'var(--t1)', letterSpacing: '-.02em' }}>{t.value}</p>
-          {t.sub && <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 3 }}>{t.sub}</p>}
-        </div>
-      ))}
-    </div>
-  );
-};
 
 const HomeView = () => {
   const [prompt, setPrompt] = useState('');
@@ -2639,7 +2606,15 @@ const ADMIN_NAV = [
   { id: 'home',           label: 'Home',           icon: 'home'  },
   { id: 'templates',      label: 'Templates',      icon: 'file'  },
   { id: 'campaigns',      label: 'Campaigns',      icon: 'send'  },
+  { id: 'crm-overview',   label: 'CRM Overview',   icon: 'layout' },
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
+  { id: 'leads',          label: 'Leads',          icon: 'target' },
+  { id: 'deals',          label: 'Deals',          icon: 'briefcase' },
+  { id: 'tasks',          label: 'Tasks',          icon: 'check-square' },
+  { id: 'forecast',       label: 'Forecast',       icon: 'chart' },
+  { id: 'products',       label: 'Products',       icon: 'briefcase' },
+  { id: 'quotes',         label: 'Quotes',         icon: 'note'  },
+  { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
   { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
   { id: 'automation',     label: 'Automation',     icon: 'zap'   },
@@ -2862,7 +2837,15 @@ export default function Dashboard({ onNav, routePath }) {
     if (page === 'inbox')      return <InboxView />;
     if (page === 'campaigns')  return <CampaignsView onCreateCampaign={() => setPage('campaigns-create')} />;
     if (page === 'templates')  return <TemplatesView />;
+    if (page === 'crm-overview') return <CrmDashboardView user={user} />;
     if (page === 'contacts')   return <ContactsView />;
+    if (page === 'leads')      return <LeadsView />;
+    if (page === 'deals')      return <DealsView initialTab={initialSubTab} />;
+    if (page === 'tasks')      return <TasksView />;
+    if (page === 'forecast')   return <ForecastView user={user} />;
+    if (page === 'products')   return <ProductsView />;
+    if (page === 'quotes')     return <QuotesView />;
+    if (page === 'sequences')  return <SequencesView />;
     if (page === 'automation')     return <AutomationView />;
     if (page === 'analytics')      return <AnalyticsView />;
     if (page === 'chat-analysis')  return <ChatAnalytics workspaceId={user.workspaceId} />;
@@ -2909,9 +2892,17 @@ export default function Dashboard({ onNav, routePath }) {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
         <Sidebar page={page} setPage={setPage} onNav={onNav} user={user} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0 }}>
-          {renderView()}
+          <Suspense fallback={
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--t2)', fontSize: 13 }}>
+              <div style={{ width: 24, height: 24, border: '2px solid var(--green)', borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 10px', animation: 'spin 1s linear infinite' }} />
+              Loading…
+            </div>
+          }>
+            {renderView()}
+          </Suspense>
         </div>
       </div>
+      <CommandPalette />
     </div>
   );
 }

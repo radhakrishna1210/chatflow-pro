@@ -134,13 +134,17 @@ async function actionAgent(run, node) {
 
 // ── Run lifecycle ──────────────────────────────────────────────────────────
 
-export async function startRun(workflow, { workspaceId, conversationId, contactId, triggerMessage }) {
+// `leadId`/`dealId` are set for CRM-triggered runs; conversation-triggered
+// runs leave them null and behave exactly as before.
+export async function startRun(workflow, { workspaceId, conversationId, contactId, leadId, dealId, triggerMessage }) {
   const run = await prisma.workflowRun.create({
     data: {
       workspaceId,
       workflowId: workflow.id,
       conversationId: conversationId || null,
       contactId: contactId || null,
+      leadId: leadId || null,
+      dealId: dealId || null,
       nodes: workflow.nodes,
       trace: [],
       triggerMessage: triggerMessage || null,
@@ -191,7 +195,13 @@ export async function advanceRun(runId) {
       if (node.subtype === 'message') outcome = await actionMessage(run, node);
       else if (node.subtype === 'tag') outcome = await actionTag(run, node);
       else if (node.subtype === 'agent') outcome = await actionAgent(run, node);
-      else outcome = { result: 'skipped', detail: `Unknown action "${node.subtype}"` };
+      else {
+        // CRM actions (task, lead status, owner, sequence) live in their own
+        // module so this engine keeps no knowledge of the CRM domain.
+        const { runCrmAction } = await import('./workflowCrm.service.js');
+        outcome = await runCrmAction(run, node)
+          ?? { result: 'skipped', detail: `Unknown action "${node.subtype}"` };
+      }
     } catch (err) {
       console.error(`[WorkflowEngine] step ${i} of run ${run.id} failed:`, err);
       trace.push({ step: i, subtype: node.subtype, detail: err.message, result: 'failed', at: new Date().toISOString() });
