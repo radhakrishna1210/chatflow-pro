@@ -2,7 +2,7 @@ import * as tasksService from '../services/tasks.service.js';
 
 export async function list(req, res) {
   const { status, assignedToUserId, isOverdue } = req.query;
-  const result = await tasksService.listTasks(req.params.workspaceId, { status, assignedToUserId, isOverdue });
+  const result = await tasksService.listTasks(req.params.workspaceId, { status, assignedToUserId, isOverdue }, req.user);
   res.json(result);
 }
 

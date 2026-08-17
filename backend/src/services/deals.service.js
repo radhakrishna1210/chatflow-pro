@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { computeWorkspaceDealHealth, computeDealHealth } from './dealHealth.service.js';
 import { validateCustomFields } from './customFields.service.js';
+import { scopeFilter } from './recordScope.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 
 const CLOSED_STAGES = ['CLOSED_WON', 'CLOSED_LOST'];
@@ -11,9 +12,11 @@ const DEAL_INCLUDE = {
   lead: { select: { id: true, status: true, score: true } },
 };
 
-export async function listDeals(workspaceId, { stage = '', ownerUserId = '' } = {}) {
+export async function listDeals(workspaceId, { stage = '', ownerUserId = '' } = {}, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
   const where = {
     workspaceId,
+    ...scope,
     ...(stage ? { stage } : {}),
     ...(ownerUserId ? { ownerUserId } : {}),
   };
@@ -30,9 +33,10 @@ export async function listDeals(workspaceId, { stage = '', ownerUserId = '' } = 
   };
 }
 
-export async function getDeal(workspaceId, id) {
+export async function getDeal(workspaceId, id, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
   const deal = await prisma.deal.findFirst({
-    where: { id, workspaceId },
+    where: { id, workspaceId, ...scope },
     include: {
       ...DEAL_INCLUDE,
       stageHistory: {
@@ -80,8 +84,9 @@ export async function createDeal(workspaceId, body, userId) {
 
 // Stage is deliberately not updatable here — it moves only through
 // updateDealStage(), which is what guarantees every move lands in the history.
-export async function updateDeal(workspaceId, id, updates) {
-  const deal = await prisma.deal.findFirst({ where: { id, workspaceId }, select: { id: true, customFields: true } });
+export async function updateDeal(workspaceId, id, updates, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const deal = await prisma.deal.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true, customFields: true } });
   if (!deal) { const e = new Error('Deal not found'); e.status = 404; throw e; }
 
   const data = { ...updates };
@@ -92,8 +97,9 @@ export async function updateDeal(workspaceId, id, updates) {
   return prisma.deal.update({ where: { id }, data, include: DEAL_INCLUDE });
 }
 
-export async function deleteDeal(workspaceId, id) {
-  const deal = await prisma.deal.findFirst({ where: { id, workspaceId }, select: { id: true } });
+export async function deleteDeal(workspaceId, id, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const deal = await prisma.deal.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true } });
   if (!deal) { const e = new Error('Deal not found'); e.status = 404; throw e; }
   await prisma.deal.delete({ where: { id } });
 }
@@ -101,9 +107,13 @@ export async function deleteDeal(workspaceId, id) {
 // One row of stage history per move, written in the same transaction as the
 // move itself — the pipeline board's drag/drop is only auditable if a stage
 // change can never be recorded without its history entry.
-export async function updateDealStage(workspaceId, id, { stage, lostReason }, userId) {
+export async function updateDealStage(workspaceId, id, { stage, lostReason }, userId, user = null) {
+  // Scope is resolved before the transaction: a member must not be able to
+  // move a deal they cannot see.
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+
   const updated = await prisma.$transaction(async (tx) => {
-    const deal = await tx.deal.findFirst({ where: { id, workspaceId } });
+    const deal = await tx.deal.findFirst({ where: { id, workspaceId, ...scope } });
     if (!deal) { const e = new Error('Deal not found'); e.status = 404; throw e; }
 
     const updated = await tx.deal.update({

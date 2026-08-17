@@ -519,6 +519,25 @@ export const sequenceSchemas = {
   }).strict(),
 };
 
+export const teamSchemas = {
+  create: z.object({
+    name: z.string().trim().min(1, 'A team needs a name').max(80),
+    description: z.union([z.string().trim().max(300), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  }),
+  update: z.object({
+    name: z.string().trim().min(1).max(80).optional(),
+    description: z.union([z.string().trim().max(300), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  }).strict(),
+  members: z.object({
+    // The full membership list, not a delta — a partial update would make
+    // "who is on this team" depend on request ordering.
+    userIds: z.array(id).max(500),
+  }).strict(),
+  visibility: z.object({
+    recordVisibility: z.enum(['ALL', 'TEAM', 'OWN']),
+  }).strict(),
+};
+
 const CUSTOM_FIELD_TYPES = [
   'TEXT', 'TEXTAREA', 'NUMBER', 'CURRENCY', 'DATE', 'BOOLEAN',
   'DROPDOWN', 'MULTISELECT', 'URL', 'EMAIL', 'PHONE', 'USER',

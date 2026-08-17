@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { resolveCrmReferences } from './crmReferences.js';
+import { scopeFilter } from './recordScope.service.js';
 
 const TASK_INCLUDE = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -8,9 +9,11 @@ const TASK_INCLUDE = {
   contact: { select: { id: true, name: true, email: true } },
 };
 
-export async function listTasks(workspaceId, { status, assignedToUserId, isOverdue } = {}) {
+export async function listTasks(workspaceId, { status, assignedToUserId, isOverdue } = {}, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user, { ownerField: 'assignedToUserId' }) : {};
   const where = {
     workspaceId,
+    ...scope,
     ...(status ? { status } : {}),
     ...(assignedToUserId ? { assignedToUserId } : {}),
   };

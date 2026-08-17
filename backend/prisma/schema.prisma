@@ -36,6 +36,7 @@ model User {
   quotesAuthored        Quote[]            @relation("QuoteAuthor")
   tasksAssigned         Task[]             @relation("TaskAssignee")
   crmActivitiesAuthored CrmActivity[]      @relation("CrmActivityAuthor")
+  teamMemberships       TeamMember[]
 }
 
 model Workspace {
@@ -98,6 +99,9 @@ model Workspace {
   // (INR). Campaign cost = valid recipients × this, charged once at launch.
   // Workspace-level so a reseller can price per account without a plan change.
   costPerMessage               Decimal                  @default(0.92) @db.Decimal(10, 4)
+  // ALL | TEAM | OWN — who can see leads, deals and tasks they do not own.
+  // Defaults to ALL, which is the behaviour every existing workspace has.
+  recordVisibility             String                   @default("ALL")
   createdAt                    DateTime                 @default(now())
   apiKeys                      ApiKey[]
   triggers                     AutomationTrigger[]
@@ -133,6 +137,7 @@ model Workspace {
   sequences                    Sequence[]
   sequenceEnrollments          SequenceEnrollment[]
   sequenceStepRuns             SequenceStepRun[]
+  teams                        Team[]
   products                     Product[]
   dealLineItems                DealLineItem[]
   quotes                       Quote[]
@@ -910,6 +915,36 @@ model SavedView {
   // instead of silently accumulating duplicates in the picker.
   @@unique([workspaceId, entity, createdByUserId, name])
   @@index([workspaceId, entity])
+}
+
+// A named group of workspace members. Teams exist so record visibility can be
+// scoped to colleagues rather than to the whole workspace — see
+// Workspace.recordVisibility.
+model Team {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   TeamMember[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+}
+
+model TeamMember {
+  teamId   String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
 }
 
 model Lead {

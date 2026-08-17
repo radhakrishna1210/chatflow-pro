@@ -2,12 +2,12 @@ import * as leadsService from '../services/leads.service.js';
 
 export async function list(req, res) {
   const { status, ownerUserId, search, sort } = req.query;
-  const result = await leadsService.listLeads(req.params.workspaceId, { status, ownerUserId, search, sort });
+  const result = await leadsService.listLeads(req.params.workspaceId, { status, ownerUserId, search, sort }, req.user);
   res.json(result);
 }
 
 export async function get(req, res) {
-  const result = await leadsService.getLead(req.params.workspaceId, req.params.id);
+  const result = await leadsService.getLead(req.params.workspaceId, req.params.id, req.user);
   res.json(result);
 }
 
@@ -17,17 +17,17 @@ export async function create(req, res) {
 }
 
 export async function update(req, res) {
-  const result = await leadsService.updateLead(req.params.workspaceId, req.params.id, req.body);
+  const result = await leadsService.updateLead(req.params.workspaceId, req.params.id, req.body, req.user);
   res.json(result);
 }
 
 export async function remove(req, res) {
-  await leadsService.deleteLead(req.params.workspaceId, req.params.id);
+  await leadsService.deleteLead(req.params.workspaceId, req.params.id, req.user);
   res.status(204).send();
 }
 
 export async function recalculateScore(req, res) {
-  const result = await leadsService.recalculateScore(req.params.workspaceId, req.params.id);
+  const result = await leadsService.recalculateScore(req.params.workspaceId, req.params.id, req.user);
   res.json(result);
 }
 

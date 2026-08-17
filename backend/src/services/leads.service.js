@@ -3,15 +3,21 @@ import { isValidPhone, normalizePhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { validateCustomFields } from './customFields.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
+import { scopeFilter } from './recordScope.service.js';
 
 const LEAD_INCLUDE = {
   contact: { select: { id: true, name: true, phoneNumber: true, email: true, tags: true, optedOut: true } },
   owner: { select: { id: true, name: true, email: true } },
 };
 
-export async function listLeads(workspaceId, { status = '', ownerUserId = '', search = '', sort = 'score' } = {}) {
+// `user` carries the caller's identity and role. Record visibility is applied
+// here rather than in the controller so every path — list, get, and the
+// exports that reuse them — is scoped by the same rule.
+export async function listLeads(workspaceId, { status = '', ownerUserId = '', search = '', sort = 'score' } = {}, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
   const where = {
     workspaceId,
+    ...scope,
     ...(status ? { status } : {}),
     ...(ownerUserId ? { ownerUserId } : {}),
     ...(search ? {
@@ -32,9 +38,13 @@ export async function listLeads(workspaceId, { status = '', ownerUserId = '', se
   return { data, total };
 }
 
-export async function getLead(workspaceId, id) {
+export async function getLead(workspaceId, id, user = null) {
+  // An out-of-scope lead returns the same 404 as a non-existent one. A 403
+  // would confirm the record exists and let someone map a colleague's pipeline
+  // by walking ids.
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
   const lead = await prisma.lead.findFirst({
-    where: { id, workspaceId },
+    where: { id, workspaceId, ...scope },
     include: {
       ...LEAD_INCLUDE,
       deals: { orderBy: { createdAt: 'desc' } },
@@ -93,8 +103,9 @@ export async function createLead(workspaceId, body) {
 
 // `updates` arrives pre-whitelisted by the strict update validator, so
 // workspaceId/score/convertedDealId cannot be mass-assigned.
-export async function updateLead(workspaceId, id, updates) {
-  const lead = await prisma.lead.findFirst({ where: { id, workspaceId }, select: { id: true, status: true, customFields: true } });
+export async function updateLead(workspaceId, id, updates, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true, status: true, customFields: true } });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
 
   const data = { ...updates };
@@ -114,14 +125,16 @@ export async function updateLead(workspaceId, id, updates) {
   return updated;
 }
 
-export async function deleteLead(workspaceId, id) {
-  const lead = await prisma.lead.findFirst({ where: { id, workspaceId }, select: { id: true } });
+export async function deleteLead(workspaceId, id, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true } });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
   await prisma.lead.delete({ where: { id } });
 }
 
-export async function recalculateScore(workspaceId, id) {
-  const lead = await prisma.lead.findFirst({ where: { id, workspaceId }, select: { id: true, contactId: true, score: true } });
+export async function recalculateScore(workspaceId, id, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true, contactId: true, score: true } });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
   const { score, factors, computedAt } = await computeLeadScore(workspaceId, lead.contactId);
 

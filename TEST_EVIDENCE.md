@@ -767,6 +767,77 @@ The `owner` action was configured with a name matching nobody and still
 resolved to an admin rather than failing — ownership lands somewhere real,
 matching the existing conversation-assign behaviour.
 
+## Teams and record-level permissions — 2026-08-17
+
+`Team`, `TeamMember`, and a per-workspace `recordVisibility` mode.
+12 new tests; full suite 153 → **165, no regressions**.
+
+### Why not five roles
+
+§44 lists Admin / Manager / Member / Support / Read-only, but also says roles
+*"should follow the repository's authorization design"*. `authorize.js` carries
+a deliberate, documented two-role model: CLIENT runs everything operational,
+ADMIN adds the two capabilities that are really one — spending money and
+granting access. Splitting that into five would contradict a reasoned design
+for no security gain.
+
+What was genuinely missing is §45's **record-level** scoping, so that is what
+was built.
+
+### Three modes, defaulting to today's behaviour
+
+```
+ALL    every member sees every record          (default — nothing changes)
+TEAM   own + records of anyone sharing a team  + unowned
+OWN    own                                     + unowned
+```
+
+`ALL` is the default, so enabling the feature alters nothing until an admin
+opts in — verified:
+
+```
+✔ a fresh workspace defaults to ALL — enabling the feature changes nothing
+```
+
+**Unowned records stay visible in every mode.** A lead nobody owns would
+otherwise be invisible to the entire workspace and quietly rot, which is the
+opposite of what scoping is for.
+
+### Enforced on the server, at every path
+
+§45: *"Never rely on hidden UI."* The same filter applies to list, get-by-id,
+update and delete on leads, deals and tasks — tasks scope on
+`assignedToUserId` rather than `ownerUserId`.
+
+**Out-of-scope reads return 404, not 403.** A 403 confirms the record exists
+and lets someone walk ids to map a colleague's pipeline.
+
+Verified over HTTP with three separately authenticated users:
+
+```
+default (ALL)     alice sees leads: 2
+
+after OWN         alice sees leads: 1
+                  alice GET  carol's lead by id  -> 404   (not 403)
+                  alice PATCH carol's lead       -> 404   refused
+                  admin sees leads: 2                     (admins are unfiltered)
+                  member changing visibility     -> 403   forbidden
+```
+
+Hiding a record in the list is worthless if it is still writable, so the edit
+path is asserted separately:
+
+```
+✔ an out-of-scope record cannot be edited by guessing its id
+✔ losing a team narrows visibility immediately
+✔ a team cannot include someone outside the workspace
+✔ a call with no user fails closed rather than open
+```
+
+That last one matters: `scopeFilter` with no identified user returns an
+impossible filter rather than `{}`, so a path that somehow reaches it
+unauthenticated sees nothing rather than everything.
+
 ## Regression baselines required by §102–§103
 
 `AUDIT_REPORT.md` and `COMPLETION_REPORT.md` were searched for across the

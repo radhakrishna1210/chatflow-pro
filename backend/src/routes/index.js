@@ -47,6 +47,7 @@ import quotesRoutes from './quotes.routes.js';
 import crmDataRoutes from './crmData.routes.js';
 import customFieldsRoutes from './customFields.routes.js';
 import sequencesRoutes from './sequences.routes.js';
+import teamsRoutes from './teams.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 
 const router = Router();
@@ -95,6 +96,7 @@ ws.use('/quotes', quotesRoutes);
 ws.use('/crm-data', crmDataRoutes);
 ws.use('/custom-fields', customFieldsRoutes);
 ws.use('/sequences', sequencesRoutes);
+ws.use('/teams', teamsRoutes);
 ws.use('/conversations', conversationsRoutes);
 ws.use('/analytics', analyticsRoutes);
 ws.use('/automation', automationRoutes);

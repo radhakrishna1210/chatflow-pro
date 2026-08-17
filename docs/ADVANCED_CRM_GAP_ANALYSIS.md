@@ -76,7 +76,7 @@ name.
 | ~~Workflow triggers for CRM events~~ | — | **DONE** — 4 CRM triggers + 4 CRM actions on the existing engine, with a chain-depth guard. **Builder UI not extended** — CRM nodes are API-configurable only | M |
 | Public lead forms | `WhatsappForm` is a partial precedent | Public submit endpoint, anti-spam, attribution, dedupe | M |
 | CRM support tickets | Platform `SupportTicket` is unrelated | Ticket model with SLA, queues, assignment | M |
-| Teams & granular permissions | Only `ADMIN`/`CLIENT` | Team model + per-resource scoping (own/team/all); server-enforced | L |
+| ~~Teams & granular permissions~~ | — | **DONE** — `Team`/`TeamMember` + per-workspace ALL/TEAM/OWN record scoping, server-enforced on leads, deals and tasks. Roles deliberately left at ADMIN/CLIENT — see TEST_EVIDENCE.md. **No admin UI yet** | L |
 
 ### Tier 3 — large, mostly independent
 
