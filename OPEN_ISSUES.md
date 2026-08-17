@@ -3,7 +3,7 @@
 Unresolved items as of 2026-08-16, branch `aditya-advanced-crm`. Nothing here is
 hidden or downgraded — anything not verified is listed.
 
-## OPEN-001 — Migration history cannot be replayed from scratch — CONFIRMED
+## OPEN-001 — Migration history cannot be replayed from scratch — RESOLVED (2026-08-17)
 
 **Severity:** High · **Area:** `backend/prisma/migrations/`
 
@@ -25,8 +25,28 @@ be provisioned from migrations alone.
 This produces a correct 55-table schema but leaves `_prisma_migrations` empty,
 so the history stays unreplayable.
 
-**Next action:** squash the history into a verified baseline, or repair
-`20260717073845_add_subscription_models` so it is self-contained.
+**Resolved** by squashing the history into a single verified baseline. The 32
+previous migrations moved to `prisma/migrations_archive/` with a README
+explaining why; `prisma/migrations/00000000000000_baseline/` replaces them.
+
+Verified on a scratch database rather than asserted:
+
+```
+prisma migrate deploy                          → applied, from empty
+prisma migrate diff --from-url <scratch>
+       --to-schema-datamodel --exit-code       → No difference detected. (exit 0)
+```
+
+The baseline is marked applied on the local development database, so
+`migrate status` now reports *"Database schema is up to date!"* instead of an
+empty `_prisma_migrations`.
+
+**Still to do on the hosted database, by a human:** the baseline must be marked
+applied there with `prisma migrate resolve --applied 00000000000000_baseline` —
+but only after OPEN-002 is resolved, or the existing drift gets frozen in place
+and presented as correct. This branch is under a standing local-database-only
+instruction and `scripts/assert-local-db.js` blocks the remote connection, so it
+was deliberately not attempted here.
 
 Original symptom, via the shadow database:
 
