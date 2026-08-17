@@ -74,7 +74,7 @@ name.
 | ~~Sequences / cadences~~ | — | **DONE** — durable engine, queue + worker + recovering sweep, business hours, reply detection, opt-out enforcement, builder UI | L |
 | ~~Campaigns → leads integration~~ | — | **DONE** — attributed, scored lead on campaign reply; opt-in per workspace, opt-out respected | M |
 | ~~Workflow triggers for CRM events~~ | — | **DONE** — 4 CRM triggers + 4 CRM actions on the existing engine, with a chain-depth guard. **Builder UI not extended** — CRM nodes are API-configurable only | M |
-| Public lead forms | `WhatsappForm` is a partial precedent | Public submit endpoint, anti-spam, attribution, dedupe | M |
+| ~~Public lead forms~~ | — | **DONE** — unauthenticated endpoint with honeypot, rate limiting, consent capture, allow-listed attribution, hashed IPs, dedupe. **No builder UI yet** — forms are API-defined | M |
 | CRM support tickets | Platform `SupportTicket` is unrelated | Ticket model with SLA, queues, assignment | M |
 | ~~Teams & granular permissions~~ | — | **DONE** — `Team`/`TeamMember` + per-workspace ALL/TEAM/OWN record scoping, server-enforced on leads, deals and tasks. Roles deliberately left at ADMIN/CLIENT — see TEST_EVIDENCE.md. Admin UI in Settings | L |
 

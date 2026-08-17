@@ -895,6 +895,89 @@ lead in DB:     CONTACTED | Campaign: Festive Sale | score 10 | factors 6
 
 Six score factors stored with it, so the number is explainable on arrival.
 
+## Public lead forms — 2026-08-17
+
+`LeadForm` + `LeadFormSubmission`, with an unauthenticated public endpoint at
+`/api/v1/forms/:workspaceId/:slug`. 14 new tests; suite 174 → **188**.
+
+This is **the only unauthenticated write path in the CRM**, so it is written
+assuming the caller is hostile.
+
+### What the public surface does not reveal
+
+```
+✔ the public form exposes nothing internal
+✔ an inactive form is indistinguishable from a missing one
+✔ a form belonging to another workspace cannot be submitted through this one
+```
+
+The public payload is exactly four keys — `name`, `description`, `fields`,
+`consentText`. No id, no `workspaceId`, no owner, no submission counts.
+
+An inactive form and a non-existent one both 404, so the endpoint cannot be
+used to enumerate which slugs exist.
+
+**Every outcome returns the same response.** A duplicate submission gets a byte
+-identical reply to a successful one — the test asserts
+`deepEqual(first, second)` — because telling a stranger "that number is already
+a lead" leaks the customer list.
+
+### Anti-spam and abuse
+
+- **Honeypot** (`_hp`): a field no human sees. Filled means bot. The response
+  still looks successful, because explaining the trap teaches the bot to avoid
+  it. The attempt is recorded as `REJECTED`.
+- **Rate limited** per IP: 60/min reading a form, 10/min submitting — the
+  submit path is tighter because each one can create a contact and a lead.
+- **Attribution is an allow-list**, not a passthrough. Verified: submitting
+  `{ utm_source: 'newsletter', evil_key: 'dropped' }` stored only
+  `{"utm_source":"newsletter"}`. Otherwise hidden fields become arbitrary
+  attacker-controlled storage.
+- **IPs are hashed**, never stored raw — enough to spot a flood, not a log of
+  who visited. Verified: a 32-character digest, not the address.
+
+### Validation and consent
+
+Answers are checked against the form's own field definitions, since the request
+schema cannot know them:
+
+```
+✔ answers are validated against the form definition   (phone, email, select, required)
+✔ consent is required when the form asks for it
+✔ a form with no phone or email cannot be created
+✔ the slug cannot be changed after publication
+```
+
+A form that cannot identify anyone is refused at creation — it could never
+produce a lead. The slug is immutable once published: a live form silently
+404ing is worse than an ugly URL. The exact consent wording is copied onto each
+submission, so editing the form later cannot rewrite what someone agreed to.
+
+### Every submission is kept
+
+Including the ones that produce no lead — `DUPLICATE`, `OPTED_OUT`,
+`REJECTED` — because without them "the form is live but no leads are arriving"
+is unanswerable.
+
+```
+✔ an opted-out contact is recorded but never becomes a lead
+✔ a duplicate submission does not create a second lead, and does not say so
+✔ the honeypot silently discards bots
+```
+
+### End-to-end with no Authorization header
+
+```
+GET  (no auth)       -> 200 | keys: consentText,description,fields,name
+POST (no auth)       -> 200 {"ok":true,"message":"Thanks — we'll be in touch shortly."}
+POST bad phone       -> 400 rejected
+POST without consent -> 400 rejected
+
+lead created         -> NEW | Website | score 10
+attribution kept     -> {"utm_source":"newsletter"}      (evil_key dropped)
+ip hashed not raw    -> eff8e7ca5066... (32 chars)
+```
+
 ## Regression baselines required by §102–§103
 
 `AUDIT_REPORT.md` and `COMPLETION_REPORT.md` were searched for across the

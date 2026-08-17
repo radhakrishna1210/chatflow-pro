@@ -48,6 +48,8 @@ import crmDataRoutes from './crmData.routes.js';
 import customFieldsRoutes from './customFields.routes.js';
 import sequencesRoutes from './sequences.routes.js';
 import teamsRoutes from './teams.routes.js';
+import leadFormsRoutes from './leadForms.routes.js';
+import publicFormsRoutes from './publicForms.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 
 const router = Router();
@@ -75,6 +77,8 @@ router.use('/users', usersRoutes);
 router.use('/notifications', notificationsRoutes);
 router.use('/integrations/oauth', oauthCallbackRouter);
 router.use('/invitations', publicInvitationsRouter);
+// Public lead-capture forms: no session, workspace named in the URL.
+router.use('/forms', publicFormsRoutes);
 
 const ws = Router({ mergeParams: true });
 ws.use('/whatsapp', whatsappRoutes);
@@ -97,6 +101,7 @@ ws.use('/crm-data', crmDataRoutes);
 ws.use('/custom-fields', customFieldsRoutes);
 ws.use('/sequences', sequencesRoutes);
 ws.use('/teams', teamsRoutes);
+ws.use('/lead-forms', leadFormsRoutes);
 ws.use('/conversations', conversationsRoutes);
 ws.use('/analytics', analyticsRoutes);
 ws.use('/automation', automationRoutes);

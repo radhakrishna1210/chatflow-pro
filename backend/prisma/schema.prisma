@@ -37,6 +37,7 @@ model User {
   tasksAssigned         Task[]             @relation("TaskAssignee")
   crmActivitiesAuthored CrmActivity[]      @relation("CrmActivityAuthor")
   teamMemberships       TeamMember[]
+  leadFormsOwned        LeadForm[]         @relation("LeadFormOwner")
 }
 
 model Workspace {
@@ -141,6 +142,8 @@ model Workspace {
   sequenceEnrollments          SequenceEnrollment[]
   sequenceStepRuns             SequenceStepRun[]
   teams                        Team[]
+  leadForms                    LeadForm[]
+  leadFormSubmissions          LeadFormSubmission[]
   products                     Product[]
   dealLineItems                DealLineItem[]
   quotes                       Quote[]
@@ -950,6 +953,71 @@ model TeamMember {
   @@index([userId])
 }
 
+// A public lead-capture form. Served by slug on an unauthenticated endpoint,
+// so everything here is deliberately conservative: a form is inactive until
+// published, and nothing about the workspace is exposed beyond what the form
+// itself declares.
+model LeadForm {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  // URL slug. Unique per workspace; the public route resolves
+  // workspace + slug together so slugs cannot collide across tenants.
+  slug           String
+  name           String
+  description    String?
+  // [{ key, label, type, required, options? }] — type is one of
+  // text | email | phone | textarea | select. Validated server-side on submit.
+  fields         Json
+  // Shown after a successful submission.
+  successMessage String   @default("Thanks — we'll be in touch shortly.")
+  // Text the visitor must agree to. When set, submission requires consent and
+  // the agreed wording is stored with the submission as evidence.
+  consentText    String?
+  // Leads created by this form get this source, and optionally an owner.
+  source         String?
+  ownerUserId    String?
+  isActive       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner       User?                @relation("LeadFormOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  submissions LeadFormSubmission[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, isActive])
+}
+
+// Every submission is kept, including ones that did not produce a lead
+// (duplicate, opted-out, rejected). Without the rejects there is no way to
+// answer "the form is live but no leads are arriving — why?".
+model LeadFormSubmission {
+  id          String    @id @default(cuid())
+  workspaceId String
+  formId      String
+  leadId      String?
+  contactId   String?
+  // What the visitor actually submitted, after validation.
+  answers     Json
+  // CREATED | DUPLICATE | OPTED_OUT | REJECTED
+  outcome     String
+  reason      String?
+  // The exact consent wording agreed to, copied at submission time — editing
+  // the form later must not rewrite what someone agreed to.
+  consentText String?
+  consentAt   DateTime?
+  // Hidden attribution fields (utm_source and friends) plus referrer.
+  attribution Json?
+  ipHash      String?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  form      LeadForm  @relation(fields: [formId], references: [id], onDelete: Cascade)
+  lead      Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, formId, createdAt])
+}
+
 model Lead {
   id              String     @id @default(cuid())
   workspaceId     String
@@ -976,6 +1044,7 @@ model Lead {
   tasks              Task[]
   crmActivities      CrmActivity[]
   SequenceEnrollment SequenceEnrollment[]
+  LeadFormSubmission LeadFormSubmission[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, score])

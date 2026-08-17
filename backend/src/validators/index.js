@@ -521,6 +521,47 @@ export const sequenceSchemas = {
   }).strict(),
 };
 
+const leadFormField = z.object({
+  key: z.string().trim().max(60).optional(),
+  label: z.string().trim().min(1).max(80),
+  type: z.enum(['text', 'email', 'phone', 'textarea', 'select']).optional(),
+  required: z.boolean().optional(),
+  options: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
+});
+
+export const leadFormSchemas = {
+  create: z.object({
+    name: z.string().trim().min(1, 'A form needs a name').max(120),
+    slug: z.string().trim().max(60).optional(),
+    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    fields: z.array(leadFormField).min(1).max(25),
+    successMessage: z.string().trim().min(1).max(300).optional(),
+    consentText: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    isActive: z.boolean().optional(),
+  }),
+  update: z.object({
+    name: z.string().trim().min(1).max(120).optional(),
+    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    fields: z.array(leadFormField).min(1).max(25).optional(),
+    successMessage: z.string().trim().min(1).max(300).optional(),
+    consentText: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    isActive: z.boolean().optional(),
+  }).strict(),
+  // Public submission. Deliberately permissive in shape — the real validation
+  // is against the form's own field definitions, which this layer cannot see.
+  // `_hp` is the honeypot and must be accepted so it can be inspected.
+  submit: z.object({
+    answers: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).default({}),
+    attribution: z.record(z.string()).optional(),
+    consent: z.boolean().optional(),
+    _hp: z.string().max(200).optional(),
+  }).strict(),
+};
+
 export const teamSchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'A team needs a name').max(80),
