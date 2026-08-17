@@ -1444,6 +1444,74 @@ never pipeline value.
 
 ---
 
+## Ticket queues — verified in the browser
+
+`TicketsView.jsx` over the existing `/tickets` API. Two server rules shape the
+screen, and both are surfaced rather than left to fail on submit.
+
+### Only legal transitions are offered
+
+Status moves through `PATCH /:id/status` and only along `ALLOWED_TRANSITIONS`.
+Drawing every status as a button would just produce 409s, so the detail offers
+what the ticket's current state actually permits. Observed on one ticket, before
+and after resolving it:
+
+```
+status NEW       → moves offered: Open, Waiting, Resolved, Closed
+status RESOLVED  → moves offered: Open, Closed
+```
+
+### Raising priority can breach the SLA instantly
+
+`updateTicket` recomputes `dueAt` from `createdAt`, not from now — deliberately,
+so raising priority does not hand back time already spent. The consequence is
+that raising priority on an old ticket can make it overdue the moment it is
+applied, which is surprising enough to say first.
+
+Fixture: T-0003 aged to 10 hours old at LOW priority (72h target, comfortably
+fine). Switching the priority selector to HIGH (8h target) surfaced:
+
+```
+warning before the change:  false
+warning after the change:   true
+  "The response deadline is measured from when the ticket was filed, not from
+   now. At high priority (8h) this ticket would already be overdue the moment
+   you apply it."
+```
+
+Applying it confirmed the warning was accurate rather than merely cautious:
+
+```
+T-0003 · High · 2h overdue     (filed 08:39, response due 16:39)
+```
+
+### Queues, counts and the stopped clock
+
+Three tickets: T-0001 urgent/unassigned, T-0002 normal/owned, T-0003 resolved.
+
+```
+Open 2   Mine 2   Unassigned 1   Overdue 0   All 3
+
+mine        → T-0003, T-0002
+unassigned  → T-0001
+overdue     → empty: "No ticket has missed its response target."
+all         → T-0001 (Urgent), T-0003 (High), T-0002 (Normal)   ← priority order
+```
+
+`Overdue 0` is correct rather than a miss: T-0003 *was* two hours past its
+target, and resolving it stopped the clock. `SETTLED` statuses are excluded from
+the overdue filter, and the detail drops the countdown once a ticket settles.
+
+Resolving it also awarded XP through the real path — `resolved_ticket +8`,
+taking the profile to 68 XP — which confirms the gamification hook fires from
+the UI and not only from a direct service call.
+
+**Not captured:** a screenshot. The Browser pane was not being displayed by the
+end of this run, so the page could not composite frames. Every assertion above
+is read from the live DOM and the network log instead.
+
+---
+
 ## Current full-suite output
 
 ```

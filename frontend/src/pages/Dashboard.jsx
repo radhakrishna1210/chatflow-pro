@@ -22,6 +22,7 @@ const ProductsView = lazy(() => import('./ProductsView.jsx'));
 const QuotesView = lazy(() => import('./QuotesView.jsx'));
 const SequencesView = lazy(() => import('./SequencesView.jsx'));
 const LeadFormsView = lazy(() => import('./LeadFormsView.jsx'));
+const TicketsView = lazy(() => import('./TicketsView.jsx'));
 import InboxView from './InboxView.jsx';
 import AutomationView from './AutomationView.jsx';
 import AnalyticsView from './AnalyticsView.jsx';
@@ -2617,6 +2618,7 @@ const ADMIN_NAV = [
   { id: 'quotes',         label: 'Quotes',         icon: 'note'  },
   { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
   { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
+  { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
   { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
   { id: 'automation',     label: 'Automation',     icon: 'zap'   },
@@ -2849,6 +2851,7 @@ export default function Dashboard({ onNav, routePath }) {
     if (page === 'quotes')     return <QuotesView />;
     if (page === 'sequences')  return <SequencesView />;
     if (page === 'lead-forms') return <LeadFormsView />;
+    if (page === 'tickets')    return <TicketsView />;
     if (page === 'automation')     return <AutomationView />;
     if (page === 'analytics')      return <AnalyticsView />;
     if (page === 'chat-analysis')  return <ChatAnalytics workspaceId={user.workspaceId} />;
