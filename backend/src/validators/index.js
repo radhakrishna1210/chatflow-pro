@@ -756,3 +756,12 @@ export const copilotSchemas = {
     args: z.record(z.unknown()).optional(),
   }).strict(),
 };
+
+// Describe-an-automation compiler. The description is free text; the real
+// checking is against the engine's vocabulary in workflowCompiler.service.js.
+export const workflowCompilerSchemas = {
+  compile: z.object({
+    description: z.string().trim().min(1, 'Describe the automation you want').max(1000),
+    name: z.string().trim().min(1).max(120).optional(),
+  }).strict(),
+};
