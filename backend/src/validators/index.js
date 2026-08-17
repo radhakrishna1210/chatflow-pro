@@ -119,7 +119,7 @@ export const contactSchemas = {
   create: z.object({
     name: z.string().trim().min(1).max(120),
     phoneNumber: z.string().trim().min(6).max(20),
-    email: z.union([z.string().trim().email(), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    email: z.union([z.string().trim().email(), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     tags: z.array(z.string().trim().max(50)).max(30).optional().default([]),
   }),
   update: z.object({
@@ -387,18 +387,18 @@ export const leadSchemas = {
     contactId: id.optional(),
     name: z.string().trim().min(1).max(120).optional(),
     phoneNumber: z.string().trim().min(6).max(20).optional(),
-    email: z.union([z.string().trim().email(), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    email: z.union([z.string().trim().email(), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }).refine((d) => d.contactId || (d.name && d.phoneNumber) || d.phoneNumber, {
     message: 'Provide contactId, or a phoneNumber to create the contact',
   }),
   update: z.object({
     status: z.enum(LEAD_STATUSES).optional(),
-    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     // Shape only. The values are validated against the workspace's field
     // definitions in customFields.service.js, which is the only place that
     // knows what a given key is allowed to contain.
@@ -410,14 +410,14 @@ export const leadSchemas = {
     currency: z.string().trim().length(3).optional(),
     stage: z.enum(DEAL_STAGES).optional(),
     expectedCloseDate: z.coerce.date().optional().nullable(),
-    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }),
 };
 
 // Line-item money is never accepted from the client — subtotal, taxAmount and
 // total are absent from these schemas by design and are computed server-side.
 const lineItemBase = {
-  productId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+  productId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   name: z.string().trim().min(1).max(160).optional(),
   quantity: z.coerce.number().positive().max(1_000_000).optional(),
   unitPrice: z.coerce.number().nonnegative().max(1_000_000_000).optional(),
@@ -428,23 +428,23 @@ const lineItemBase = {
 export const productSchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'Product name is required').max(160),
-    sku: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    sku: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     unitPrice: z.coerce.number().nonnegative().max(1_000_000_000),
     currency: z.string().trim().length(3).optional(),
-    unit: z.union([z.string().trim().max(24), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    unit: z.union([z.string().trim().max(24), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     taxRate: z.coerce.number().min(0).max(100).optional(),
     isService: z.boolean().optional(),
   }),
   update: z.object({
     name: z.string().trim().min(1).max(160).optional(),
-    sku: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    sku: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     unitPrice: z.coerce.number().nonnegative().max(1_000_000_000).optional(),
     currency: z.string().trim().length(3).optional(),
-    unit: z.union([z.string().trim().max(24), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    unit: z.union([z.string().trim().max(24), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     taxRate: z.coerce.number().min(0).max(100).optional(),
     isService: z.boolean().optional(),
     isActive: z.boolean().optional(),
@@ -453,20 +453,20 @@ export const productSchemas = {
 
 export const quoteSchemas = {
   create: z.object({
-    dealId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    contactId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    dealId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    contactId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     currency: z.string().trim().length(3).optional(),
     discountPct: z.coerce.number().min(0).max(100).optional(),
     validUntil: z.coerce.date().optional().nullable(),
-    terms: z.union([z.string().trim().max(4000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    terms: z.union([z.string().trim().max(4000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     fromDealLineItems: z.boolean().optional(),
   }),
   update: z.object({
     discountPct: z.coerce.number().min(0).max(100).optional(),
     validUntil: z.coerce.date().optional().nullable(),
-    terms: z.union([z.string().trim().max(4000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    terms: z.union([z.string().trim().max(4000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }).strict(),
   status: z.object({
     status: z.enum(['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']),
@@ -500,14 +500,14 @@ const sequenceStep = z.object({
 export const sequenceSchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'A sequence needs a name').max(120),
-    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     steps: z.array(sequenceStep).min(1).max(50),
     respectBusinessHours: z.boolean().optional(),
     exitOnReply: z.boolean().optional(),
   }),
   update: z.object({
     name: z.string().trim().min(1).max(120).optional(),
-    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     steps: z.array(sequenceStep).min(1).max(50).optional(),
     respectBusinessHours: z.boolean().optional(),
     exitOnReply: z.boolean().optional(),
@@ -527,23 +527,23 @@ const TICKET_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 export const ticketSchemas = {
   create: z.object({
     subject: z.string().trim().min(1, 'A ticket needs a subject').max(200),
-    description: z.union([z.string().trim().max(5000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(5000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     priority: z.enum(TICKET_PRIORITIES).optional(),
-    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    contactId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    teamId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    conversationId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    contactId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    teamId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    conversationId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }),
   // `status` is absent by design — it moves only through /status, which is what
   // enforces the transition rules and stamps resolvedAt/closedAt.
   update: z.object({
     subject: z.string().trim().min(1).max(200).optional(),
-    description: z.union([z.string().trim().max(5000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(5000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     priority: z.enum(TICKET_PRIORITIES).optional(),
-    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    teamId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    teamId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }).strict(),
   status: z.object({
     status: z.enum(TICKET_STATUSES),
@@ -562,22 +562,22 @@ export const leadFormSchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'A form needs a name').max(120),
     slug: z.string().trim().max(60).optional(),
-    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     fields: z.array(leadFormField).min(1).max(25),
     successMessage: z.string().trim().min(1).max(300).optional(),
-    consentText: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    consentText: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     isActive: z.boolean().optional(),
   }),
   update: z.object({
     name: z.string().trim().min(1).max(120).optional(),
-    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     fields: z.array(leadFormField).min(1).max(25).optional(),
     successMessage: z.string().trim().min(1).max(300).optional(),
-    consentText: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
-    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    consentText: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     isActive: z.boolean().optional(),
   }).strict(),
   // Public submission. Deliberately permissive in shape — the real validation
@@ -594,11 +594,11 @@ export const leadFormSchemas = {
 export const teamSchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'A team needs a name').max(80),
-    description: z.union([z.string().trim().max(300), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(300), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }),
   update: z.object({
     name: z.string().trim().min(1).max(80).optional(),
-    description: z.union([z.string().trim().max(300), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(300), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }).strict(),
   members: z.object({
     // The full membership list, not a delta — a partial update would make
@@ -621,7 +621,7 @@ export const customFieldSchemas = {
     label: z.string().trim().min(1, 'A field needs a label').max(60),
     type: z.enum(CUSTOM_FIELD_TYPES).optional(),
     options: z.array(z.string().trim().min(1).max(80)).max(100).optional(),
-    helpText: z.union([z.string().trim().max(200), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    helpText: z.union([z.string().trim().max(200), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     required: z.boolean().optional(),
   }),
   // Neither `key` nor `type` appears here: values already stored are shaped by
@@ -629,7 +629,7 @@ export const customFieldSchemas = {
   update: z.object({
     label: z.string().trim().min(1).max(60).optional(),
     options: z.array(z.string().trim().min(1).max(80)).max(100).optional(),
-    helpText: z.union([z.string().trim().max(200), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    helpText: z.union([z.string().trim().max(200), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     required: z.boolean().optional(),
     sortOrder: z.coerce.number().int().min(0).optional(),
     isActive: z.boolean().optional(),
@@ -657,25 +657,25 @@ export const savedViewSchemas = {
 export const dealSchemas = {
   create: z.object({
     contactId: id,
-    leadId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    leadId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     title: z.string().trim().min(1, 'Deal title is required').max(160),
     value: z.coerce.number().nonnegative().optional().nullable(),
     currency: z.string().trim().length(3).optional(),
     stage: z.enum(DEAL_STAGES).optional(),
-    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     expectedCloseDate: z.coerce.date().optional().nullable(),
   }),
   update: z.object({
     title: z.string().trim().min(1).max(160).optional(),
     value: z.coerce.number().nonnegative().optional().nullable(),
     currency: z.string().trim().length(3).optional(),
-    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     expectedCloseDate: z.coerce.date().optional().nullable(),
     customFields: z.record(z.any()).nullable().optional(),
   }).strict(),
   stageUpdate: z.object({
     stage: z.enum(DEAL_STAGES),
-    lostReason: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    lostReason: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }).strict(),
   lineItem: z.object(lineItemBase),
   lineItemUpdate: z.object(lineItemBase).strict(),
@@ -687,12 +687,12 @@ const CRM_ACTIVITY_TYPES = ['NOTE', 'CALL', 'EMAIL', 'MEETING'];
 // A nullable foreign key supplied by the client. The schema only proves the
 // shape — services still have to prove the referenced row is in this
 // workspace, which is what stops a task being pinned to someone else's deal.
-const optionalRef = z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null));
+const optionalRef = z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null)));
 
 export const taskSchemas = {
   create: z.object({
     title: z.string().trim().min(1, 'Task title is required').max(200),
-    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     status: z.enum(TASK_STATUSES).optional(),
     dueDate: z.coerce.date().optional().nullable(),
     assignedToUserId: optionalRef,
@@ -705,7 +705,7 @@ export const taskSchemas = {
   // silently moves to whatever workspace the caller names.
   update: z.object({
     title: z.string().trim().min(1).max(200).optional(),
-    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     status: z.enum(TASK_STATUSES).optional(),
     dueDate: z.coerce.date().optional().nullable(),
     assignedToUserId: optionalRef,
@@ -728,7 +728,7 @@ export const crmActivitySchemas = {
 export const clusterSchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'Cluster name is required').max(120),
-    description: z.union([z.string().trim(), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
+    description: z.union([z.string().trim(), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     contactIds: z.array(z.string().min(1)).min(1, 'At least one contact must be selected').max(10_000),
   }),
   update: z.object({

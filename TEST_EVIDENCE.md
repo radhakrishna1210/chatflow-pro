@@ -4,7 +4,7 @@ Verification record for the advanced CRM expansion. Each entry follows the
 reproduce → fix → reproduce discipline required by `MS_Prompt.md` §98–§99:
 a fix is not recorded here unless it was seen failing first and passing after.
 
-Last full run: **2026-08-17** — `cd backend && npm test` → **230/230 passing**.
+Last full run: **2026-08-17** — `cd backend && npm test` → **235/235 passing**.
 
 Every run is preceded by `node --env-file=.env scripts/assert-local-db.js`, which
 aborts unless `DATABASE_URL` resolves to a loopback host and contains no managed-
@@ -1329,10 +1329,125 @@ screen-reader user can reach it.
 
 ---
 
+## DEF-011 — A partial update silently cleared every field it did not mention
+
+**Severity:** High (silent data loss across most of the CRM) · Pre-existing
+
+Found while verifying the gamification profile: qualifying a lead never awarded
+XP, even with an owner set. The award is guarded by `updated.ownerUserId`, and
+the owner was `null` — cleared by the same request that set the status.
+
+Every optional-nullable field in `validators/index.js` was written as:
+
+```js
+z.union([inner, z.literal(''), z.null()]).optional().transform((v) => (v ? v : null))
+```
+
+A Zod `.transform()` runs on `undefined` as well, so an omitted key parsed to
+`null`. Services spread the parsed body straight into `prisma.update`, where
+`null` means *write NULL* and `undefined` means *leave alone*. So
+`PATCH /leads/:id {"status":"QUALIFIED"}` also erased `ownerUserId`, `source`
+and `notes`.
+
+**56 occurrences across 12 schema groups** — tickets, leads, products, lead
+forms, quotes, deals, teams, tasks, sequences, custom fields, contacts,
+clusters.
+
+**Failing evidence** — `validators/partialUpdate.test.js`, before the fix:
+
+```
+✖ a partial lead update does not null the fields it never mentions
+  AssertionError: ownerUserId leaked into a partial update and would clear the owner
+✖ the same rule holds across the other update schemas
+  AssertionError: deal: ownerUserId would be cleared by a partial update
+```
+
+Confirmed against the database, not just the parser. The PATCH response
+reported the owner as set while the stored row held `null`:
+
+```
+PATCH /leads/:id {ownerUserId}     → response ownerUserId: cmswoeban000313rrqm90nxit
+PATCH /leads/:id {status}          → response 200
+SELECT ownerUserId FROM "Lead"     → null          ← wiped by the second PATCH
+```
+
+**Fix** — the transform now preserves `undefined`:
+
+```js
+.optional().transform((v) => (v === undefined ? undefined : (v || null)))
+```
+
+Absent stays absent; an explicitly sent `''` or `null` still clears. Create
+paths are unaffected because the services already coalesce with `?? null`.
+
+**Passing evidence** — same sequence, replayed against the restarted server:
+
+```
+ownerSurvivedThePatch  cmswoeban000313rrqm90nxit
+sourceSurvived         "Referral"
+status                 QUALIFIED
+xp                     60            ← 50 (won deal) + 10 (qualified lead)
+recent                 ["Qualified a lead +10", "Closed a deal +50"]
+unlocked               ["First Qualified", "First Win"]
+```
+
+---
+
+## DEF-012 — A first-day streak reported a missed day that never happened
+
+**Severity:** Low (misleading output) · Found while building the profile UI
+
+`computeStreak` marked the grace day spent the moment it saw an empty day —
+including the day before a user had done anything at all. A brand-new user with
+one day of activity got `{ current: 1, graceUsed: true }`, and the profile then
+told them "includes one missed day", about a streak they had just started.
+
+**Fix** — a skipped day is only *pending*; it counts as spent when an earlier
+active day actually continues the run.
+
+**Passing evidence**
+
+```
+✔ the grace day counts as spent only when it actually bridges a gap
+    [day 0]              → current 1, graceUsed false   (nothing was missed)
+    [day 0,1,2]          → current 3, graceUsed false
+    [day 0,1,3]          → current 3, graceUsed true    (gap genuinely bridged)
+```
+
+The existing streak assertions were left untouched and still pass.
+
+---
+
+## Gamification profile — verified in the browser
+
+`ProgressPanel.jsx`, rendered inside the profile rather than the sidebar: it is
+personal to the signed-in user and there is no route to read anyone else's, so
+a workspace-level nav item would misrepresent it.
+
+XP was generated through the real award path — creating a contact, qualifying
+the lead, converting it and winning the deal — never by writing `XpEvent` rows
+directly:
+
+```
+Explorer · Level 1 · 60 XP · 40 XP to the next level
+Streak 1 day — "Days in a row you finished something. One missed day is forgiven."
+Achievements 2 of 6 — First Qualified, First Win unlocked
+Recently earned — Qualified a lead +10 · Closed a deal +50
+```
+
+The earning table is shown on the page rather than hidden behind help text. A
+scheme that claims to reward outcomes rather than volume is only credible if
+the rules are visible.
+
+The leaderboard is hidden until asked for, and returns name, level and points —
+never pipeline value.
+
+---
+
 ## Current full-suite output
 
 ```
-tests 230 | pass 230 | fail 0 | duration 5.06s
+tests 235 | pass 235 | fail 0 | duration 4.07s
 
 (selection — the isolation and scoring cases this document opens with)
 ✔ open pipeline totals only open deals in this workspace

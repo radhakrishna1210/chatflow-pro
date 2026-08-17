@@ -73,6 +73,28 @@ test('a streak counts consecutive days and forgives one miss', () => {
   assert.equal(computeStreak([]).current, 0);
 });
 
+test('the grace day counts as spent only when it actually bridges a gap', () => {
+  const day = (n) => new Date(Date.now() - n * 86400000);
+
+  // DEF-012: a first-ever day reported graceUsed, because the loop marked the
+  // grace spent the moment it saw an empty day — including the day before the
+  // user had done anything at all. The profile then told them a missed day was
+  // folded into a streak they had only just started.
+  const firstDay = computeStreak([day(0)]);
+  assert.equal(firstDay.current, 1);
+  assert.equal(firstDay.graceUsed, false, 'nothing was missed on day one');
+
+  // Same for a run that simply began, with no gap inside it.
+  const clean = computeStreak([day(0), day(1), day(2)]);
+  assert.equal(clean.current, 3);
+  assert.equal(clean.graceUsed, false);
+
+  // Still true when the gap is real and a later day continues the run.
+  const bridged = computeStreak([day(0), day(1), day(3)]);
+  assert.equal(bridged.current, 3);
+  assert.equal(bridged.graceUsed, true);
+});
+
 // ─── Awards (database) ─────────────────────────────────────────────────────
 
 let dbAvailable = false;

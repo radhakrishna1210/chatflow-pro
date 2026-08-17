@@ -98,16 +98,25 @@ export function computeStreak(dates, now = new Date()) {
 
   let current = 0;
   let graceUsed = false;
+  // A skipped day only *spends* the grace if an earlier active day then
+  // continues the run. Marking it spent the moment a gap is seen reported
+  // graceUsed on someone's very first day — the day before they joined is not
+  // a day they missed, and the UI would tell them a lie about their own streak.
+  let gracePending = false;
   const cursor = new Date(now);
 
   for (let i = 0; i < 365; i += 1) {
     const key = dayKey(cursor);
     if (days.has(key)) {
       current += 1;
+      if (gracePending) {
+        graceUsed = true;
+        gracePending = false;
+      }
     } else if (i === 0) {
       // Today not yet earned is not a broken streak — the day is not over.
-    } else if (!graceUsed) {
-      graceUsed = true;
+    } else if (!gracePending && !graceUsed) {
+      gracePending = true;
     } else {
       break;
     }
