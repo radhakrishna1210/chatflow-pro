@@ -19,6 +19,11 @@ backend/.env.*
 
 # Build output
 frontend/dist/
+
+# Generated test artifacts — traces, screenshots and HTML reports are rebuilt
+# on every run and should never be version controlled.
+playwright-report/
+test-results/
 frontend/build/
 
 # Prisma
