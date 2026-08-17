@@ -838,6 +838,63 @@ That last one matters: `scopeFilter` with no identified user returns an
 impossible filter rather than `{}`, so a path that somehow reaches it
 unauthenticated sees nothing rather than everything.
 
+## Campaigns → leads — 2026-08-17
+
+A reply to a campaign now becomes a CRM lead. 9 new tests; suite 165 → **174**.
+
+The platform already knew who received which campaign (`CampaignRecipient`) and
+who replied (`Message.direction = INBOUND`). What was missing was the link: a
+reply produced no CRM record at all, so the pipeline never saw the traffic the
+messaging platform was generating.
+
+### Attribution rules, each pinned by a test
+
+```
+✔ a reply to a recent campaign creates an attributed, scored lead
+✔ the most recent campaign wins attribution
+✔ a campaign that never reached the contact cannot claim the reply
+✔ a reply long after the campaign is not attributed to it
+✔ another workspace's campaign cannot be attributed
+```
+
+- **Only delivered states count** (`SENT`/`DELIVERED`/`READ`). A campaign that
+  failed or was skipped for this contact never reached them, so a reply cannot
+  be a response to it — counting it would inflate campaign credit.
+- **30-day window.** Beyond that a reply is a conversation, not a campaign
+  response.
+- **Status is `CONTACTED`, not `NEW`** — they have engaged, and `NEW` would
+  understate it.
+- The lead arrives **already scored**, so it sorts correctly immediately rather
+  than sitting at zero until someone recalculates.
+
+### Safety
+
+```
+✔ an opted-out contact is never turned into a lead
+✔ an existing lead is not duplicated
+✔ nothing happens when the workspace has not opted in
+```
+
+The hook sits **after** the opt-out branch in `webhook.service.js`, so someone
+who has just asked to be left alone is never turned into a prospect. It is
+fire-and-forget: a CRM write must never cost the platform an inbound WhatsApp
+message.
+
+`autoLeadFromReply` defaults to **false**, so no existing workspace suddenly
+starts manufacturing leads from its inbound traffic. The settings toggle says
+so explicitly — existing conversations are not backfilled, only replies from
+that point on.
+
+### End-to-end on the local database
+
+```
+before: leads for contact = 0
+capture result: {"created":true,"source":"Campaign: Festive Sale","score":10}
+lead in DB:     CONTACTED | Campaign: Festive Sale | score 10 | factors 6
+```
+
+Six score factors stored with it, so the number is explainable on arrival.
+
 ## Regression baselines required by §102–§103
 
 `AUDIT_REPORT.md` and `COMPLETION_REPORT.md` were searched for across the

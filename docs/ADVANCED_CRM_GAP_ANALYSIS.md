@@ -72,7 +72,7 @@ name.
 | ~~Products & services + line items~~ | — | **DONE** — `Product`, `DealLineItem`, server-side totals | M |
 | ~~Quotes / proposals~~ | — | **DONE** — `Quote`, `QuoteLineItem`, status lifecycle. **PDF export not built** | L |
 | ~~Sequences / cadences~~ | — | **DONE** — durable engine, queue + worker + recovering sweep, business hours, reply detection, opt-out enforcement, builder UI | L |
-| Campaigns → leads integration | Campaigns and Leads both exist but are unlinked | Auto-create/score leads from campaign replies | M |
+| ~~Campaigns → leads integration~~ | — | **DONE** — attributed, scored lead on campaign reply; opt-in per workspace, opt-out respected | M |
 | ~~Workflow triggers for CRM events~~ | — | **DONE** — 4 CRM triggers + 4 CRM actions on the existing engine, with a chain-depth guard. **Builder UI not extended** — CRM nodes are API-configurable only | M |
 | Public lead forms | `WhatsappForm` is a partial precedent | Public submit endpoint, anti-spam, attribution, dedupe | M |
 | CRM support tickets | Platform `SupportTicket` is unrelated | Ticket model with SLA, queues, assignment | M |

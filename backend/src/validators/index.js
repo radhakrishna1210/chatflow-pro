@@ -332,6 +332,8 @@ export const settingsSchemas = {
     emailNotifyTemplateApproved: z.boolean().optional(),
     emailNotifyTemplateRejected: z.boolean().optional(),
     emailNotifyMemberInvite: z.boolean().optional(),
+    // Turns a campaign reply into a CRM lead. Off by default.
+    autoLeadFromReply: z.boolean().optional(),
   }),
 };
 

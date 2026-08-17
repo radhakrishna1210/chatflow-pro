@@ -18,6 +18,7 @@ export async function getSettings(workspaceId) {
       emailNotifyTemplateApproved: true,
       emailNotifyTemplateRejected: true,
       emailNotifyMemberInvite: true,
+      autoLeadFromReply: true,
     },
   });
   if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
@@ -39,6 +40,7 @@ const ALLOWED_SETTINGS_FIELDS = [
   'emailNotifyTemplateApproved',
   'emailNotifyTemplateRejected',
   'emailNotifyMemberInvite',
+  'autoLeadFromReply',
 ];
 
 export async function updateSettings(workspaceId, updates) {

@@ -102,6 +102,9 @@ model Workspace {
   // ALL | TEAM | OWN — who can see leads, deals and tasks they do not own.
   // Defaults to ALL, which is the behaviour every existing workspace has.
   recordVisibility             String                   @default("ALL")
+  // Off by default: switching it on suddenly would start manufacturing leads
+  // from every existing workspace's inbound traffic.
+  autoLeadFromReply            Boolean                  @default(false)
   createdAt                    DateTime                 @default(now())
   apiKeys                      ApiKey[]
   triggers                     AutomationTrigger[]

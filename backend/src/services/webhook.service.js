@@ -10,6 +10,7 @@ import { handleFormInbound } from './whatsappForms.service.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import { isWithinBusinessHours } from './businessHours.service.js';
 import { matchOptOutKeyword, recordOptOut } from './optout.service.js';
+import { captureReplyAsLead } from './campaignLeads.service.js';
 import { notifyWorkspace } from './notification.service.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
@@ -321,6 +322,12 @@ async function handleInboundMessage(value, msg) {
     }
     return;
   }
+
+  // A reply to a campaign becomes a lead, if the workspace opted in. Placed
+  // after the opt-out return above, so someone who has just asked to be left
+  // alone is never turned into a prospect. Fire-and-forget: a CRM write must
+  // never cost the platform an inbound message.
+  captureReplyAsLead(workspaceId, contact.id);
 
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },

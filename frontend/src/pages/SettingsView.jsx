@@ -6,6 +6,7 @@ import { wFetch, wDownload } from '../lib/api.js';
 import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
 import BlockedNumbers from '../components/BlockedNumbers.jsx';
 import { TeamsAdmin } from '../components/TeamsAdmin.jsx';
+import { LeadCaptureSetting } from '../components/LeadCaptureSetting.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -476,6 +477,11 @@ export default function SettingsView() {
               </tbody>
             </table>
           )}
+        </SectionCard>
+
+        {/* ── Lead capture ── */}
+        <SectionCard icon="target" title="Lead Capture">
+          <LeadCaptureSetting isAdmin={isAdmin} />
         </SectionCard>
 
         {/* ── Teams & record visibility ──
