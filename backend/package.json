@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "node --env-file=.env --watch src/server.js",
     "start": "node src/server.js",
-    "test": "node --env-file=.env --test \"src/**/*.test.js\"",
+    "test": "node --env-file=.env --experimental-test-module-mocks --test \"src/**/*.test.js\"",
     "postinstall": "node scripts/render-build.js",
     "start:prod": "node scripts/prisma-cli.js migrate deploy && node src/server.js",
     "db:generate": "prisma generate",
