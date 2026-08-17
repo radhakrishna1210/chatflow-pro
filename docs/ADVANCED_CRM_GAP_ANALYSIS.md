@@ -22,12 +22,12 @@ Effort key: **S** ≈ 1 day · **M** ≈ 2–4 days · **L** ≈ 1–2 weeks · 
 | Command palette (⌘K) | Built | — | — | `CommandPalette.jsx` | browser-verified |
 | Saved views | Built | `savedViews.service.js` | `SavedView` | `SavedViews.jsx` on Leads + Deals | 7 |
 
-## Deliberately deferred — decided with the user
+## Deferred during the build — now delivered
 
 | Capability | Why deferred | Effort |
 |---|---|---|
-| Agentic layer (standing agent process, task queue, evidence pipeline, per-record Agent tab, signed-token bridge) | A separate deployment and runtime, not a slice of Lead/Deal. Comp AI's design segregates it from the API by rule | XL |
-| CRM Chat / Copilot (NL Q&A over CRM + describe-an-automation → deploy as team agent) | Needs LLM tool-calling, a chat thread model, and an English→workflow compiler | XL |
+| ~~Agentic layer~~ | **DONE** — see the agentic layer section at the end. Built as a Postgres work queue plus a BullMQ schedule rather than a separate deployment | XL |
+| ~~CRM Chat / Copilot~~ | **DONE (partial)** — NL Q&A over the CRM with a bounded tool loop. The describe-an-automation → deployable-workflow compiler was **not** built | XL |
 
 ## Not built — ranked by value per unit of effort
 
@@ -85,7 +85,7 @@ noted per row.
 
 | Capability | Notes | Effort |
 |---|---|---|
-| ~~Gamification (XP, levels, streaks, missions, achievements)~~ | **DONE** — XP awarded only for outcomes (qualified lead, won deal, cleared overdue task, accepted quote, resolved ticket); nothing rewards message volume. Idempotent via `unique(userId, dedupeKey)`, so replaying an event cannot farm points. 6 levels, streaks with one grace day. **No profile UI yet** | L |
+| ~~Gamification (XP, levels, streaks, missions, achievements)~~ | **DONE** — XP awarded only for outcomes (qualified lead, won deal, cleared overdue task, accepted quote, resolved ticket); nothing rewards message volume. Idempotent via `unique(userId, dedupeKey)`, so replaying an event cannot farm points. 6 levels, streaks with one grace day. Profile UI at `ProgressPanel.jsx` on the account page, with an opt-in leaderboard | L |
 | ~~Marketing website + SEO/AEO/GEO~~ | **DONE, with one honest limit** — copy extracted to `src/content/marketing.js` (§80), static JSON-LD + meta + OG in `index.html`, `robots.txt`, `sitemap.xml`, and Features/Integrations/Security/FAQ sections rendered from the content layer. **Limit: this is a CSR SPA** — a crawler that does not run JS gets an empty `#root`, so only the static `<head>` is machine-readable. Per-route SEO needs prerendering | XL |
 | ~~Motion design system~~ | **DONE** — duration/easing tokens + 5 keyframes in `index.css`, `lib/motion.js` reads the tokens. Under `prefers-reduced-motion` the **tokens themselves collapse to 0ms**, so JS that reads them degrades without its own branch | M |
 | ~~Next-best-action / relationship intelligence~~ | **DONE, end to end** — deterministic, evidence-cited recommendations; banded relationship strength with stated confidence. No new tables. UI: `NextBestActions.jsx` as the "Do next" panel on the CRM overview (evidence always inline, urgency shown as a band rather than a number), and `RelationshipCard.jsx` in the lead detail, which keeps the confidence beside the band and hedges a low-confidence verdict in words | L |
@@ -103,3 +103,21 @@ Called out because the spec warns against inventing parallel concepts (§8):
 4. **Do not add a CRM-specific notification system.** `Notification` exists.
 5. **`SupportTicket` is platform support**, not customer CRM ticketing — reusing it
    for CRM tickets would conflate two different audiences.
+
+## Agentic layer — built last, by request
+
+Deferred throughout and then built in two halves with different risk postures.
+Design derived from [trycompai/crm](https://github.com/trycompai/crm) (MIT); see
+`ATTRIBUTION.md` for what was taken and what diverges.
+
+| Capability | Notes |
+|---|---|
+| **CRM copilot** | `Copilot.jsx` + `copilot.service.js`. Bounded 5-step tool loop over 11 read tools, driven through the shared `llm.js` so it keeps the Gemini→Ollama fallback. Writes are **structurally unreachable** from the model — the loop only calls `runReadTool`, which 403s on mutations; proposals go to a person and a separate endpoint executes them. Falls back to the deterministic next-best-action engine, and distinguishes "not configured" from "provider unavailable" |
+| **Autonomous agent** | `agent.service.js` + `agent.worker.js`. Owns a Postgres work queue and a BullMQ schedule, claims rows with `FOR UPDATE SKIP LOCKED`, books its own rechecks. Writes without asking, gated by an evidence ledger rather than confirmation. Sensitive operations (close deal, mark lost, message contact, delete) are **denied outright when unattended**, not queued |
+| **Evidence ledger** | `agent.evidence.js`. Weighted observation kinds with `contradiction` as a first-class negative. Two divergences from theirs: evidence is **re-verified against the database** before pricing, since this CRM ingests customer-controlled text; and two action classes exist, because a reminder triggered by an absence can never carry primary evidence |
+| **Agent tab** | `AgentTab.jsx` on lead and deal detail. Shows applied changes, held-back suggestions with Accept/Reject, every pass, and what is booked next |
+
+**Known limits.** The Gemini key is free-tier (20 requests/day), so the copilot
+spends most of its time in the deterministic fallback. The agent's tools run
+in-process with full database access — trycompai/crm isolates theirs in a
+sandbox with deny-all egress, which is the remaining gap worth closing.

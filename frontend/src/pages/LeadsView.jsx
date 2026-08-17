@@ -10,6 +10,7 @@ import { SavedViews } from '../components/SavedViews.jsx';
 import { ImportExport } from '../components/ImportExport.jsx';
 import { CustomFieldInputs } from '../components/CustomFields.jsx';
 import RelationshipCard from '../components/RelationshipCard.jsx';
+import AgentTab from '../components/AgentTab.jsx';
 
 const STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST'];
 const STAGES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
@@ -337,6 +338,12 @@ const LeadDetail = ({ lead, members, onChanged, onConverted }) => {
           <RelationshipCard contactId={lead.contact.id} contactName={lead.contact.name} />
         </div>
       )}
+
+      {/* The agent writes to this record on its own schedule, so this is the
+          only place those changes become visible to whoever owns it. */}
+      <div style={{ marginBottom: 20 }}>
+        <AgentTab targetType="lead" targetId={lead.id} />
+      </div>
 
       {customDefs.length > 0 && (
         <div style={{ marginBottom: 20 }}>

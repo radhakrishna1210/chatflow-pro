@@ -1,3 +1,4 @@
+import AgentTab from '../components/AgentTab.jsx';
 import { useState, useEffect, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
@@ -302,6 +303,12 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted }) => {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* The agent changes this deal on its own schedule; this is where
+              those changes and its held-back suggestions surface. */}
+          <div style={{ marginTop: 18 }}>
+            <AgentTab targetType="deal" targetId={dealId} />
           </div>
         </>
       )}
