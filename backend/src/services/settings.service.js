@@ -157,7 +157,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(number)} — Spandan</title>
+<title>${escapeHtml(number)} — ChatFlow Pro</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -192,7 +192,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
   <div class="sheet">
     <div class="head">
       <div>
-        <p class="brand">spandan</p>
+        <p class="brand">chatflow pro</p>
         <p class="muted">WhatsApp Business Platform</p>
       </div>
       <div class="num">
@@ -223,7 +223,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
       </thead>
       <tbody>
         <tr>
-          <td>${escapeHtml(invoice.description || 'Spandan services')}</td>
+          <td>${escapeHtml(invoice.description || 'ChatFlow Pro services')}</td>
           <td class="right">${escapeHtml(symbol)}${escapeHtml(amount)}</td>
         </tr>
       </tbody>
@@ -233,7 +233,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
     </table>
 
     <div class="foot">
-      <p>This invoice was generated automatically by Spandan on ${escapeHtml(new Date().toLocaleString('en-IN'))}.</p>
+      <p>This invoice was generated automatically by ChatFlow Pro on ${escapeHtml(new Date().toLocaleString('en-IN'))}.</p>
       <p>To save it as a PDF, open this file in your browser and choose Print → Save as PDF.</p>
     </div>
   </div>

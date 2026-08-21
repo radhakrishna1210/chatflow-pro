@@ -13,6 +13,10 @@ export const I = ({ n, s = 16, c = 'currentColor', w = 1.75 }) => {
     db:    <><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></>,
     check: <><polyline points="20,6 9,17 4,12"/></>,
     arrow: <><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12,5 19,12 12,19"/></>,
+    // A left-pointing arrow for "back". `arrow` points right and is correct in
+    // the eighteen places it means "onward"; it was also being used for the two
+    // Back buttons in Automation, where it pointed the wrong way.
+    arrowLeft: <><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12,5 5,12 12,19"/></>,
     play:  <><circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16 10,8"/></>,
     globe: <><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></>,
     brain: <><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.44-4.66zM14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.44-4.66z"/></>,

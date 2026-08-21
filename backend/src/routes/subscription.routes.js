@@ -15,4 +15,12 @@ router.get('/pricing', controller.getMessagePricing);
 router.post('/checkout', authorize('ADMIN'), controller.createCheckout);
 router.post('/checkout/verify', authorize('ADMIN'), controller.verifyCheckout);
 
+// Add-ons. Reading the catalogue is open to any member (the Payments screen
+// shows it); buying and cancelling change what the workspace pays, so they sit
+// behind the same ADMIN gate as plan checkout and wallet recharge.
+router.get('/addons', controller.listAddons);
+router.post('/addons/checkout', authorize('ADMIN'), controller.createAddonCheckout);
+router.post('/addons/checkout/verify', authorize('ADMIN'), controller.verifyAddonCheckout);
+router.delete('/addons/:addonKey', authorize('ADMIN'), controller.cancelAddon);
+
 export default router;

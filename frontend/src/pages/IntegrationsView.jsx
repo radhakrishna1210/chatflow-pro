@@ -112,7 +112,7 @@ const INTEGRATIONS = [
   {
     id: 'yampi', name: 'Yampi', pricing: 'free', category: 'e-Commerce Platform',
     description: 'Create/Update users and send automatic WhatsApp notifications upon different events from your Yampi store',
-    features: ['Order lifecycle notifications', 'Customer auto-creation in Spandan', 'Brazilian e-commerce native support'],
+    features: ['Order lifecycle notifications', 'Customer auto-creation in ChatFlow Pro', 'Brazilian e-commerce native support'],
     actions: ['Know More', 'Connect'],
     videoQuery: 'Yampi WhatsApp integration tutorial',
   },
@@ -414,7 +414,7 @@ function ConnectModal({ intg, onClose, onSave }) {
               <div>
                 <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 6 }}>Authorize {cfg.provider}</p>
                 <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.65 }}>
-                  You'll be redirected to {cfg.provider} to grant Spandan access to your account. No passwords are stored — only an OAuth token.
+                  You'll be redirected to {cfg.provider} to grant ChatFlow Pro access to your account. No passwords are stored — only an OAuth token.
                 </p>
               </div>
               <div style={{ width: '100%', padding: '12px 16px', borderRadius: 10, background: 'rgba(53,232,242,0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, textAlign: 'left', alignItems: 'flex-start' }}>

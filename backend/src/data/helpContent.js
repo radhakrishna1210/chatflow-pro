@@ -25,7 +25,7 @@ export const HELP_DOCS = [
   // ─── orientation ───────────────────────────────────────────────────────────
   {
     id: 'getting-started',
-    title: 'Getting started with Spandan',
+    title: 'Getting started with ChatFlow Pro',
     topic: 'Onboarding',
     body: `Sign up with an email address and password, or with Google. New accounts must create or join a workspace before the dashboard opens — a workspace is the container for everything you do, and it owns its own WhatsApp numbers, contacts, campaigns, conversations, wallet and team.
 
@@ -118,7 +118,7 @@ If the wallet does not hold enough to cover the reservation, the launch is refus
     id: 'message-pricing',
     title: 'What a message costs',
     topic: 'Billing',
-    body: `WhatsApp charges per conversation category, and Spandan passes Meta's rate through without a markup on paid plans. The three categories are Marketing (offers, launches, re-engagement), Utility (order updates, reminders, receipts) and Authentication (one-time passcodes). A template's category therefore decides what sending it costs.
+    body: `WhatsApp charges per conversation category, and ChatFlow Pro passes Meta's rate through without a markup on paid plans. The three categories are Marketing (offers, launches, re-engagement), Utility (order updates, reminders, receipts) and Authentication (one-time passcodes). A template's category therefore decides what sending it costs.
 
 The published per-category rate card is the same table campaign launches are billed against, so the figure quoted on the website is the figure charged.
 
@@ -176,7 +176,7 @@ Submit the finished template to Meta for review when it is ready.`,
     id: 'templates-approval',
     title: 'Template approval, statuses and rejections',
     topic: 'Templates',
-    body: `A submitted template is reviewed by Meta, not by Spandan, and approval is not instant. The status shown on the Templates screen updates automatically when Meta decides — the result arrives by webhook, so there is nothing to poll or refresh.
+    body: `A submitted template is reviewed by Meta, not by ChatFlow Pro, and approval is not instant. The status shown on the Templates screen updates automatically when Meta decides — the result arrives by webhook, so there is nothing to poll or refresh.
 
 A template is pending until Meta rules on it, then approved or rejected. Only approved templates can be selected in a campaign, which is why the campaign builder's template step shows nothing until at least one has come back approved.
 
@@ -192,7 +192,7 @@ You can be notified of both outcomes: Settings has Template Approved and Templat
     topic: 'Setup',
     body: `Open Number Setup in the sidebar. There are three routes to a working WhatsApp Business API number.
 
-Connect via Meta is the recommended one: you go through Meta's embedded signup and authorise Spandan against your own WhatsApp Business account, and the number is bound to your workspace at the end of it.
+Connect via Meta is the recommended one: you go through Meta's embedded signup and authorise ChatFlow Pro against your own WhatsApp Business account, and the number is bound to your workspace at the end of it.
 
 Connect Your Own is the manual version, for a number already set up on the API elsewhere. It asks for the number's access token (the long value beginning EAA…).
 
@@ -459,14 +459,14 @@ A verify token is used to confirm the endpoint is really yours when the webhook 
 
 Your endpoint should answer quickly and do its real work afterwards; a slow endpoint causes deliveries to be treated as failures.
 
-Note the distinction from Meta's own webhooks, which Spandan consumes internally for template approval results and delivery receipts. Those need no setup from you. The webhook configured here is the one that forwards events on to your systems.`,
+Note the distinction from Meta's own webhooks, which ChatFlow Pro consumes internally for template approval results and delivery receipts. Those need no setup from you. The webhook configured here is the one that forwards events on to your systems.`,
   },
 
   {
     id: 'integrations',
     title: 'Connecting third-party integrations',
     topic: 'Developers',
-    body: `Integrations in the sidebar lists the third-party tools that can be connected to a workspace. Search for the one you want, review its key capabilities, and activate it — connecting usually means authorising Spandan against that tool through OAuth.
+    body: `Integrations in the sidebar lists the third-party tools that can be connected to a workspace. Search for the one you want, review its key capabilities, and activate it — connecting usually means authorising ChatFlow Pro against that tool through OAuth.
 
 Connection credentials are encrypted at rest, and a connection belongs to the workspace that made it.
 
@@ -478,7 +478,7 @@ For anything not in the list, the public API and outbound webhooks are the gener
     id: 'support',
     title: 'How to get help or contact support',
     topic: 'Support',
-    body: `Help & Support in the dashboard sidebar raises a ticket with the Spandan team. Give it a subject, pick a category and describe the issue. The categories are General, Billing, Technical, Bug report and Feature request.
+    body: `Help & Support in the dashboard sidebar raises a ticket with the ChatFlow Pro team. Give it a subject, pick a category and describe the issue. The categories are General, Billing, Technical, Bug report and Feature request.
 
 Tickets are tied to your workspace and the team replies to the account's email address. Your previous requests are listed on the same screen, so you can see what you have already raised.
 

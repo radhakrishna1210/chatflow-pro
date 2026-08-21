@@ -4,6 +4,8 @@ import { Btn } from '../components/Btn.jsx';
 import { apiFetch } from '../lib/api.js';
 import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
+import MobileNavButton from '../components/MobileNavButton.jsx';
+import { useIsMobile } from '../lib/useMediaQuery.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Manrope',sans-serif", boxSizing:'border-box' };
@@ -3058,7 +3060,7 @@ const WhatsAppFormsTab = () => {
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <IconBtn icon="arrow" onClick={() => setViewing(null)} />
+          <IconBtn icon="arrowLeft" onClick={() => setViewing(null)} />
           <div>
             <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:18, color:'var(--t1)' }}>{viewing.name}</h2>
             <p style={{ fontSize:13, color:'var(--t2)' }}>{submissions.length} submission{submissions.length === 1 ? '' : 's'}</p>
@@ -3404,7 +3406,7 @@ const SmartListsTab = () => {
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-            <IconBtn icon="arrow" onClick={() => setViewingSegmentId(null)} />
+            <IconBtn icon="arrowLeft" onClick={() => setViewingSegmentId(null)} />
             <div>
               <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>{viewingSegment.name}</h2>
               <p style={{ fontSize:'13px', color:'var(--t2)' }}>{viewingSegment.description || viewingSegment.desc || 'No description'}</p>
@@ -3576,6 +3578,8 @@ export default function AutomationView({ initialTab }) {
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
+  const isMobile = useIsMobile();
+
   const renderContent = () => {
     switch (activeTab) {
       case 'basic':       return <BasicAutomationsTab />;
@@ -3593,6 +3597,15 @@ export default function AutomationView({ initialTab }) {
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#060B18' }}>
+      {/* This page builds its own header rather than using the shell's, so it
+          had no hamburger — on a phone the nav drawer was unreachable from
+          Automation, the AI Agent and Intent Matching, which are three separate
+          sidebar destinations. */}
+      {isMobile && (
+        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px 0', flexShrink:0, background:'var(--surf)' }}>
+          <MobileNavButton />
+        </div>
+      )}
       <div style={{ padding:'20px 32px 0 32px', borderBottom:'1px solid var(--bd)', display:'flex', gap:'4px', overflowX:'auto', flexShrink:0, background:'var(--surf)' }}>
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;

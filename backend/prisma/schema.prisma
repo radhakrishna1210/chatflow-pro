@@ -145,6 +145,7 @@ model Workspace {
   knowledgeSources             KnowledgeSource[]
   intentRules                  IntentRule[]
   intentMatchEvents            IntentMatchEvent[]
+  addons                       WorkspaceAddon[]
 }
 
 model WorkspaceMember {
@@ -1061,6 +1062,37 @@ model UsageCounter {
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, periodStart])
+}
+
+// A paid add-on a workspace has bought.
+//
+// Add-ons were entirely fictional: the Payments screen listed four of them with
+// prices written into the JSX, and "Add to Plan" wrote a boolean to
+// localStorage. No order was created, no payment was taken, nothing reached the
+// server, and clearing browser data undid the "purchase". The prices shown
+// could not match the gateway because the gateway was never involved.
+model WorkspaceAddon {
+  id          String    @id @default(cuid())
+  workspaceId String
+  // Catalogue key, e.g. "crm" — see lib/addonCatalogue.js, which is the only
+  // place a price is defined.
+  addonKey    String
+  status      String    @default("ACTIVE") // ACTIVE | CANCELLED
+  // What was actually charged, in the smallest currency unit, kept alongside
+  // the catalogue key so a later price change never rewrites history.
+  amountPaid  Decimal   @db.Decimal(10, 2)
+  currency    String    @default("INR")
+  gateway     String?
+  reference   String?
+  activatedAt DateTime  @default(now())
+  cancelledAt DateTime?
+  currentPeriodEnd DateTime
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // One active row per add-on per workspace. Buying an add-on twice is a
+  // mistake, not an upgrade.
+  @@unique([workspaceId, addonKey])
+  @@index([workspaceId, status])
 }
 
 model SupportTicket {

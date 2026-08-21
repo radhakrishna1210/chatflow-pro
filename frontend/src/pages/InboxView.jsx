@@ -554,7 +554,7 @@ export default function InboxView() {
                   <div style={{ display:'flex', alignItems:'center', gap:5, minWidth:0 }}>
                     {!mobile && <I n="phone" s={10} c="var(--t2)" />}
                     <p style={{ fontSize:11, color: mobile ? 'rgba(255,255,255,0.85)' : 'var(--t2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                      {mobile && isBot ? 'Spandan AI active' : active.contact.phoneNumber}
+                      {mobile && isBot ? 'ChatFlow Pro AI active' : active.contact.phoneNumber}
                     </p>
                   </div>
                 </div>
@@ -637,7 +637,7 @@ export default function InboxView() {
                                 <span style={{ fontSize:9, color:'var(--t2)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.07em' }}>{m.senderUser.name}</span>
                               ) : (
                                 <span style={{ fontFamily:'var(--mono)', fontSize:8.5, letterSpacing:'.08em', color:'var(--green)', fontWeight:700 }}>
-                                  ✓ SPANDAN AI{context?.aiSession?.campaign ? ' · CAMPAIGN-GROUNDED' : ''}
+                                  ✓ CHATFLOW PRO AI{context?.aiSession?.campaign ? ' · CAMPAIGN-GROUNDED' : ''}
                                 </span>
                               )}
                             </div>

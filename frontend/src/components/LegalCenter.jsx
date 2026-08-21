@@ -54,7 +54,10 @@ export default function LegalCenter({ active, onSelect, compact = false }) {
         </div>
 
         <div style={{ fontSize: 11.5, color: 'var(--t3)', lineHeight: 1.6 }}>
-          Questions? Reach us at <span style={{ color: 'var(--t2)' }}>legal@spandan.app</span>
+          {/* Deliberately not an email address: the one that used to be here
+              named a domain the project does not own, so anyone who wrote to it
+              reached nobody. Support tickets are the channel that exists. */}
+          Questions about these policies? Open a ticket from Help &amp; Support and we will answer there.
         </div>
       </aside>
 
@@ -73,7 +76,7 @@ export default function LegalCenter({ active, onSelect, compact = false }) {
           <div className="legal-body" dangerouslySetInnerHTML={{ __html: doc.html }} />
 
           <div style={{ marginTop: 36, paddingTop: 22, borderTop: '1px solid var(--bd)', display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>© {new Date().getFullYear()} Spandan · India</span>
+            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>© {new Date().getFullYear()} ChatFlow Pro · India</span>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {crossLinks.map(c => (
                 <button key={c.key} onClick={() => onSelect(c.key)}

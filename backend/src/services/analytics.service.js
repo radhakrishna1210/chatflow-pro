@@ -379,7 +379,7 @@ export async function getPaidMessagesInsights(workspaceId, daysParam = 7) {
 //
 // One deliberate omission: there is no revenue or lifetime-value figure here.
 // Nothing in this database records what a contact spent — orders live in the
-// customer's store, not in Spandan — so a "lifetime value" column would be a
+// customer's store, not in ChatFlow Pro — so a "lifetime value" column would be a
 // number invented to fill a column. Engagement is measured instead, from data
 // that exists, and the page says plainly what would be needed for revenue.
 

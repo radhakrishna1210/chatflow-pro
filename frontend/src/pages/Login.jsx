@@ -98,7 +98,7 @@ export default function Login({ onNav, mode = 'login' }) {
             </svg>
           </div>
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
-            spandan
+            ChatFlow Pro
           </span>
         </div>
 
