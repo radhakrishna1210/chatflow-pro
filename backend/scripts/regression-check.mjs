@@ -217,6 +217,52 @@ check('auth: unauthenticated request refused',
     (await req('POST', `/workspaces/${WS}/wallet/checkout`, { token: member, body: { amount: 100 } })).status === 403);
 }
 
+// ── Analytics range ──────────────────────────────────────────────────────────
+{
+  // Every panel must move with the range control, not just /performance.
+  const seen = {};
+  for (const days of [1, 7, 30, 90]) {
+    const [ov, del, camp] = await Promise.all([
+      req('GET', `/workspaces/${WS}/analytics/overview?days=${days}`, { token: TOKEN }),
+      req('GET', `/workspaces/${WS}/analytics/delivery?days=${days}`, { token: TOKEN }),
+      req('GET', `/workspaces/${WS}/analytics/campaigns?days=${days}`, { token: TOKEN }),
+    ]);
+    seen[days] = { echoed: ov.data?.days, buckets: del.data?.length, campaigns: camp.status };
+  }
+  check('analytics: overview honours the range without snapping',
+    [1, 7, 30, 90].every((d) => seen[d].echoed === d),
+    JSON.stringify(seen));
+  check('analytics: delivery returns one bucket per day in range',
+    [1, 7, 30, 90].every((d) => seen[d].buckets === d),
+    JSON.stringify(seen));
+
+  // messagesSent must be outbound-only and count each send once: campaign
+  // sends are already Message rows, and inbound messages are not "sent".
+  const ov = await req('GET', `/workspaces/${WS}/analytics/overview?days=90`, { token: TOKEN });
+  const since = new Date(); since.setDate(since.getDate() - 89); since.setHours(0, 0, 0, 0);
+  const outbound = await prisma.message.count({
+    where: { conversation: { workspaceId: WS }, direction: 'OUTBOUND', sentAt: { gte: since } },
+  });
+  check('analytics: messagesSent counts outbound sends exactly once',
+    ov.data?.messagesSent === outbound, `reported=${ov.data?.messagesSent} actual=${outbound}`);
+  check('analytics: delivery funnel is monotonic',
+    ov.data.sent >= ov.data.delivered && ov.data.delivered >= ov.data.read,
+    `${ov.data.sent}/${ov.data.delivered}/${ov.data.read}`);
+}
+
+// ── Number verification ──────────────────────────────────────────────────────
+{
+  // The endpoints the Number Setup screen now calls must exist and be guarded
+  // — the feature was unreachable from the product until the UI was wired.
+  const r = await req('POST', `/workspaces/${WS}/whatsapp/numbers/does-not-exist/request-code`,
+    { token: TOKEN, body: { method: 'SMS' } });
+  check('verification: request-code is routed and scoped', r.status === 404,
+    `status=${r.status}`);
+  const v = await req('POST', `/workspaces/${WS}/whatsapp/numbers/does-not-exist/verify-code`,
+    { token: TOKEN, body: { code: '123456' } });
+  check('verification: verify-code is routed and scoped', v.status === 404, `status=${v.status}`);
+}
+
 // ── Honest failures ──────────────────────────────────────────────────────────
 {
   // With SMTP credentials rejected, this must report the failure rather than
