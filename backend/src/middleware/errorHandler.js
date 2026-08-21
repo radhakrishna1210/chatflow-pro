@@ -20,6 +20,19 @@ export function errorHandler(err, req, res, next) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
+  // Multer raises its own error class with no status, so an oversized upload
+  // was answering 500 "something went wrong" instead of saying the file was too
+  // big — which is a thing the user can act on.
+  if (err.name === 'MulterError') {
+    const message = {
+      LIMIT_FILE_SIZE: 'That file is too large for this upload.',
+      LIMIT_FILE_COUNT: 'Only one file can be uploaded at a time.',
+      LIMIT_UNEXPECTED_FILE: 'That file was sent under an unexpected field name.',
+    }[err.code] || `That upload could not be accepted (${err.code}).`;
+    console.warn('[Upload]', req.method, req.url, err.code);
+    return res.status(400).json({ error: message, code: err.code });
+  }
+
   // A deliberate 5xx — "the mail service is refusing our credentials", "the
   // payment gateway is not configured" — carries a message written for the
   // user, and replacing it with a generic apology would throw away the only

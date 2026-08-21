@@ -337,6 +337,42 @@ check('auth: unauthenticated request refused',
     expiredSend.ok === false && expiredSend.code === 'SUBSCRIPTION_INACTIVE', JSON.stringify(expiredSend));
 }
 
+// ── Upload validation ────────────────────────────────────────────────────────
+{
+  // multer had a size cap and nothing else: no fileFilter, and no check that
+  // the bytes matched the declared type. `file.mimetype` is just the client's
+  // header, so anything could be labelled image/png and accepted on trust.
+  const post = async (path, name, mime, bytes) => {
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type: mime }), name);
+    const res = await fetch(`${BASE}/workspaces/${WS}${path}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` }, body: form,
+    });
+    let data = null; try { data = await res.json(); } catch { /* not JSON */ }
+    return { status: res.status, data };
+  };
+  const exe = Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0x62, 0x61, 0x64]);
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]);
+
+  const honest = await post('/contacts/import', 'x.exe', 'application/x-msdownload', exe);
+  check('upload: a disallowed type is refused', honest.status === 400, `status=${honest.status}`);
+
+  const disguised = await post('/contacts/import', 'x.csv', 'text/csv', exe);
+  check('upload: binary content declared as CSV is refused',
+    disguised.status === 400 && /does not look like/.test(disguised.data?.error ?? ''),
+    `status=${disguised.status} ${disguised.data?.error}`);
+
+  const fakePng = await post('/templates/media', 'x.png', 'image/png', exe);
+  check('upload: content that does not match its declared type is refused',
+    fakePng.status === 400 && disguised.data?.code === 'FILE_CONTENT_MISMATCH',
+    `status=${fakePng.status}`);
+
+  const realPng = await post('/templates/media', 'x.png', 'image/png', png);
+  check('upload: a genuine file passes both gates',
+    realPng.status !== 400 || !/does not look like|is a /.test(realPng.data?.error ?? ''),
+    `status=${realPng.status} ${realPng.data?.error}`);
+}
+
 // ── Honest failures ──────────────────────────────────────────────────────────
 {
   // With SMTP credentials rejected, this must report the failure rather than
