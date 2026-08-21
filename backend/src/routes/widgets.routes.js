@@ -3,6 +3,7 @@ import multer from 'multer';
 import * as widgetsController from '../controllers/widgets.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 
 const router = Router({ mergeParams: true });
 
@@ -34,5 +35,8 @@ router.get('/:id', widgetsController.getOne);
 router.patch('/:id', widgetsController.update);
 router.delete('/:id', widgetsController.remove);
 router.post('/:id/rotate-key', widgetsController.rotateKey);
+// Preview spends model quota, so it carries the same kind of limit the public
+// widget endpoint does.
+router.post('/:id/preview', rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'widget-preview' }), widgetsController.preview);
 
 export default router;

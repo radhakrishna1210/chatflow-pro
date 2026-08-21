@@ -323,3 +323,50 @@ export async function recentSessions(workspaceId, { widgetId = null, limit = 20 
     };
   });
 }
+
+// Answers a question exactly as the embedded widget would, for the builder's
+// live preview.
+//
+// The preview was a static re-drawing of the widget's chrome: it showed what
+// the panel looks like and could not answer anything, so there was no way to
+// try the assistant before pasting it into a real website. This runs the same
+// retrieval and the same generator the public /widget/v1/:key/ask endpoint
+// uses, against the settings currently in the form — including unsaved ones,
+// which is the point of a preview.
+export async function previewWidgetAnswer(workspaceId, widgetId, { question, config = {}, type } = {}) {
+  const text = String(question || '').trim();
+  if (!text) { const e = new Error('Ask something to preview the answer'); e.status = 400; throw e; }
+
+  const widget = await prisma.widget.findFirst({
+    where: { id: widgetId, workspaceId },
+    include: { workspace: { select: { name: true } }, waNumber: { select: { phoneNumber: true } } },
+  });
+  if (!widget) { const e = new Error('Widget not found'); e.status = 404; throw e; }
+
+  const effectiveType = type || widget.type;
+  if (effectiveType === 'WHATSAPP') {
+    const e = new Error('A WhatsApp-only widget has no assistant to preview — it hands straight to WhatsApp.');
+    e.status = 400; e.expose = true; throw e;
+  }
+
+  const { ask } = await import('./siteAssistant.service.js');
+  const result = await ask({
+    question: text,
+    history: [],
+    scope: {
+      // Unsaved form values win, so the preview reflects what is on screen.
+      siteName: config.businessName || widget.config?.businessName || widget.workspace?.name || widget.name,
+      workspaceId,
+      handoffOffer: effectiveType === 'AI_WHATSAPP' && !!widget.waNumber?.phoneNumber,
+    },
+  });
+
+  return {
+    answer: result.answer,
+    grounded: result.grounded ?? null,
+    sources: result.sources ?? [],
+    // Named so the preview can say *why* an answer is thin — an empty knowledge
+    // base and a failing model look identical from the outside otherwise.
+    reason: result.reason ?? null,
+  };
+}

@@ -2607,6 +2607,27 @@ const InstagramQuickflowsTab = () => {
             </p>
           </div>
           <Btn onClick={connect} disabled={!conn?.configured} style={{ boxShadow:'var(--glow)' }}>Connect Instagram Account</Btn>
+
+          {/* A disabled button with no explanation is the worst version of
+              this. The server says exactly which credentials are missing and
+              what they are, because the failure it prevents surfaces on
+              instagram.com as "incorrect password" — for a password that is
+              perfectly correct — and is otherwise impossible to place. */}
+          {conn && !conn.configured && (
+            <div style={{ maxWidth:520, textAlign:'left', padding:'12px 14px', borderRadius:10, background:'rgba(245,158,11,.07)', border:'1px solid rgba(245,158,11,.25)' }}>
+              <p style={{ fontSize:12.5, fontWeight:700, color:'#fbbf24', marginBottom:6 }}>
+                Instagram is not configured on this server
+              </p>
+              {conn.setup?.missing?.length > 0 && (
+                <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.6, marginBottom:8 }}>
+                  Missing: <code style={{ color:'var(--t1)' }}>{conn.setup.missing.join(', ')}</code>
+                </p>
+              )}
+              {(conn.setup?.setupNotes || []).map((note, i) => (
+                <p key={i} style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.6, marginBottom:6 }}>{note}</p>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <>
