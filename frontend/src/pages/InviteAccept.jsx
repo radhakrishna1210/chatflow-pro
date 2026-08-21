@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { navigate } from '../App.jsx';
 import { apiFetch } from '../lib/api.js';
 import { I } from '../components/Icons.jsx';
+import { ROLE_LABELS } from '../lib/permissions.js';
 
 function isAuthed() {
   return !!(localStorage.getItem('accessToken') && localStorage.getItem('user'));
@@ -130,7 +131,7 @@ export default function InviteAccept() {
       <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.6 }}>
         <strong style={{ color: 'var(--t1)' }}>{invite.inviterName}</strong>
         {isLink ? ' shared a link to join ' : <> invited <strong style={{ color: 'var(--t1)' }}>{invite.email}</strong> to join </>}
-        <strong style={{ color: 'var(--t1)' }}>{invite.workspaceName}</strong> as {invite.role === 'ADMIN' ? 'an Admin' : 'a Member'}.
+        <strong style={{ color: 'var(--t1)' }}>{invite.workspaceName}</strong> as {ROLE_LABELS[invite.role] || invite.role}.
       </p>
       {isLink && invite.usesLeft !== null && (
         <p style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 6 }}>

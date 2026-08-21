@@ -5,6 +5,7 @@ import { adminFetch } from '../lib/api.js';
 import { useMessageRates } from '../lib/pricing.js';
 import ApiManagementTab from './ApiManagementTab.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14 };
 
@@ -1192,8 +1193,9 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
                   style={{ flex: 1, minWidth: 190, padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif", outline: 'none' }} />
                 <select value={role} onChange={(e) => setRole(e.target.value)}
                   style={{ padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif", outline: 'none', colorScheme: 'dark' }}>
-                  <option value="CLIENT" style={{ background: '#0a0b0e' }}>Member</option>
-                  <option value="ADMIN" style={{ background: '#0a0b0e' }}>Admin</option>
+                  {ASSIGNABLE_ROLES.map(r => (
+                    <option key={r} value={r} style={{ background: '#0a0b0e' }} title={ROLE_DESCRIPTIONS[r]}>{ROLE_LABELS[r]}</option>
+                  ))}
                 </select>
                 <button onClick={() => invite('email')} disabled={!email.trim() || busy}
                   style={{ padding: '9px 14px', borderRadius: 8, background: 'var(--grad-cta)', border: 'none', color: 'var(--ink)', fontSize: 12.5, fontWeight: 700, cursor: !email.trim() || busy ? 'not-allowed' : 'pointer', opacity: !email.trim() || busy ? 0.6 : 1, fontFamily: "'Manrope',sans-serif" }}>
@@ -1211,7 +1213,7 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
                 <div style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)' }}>
                   <p style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600, marginBottom: 6 }}>
                     {issued.kind === 'LINK'
-                      ? `Link ready — anyone who opens it joins as ${issued.role === 'ADMIN' ? 'an Admin' : 'a Member'}.`
+                      ? `Link ready — anyone who opens it joins as ${ROLE_LABELS[issued.role] || issued.role}.`
                       : issued.emailQueued
                         ? `Invite emailed to ${issued.email}. Share the link too if it doesn't arrive.`
                         : `Invite created for ${issued.email}, but no email went out — share this link instead.`}
@@ -1234,7 +1236,7 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
                     <div key={inv.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                       <span style={{ fontSize: 12, color: 'var(--t2)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         <strong style={{ color: 'var(--t1)' }}>{inv.kind === 'LINK' ? 'Shareable link' : inv.email}</strong>
-                        {' · '}{inv.role === 'ADMIN' ? 'Admin' : 'Member'}
+                        {' · '}{ROLE_LABELS[inv.role] || inv.role}
                         {inv.kind === 'LINK' && ` · ${inv.useCount || 0} joined`}
                         {' · expires '}{new Date(inv.expiresAt).toLocaleDateString('en-IN')}
                       </span>

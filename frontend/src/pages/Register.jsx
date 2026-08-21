@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { validateMeaningfulText } from '../lib/validation.js';
 import { navigate } from '../App.jsx';
+import { ROLE_LABELS } from '../lib/permissions.js';
 
 // Two-step, OTP-verified email signup. Step 1 collects name/email/password and
 // asks the backend to email a 6-digit code (no account is created yet). Step 2
@@ -177,7 +178,7 @@ export default function Register({ onNav }) {
 
               {inviteInfo && (
                 <div style={{ padding: '10px 13px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 13, marginBottom: 16 }}>
-                  You're joining <strong>{inviteInfo.workspaceName}</strong> as {inviteInfo.role === 'ADMIN' ? 'an Admin' : 'a Member'}.
+                  You're joining <strong>{inviteInfo.workspaceName}</strong> as {ROLE_LABELS[inviteInfo.role] || inviteInfo.role}.
                 </div>
               )}
               {inviteWarning && (

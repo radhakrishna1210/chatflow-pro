@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { canManage, canBill, canManageMembers } from '../lib/permissions.js';
+import { canManage, canBill, canManageMembers, ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
@@ -546,8 +546,9 @@ export default function SettingsView() {
                 <FInput value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="colleague@company.com" style={{ flex:1 }} />
                 <select value={inviteRole} onChange={e=>setInviteRole(e.target.value)}
                   style={{ padding:'9px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', colorScheme:'dark' }}>
-                  <option value="CLIENT" style={{ background:'#0a0b0e' }}>Member</option>
-                  <option value="ADMIN" style={{ background:'#0a0b0e' }}>Admin</option>
+                  {ASSIGNABLE_ROLES.map(r => (
+                    <option key={r} value={r} style={{ background:'#0a0b0e' }} title={ROLE_DESCRIPTIONS[r]}>{ROLE_LABELS[r]}</option>
+                  ))}
                 </select>
                 <Btn size="sm" onClick={sendInvite} disabled={sendingInvite}>{sendingInvite ? 'Sending…' : 'Send Invite'}</Btn>
               </div>
@@ -572,7 +573,7 @@ export default function SettingsView() {
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10, marginBottom:8, flexWrap: 'wrap', rowGap: 10 }}>
                 <p style={{ fontSize:12.5, color: lastInvite.kind === 'LINK' ? 'var(--green)' : lastInvite.emailQueued ? 'var(--green)' : '#fbbf24', fontWeight:600 }}>
                   {lastInvite.kind === 'LINK'
-                    ? `Invite link ready — anyone who opens it joins as ${lastInvite.role === 'ADMIN' ? 'an Admin' : 'a Member'}.`
+                    ? `Invite link ready — anyone who opens it joins as ${ROLE_LABELS[lastInvite.role] || lastInvite.role}.`
                     : lastInvite.emailQueued
                       ? `Invite email sent to ${lastInvite.email}.`
                       : `Invitation created for ${lastInvite.email}, but no email was sent.`}
@@ -608,7 +609,7 @@ export default function SettingsView() {
                       {inv.kind === 'LINK' ? 'Shareable link' : inv.email}
                     </span>
                     <span style={{ fontSize:11, color:'var(--t3)', marginLeft:8 }}>
-                      {inv.role === 'ADMIN' ? 'Admin' : 'Member'}
+                      {ROLE_LABELS[inv.role] || inv.role}
                       {inv.kind === 'LINK' && ` · ${inv.useCount || 0} joined`}
                       {' · expires '}{new Date(inv.expiresAt).toLocaleDateString()}
                     </span>
@@ -674,13 +675,14 @@ export default function SettingsView() {
                           <select value={memberRoles[m.userId] || m.role} onChange={e=>setRole(m.userId,e.target.value)}
                             disabled={lockRole} title={lockRole ? roleReason : undefined}
                             style={{ padding:'5px 8px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, fontFamily:"'Manrope',sans-serif", outline:'none', colorScheme:'dark', opacity: lockRole ? 0.5 : 1, cursor: lockRole ? 'not-allowed' : 'pointer' }}>
-                            <option value="ADMIN" style={{ background:'#0a0b0e' }}>ADMIN</option>
-                            <option value="CLIENT" style={{ background:'#0a0b0e' }}>CLIENT</option>
+                            {ASSIGNABLE_ROLES.map(r => (
+                              <option key={r} value={r} style={{ background:'#0a0b0e' }} title={ROLE_DESCRIPTIONS[r]}>{ROLE_LABELS[r]}</option>
+                            ))}
                           </select>
                           {lockRole && <span title={roleReason} style={{ display:'flex' }}><I n="lock" s={12} c="var(--t3)" /></span>}
                         </div>
                       ) : (
-                        <span style={{ fontSize:12, color:'var(--t2)' }}>{m.role === 'ADMIN' ? 'Admin' : 'Member'}</span>
+                        <span style={{ fontSize:12, color:'var(--t2)' }}>{ROLE_LABELS[m.role] || m.role}</span>
                       )}
                     </td>
                     <td style={{ padding:'10px 12px' }}>

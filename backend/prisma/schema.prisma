@@ -699,8 +699,13 @@ model RefreshToken {
 }
 
 enum Role {
-  ADMIN
+  // Ordered by capability, low to high. See middleware/authorize.js for what
+  // each one means and middleware/roleCapabilities.js for how the two new ones
+  // are enforced without annotating forty route files.
+  VIEWER
+  AGENT
   CLIENT
+  ADMIN
 }
 
 enum NumberPoolStatus {

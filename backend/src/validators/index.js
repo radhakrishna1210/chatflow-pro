@@ -29,12 +29,21 @@ function meaningfulText(schema, label = 'This field') {
   return schema.refine((v) => hasMeaningfulText(v), { message: `${label} must contain at least one letter` });
 }
 
+// The roles a workspace can hand out, ordered as the UI lists them. Declared
+// once so the invite, link-invite and role-change schemas cannot drift apart —
+// they were four separate copies of ['ADMIN', 'CLIENT'].
+const workspaceRole = () => z.enum(['VIEWER', 'AGENT', 'CLIENT', 'ADMIN']);
+
 export const authSchemas = {
   register: z.object({
     name: meaningfulText(z.string().trim().min(1, 'Name is required').max(100), 'Name'),
     email: z.string().trim().email('Valid email required').max(254),
     password: z.string().min(8, 'Password must be at least 8 characters').max(128),
-    role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+    // Accepted for backwards compatibility and deliberately not honoured: a
+    // self-registered user gets no workspace at all until they create one
+    // (which makes them ADMIN of it) or accept an invite (which sets the role
+    // the inviter chose). See services/auth.service.js#register.
+    role: workspaceRole().default('CLIENT'),
     inviteToken: z.string().trim().min(1).optional(),
   }),
   signupStart: z.object({
@@ -45,7 +54,8 @@ export const authSchemas = {
   signupVerify: z.object({
     email: z.string().trim().email('Valid email required'),
     code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code'),
-    role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+    // Inert, as in `register` above.
+    role: workspaceRole().default('CLIENT'),
     inviteToken: z.string().trim().min(1).optional(),
   }),
   signupResend: z.object({ email: z.string().trim().email('Valid email required') }),
@@ -293,9 +303,9 @@ export const whatsappFormSchemas = {
 export const memberSchemas = {
   invite: z.object({
     email: z.string().trim().email(),
-    role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+    role: workspaceRole().default('CLIENT'),
   }),
-  updateRole: z.object({ role: z.enum(['ADMIN', 'CLIENT']) }),
+  updateRole: z.object({ role: workspaceRole() }),
 };
 
 export const apiKeySchemas = {
@@ -359,12 +369,12 @@ export const settingsSchemas = {
 export const invitationSchemas = {
   create: z.object({
     email: z.string().trim().email(),
-    role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+    role: workspaceRole().default('CLIENT'),
   }),
   // A shareable link takes no address. maxUses caps how many people can join
   // through it; omitted means unlimited until it expires or is revoked.
   createLink: z.object({
-    role: z.enum(['ADMIN', 'CLIENT']).default('CLIENT'),
+    role: workspaceRole().default('CLIENT'),
     maxUses: z.coerce.number().int().positive().max(500).optional(),
   }),
 };
