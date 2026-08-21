@@ -246,16 +246,40 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
 // Sends a small sample payload to the workspace's configured webhook URL so
 // the user can confirm their endpoint is reachable before relying on it.
 export async function testWebhook(workspaceId) {
-  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { webhookUrl: true } });
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { webhookUrl: true, webhookVerifyToken: true },
+  });
   if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
   if (!ws.webhookUrl) { const e = new Error('No webhook URL configured — save one first'); e.status = 400; throw e; }
 
+  // Signed and shaped exactly like a real delivery. It used to send a bare
+  // unsigned {event:'test'} body, so a receiver that verified signatures — the
+  // thing the test is meant to prove works — rejected the test and accepted
+  // production traffic, or vice versa.
+  const { signPayload } = await import('./outgoingWebhook.service.js');
+  const { randomUUID } = await import('crypto');
+  const deliveryId = randomUUID();
+  const body = JSON.stringify({
+    id: deliveryId,
+    event: 'test',
+    workspaceId,
+    sentAt: new Date().toISOString(),
+    data: { message: 'This is a test delivery from ChatFlow Pro.' },
+  });
+
   try {
-    const res = await axios.post(ws.webhookUrl, {
-      event: 'test',
-      workspaceId,
-      timestamp: new Date().toISOString(),
-    }, { timeout: 8000, validateStatus: () => true });
+    const res = await axios.post(ws.webhookUrl, body, {
+      timeout: 8000,
+      validateStatus: () => true,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'ChatFlowPro-Webhook/1',
+        'X-ChatFlow-Event': 'test',
+        'X-ChatFlow-Delivery': deliveryId,
+        'X-ChatFlow-Signature-256': signPayload(body, ws.webhookVerifyToken),
+      },
+    });
 
     if (res.status >= 200 && res.status < 300) {
       return { ok: true, status: res.status };

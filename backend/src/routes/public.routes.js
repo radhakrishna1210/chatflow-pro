@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticateApiKey } from '../middleware/authenticateApiKey.js';
+import { requireScope } from '../lib/apiScopes.js';
 import * as templatesController from '../controllers/templates.controller.js';
 import * as campaignsController from '../controllers/campaigns.controller.js';
 import * as contactsController from '../controllers/contacts.controller.js';
@@ -20,7 +21,7 @@ const injectWorkspace = (fn) => (req, res, next) => {
 };
 
 // --- Messages ---
-router.post('/messages', async (req, res, next) => {
+router.post('/messages', requireScope('messages:send'), async (req, res, next) => {
   try {
     const result = await whatsappService.sendPublicMessage(req.workspaceId, req.body);
     res.status(200).json(result);
@@ -30,24 +31,24 @@ router.post('/messages', async (req, res, next) => {
 });
 
 // --- Templates ---
-router.get('/templates', injectWorkspace(templatesController.list));
-router.post('/templates', validate({ body: templateSchemas.create }), injectWorkspace(templatesController.create));
-router.get('/templates/:id', injectWorkspace(templatesController.getOne));
+router.get('/templates', requireScope('templates:read'), injectWorkspace(templatesController.list));
+router.post('/templates', requireScope('templates:write'), validate({ body: templateSchemas.create }), injectWorkspace(templatesController.create));
+router.get('/templates/:id', requireScope('templates:read'), injectWorkspace(templatesController.getOne));
 
 // --- Campaigns ---
-router.get('/campaigns', injectWorkspace(campaignsController.list));
-router.post('/campaigns', validate({ body: campaignSchemas.create }), injectWorkspace(campaignsController.create));
-router.get('/campaigns/:id', injectWorkspace(campaignsController.getOne));
-router.post('/campaigns/:id/launch', injectWorkspace(campaignsController.launch));
+router.get('/campaigns', requireScope('campaigns:read'), injectWorkspace(campaignsController.list));
+router.post('/campaigns', requireScope('campaigns:write'), validate({ body: campaignSchemas.create }), injectWorkspace(campaignsController.create));
+router.get('/campaigns/:id', requireScope('campaigns:read'), injectWorkspace(campaignsController.getOne));
+router.post('/campaigns/:id/launch', requireScope('campaigns:write'), injectWorkspace(campaignsController.launch));
 
 // --- Contacts ---
-router.get('/contacts', injectWorkspace(contactsController.list));
-router.post('/contacts', injectWorkspace(contactsController.create));
-router.put('/contacts/:id', injectWorkspace(contactsController.update));
+router.get('/contacts', requireScope('contacts:read'), injectWorkspace(contactsController.list));
+router.post('/contacts', requireScope('contacts:write'), injectWorkspace(contactsController.create));
+router.put('/contacts/:id', requireScope('contacts:write'), injectWorkspace(contactsController.update));
 
 // --- Webhooks ---
 // Allow customers to register their webhook URL by updating workspace settings
-router.post('/webhooks', async (req, res, next) => {
+router.post('/webhooks', requireScope('webhooks:write'), async (req, res, next) => {
   try {
     const { webhookUrl } = req.body;
     if (typeof webhookUrl !== 'string') {

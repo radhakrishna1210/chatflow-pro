@@ -15,6 +15,8 @@ router.post('/', validate({ body: contactSchemas.create }), contactsController.c
 router.post('/import', upload.single('file'), contactsController.importCsv);
 // Literal path before '/:id' so it is not read as a contact id.
 router.get('/tags', contactsController.tags);
+// Literal path, before '/:id'. Takes the same filters as the list endpoint.
+router.get('/export', contactsController.exportCsv);
 router.get('/:id', contactsController.getOne);
 router.delete('/:id', contactsController.remove);
 router.patch('/:id', validate({ body: contactSchemas.update }), contactsController.update);

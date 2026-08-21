@@ -661,9 +661,16 @@ model ApiKey {
   id          String    @id @default(cuid())
   workspaceId String
   name        String
-  keyHash     String
+  keyHash     String    @unique
   keyPrefix   String
   environment String    @default("production")
+  // What this key is allowed to do, e.g. ["messages:send", "contacts:read"].
+  // There were no scopes at all: every key could do everything the dashboard
+  // could, and authenticateApiKey handed each caller role ADMIN outright — so
+  // a key minted for a read-only reporting script could launch campaigns and
+  // spend the wallet. Null means the legacy full-access behaviour, preserved
+  // for keys issued before scopes existed.
+  scopes      Json?
   lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())
   revokedAt   DateTime?
@@ -714,6 +721,10 @@ enum CampaignStatus {
   DRAFT
   SCHEDULED
   RUNNING
+  // Stopped mid-flight but resumable. Cancelling was the only way to halt a
+  // running campaign, and it is irreversible — so "wait, that's the wrong
+  // audience" meant destroying the campaign and rebuilding it.
+  PAUSED
   COMPLETED
   FAILED
   CANCELLED
@@ -721,6 +732,10 @@ enum CampaignStatus {
 
 enum CampaignRecipientStatus {
   PENDING
+  // Claimed by a worker and mid-flight. Exists so a recipient can be claimed
+  // atomically before the send: without it two concurrent runs of the batch
+  // both saw PENDING and both sent to the same person.
+  SENDING
   RETRYING
   SENT
   DELIVERED

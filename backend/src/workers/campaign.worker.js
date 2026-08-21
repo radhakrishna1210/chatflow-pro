@@ -320,14 +320,26 @@ async function processCampaign(job) {
   }
 
   // Atomic status guard: only transition to RUNNING if the campaign wasn't
-  // cancelled in the meantime (closes the cancel race with getJobs()).
+  // cancelled or paused in the meantime (closes the cancel race with getJobs()).
   const claimed = await prisma.campaign.updateMany({
-    where: { id: campaignId, status: { in: ['DRAFT', 'SCHEDULED', 'RUNNING'] } },
+    where: { id: campaignId, status: { in: ['DRAFT', 'SCHEDULED'] } },
     data: { status: 'RUNNING', launchedAt: campaign.launchedAt || new Date() },
   });
   if (claimed.count === 0) {
-    console.log(`[CampaignWorker] Campaign ${campaignId} could not be claimed (likely cancelled) — skipping`);
-    return;
+    // RUNNING is deliberately *not* claimable above. It used to be, which meant
+    // two deliveries of the same job (a stalled worker being redelivered, a
+    // double launch) could both claim it and both iterate the same PENDING
+    // recipients — sending every message twice. A resume is the one legitimate
+    // way back into RUNNING, and it comes through resumeCampaign().
+    const current = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
+    if (current?.status === 'RUNNING' && !job.data?.resume) {
+      console.warn(`[CampaignWorker] Campaign ${campaignId} is already being sent by another job — refusing to send it twice.`);
+      return;
+    }
+    if (current?.status !== 'RUNNING') {
+      console.log(`[CampaignWorker] Campaign ${campaignId} could not be claimed (${current?.status}) — skipping`);
+      return;
+    }
   }
 
   const accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
@@ -339,10 +351,33 @@ async function processCampaign(job) {
   });
 
   let cancelled = false;
+  let paused = false;
+  let processed = 0;
 
   for (const recipient of recipients) {
     const refreshed = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
     if (refreshed?.status === 'CANCELLED') { cancelled = true; break; }
+    // Pausing has to bite immediately, not at the end of the batch — that is
+    // the whole point of being able to stop a campaign mid-flight.
+    if (refreshed?.status === 'PAUSED') {
+      console.log(`[CampaignWorker] Campaign ${campaignId} was paused — stopping after ${processed} recipient(s).`);
+      paused = true;
+      break;
+    }
+
+    // Claim this recipient before sending. The retry path already does this;
+    // the main loop did not, so anything that ran the loop twice concurrently
+    // would send to the same person twice. Only the writer that moves PENDING
+    // to SENDING proceeds.
+    const claimedRecipient = await prisma.campaignRecipient.updateMany({
+      where: { id: recipient.id, status: 'PENDING' },
+      data: { status: 'SENDING' },
+    });
+    if (claimedRecipient.count === 0) {
+      console.log(`[CampaignWorker] Recipient ${recipient.id} already claimed elsewhere — skipping duplicate.`);
+      continue;
+    }
+    processed += 1;
 
     // Re-checked per recipient rather than only at launch: a customer can
     // reply STOP while the campaign is mid-flight, and that must take effect
@@ -474,6 +509,18 @@ async function processCampaign(job) {
   // A cancelled campaign must stay CANCELLED — never flip it to COMPLETED.
   if (cancelled) {
     console.log(`[CampaignWorker] Campaign ${campaignId} cancelled mid-run — leaving status CANCELLED`);
+    return;
+  }
+
+  // Same for a pause: the remaining recipients are still PENDING and belong to
+  // whoever resumes it. Releasing the claim on any recipient this run had
+  // marked SENDING but not yet sent keeps them eligible.
+  if (paused) {
+    await prisma.campaignRecipient.updateMany({
+      where: { campaignId, status: 'SENDING' },
+      data: { status: 'PENDING' },
+    }).catch(() => {});
+    console.log(`[CampaignWorker] Campaign ${campaignId} paused mid-run — leaving status PAUSED`);
     return;
   }
 

@@ -246,3 +246,62 @@ export async function updateContact(workspaceId, id, updates) {
   }
   return prisma.contact.update({ where: { id }, data });
 }
+
+// ─── Export ──────────────────────────────────────────────────────────────────
+//
+// There was no export at all — contacts could be imported from CSV and never
+// got back out, which makes the data feel like a one-way door. This deliberately
+// reuses buildContactWhere, so whatever the Contacts screen is currently showing
+// (search, tags, segment, cluster, status, date ranges) is exactly what comes
+// out. An export that silently ignored the filters would be worse than none.
+
+const CSV_COLUMNS = [
+  ['name', (c) => c.name],
+  ['phoneNumber', (c) => c.phoneNumber],
+  ['email', (c) => c.email],
+  ['tags', (c) => (c.tags || []).join('; ')],
+  ['segments', (c) => (c.segments || []).map((s) => s.name).join('; ')],
+  ['optedOut', (c) => (c.optedOut ? 'yes' : 'no')],
+  ['createdAt', (c) => c.createdAt?.toISOString() ?? ''],
+  ['updatedAt', (c) => c.updatedAt?.toISOString() ?? ''],
+];
+
+// A leading =, +, -, @, tab or CR makes a spreadsheet treat the cell as a
+// formula, and contact names are attacker-supplied — so the export is a way to
+// get a payload in front of whoever opens it. An apostrophe keeps it text.
+//
+// An international phone number legitimately starts with '+' and is not a
+// formula, so it is exempted: guarding it would put an apostrophe in front of
+// every number in the file and break re-importing what was just exported.
+const PHONE_LIKE = /^\+[\d\s()-]+$/;
+
+function csvCell(value) {
+  const raw = String(value ?? '');
+  const risky = /^[=+\-@\t\r]/.test(raw) && !PHONE_LIKE.test(raw);
+  return `"${(risky ? `'${raw}` : raw).replace(/"/g, '""')}"`;
+}
+
+// Capped so one request cannot try to hold an unbounded workspace in memory.
+const EXPORT_LIMIT = 50_000;
+
+export async function exportContactsCsv(workspaceId, filters = {}) {
+  const where = buildContactWhere(workspaceId, filters);
+  const contacts = await prisma.contact.findMany({
+    where,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: EXPORT_LIMIT,
+    include: { segments: { select: { name: true } } },
+  });
+
+  const lines = [CSV_COLUMNS.map(([header]) => csvCell(header)).join(',')];
+  for (const c of contacts) {
+    lines.push(CSV_COLUMNS.map(([, read]) => csvCell(read(c))).join(','));
+  }
+
+  return {
+    csv: lines.join('\r\n'),
+    count: contacts.length,
+    truncated: contacts.length === EXPORT_LIMIT,
+    filename: `contacts-${new Date().toISOString().slice(0, 10)}.csv`,
+  };
+}

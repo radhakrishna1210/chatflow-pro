@@ -26,5 +26,8 @@ router.post('/:id/recipients', authorize('CLIENT'), validate({ body: campaignSch
 router.put('/:id/recipients', authorize('CLIENT'), validate({ body: campaignSchemas.setRecipients }), campaignsController.setRecipients);
 router.post('/:id/launch', authorize('CLIENT'), validate({ body: campaignSchemas.launch }), campaignsController.launch);
 router.patch('/:id/cancel', authorize('CLIENT'), campaignsController.cancel);
+// Pausing is reversible; cancelling is not. Both are member-level work.
+router.patch('/:id/pause',  authorize('CLIENT'), campaignsController.pause);
+router.patch('/:id/resume', authorize('CLIENT'), campaignsController.resume);
 
 export default router;

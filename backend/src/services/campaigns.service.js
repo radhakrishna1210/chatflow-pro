@@ -448,6 +448,32 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
   return priceAudience(workspaceId, contacts, category);
 }
 
+// Meta refuses to send a template it has not approved, so a campaign built on
+// one is money and time spent on a guaranteed failure. Only DELETED was checked
+// before, which let a REJECTED or still-in-review template be launched to the
+// whole audience — every recipient failing with 132000/132001 and the reason
+// buried in per-recipient errors.
+//
+// Checked at launch rather than only at creation: a template is very often
+// still PENDING when the campaign is drafted, and Meta can reject or disable it
+// at any time afterwards.
+function assertTemplateSendable(template) {
+  if (!template) { const e = new Error('This campaign has no template'); e.status = 400; throw e; }
+  if (template.status === 'APPROVED') return;
+
+  const reason = {
+    PENDING: `Template "${template.name}" is still in review with Meta. Wait for it to be approved before launching.`,
+    REJECTED: `Template "${template.name}" was rejected by Meta and cannot be sent. Edit it and resubmit for review, or pick a different template.`,
+    DELETED: `Template "${template.name}" no longer exists on Meta. Pick a different template.`,
+  }[template.status] || `Template "${template.name}" is not approved for sending (status: ${template.status}).`;
+
+  const e = new Error(reason);
+  e.status = 422;
+  e.code = 'TEMPLATE_NOT_SENDABLE';
+  e.details = { templateId: template.id, status: template.status };
+  throw e;
+}
+
 export async function launchCampaign(workspaceId, campaignId, scheduledAt, retryConfig, user = null) {
   const campaign = await prisma.campaign.findFirst({
     where: { id: campaignId, workspaceId },
@@ -460,6 +486,9 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
   if (campaign.status !== 'DRAFT') {
     const e = new Error('Campaign is not in DRAFT status'); e.status = 400; throw e;
   }
+
+  // Before anything is charged or queued.
+  assertTemplateSendable(campaign.template);
 
   // Validate the schedule before touching money — a bad date must not leave a
   // charged, unqueued campaign behind.
@@ -780,6 +809,58 @@ export async function getCampaign(workspaceId, campaignId) {
   };
 }
 
+// Halts a running campaign without destroying it. The worker checks the
+// campaign's status before every single send, so pausing takes effect within
+// one message rather than at the end of the batch.
+export async function pauseCampaign(workspaceId, campaignId) {
+  const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
+  if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
+  if (!['RUNNING', 'SCHEDULED'].includes(campaign.status)) {
+    const e = new Error(`Only a running or scheduled campaign can be paused — this one is ${campaign.status}.`);
+    e.status = 400; throw e;
+  }
+
+  await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'PAUSED' } });
+
+  // A scheduled campaign has a delayed job waiting; drop it so it cannot fire
+  // while paused. Resuming re-queues.
+  if (campaign.queueJobId) {
+    const job = await campaignQueue.getJob(campaign.queueJobId).catch(() => null);
+    if (job) await job.remove().catch(() => {});
+  }
+
+  const remaining = await prisma.campaignRecipient.count({ where: { campaignId, status: 'PENDING' } });
+  return { ok: true, status: 'PAUSED', remaining };
+}
+
+// Puts a paused campaign back in the queue. Recipients already sent to keep
+// their status, so resuming continues rather than restarting — the worker only
+// ever picks up recipients still PENDING.
+export async function resumeCampaign(workspaceId, campaignId) {
+  const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
+  if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
+  if (campaign.status !== 'PAUSED') {
+    const e = new Error(`Only a paused campaign can be resumed — this one is ${campaign.status}.`);
+    e.status = 400; throw e;
+  }
+
+  const remaining = await prisma.campaignRecipient.count({ where: { campaignId, status: 'PENDING' } });
+  if (remaining === 0) {
+    await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'COMPLETED', completedAt: new Date() } });
+    return { ok: true, status: 'COMPLETED', remaining: 0 };
+  }
+
+  // The template can have been rejected by Meta while the campaign sat paused.
+  const template = await prisma.template.findUnique({ where: { id: campaign.templateId } });
+  assertTemplateSendable(template);
+
+  await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'RUNNING' } });
+  const job = await campaignQueue.add('send-campaign', { campaignId, workspaceId });
+  await prisma.campaign.update({ where: { id: campaignId }, data: { queueJobId: String(job.id) } });
+
+  return { ok: true, status: 'RUNNING', remaining };
+}
+
 export async function cancelCampaign(workspaceId, campaignId) {
   const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
@@ -850,6 +931,18 @@ export async function settleCampaignRefund(campaignId, reason = 'Refund for unse
 // Called at startup: re-queue SCHEDULED campaigns whose BullMQ jobs were lost
 // (e.g. ephemeral Redis restart). Past-due campaigns fire immediately.
 export async function recoverScheduledCampaigns() {
+  // A worker killed mid-send leaves recipients stranded in SENDING: claimed by
+  // a process that no longer exists, so nothing will ever pick them up. Only
+  // rows with no sentAt are released — one that reached Meta before the crash
+  // must not be sent a second time.
+  const released = await prisma.campaignRecipient.updateMany({
+    where: { status: 'SENDING', sentAt: null },
+    data: { status: 'PENDING' },
+  });
+  if (released.count > 0) {
+    console.log(`[Recovery] Released ${released.count} recipient(s) stranded mid-send by a previous shutdown`);
+  }
+
   const scheduled = await prisma.campaign.findMany({
     where: { status: 'SCHEDULED' },
     select: { id: true, workspaceId: true, scheduledAt: true, queueJobId: true },

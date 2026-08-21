@@ -259,3 +259,20 @@ export async function listRuns(workspaceId, { workflowId, limit = 20 } = {}) {
     take: Math.min(limit, 100),
   });
 }
+
+// Starts a named workflow directly, rather than by matching its trigger.
+//
+// Used by intent routing: a rule whose action is "run this workflow" names the
+// workflow by id, so the trigger-matching path in findMatchingWorkflows() does
+// not apply. Returns null when the workflow is missing or inactive, so the
+// caller can fall through instead of silently doing nothing.
+export async function startRunForWorkflowId(workspaceId, workflowId, { conversationId, contactId, triggerMessage }) {
+  const workflow = await prisma.workflow.findFirst({
+    where: { id: workflowId, workspaceId, isActive: true },
+  });
+  if (!workflow) {
+    console.warn(`[WorkflowEngine] Workflow ${workflowId} not found or inactive — nothing started.`);
+    return null;
+  }
+  return startRun(workflow, { workspaceId, conversationId, contactId, triggerMessage });
+}

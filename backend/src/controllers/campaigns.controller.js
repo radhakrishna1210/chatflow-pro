@@ -56,6 +56,14 @@ export async function cancel(req, res) {
   res.json(campaign);
 }
 
+export async function pause(req, res) {
+  res.json(await campaignsService.pauseCampaign(req.params.workspaceId, req.params.id));
+}
+
+export async function resume(req, res) {
+  res.json(await campaignsService.resumeCampaign(req.params.workspaceId, req.params.id));
+}
+
 export async function fallbackCapabilities(req, res) {
   const { fallbackCapabilities } = await import('../services/fallback.service.js');
   res.json(fallbackCapabilities());

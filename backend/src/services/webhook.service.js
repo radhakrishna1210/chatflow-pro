@@ -12,6 +12,8 @@ import { isWithinBusinessHours } from './businessHours.service.js';
 import { matchOptOutKeyword, recordOptOut } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { parseInboundMessage, carriesCustomerText } from './inboundMessage.js';
+import { emitWebhook } from './outgoingWebhook.service.js';
+import { routeByIntent, escalateToHuman, escalationReason } from './intentRouting.service.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
 
@@ -98,6 +100,7 @@ async function handleTemplateStatusUpdate(wabaId, value) {
     for (const t of affectedTemplates) {
       if (seen.has(t.workspaceId)) continue;
       seen.add(t.workspaceId);
+      emitWebhook(t.workspaceId, 'template.status', { name: t.name, status: newStatus, event });
       if (newStatus === 'APPROVED') {
         queueTemplateApprovedEmail(t.workspaceId, t.name).catch(() => {});
         notifyWorkspace(t.workspaceId, {
@@ -349,6 +352,22 @@ async function handleInboundMessage(value, msg) {
 
   const workspaceId = waNumber.workspaceId;
 
+  // Tell the customer's own system. This is the event an integration is most
+  // likely to want, and until now nothing was ever dispatched.
+  emitWebhook(workspaceId, 'message.received', {
+    conversationId: conversation.id,
+    contact: { id: contact.id, name: contact.name, phoneNumber: contact.phoneNumber },
+    message: {
+      id: msg.id,
+      type: parsed.type,
+      body: messageBody,
+      from: fromPhone,
+      timestamp: sentAt.toISOString(),
+      ...(parsed.media || {}),
+      ...(parsed.location || {}),
+    },
+  });
+
   // 0. Opt-out beats everything. A STOP (or any accepted opt-out keyword)
   //    blocks the number for good and stops this message from triggering any
   //    automation — replying to someone who just asked to be left alone is
@@ -373,6 +392,9 @@ async function handleInboundMessage(value, msg) {
         source: 'Incoming WhatsApp Message',
       });
       console.log(`[Inbound] ${fromPhone} opted out of workspace ${workspaceId} via "${optOutKeyword}"`);
+      emitWebhook(workspaceId, 'optout.created', {
+        phoneNumber: fromPhone, keyword: optOutKeyword, contactId: contact.id,
+      });
       await notifyWorkspace(workspaceId, {
         type: 'OPT_OUT',
         title: 'A contact opted out',
@@ -396,6 +418,10 @@ async function handleInboundMessage(value, msg) {
       oooMessage: true,
       delayedAfterMinutes: true,
       businessHours: true,
+      // Read at last: the AI Agent screen has offered these for a long time
+      // and nothing consulted them, so the agent answered every message itself
+      // and there was no route from automation to a person.
+      escalationRules: true,
     },
   });
 
@@ -455,15 +481,58 @@ async function handleInboundMessage(value, msg) {
   }
 
   let autoReplyText = null;
+  let intentHint = null;
+
+  // 1.5 Escalation. A customer asking for a person, or raising a refund, must
+  //     reach one — checked before any automation answers, because the worst
+  //     outcome here is a bot talking over someone who has already asked it to
+  //     stop. Which conditions apply is the workspace's own choice
+  //     (escalationRules on the AI Agent screen), and until now nothing read
+  //     them.
+  if (customerText && !workflowWillReply) {
+    const reason = escalationReason(messageBody, workspace?.escalationRules);
+    if (reason) {
+      await escalateToHuman({ workspaceId, conversationId: conversation.id, contact, reason });
+      await scheduleDelayedResponse(workspace, conversation.id);
+      return;
+    }
+  }
 
   // 2. Exact keyword trigger (deterministic, highest priority after workflows).
   if (customerText && !workflowWillReply) {
     const trigger = await findMatchingTrigger(workspaceId, messageBody);
     if (trigger) autoReplyText = trigger.responseTemplate;
 
-    // 3. AI Intent Matching — fuzzy-route to the best trigger when no exact
-    //    match was found. Real feature, gated by intentMatchingEnabled.
+    // 3. Intent rules. The Intent Matching screen creates, tests and charts
+    //    these, and nothing in the inbound path ever consulted them — the only
+    //    importer of intent.service.js was its own controller, so every rule
+    //    routed nothing at all. A rule can hand the thread to a person, answer
+    //    from a trigger, start a workflow, or tell the agent what the customer
+    //    is asking about.
     if (!autoReplyText) {
+      const routed = await routeByIntent({
+        workspaceId, conversationId: conversation.id, contact, waNumber, messageBody,
+      }).catch((err) => {
+        console.error('[Inbound] Intent routing failed:', err);
+        return null;
+      });
+      if (routed?.handled) {
+        await scheduleDelayedResponse(workspace, conversation.id);
+        return;
+      }
+      if (routed?.replyText) autoReplyText = routed.replyText;
+      if (routed?.intentHint) intentHint = routed.intentHint;
+    }
+
+    // 3b. Legacy fuzzy keyword matching against automation triggers, kept as
+    //     the last deterministic attempt before the model.
+    //
+    //     Skipped when an intent rule has already classified the message and
+    //     asked for an AI answer: the operator wrote that rule to say what this
+    //     message is about, and letting a fuzzy keyword match answer instead
+    //     throws that away — which is how "where is my order" ended up being
+    //     answered by the HELP trigger's greeting.
+    if (!autoReplyText && !intentHint) {
       const intent = await matchIntent(workspaceId, messageBody).catch(() => null);
       if (intent?.trigger) autoReplyText = intent.trigger.responseTemplate;
     }
@@ -497,7 +566,22 @@ async function handleInboundMessage(value, msg) {
       contactName: contact?.name,
       conversationId: conversation.id,
       waNumberId: waNumber.id,
+      intentHint,
     }).catch(() => null);
+
+    // The agent had nothing to say — no LLM configured, the provider failed, or
+    // it declined. Silence is the worst answer available, so the thread goes to
+    // a person instead of the customer simply never hearing back.
+    if (!autoReplyText) {
+      await escalateToHuman({
+        workspaceId,
+        conversationId: conversation.id,
+        contact,
+        reason: 'The AI agent could not answer this message',
+      });
+      await scheduleDelayedResponse(workspace, conversation.id);
+      return;
+    }
   }
 
   if (autoReplyText) {
@@ -534,7 +618,9 @@ async function handleStatusUpdate(status) {
 
   const message = await prisma.message.findUnique({
     where: { metaMessageId },
-    select: { id: true, campaignRecipientId: true, status: true },
+    // The conversation carries the workspace — Message itself does not, and the
+    // outgoing webhook has to be addressed to a workspace.
+    select: { id: true, campaignRecipientId: true, status: true, conversation: { select: { workspaceId: true } } },
   });
   if (!message) return;
 
@@ -570,6 +656,16 @@ async function handleStatusUpdate(status) {
         },
       }).catch((err) => console.error('[Status] Could not update message:', err.message));
     }
+  }
+
+  if (mapped) {
+    emitWebhook(message.conversation.workspaceId, 'message.status', {
+      messageId: metaMessageId,
+      status: mapped,
+      at: eventTime.toISOString(),
+      recipientId: status.recipient_id ?? null,
+      error: status.errors?.[0] ?? null,
+    });
   }
 
   // Everything below is campaign bookkeeping, which only applies to a send that

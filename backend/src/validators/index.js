@@ -302,6 +302,9 @@ export const apiKeySchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'Name is required').max(100),
     environment: z.string().trim().min(1).max(30).optional(),
+    // Validated against the catalogue in lib/apiScopes.js, which raises a 400
+    // naming any unknown scope. Omitted means the safe default set.
+    scopes: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
   }),
   testMessage: z.object({
     to: z.string().trim().min(6, 'A valid phone number is required').max(24),

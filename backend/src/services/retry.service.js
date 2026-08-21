@@ -31,6 +31,20 @@ export async function checkAndCompleteCampaign(campaignId) {
           console.error(`[Campaign] Settlement failed for ${campaignId}:`, e.message));
 
         queueCampaignCompletedEmail(completed).catch(() => {});
+        // The customer's own system is told too — the settings screen has
+        // offered a "campaign.completed" subscription all along while nothing
+        // ever dispatched one.
+        const { emitWebhook } = await import('./outgoingWebhook.service.js');
+        emitWebhook(completed.workspaceId, 'campaign.completed', {
+          campaignId: completed.id,
+          name: completed.name,
+          sent: completed.sent,
+          delivered: completed.delivered,
+          read: completed.read,
+          failed: completed.failed,
+          skipped: completed.skipped,
+          completedAt: completed.completedAt,
+        });
         notifyWorkspace(completed.workspaceId, {
           type: 'CAMPAIGN_COMPLETED',
           title: `Campaign "${completed.name}" finished`,
