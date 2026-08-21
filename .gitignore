@@ -53,3 +53,6 @@ INTERAKT_COMPARISON.md
 vite.config.js.timestamp-*
 vite.config.*.timestamp-*
 git_output.txt
+
+# Ad-hoc probe scripts written while debugging; never part of the app.
+backend/*_tmp.mjs
