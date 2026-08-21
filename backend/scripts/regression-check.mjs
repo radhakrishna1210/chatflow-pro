@@ -263,6 +263,71 @@ check('auth: unauthenticated request refused',
   check('verification: verify-code is routed and scoped', v.status === 404, `status=${v.status}`);
 }
 
+// ── Billing renewal ──────────────────────────────────────────────────────────
+{
+  // The sweep used to roll the period forward and reset the quota while
+  // collecting nothing, so a paid plan renewed free indefinitely.
+  const { runBillingCycleSweep } = await import('../src/services/subscription.service.js');
+  const { credit } = await import('../src/services/wallet.service.js');
+  const DAY = 86_400_000;
+  const basic = await prisma.plan.findUnique({ where: { key: 'BASIC' } });
+  const price = Number(basic.priceMonthly);
+
+  const seed = async (label, { balance, endedDaysAgo, cycleDays = 30, status = 'ACTIVE' }) => {
+    const ws = await prisma.workspace.create({ data: { name: `QA renewal ${label} ${Date.now()}` } });
+    const end = new Date(Date.now() - endedDaysAgo * DAY);
+    await prisma.subscription.create({
+      data: {
+        workspaceId: ws.id, planId: basic.id, status,
+        currentPeriodStart: new Date(end.getTime() - cycleDays * DAY), currentPeriodEnd: end,
+      },
+    });
+    if (balance > 0) {
+      await credit(ws.id, balance, { reason: 'QA seed', category: 'RECHARGE', idempotencyKey: `qa_seed_${ws.id}` });
+    }
+    return ws.id;
+  };
+  const balanceOf = async (id) =>
+    Number((await prisma.workspace.findUnique({ where: { id }, select: { walletBalance: true } })).walletBalance);
+
+  const funded = await seed('funded', { balance: price * 2, endedDaysAgo: 1 });
+  const empty = await seed('empty', { balance: 0, endedDaysAgo: 1 });
+  const stale = await seed('stale', { balance: 0, endedDaysAgo: 5, status: 'PAST_DUE' });
+  const quarterly = await seed('quarterly', { balance: Number(basic.priceQuarterly) * 2, endedDaysAgo: 1, cycleDays: 91 });
+
+  await runBillingCycleSweep();
+
+  check('billing: a paid plan is charged at renewal', await balanceOf(funded) === price,
+    `balance=${await balanceOf(funded)} expected=${price}`);
+  check('billing: renewal writes a paid invoice',
+    (await prisma.invoice.count({ where: { workspaceId: funded, status: 'PAID' } })) === 1);
+  check('billing: a renewed subscription stays ACTIVE',
+    (await prisma.subscription.findUnique({ where: { workspaceId: funded } })).status === 'ACTIVE');
+
+  await runBillingCycleSweep();
+  check('billing: a second sweep does not charge twice', await balanceOf(funded) === price,
+    `balance=${await balanceOf(funded)}`);
+
+  check('billing: an unfunded renewal goes PAST_DUE, not free',
+    (await prisma.subscription.findUnique({ where: { workspaceId: empty } })).status === 'PAST_DUE');
+  check('billing: past the grace window it EXPIREs',
+    (await prisma.subscription.findUnique({ where: { workspaceId: stale } })).status === 'EXPIRED');
+  check('billing: a quarterly cycle is charged the quarterly price',
+    await balanceOf(quarterly) === Number(basic.priceQuarterly),
+    `balance=${await balanceOf(quarterly)}`);
+
+  // The grace window has to be real access, not just an unlocked UI: a
+  // PAST_DUE workspace must still be able to send.
+  const { consumeMessageCredit } = await import('../src/services/subscription.service.js');
+  await credit(empty, 100, { reason: 'QA grace', category: 'RECHARGE', idempotencyKey: `qa_grace_${empty}` });
+  const graceSend = await consumeMessageCredit(empty, { reason: 'QA grace send' });
+  check('billing: a PAST_DUE workspace can still send during grace', graceSend.ok === true,
+    JSON.stringify(graceSend));
+  const expiredSend = await consumeMessageCredit(stale, { reason: 'QA expired send' });
+  check('billing: an EXPIRED workspace cannot send',
+    expiredSend.ok === false && expiredSend.code === 'SUBSCRIPTION_INACTIVE', JSON.stringify(expiredSend));
+}
+
 // ── Honest failures ──────────────────────────────────────────────────────────
 {
   // With SMTP credentials rejected, this must report the failure rather than

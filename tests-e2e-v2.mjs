@@ -32,7 +32,7 @@ console.log('\n\u25a0 Cleanup previous fixture data (suite is not run against an
   const fixtureEmails = [
     'v2admin@test.dev', 'v2client@test.dev', 'super@spandan.test', 'otto@test.dev',
     'quota-admin@test.dev', 'quota-member@test.dev', 'pro-admin@test.dev',
-    'billing-renew@test.dev', 'billing-cancel@test.dev',
+    'billing-renew@test.dev', 'billing-cancel@test.dev', 'billing-dunning@test.dev',
   ];
   const users = await prisma.user.findMany({ where: { email: { in: fixtureEmails } }, include: { workspaceMembers: true } });
   const workspaceIds = [...new Set(users.flatMap(u => u.workspaceMembers.map(m => m.workspaceId)))];
@@ -341,7 +341,11 @@ console.log('\n\u25a0 Subscription quota + wallet overage (README \u00a712.2/\u0
   r = await req('POST', '/workspaces', { token: r.data.accessToken, body: { name: 'Pro Test Workspace' } });
   const proAdmin = r.data;
   const proWs = r.data.workspace.id;
-  const proPlan = await prisma.plan.findUnique({ where: { key: 'PRO' } });
+  // BASIC rather than the retired PRO: it is a plan the catalogue still sells,
+  // and it has a real price, which is what makes the renewal charge testable.
+  const paidPlan = await prisma.plan.findUnique({ where: { key: 'BASIC' } });
+  const planPrice = Number(paidPlan.priceMonthly);
+  const { credit } = await import('./backend/src/services/wallet.service.js');
   // Auto-provisioned as FREE on creation — upgrade to PRO for this check.
   await prisma.subscription.update({ where: { workspaceId: proWs }, data: { planId: proPlan.id } });
 
@@ -366,8 +370,12 @@ console.log('\n\u25a0 Billing-cycle reset sweep (README \u00a712.6)');
   const pastEnd = new Date(Date.now() - 60_000); // 1 minute in the past \u2192 due for rollover
   await prisma.subscription.update({
     where: { workspaceId: renewWs },
-    data: { currentPeriodEnd: pastEnd, pendingPlanId: proPlan.id },
+    data: { currentPeriodEnd: pastEnd, pendingPlanId: paidPlan.id },
   });
+
+  // Renewal now collects the plan price, so the wallet has to cover it. An
+  // unfunded workspace is a separate case, exercised further down.
+  await credit(renewWs, planPrice * 2, { reason: 'Test seed', category: 'RECHARGE', idempotencyKey: `seed_${renewWs}` });
 
   let result = await runBillingCycleSweep();
   check('sweep processed the overdue renewal subscription', result.processed >= 1 && result.renewed >= 1, JSON.stringify(result));
@@ -375,7 +383,7 @@ console.log('\n\u25a0 Billing-cycle reset sweep (README \u00a712.6)');
   const subAfter = await prisma.subscription.findUnique({ where: { workspaceId: renewWs } });
   check('period rolled forward by one cycle', subAfter.currentPeriodStart.getTime() === pastEnd.getTime()
     && subAfter.currentPeriodEnd.getTime() === pastEnd.getTime() + cycleMs, `start=${subAfter.currentPeriodStart} end=${subAfter.currentPeriodEnd}`);
-  check('pending plan applied and cleared', subAfter.planId === proPlan.id && subAfter.pendingPlanId === null, JSON.stringify(subAfter));
+  check('pending plan applied and cleared', subAfter.planId === paidPlan.id && subAfter.pendingPlanId === null, JSON.stringify(subAfter));
   check('subscription stays ACTIVE after renewal', subAfter.status === 'ACTIVE');
 
   const newUsage = await prisma.usageCounter.findUnique({
@@ -383,16 +391,73 @@ console.log('\n\u25a0 Billing-cycle reset sweep (README \u00a712.6)');
   });
   check('a fresh UsageCounter exists for the new period', !!newUsage && newUsage.messagesUsed === 0, JSON.stringify(newUsage));
 
+  // This used to assert the balance was *untouched*, which is exactly the bug:
+  // the sweep rolled the period forward and reset the quota while collecting
+  // nothing, so a paid plan renewed free forever.
   const wsRenew = await prisma.workspace.findUnique({ where: { id: renewWs }, select: { walletBalance: true } });
-  check('wallet balance untouched by renewal', Number(wsRenew.walletBalance) === 0, `balance=${wsRenew.walletBalance}`);
+  check('renewal debits the wallet for the plan price',
+    Number(wsRenew.walletBalance) === planPrice, `balance=${wsRenew.walletBalance} expected=${planPrice}`);
+
+  const renewInvoice = await prisma.invoice.findFirst({
+    where: { workspaceId: renewWs, reference: { startsWith: `sub_renew_${subAfter.id}_` } },
+  });
+  check('renewal writes a paid invoice',
+    !!renewInvoice && renewInvoice.status === 'PAID' && Number(renewInvoice.amount) === planPrice,
+    JSON.stringify(renewInvoice));
 
   // Idempotency: running the sweep again must not re-process this subscription.
   const resultAgain = await runBillingCycleSweep();
   const subAfterTwice = await prisma.subscription.findUnique({ where: { workspaceId: renewWs } });
+  const wsAfterTwice = await prisma.workspace.findUnique({ where: { id: renewWs }, select: { walletBalance: true } });
   check('re-running the sweep is a no-op for an already-renewed subscription',
     subAfterTwice.currentPeriodStart.getTime() === subAfter.currentPeriodStart.getTime()
-    && subAfterTwice.currentPeriodEnd.getTime() === subAfter.currentPeriodEnd.getTime(),
+    && subAfterTwice.currentPeriodEnd.getTime() === subAfter.currentPeriodEnd.getTime()
+    && Number(wsAfterTwice.walletBalance) === planPrice,
     JSON.stringify(resultAgain));
+
+  // ── Unfunded renewal: grace, then expiry ────────────────────────────────────
+  {
+    const DAY = 86_400_000;
+    let u = await req('POST', '/auth/register', { body: { name: 'Billing Dunning', email: 'billing-dunning@test.dev', password: 'password123' } });
+    u = await req('POST', '/workspaces', { token: u.data.accessToken, body: { name: 'Billing Dunning Workspace' } });
+    const dueWs = u.data.workspace.id;
+
+    // A paid plan, an empty wallet, and a period that ended yesterday.
+    await prisma.subscription.update({
+      where: { workspaceId: dueWs },
+      data: {
+        planId: paidPlan.id,
+        currentPeriodStart: new Date(Date.now() - 31 * DAY),
+        currentPeriodEnd: new Date(Date.now() - DAY),
+      },
+    });
+
+    await runBillingCycleSweep();
+    const dueSub = await prisma.subscription.findUnique({ where: { workspaceId: dueWs } });
+    check('an unfunded renewal goes PAST_DUE rather than renewing free',
+      dueSub.status === 'PAST_DUE', dueSub.status);
+    check('PAST_DUE leaves the unpaid period end in place',
+      dueSub.currentPeriodEnd.getTime() < Date.now(), String(dueSub.currentPeriodEnd));
+
+    const dueWallet = await prisma.workspace.findUnique({ where: { id: dueWs }, select: { walletBalance: true } });
+    check('nothing is charged when the wallet cannot cover it', Number(dueWallet.walletBalance) === 0);
+
+    // PAST_DUE must stay reachable — that is what the grace window is for.
+    const stillIn = await req('GET', `/workspaces/${dueWs}/contacts`, { token: u.data.accessToken });
+    check('a PAST_DUE workspace keeps working during the grace window', stillIn.status === 200, `status=${stillIn.status}`);
+
+    // Push the unpaid period back beyond the 3-day grace and sweep again.
+    await prisma.subscription.update({
+      where: { workspaceId: dueWs },
+      data: { currentPeriodEnd: new Date(Date.now() - 5 * DAY) },
+    });
+    await runBillingCycleSweep();
+    const expiredSub = await prisma.subscription.findUnique({ where: { workspaceId: dueWs } });
+    check('past the grace window the subscription EXPIREs', expiredSub.status === 'EXPIRED', expiredSub.status);
+
+    const lockedOut = await req('GET', `/workspaces/${dueWs}/contacts`, { token: u.data.accessToken });
+    check('an EXPIRED workspace is blocked', lockedOut.status === 403, `status=${lockedOut.status}`);
+  }
 
   // \u2500\u2500 Cancellation path \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   r = await req('POST', '/auth/register', { body: { name: 'Billing Cancel', email: 'billing-cancel@test.dev', password: 'password123' } });
