@@ -141,6 +141,10 @@ export const contactSchemas = {
     phoneNumber: z.string().trim().min(6).max(20),
     email: z.union([z.string().trim().email(), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
     tags: z.array(z.string().trim().max(50)).max(30).optional().default([]),
+    // Shape only. The keys and value types are checked against the workspace's
+    // own field definitions in customFields.service.js#validateCustomFields —
+    // a schema here could not know what fields this workspace has.
+    customFields: z.record(z.union([z.string(), z.number(), z.null()])).optional(),
   }),
   update: z.object({
     name: z.string().trim().min(1).max(120).optional(),
@@ -148,6 +152,7 @@ export const contactSchemas = {
     email: z.union([z.string().trim().email(), z.literal(''), z.null()]).optional().transform((v) => (v === '' ? null : v)),
     tags: z.array(z.string().trim().max(50)).max(30).optional(),
     optedOut: z.boolean().optional(),
+    customFields: z.record(z.union([z.string(), z.number(), z.null()])).optional(),
   }).strict(),
 };
 

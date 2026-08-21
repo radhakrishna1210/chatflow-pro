@@ -20,6 +20,8 @@ export const WEBHOOK_EVENTS = Object.freeze([
   'template.status',
   'contact.created',
   'optout.created',
+  // Raised by a workspace's own integration through /custom/events/:key/track.
+  'custom.event',
 ]);
 
 // Attempt schedule. Deliberately short and finite: a receiver that is down for

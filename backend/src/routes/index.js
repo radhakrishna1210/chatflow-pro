@@ -35,6 +35,7 @@ import workspaceSwitchRoutes from './workspaceSwitch.routes.js';
 import usersRoutes from './users.routes.js';
 import notificationsRoutes from './notifications.routes.js';
 import optOutRoutes from './optout.routes.js';
+import customFieldsRoutes from './customFields.routes.js';
 import assistantRoutes from './assistant.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 
@@ -83,6 +84,8 @@ ws.use('/instagram', instagramRoutes);
 ws.use('/wallet', walletRoutes);
 ws.use('/widgets', widgetsRoutes);
 ws.use('/opt-outs', optOutRoutes);
+// Custom fields and events (add-on gated).
+ws.use('/custom', customFieldsRoutes);
 // Friendlier alias for the Settings → Blocked Numbers screen.
 ws.use('/blocked-numbers', optOutRoutes);
 ws.use('/subscription', subscriptionRoutes);

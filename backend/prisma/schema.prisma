@@ -146,6 +146,8 @@ model Workspace {
   intentRules                  IntentRule[]
   intentMatchEvents            IntentMatchEvent[]
   addons                       WorkspaceAddon[]
+  customFields                 WorkspaceCustomField[]
+  customEvents                 WorkspaceCustomEvent[]
 }
 
 model WorkspaceMember {
@@ -317,6 +319,9 @@ model Contact {
   tags               String[]
   optedOut           Boolean             @default(false)
   optedOutAt         DateTime?
+  // { fieldKey: value } against WorkspaceCustomField definitions. Null until
+  // the workspace defines a field and sets one.
+  customFields       Json?
   createdAt          DateTime            @default(now())
   // Backfilled from createdAt for rows that predate the column, so "Recently
   // Updated" means something the first time it is used.
@@ -1071,23 +1076,66 @@ model UsageCounter {
 // localStorage. No order was created, no payment was taken, nothing reached the
 // server, and clearing browser data undid the "purchase". The prices shown
 // could not match the gateway because the gateway was never involved.
-model WorkspaceAddon {
+// A custom field a workspace has defined on its contacts.
+//
+// The "Pack of 5 Custom Fields" add-on was purchasable while nothing anywhere
+// stored a custom field: there was no definition table, no value column, and no
+// code that read either. This is the storage that makes the add-on real, and
+// what services/addons.service.js#assertAddonCapacity meters.
+model WorkspaceCustomField {
   id          String    @id @default(cuid())
   workspaceId String
+  // Stable machine name used as the key inside Contact.customFields. Never
+  // changes once created, so renaming the label cannot orphan stored values.
+  key         String
+  label       String
+  // TEXT | NUMBER | DATE | SELECT
+  type        String    @default("TEXT")
+  // Allowed values, for SELECT only.
+  options     Json?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId, sortOrder])
+}
+
+// A customer-defined event they can post from their own systems, which fans out
+// to their configured webhook. The "Pack of 3 Custom Events" add-on sold exactly
+// this and nothing implemented it.
+model WorkspaceCustomEvent {
+  id          String    @id @default(cuid())
+  workspaceId String
+  key         String
+  label       String
+  description String?
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime?
+  // Cheap "is anyone using this" signal for the settings screen.
+  seenCount   Int       @default(0)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+}
+
+model WorkspaceAddon {
+  id               String    @id @default(cuid())
+  workspaceId      String
   // Catalogue key, e.g. "crm" — see lib/addonCatalogue.js, which is the only
   // place a price is defined.
-  addonKey    String
-  status      String    @default("ACTIVE") // ACTIVE | CANCELLED
+  addonKey         String
+  status           String    @default("ACTIVE") // ACTIVE | CANCELLED
   // What was actually charged, in the smallest currency unit, kept alongside
   // the catalogue key so a later price change never rewrites history.
-  amountPaid  Decimal   @db.Decimal(10, 2)
-  currency    String    @default("INR")
-  gateway     String?
-  reference   String?
-  activatedAt DateTime  @default(now())
-  cancelledAt DateTime?
+  amountPaid       Decimal   @db.Decimal(10, 2)
+  currency         String    @default("INR")
+  gateway          String?
+  reference        String?
+  activatedAt      DateTime  @default(now())
+  cancelledAt      DateTime?
   currentPeriodEnd DateTime
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   // One active row per add-on per workspace. Buying an add-on twice is a
   // mistake, not an upgrade.

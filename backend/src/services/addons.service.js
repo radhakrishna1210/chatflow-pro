@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
-import { ADDONS, CURRENCY, getAddon, priceInPaise } from '../lib/addonCatalogue.js';
+import { ADDONS, CURRENCY, getAddon, priceInPaise, assertPurchasable } from '../lib/addonCatalogue.js';
 
 // Add-on purchase, server-authoritative end to end.
 //
@@ -37,6 +37,8 @@ export async function listAddons(workspaceId) {
 
 export async function createAddonOrder(workspaceId, addonKey) {
   const addon = getAddon(addonKey);
+  // Before an order exists, not after the money has moved.
+  assertPurchasable(addon);
 
   const existing = await prisma.workspaceAddon.findUnique({
     where: { workspaceId_addonKey: { workspaceId, addonKey: addon.key } },
@@ -164,4 +166,49 @@ export async function hasAddon(workspaceId, addonKey) {
     where: { workspaceId_addonKey: { workspaceId, addonKey } },
   }).catch(() => null);
   return Boolean(row && row.status === 'ACTIVE' && row.currentPeriodEnd > new Date());
+}
+
+// ─── Entitlement ─────────────────────────────────────────────────────────────
+//
+// Selling an add-on and honouring it are two different jobs, and only the first
+// existed: hasAddon() below had no callers anywhere in the codebase, so every
+// purchase granted exactly nothing. These are what the features consult.
+
+// How much of a given capability this workspace has bought.
+//
+// Quantities add up, so a workspace that buys the field pack twice gets ten
+// fields. `active` is re-derived from the row rather than trusted, because a
+// cancelled add-on keeps working only until the period it paid for runs out.
+export async function addonAllowance(workspaceId, capability) {
+  const rows = await prisma.workspaceAddon.findMany({ where: { workspaceId } }).catch(() => []);
+  const now = new Date();
+  let total = 0;
+  for (const row of rows) {
+    if (row.currentPeriodEnd <= now) continue;
+    if (row.status !== 'ACTIVE' && row.status !== 'CANCELLED') continue;
+    const addon = ADDONS.find((a) => a.key === row.addonKey);
+    total += Number(addon?.grants?.[capability] ?? 0);
+  }
+  return total;
+}
+
+// Throws when adding one more would exceed what has been paid for, naming the
+// add-on that lifts the limit. The message is the whole point: a bare "limit
+// reached" leaves the user with nowhere to go.
+export async function assertAddonCapacity(workspaceId, capability, currentCount) {
+  const allowed = await addonAllowance(workspaceId, capability);
+  if (currentCount < allowed) return;
+
+  const addon = ADDONS.find((a) => a.grants?.[capability] && a.available);
+  const label = { customFields: 'custom fields', customEvents: 'custom events' }[capability] ?? capability;
+  const e = new Error(
+    allowed === 0
+      ? `Your plan does not include ${label}.${addon ? ` Add "${addon.title}" from Payments to enable them.` : ''}`
+      : `You are using all ${allowed} of your ${label}.${addon ? ` Add another "${addon.title}" for ${addon.grants[capability]} more.` : ''}`,
+  );
+  e.status = 403;
+  e.code = 'ADDON_REQUIRED';
+  e.details = { capability, allowed, used: currentCount, addonKey: addon?.key ?? null };
+  e.expose = true;
+  throw e;
 }

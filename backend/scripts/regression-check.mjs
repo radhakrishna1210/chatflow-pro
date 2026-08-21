@@ -175,13 +175,22 @@ check('auth: unauthenticated request refused',
   check('payments: the add-on catalogue is priced by the server',
     cat.status === 200 && cat.data?.addons?.length === 4);
 
-  const quoted = cat.data?.addons?.find((a) => a.key === 'tags');
+  // A purchasable one: `tags` and `crm` are deliberately not sellable, because
+  // neither can be delivered by a flag (see lib/addonCatalogue.js).
+  const quoted = cat.data?.addons?.find((a) => a.key === 'events');
   const order = await req('POST', `/workspaces/${WS}/subscription/addons/checkout`, {
-    token: TOKEN, body: { addonKey: 'tags' },
+    token: TOKEN, body: { addonKey: 'events' },
   });
   check('payments: the gateway order matches the quoted price',
     order.status === 200 && order.data.amount === quoted.priceMonthly * 100,
     `order=${order.data?.amount} quoted=${quoted ? quoted.priceMonthly * 100 : '?'}`);
+
+  const unsellable = await req('POST', `/workspaces/${WS}/subscription/addons/checkout`, {
+    token: TOKEN, body: { addonKey: 'crm' },
+  });
+  check('payments: an add-on that grants nothing cannot be charged for',
+    unsellable.status === 400 && unsellable.data?.code === 'ADDON_NOT_AVAILABLE',
+    `status=${unsellable.status}`);
 }
 
 // ── Roles ────────────────────────────────────────────────────────────────────

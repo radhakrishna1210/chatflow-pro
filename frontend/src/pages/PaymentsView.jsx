@@ -849,7 +849,9 @@ export default function PaymentsView({ initialTab } = {}) {
                       <h5 style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)' }}>{addon.title}</h5>
                       {/* Straight from the server's catalogue — the same figure
                           the checkout order is created for. */}
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--green)' }}>{addon.priceLabel}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: addon.available === false ? 'var(--t3)' : 'var(--green)' }}>
+                        {addon.available === false ? 'Not available' : addon.priceLabel}
+                      </span>
                     </div>
                     <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.description}</p>
                     {addon.active && addon.currentPeriodEnd && (
@@ -858,7 +860,14 @@ export default function PaymentsView({ initialTab } = {}) {
                       </p>
                     )}
                   </div>
-                  {isAdmin ? (
+                  {/* An add-on that grants nothing must not be sellable. Two
+                      of the four cannot be delivered by a flag, so they say so
+                      instead of taking money — see lib/addonCatalogue.js. */}
+                  {addon.available === false ? (
+                    <div style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px dashed var(--bd)', color: 'var(--t3)', fontSize: 11.5, lineHeight: 1.5 }}>
+                      {addon.unavailableReason}
+                    </div>
+                  ) : isAdmin ? (
                     <Btn variant={addon.active ? 'outline' : 'primary'} disabled={busy}
                       onClick={() => (addon.active ? cancelAddon(addon) : buyAddon(addon))}
                       style={{ width: '100%', borderColor: addon.active ? '#f8717144' : 'var(--bd)', color: addon.active ? '#f87171' : '#0a0b0e' }}>
