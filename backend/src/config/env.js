@@ -9,6 +9,12 @@ const envSchema = z.object({
   // Extra allowed CORS origins (comma-separated), e.g. a preview deployment.
   CORS_EXTRA_ORIGINS: z.string().optional(),
   JSON_BODY_LIMIT: z.string().default('2mb'),
+  // Number of reverse-proxy hops in front of this service that are ours, and
+  // whose X-Forwarded-For entries may therefore be believed. Express uses it to
+  // derive req.ip, which every rate limit is keyed on. 0 (no proxy) is the safe
+  // default: trusting a hop that does not exist lets any client claim any IP.
+  // Render and most PaaS front the app with exactly one proxy — set 1 there.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
 
   DATABASE_URL: z.string().min(1),
   // Direct (non-pooled) connection for Prisma migrations. Falls back to
@@ -87,6 +93,13 @@ const envSchema = z.object({
   // broke every AI feature. The `-latest` alias tracks the current Flash model
   // instead; override this only to pin a specific version deliberately.
   GEMINI_MODEL: z.string().default('gemini-flash-latest'),
+  // Where a request goes when GEMINI_MODEL answers 503 "experiencing high
+  // demand" — which the flash tier does often enough to look like an outage
+  // (measured at ~2 calls in 5). The lite model runs on separate capacity and
+  // answered every call in the same test, so it is the safety net rather than
+  // the default: it is cheaper and weaker, and only used when the first choice
+  // has already been retried and is still busy. See lib/llm.js#callGemini.
+  GEMINI_FALLBACK_MODEL: z.string().default('gemini-flash-lite-latest'),
   // Embedding model for the website assistant's knowledge index
   // (lib/embeddings.js). A separate family from the text models above and
   // billed separately; it is on the free tier, unlike image generation.

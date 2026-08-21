@@ -21,6 +21,7 @@ router.patch('/numbers/pool/:id/unban', adminController.unbanPoolEntry);
 // router.use(authenticate, requireSuperAdmin) above.
 router.get('/platform/settings',  adminController.getSystemSettings);
 router.post('/platform/settings', adminController.updateSystemSettings);
+router.get('/platform/credential-check', adminController.checkSystemCredentials);
 
 // Workspaces (for admin assignment picker)
 router.get('/workspaces',               adminController.listWorkspaces);

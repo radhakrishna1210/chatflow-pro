@@ -478,6 +478,30 @@ export async function queueSignupOtpEmail({ email, name, code }) {
   await emailQueue.add('signup-otp', { type: 'signup-otp', to: email, payload: { code, name } });
 }
 
+// Sends an OTP synchronously and reports whether it actually left the building.
+//
+// Every other email here is queued, which is right for them: nobody is waiting
+// on a campaign summary, and a retry minutes later is fine. A verification code
+// is the opposite — a person is staring at a "we sent you a code" screen right
+// now. Queueing it meant an SMTP rejection surfaced only in a worker log while
+// the API had already answered 200 "Verification code sent", so a signup with
+// broken mail credentials looked like a code that never arrived rather than a
+// configuration error anyone could act on.
+//
+// Returns { ok } or { ok: false, reason } — never throws, so the caller decides
+// what to tell the user.
+export async function sendOtpEmailNow(type, { email, name, code }) {
+  const { sendMail } = await import('../lib/mailer.js');
+  try {
+    const { subject, html } = buildEmailHtml(type, { code, name });
+    await sendMail({ to: email, subject, html, mustDeliver: true });
+    return { ok: true };
+  } catch (err) {
+    console.error(`[Email] OTP delivery to ${email} failed:`, err.message);
+    return { ok: false, reason: err.message };
+  }
+}
+
 function passwordResetOtpHtml({ code, name }) {
   return layout(`
     <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Reset your password</h2>

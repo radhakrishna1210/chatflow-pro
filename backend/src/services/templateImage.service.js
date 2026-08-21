@@ -371,6 +371,7 @@ export async function generateHeaderImage({ imageIdea, body, category }) {
         : `IMAGE_PROVIDER is pinned to "${env.IMAGE_PROVIDER}", but that provider has no credentials configured.`,
     );
     e.status = 503;
+    e.expose = true;
     throw e;
   }
 

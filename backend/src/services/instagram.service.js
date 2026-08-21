@@ -45,6 +45,7 @@ export async function completeOAuth(workspaceId, code, redirectUri) {
   if (!instagramConfigured()) {
     const e = new Error('Instagram is not configured on this server (INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET).');
     e.status = 503;
+    e.expose = true;
     throw e;
   }
 

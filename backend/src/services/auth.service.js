@@ -3,12 +3,15 @@ import jwt from 'jsonwebtoken';
 import { randomUUID, randomInt, createHash } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
-import { queueWelcomeEmail, queueSignupOtpEmail, queuePasswordResetOtpEmail } from './email.service.js';
+import { queueWelcomeEmail, sendOtpEmailNow } from './email.service.js';
 import { consumeInvitationAtomically } from './invitations.service.js';
 
 function generateTokens(userId, workspaceId, role, superAdmin = false) {
+  // The access token carries its own `jti` so signing out can revoke *this*
+  // token. Without one there is nothing to name in a denylist, which is why a
+  // logged-out access token stayed usable for its full 15-minute life.
   const accessToken = jwt.sign(
-    { sub: userId, workspaceId, role, superAdmin },
+    { sub: userId, workspaceId, role, superAdmin, jti: randomUUID() },
     env.JWT_ACCESS_SECRET,
     { expiresIn: env.JWT_EXPIRES_IN }
   );
@@ -272,6 +275,27 @@ const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 const hashCode = (code) => createHash('sha256').update(String(code)).digest('hex');
 
+// A code that could not be delivered must not be reported as sent.
+//
+// The row stays in the database either way (so a retry reuses the same window),
+// but the caller is told the truth, and the reason names the actual fault
+// instead of leaving the user waiting for mail that is never coming.
+async function deliverOtpOrThrow(type, { email, name, code }) {
+  const result = await sendOtpEmailNow(type, { email, name, code });
+  if (result.ok) return;
+  const e = new Error(
+    'We could not send the verification email just now. '
+    + 'Please try again in a moment — if it keeps happening, the mail service needs attention.',
+  );
+  e.status = 503;
+  e.code = 'EMAIL_DELIVERY_FAILED';
+  // Deliberate: this message is for the person who just pressed "Sign up", so
+  // the error handler must pass it through rather than replacing it with the
+  // generic 5xx apology.
+  e.expose = true;
+  throw e;
+}
+
 export async function startSignup({ name, email, password }) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -296,9 +320,7 @@ export async function startSignup({ name, email, password }) {
       name, passwordHash, expiresAt: new Date(Date.now() + OTP_TTL_MS),
     },
   });
-  await queueSignupOtpEmail({ email: normalizedEmail, name, code }).catch((err) => {
-    console.error('[auth] Failed to queue OTP email:', err.message);
-  });
+  await deliverOtpOrThrow('signup-otp', { email: normalizedEmail, name, code });
 
   return { email: normalizedEmail, message: 'Verification code sent' };
 }
@@ -323,9 +345,7 @@ export async function resendSignupOtp({ email }) {
       name: pending.name, passwordHash: pending.passwordHash, expiresAt: new Date(Date.now() + OTP_TTL_MS),
     },
   });
-  await queueSignupOtpEmail({ email: normalizedEmail, name: pending.name, code }).catch((err) => {
-    console.error('[auth] Failed to queue OTP resend email:', err.message);
-  });
+  await deliverOtpOrThrow('signup-otp', { email: normalizedEmail, name: pending.name, code });
   return { email: normalizedEmail, message: 'Verification code re-sent' };
 }
 
@@ -428,9 +448,7 @@ export async function startPasswordReset({ email }) {
       name: user.name, expiresAt: new Date(Date.now() + OTP_TTL_MS),
     },
   });
-  await queuePasswordResetOtpEmail({ email: normalizedEmail, name: user.name, code }).catch((err) => {
-    console.error('[auth] Failed to queue password reset email:', err.message);
-  });
+  await deliverOtpOrThrow('password-reset-otp', { email: normalizedEmail, name: user.name, code });
 
   return { message: 'If an account exists for this email, a reset code has been sent.' };
 }

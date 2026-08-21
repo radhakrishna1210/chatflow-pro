@@ -241,6 +241,14 @@ export async function getSystemSettings(req, res) {
   res.json(await platformSettings.getAllSettings());
 }
 
+// Live check of the credentials actually in force, whatever their source.
+// The settings screen shows a masked value and a source, which says a key is
+// *present* but never whether the provider accepts it — the distinction that
+// matters when every AI reply has quietly stopped working.
+export async function checkSystemCredentials(req, res) {
+  res.json(await platformSettings.checkPlatformCredentials());
+}
+
 export async function updateSystemSettings(req, res) {
   const result = await platformSettings.updateSettings(req.body || {});
   res.json({ success: true, ...result, settings: await platformSettings.getAllSettings() });

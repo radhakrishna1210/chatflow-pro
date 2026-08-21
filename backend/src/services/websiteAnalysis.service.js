@@ -236,6 +236,7 @@ export async function analyseWebsite(url) {
   if (!ai) {
     const e = new Error('Website analysis needs a Gemini API key on the server. Describe your business in words instead and AI will build a workflow from that.');
     e.status = 503;
+    e.expose = true;
     throw e;
   }
 

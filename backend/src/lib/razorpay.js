@@ -12,7 +12,7 @@ export function getRazorpayClient() {
   const keyId = env.RAZORPAY_KEY_ID;
   const keySecret = env.RAZORPAY_KEY_SECRET;
   if (!keyId || !keySecret) {
-    const e = new Error('Razorpay is not configured on this server'); e.status = 503; throw e;
+    const e = new Error('Razorpay is not configured on this server'); e.status = 503; e.expose = true; throw e;
   }
   if (!client || clientKeyId !== keyId || clientKeySecret !== keySecret) {
     client = new Razorpay({ key_id: keyId, key_secret: keySecret });
