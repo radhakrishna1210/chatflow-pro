@@ -1,12 +1,23 @@
 let _refreshing = null;
 
-// The path the browser actually loaded, captured before the SPA router starts
-// rewriting the URL with history.pushState. That distinction matters when a
-// session turns out to be dead: someone who opened /dashboard wants the
-// sign-in form, while someone who opened the site root asked for the landing
-// page and should get it — not a login screen they never requested.
-const ENTRY_PATH = window.location.pathname;
 const PROTECTED_PREFIXES = ['/dashboard', '/setup'];
+
+// Where a dead session should land someone.
+//
+// Read at the moment the session dies, not at module load. It used to be
+// captured once into a module-level ENTRY_PATH, which is only correct while the
+// visitor stays on the page they first opened: land on `/`, navigate into
+// `/dashboard`, then have the session expire, and the stale entry path sent
+// them to the marketing page instead of the sign-in form — losing the thing
+// they were actually doing with no explanation.
+//
+// The distinction it was reaching for is still right: someone sitting on a
+// protected screen wants the sign-in form, while someone reading the public
+// site should not be thrown at a login page they never asked for.
+function redirectTargetForDeadSession() {
+  const here = window.location.pathname;
+  return PROTECTED_PREFIXES.some((p) => here.startsWith(p)) ? '/login' : '/';
+}
 
 function getStoredUser() {
   try {
@@ -74,7 +85,7 @@ export function clearStoredSession() {
 
 function logout() {
   clearStoredSession();
-  const target = PROTECTED_PREFIXES.some((p) => ENTRY_PATH.startsWith(p)) ? '/login' : '/';
+  const target = redirectTargetForDeadSession();
   // Assigning the current URL would reload the page for no reason — and on
   // /login that is an endless refresh loop.
   if (window.location.pathname !== target) window.location.href = target;

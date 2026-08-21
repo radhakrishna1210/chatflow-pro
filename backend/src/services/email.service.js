@@ -297,6 +297,7 @@ const SUBJECTS = {
   'workspace-invite':  "You've been invited to a workspace",
   'api-key-created':   'Security Alert: New API Key Created',
   'signup-otp':        'Your ChatFlow Pro verification code',
+  'signup-exists':     'About your ChatFlow Pro account',
   'password-reset-otp': 'Your ChatFlow Pro password reset code',
 };
 
@@ -310,6 +311,7 @@ const BUILDERS = {
   'workspace-invite':  inviteWithLinkHtml,
   'api-key-created':   apiKeyCreatedHtml,
   'signup-otp':        signupOtpHtml,
+  'signup-exists':     signupExistsHtml,
   'password-reset-otp': passwordResetOtpHtml,
 };
 
@@ -471,6 +473,17 @@ function signupOtpHtml({ code, name }) {
     <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, use this code to finish creating your ChatFlow Pro account:</p>
     <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#0f172a;background:#f1f5f9;border-radius:10px;padding:18px;text-align:center;margin:18px 0;">${esc(code)}</div>
     <p style="margin:0;color:#94a3b8;font-size:13px;">This code expires in 10 minutes. If you didn't request it, you can safely ignore this email.</p>
+  `);
+}
+
+function signupExistsHtml({ name }) {
+  const appUrl = env.APP_URL || '#';
+  return layout(`
+    <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">You already have an account</h2>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, someone just tried to sign up for ChatFlow Pro with this email address. You already have an account, so we did not create a second one.</p>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">If that was you, sign in instead — or reset your password if you have forgotten it.</p>
+    ${btn('Sign in', `${appUrl}/login`)}
+    <p style="margin:24px 0 0;color:#94a3b8;font-size:13px;">If it was not you, you can ignore this email. Nothing has changed on your account and no one was told whether it exists.</p>
   `);
 }
 

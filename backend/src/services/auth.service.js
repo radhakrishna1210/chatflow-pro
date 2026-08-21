@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { randomUUID, randomInt, createHash } from 'crypto';
+import { randomUUID, randomInt, createHash, timingSafeEqual } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { queueWelcomeEmail, sendOtpEmailNow } from './email.service.js';
@@ -273,7 +273,79 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
+const RESEND_COOLDOWN_MS = 60 * 1000;
 const hashCode = (code) => createHash('sha256').update(String(code)).digest('hex');
+
+// Six digits from a CSPRNG. randomInt is rejection-sampled, so every code in
+// 100000–999999 is equally likely — Math.random() would be both biased and
+// predictable from a few observed codes.
+const generateOtp = () => String(randomInt(100000, 1000000));
+
+// Constant-time compare of the two hashes.
+//
+// `a !== b` on a string leaks, through timing, how many leading characters
+// matched. Both sides are fixed-length SHA-256 hex here so the lengths always
+// agree, but the comparison is done properly regardless.
+function codeMatches(storedHash, suppliedCode) {
+  const supplied = hashCode(suppliedCode);
+  const a = Buffer.from(String(storedHash));
+  const b = Buffer.from(supplied);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+// One message for a code that is missing, wrong, or past its expiry.
+//
+// These used to be three different responses — a 404 "No verification code
+// found", a 400 "Incorrect code" and a 400 "Verification code expired" — which
+// together tell an attacker whether a given address has a signup in progress.
+// Combined with the 409 that startSignup used to throw for an existing account,
+// that made the signup endpoints a working account-enumeration oracle.
+function invalidCodeError() {
+  const e = new Error('That code is not valid or has expired. Request a new one and try again.');
+  e.status = 400;
+  e.code = 'OTP_INVALID';
+  return e;
+}
+
+// Rows that can never be used again. Cleared opportunistically so the table
+// does not grow without bound, and so a consumed code cannot linger as a
+// record of who signed up when.
+function purgeDeadOtps(email, purpose) {
+  prisma.emailOtp.deleteMany({
+    where: {
+      OR: [
+        { email, purpose, consumed: true },
+        { expiresAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      ],
+    },
+  }).catch(() => {});
+}
+
+// Claims an OTP row atomically: the writer that flips `consumed` false→true is
+// the only one allowed to proceed.
+//
+// This was a read followed by an unconditional update, so two requests carrying
+// the same valid code could both pass the check and both go on to create an
+// account — the second only failing later, on the email unique constraint. A
+// code is single-use, and this is what makes that true under concurrency.
+async function consumeOtp(otpId) {
+  const claimed = await prisma.emailOtp.updateMany({
+    where: { id: otpId, consumed: false },
+    data: { consumed: true },
+  });
+  return claimed.count === 1;
+}
+
+// Counts a wrong guess and locks the code out after MAX_OTP_ATTEMPTS, so a
+// six-digit code cannot be walked through at leisure before it expires.
+async function registerFailedAttempt(otp) {
+  const attempts = otp.attempts + 1;
+  await prisma.emailOtp.update({
+    where: { id: otp.id },
+    data: attempts >= MAX_OTP_ATTEMPTS ? { attempts, consumed: true } : { attempts },
+  });
+}
 
 // A code that could not be delivered must not be reported as sent.
 //
@@ -298,20 +370,43 @@ async function deliverOtpOrThrow(type, { email, name, code }) {
 
 export async function startSignup({ name, email, password }) {
   const normalizedEmail = String(email).trim().toLowerCase();
-  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existing) { const e = new Error('Email already in use'); e.status = 409; throw e; }
 
-  // Rate-limit: block resend spam by reusing a recent unconsumed code window.
+  // Enumeration guard: an address that already has an account gets the same
+  // response shape and the same latency as one that does not. Instead of a code
+  // it receives a note saying the account exists, which is useful to the real
+  // owner and tells an attacker nothing they did not already supply.
+  //
+  // This used to throw 409 "Email already in use", which turned signup into a
+  // free lookup service for "does this person have an account here".
+  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  if (existing) {
+    await deliverOtpOrThrow('signup-exists', { email: normalizedEmail, name: existing.name, code: null });
+    return { email: normalizedEmail, message: 'Verification code sent' };
+  }
+
+  // Resend cooldown: one code per address per minute, whatever the caller does.
   const recent = await prisma.emailOtp.findFirst({
-    where: { email: normalizedEmail, purpose: 'SIGNUP', consumed: false, createdAt: { gt: new Date(Date.now() - 60 * 1000) } },
+    where: {
+      email: normalizedEmail, purpose: 'SIGNUP', consumed: false,
+      createdAt: { gt: new Date(Date.now() - RESEND_COOLDOWN_MS) },
+    },
     orderBy: { createdAt: 'desc' },
   });
-  if (recent) { const e = new Error('A code was just sent — please wait a minute before requesting another.'); e.status = 429; throw e; }
+  if (recent) {
+    const e = new Error('A code was just sent — please wait a minute before requesting another.');
+    e.status = 429;
+    e.code = 'OTP_COOLDOWN';
+    throw e;
+  }
 
-  // Invalidate any prior pending codes for this email.
-  await prisma.emailOtp.updateMany({ where: { email: normalizedEmail, purpose: 'SIGNUP', consumed: false }, data: { consumed: true } });
+  // Any earlier pending code for this address stops working the moment a new
+  // one is issued, so only the most recent code is ever live.
+  await prisma.emailOtp.updateMany({
+    where: { email: normalizedEmail, purpose: 'SIGNUP', consumed: false },
+    data: { consumed: true },
+  });
 
-  const code = String(randomInt(100000, 1000000));
+  const code = generateOtp();
   const passwordHash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
 
   await prisma.emailOtp.create({
@@ -321,6 +416,7 @@ export async function startSignup({ name, email, password }) {
     },
   });
   await deliverOtpOrThrow('signup-otp', { email: normalizedEmail, name, code });
+  purgeDeadOtps(normalizedEmail, 'SIGNUP');
 
   return { email: normalizedEmail, message: 'Verification code sent' };
 }
@@ -331,67 +427,64 @@ export async function resendSignupOtp({ email }) {
     where: { email: normalizedEmail, purpose: 'SIGNUP', consumed: false },
     orderBy: { createdAt: 'desc' },
   });
-  if (!pending) { const e = new Error('No pending signup for this email. Start signup again.'); e.status = 404; throw e; }
-  if (pending.createdAt > new Date(Date.now() - 60 * 1000)) {
-    const e = new Error('A code was just sent — please wait a minute before requesting another.'); e.status = 429; throw e;
+
+  // No pending signup is answered exactly as a successful resend would be.
+  // Returning 404 here told an attacker which addresses were mid-signup.
+  if (!pending) {
+    return { email: normalizedEmail, message: 'Verification code re-sent' };
+  }
+  if (pending.createdAt > new Date(Date.now() - RESEND_COOLDOWN_MS)) {
+    const e = new Error('A code was just sent — please wait a minute before requesting another.');
+    e.status = 429;
+    e.code = 'OTP_COOLDOWN';
+    throw e;
   }
 
-  // Issue a fresh code on a new row, carrying over the already-hashed password.
+  // Issue a fresh code on a new row, carrying over the already-hashed password,
+  // and retire the old one so only one code is ever live.
   await prisma.emailOtp.update({ where: { id: pending.id }, data: { consumed: true } });
-  const code = String(randomInt(100000, 1000000));
+  const code = generateOtp();
   await prisma.emailOtp.create({
     data: {
       email: normalizedEmail, codeHash: hashCode(code), purpose: 'SIGNUP',
-      name: pending.name, passwordHash: pending.passwordHash, expiresAt: new Date(Date.now() + OTP_TTL_MS),
+      name: pending.name, passwordHash: pending.passwordHash,
+      expiresAt: new Date(Date.now() + OTP_TTL_MS),
     },
   });
   await deliverOtpOrThrow('signup-otp', { email: normalizedEmail, name: pending.name, code });
+
   return { email: normalizedEmail, message: 'Verification code re-sent' };
 }
 
-export async function verifySignup({ email, code, role = 'CLIENT', inviteToken }) {
+export async function verifySignup({ email, code, inviteToken }) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const otp = await prisma.emailOtp.findFirst({
     where: { email: normalizedEmail, purpose: 'SIGNUP', consumed: false },
     orderBy: { createdAt: 'desc' },
   });
 
-  if (!otp) {
-    const err = new Error('No verification code found');
-    err.status = 404;
-    throw err;
-  }
-
+  // Missing, expired and wrong all answer identically — see invalidCodeError.
+  if (!otp) throw invalidCodeError();
   if (otp.expiresAt < new Date()) {
-    const err = new Error('Verification code expired');
-    err.status = 400;
-    throw err;
+    await consumeOtp(otp.id);
+    throw invalidCodeError();
   }
 
-  if (otp.codeHash !== hashCode(code)) {
-    // Brute-force guard: lock this code out after MAX_OTP_ATTEMPTS wrong
-    // guesses instead of leaving it accepting attempts until it expires.
-    const attempts = otp.attempts + 1;
-    await prisma.emailOtp.update({
-      where: { id: otp.id },
-      data: attempts >= MAX_OTP_ATTEMPTS ? { attempts, consumed: true } : { attempts },
-    });
-    const err = new Error(
-      attempts >= MAX_OTP_ATTEMPTS
-        ? 'Too many incorrect attempts — request a new code.'
-        : 'Incorrect code'
-    );
-    err.status = 400;
-    throw err;
+  if (!codeMatches(otp.codeHash, code)) {
+    await registerFailedAttempt(otp);
+    throw invalidCodeError();
   }
 
-  // Consume the code
-  await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed: true } });
+  // Single-use, enforced atomically. A concurrent request carrying the same
+  // code loses this race and is told the code is not valid, which it no
+  // longer is.
+  if (!(await consumeOtp(otp.id))) throw invalidCodeError();
 
-  // Check if a user registered with this email while they were waiting to verify
+  // Someone may have registered this address (via an invite, or Google) while
+  // the code was in flight.
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) {
-    const err = new Error('Email already in use');
+    const err = new Error('That email is already registered. Sign in instead.');
     err.status = 409;
     throw err;
   }
@@ -400,11 +493,17 @@ export async function verifySignup({ email, code, role = 'CLIENT', inviteToken }
   // No workspace yet unless an invite is consumed below: the user becomes
   // ADMIN only when they explicitly create one (createWorkspace), or CLIENT
   // when an invite joins them to an existing workspace.
+  //
+  // The `role` the caller sends is deliberately ignored. It used to be read
+  // straight off the request body, which would have let anyone self-assign a
+  // role at signup.
   let joined = null;
   let user;
   try {
     user = await prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({ data: { name: otp.name, email: normalizedEmail, passwordHash: otp.passwordHash } });
+      const created = await tx.user.create({
+        data: { name: otp.name, email: normalizedEmail, passwordHash: otp.passwordHash },
+      });
       if (inviteToken) joined = await consumeInvitationAtomically(tx, inviteToken, normalizedEmail, created.id);
       return created;
     });
@@ -415,6 +514,7 @@ export async function verifySignup({ email, code, role = 'CLIENT', inviteToken }
   const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
   await storeRefreshToken(user.id, refreshToken);
   prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
+  purgeDeadOtps(normalizedEmail, 'SIGNUP');
 
   return {
     accessToken, refreshToken,
@@ -434,14 +534,14 @@ export async function startPasswordReset({ email }) {
   if (!user) return { message: 'If an account exists for this email, a reset code has been sent.' };
 
   const recent = await prisma.emailOtp.findFirst({
-    where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', consumed: false, createdAt: { gt: new Date(Date.now() - 60 * 1000) } },
+    where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', consumed: false, createdAt: { gt: new Date(Date.now() - RESEND_COOLDOWN_MS) } },
     orderBy: { createdAt: 'desc' },
   });
   if (recent) { const e = new Error('A code was just sent — please wait a minute before requesting another.'); e.status = 429; throw e; }
 
   await prisma.emailOtp.updateMany({ where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', consumed: false }, data: { consumed: true } });
 
-  const code = String(randomInt(100000, 1000000));
+  const code = generateOtp();
   await prisma.emailOtp.create({
     data: {
       email: normalizedEmail, codeHash: hashCode(code), purpose: 'PASSWORD_RESET',
@@ -460,21 +560,21 @@ export async function resetPassword({ email, code, newPassword }) {
     orderBy: { createdAt: 'desc' },
   });
 
-  if (!otp) { const e = new Error('No reset code found — request a new one.'); e.status = 404; throw e; }
-  if (otp.expiresAt < new Date()) { const e = new Error('Reset code expired — request a new one.'); e.status = 400; throw e; }
-
-  if (otp.codeHash !== hashCode(code)) {
-    const attempts = otp.attempts + 1;
-    await prisma.emailOtp.update({
-      where: { id: otp.id },
-      data: attempts >= MAX_OTP_ATTEMPTS ? { attempts, consumed: true } : { attempts },
-    });
-    const e = new Error(attempts >= MAX_OTP_ATTEMPTS ? 'Too many incorrect attempts — request a new code.' : 'Incorrect code');
-    e.status = 400;
-    throw e;
+  // Missing, expired and wrong all answer identically, for the same reason the
+  // signup path does: distinguishing them tells an attacker which addresses
+  // have a reset in progress.
+  if (!otp) throw invalidCodeError();
+  if (otp.expiresAt < new Date()) {
+    await consumeOtp(otp.id);
+    throw invalidCodeError();
   }
-
-  await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumed: true } });
+  if (!codeMatches(otp.codeHash, code)) {
+    await registerFailedAttempt(otp);
+    throw invalidCodeError();
+  }
+  // Single-use, enforced atomically — otherwise two requests carrying one code
+  // could both go on to reset the password.
+  if (!(await consumeOtp(otp.id))) throw invalidCodeError();
 
   const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (!user) { const e = new Error('Account no longer exists'); e.status = 404; throw e; }

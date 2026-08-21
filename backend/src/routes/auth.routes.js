@@ -41,7 +41,13 @@ const otpLimiter = rateLimit({
 });
 const refreshLimiter = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'refresh' });
 
-router.post('/register', loginLimiter, validate({ body: authSchemas.register }), authController.register);
+// POST /register is deliberately gone.
+//
+// It created a fully usable account straight from the request body with no
+// email verification at all, which made the whole OTP flow optional: anyone who
+// skipped the UI and posted here got an account on an address they had never
+// proved they owned. Account creation is /register/start + /register/verify, or
+// Google OAuth (where Google has already verified the address).
 // OTP-verified email signup (account is created only after the code is verified)
 router.post('/register/start',  otpLimiter, validate({ body: authSchemas.signupStart }), authController.startSignup);
 router.post('/register/verify', loginLimiter, validate({ body: authSchemas.signupVerify }), authController.verifySignup);

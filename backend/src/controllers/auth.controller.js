@@ -4,11 +4,6 @@ import { redis } from '../lib/redis.js';
 import { revokeAccessToken } from '../lib/tokenDenylist.js';
 import { env } from '../config/env.js';
 
-export async function register(req, res) {
-  const result = await authService.register(req.body);
-  res.status(201).json(result);
-}
-
 // ─── OTP signup ───────────────────────────────────────────────────────────────
 export async function startSignup(req, res) {
   const result = await authService.startSignup(req.body);
