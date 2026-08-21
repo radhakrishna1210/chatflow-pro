@@ -42,6 +42,23 @@ export async function completeEmbeddedSignup(req, res) {
   res.status(201).json(number);
 }
 
+// Ask Meta to send a 6-digit code to the number, and confirm it. Previously
+// available only to the platform super admin, and only for numbers in the
+// platform's own WABA.
+export async function requestVerification(req, res) {
+  const result = await whatsappService.requestNumberVerification(
+    req.params.workspaceId, req.params.id, req.body?.method,
+  );
+  res.json(result);
+}
+
+export async function confirmVerification(req, res) {
+  const result = await whatsappService.confirmNumberVerification(
+    req.params.workspaceId, req.params.id, req.body?.code,
+  );
+  res.json(result);
+}
+
 export async function checkSubscription(req, res) {
   const result = await whatsappService.checkSubscription(req.params.workspaceId, req.params.id);
   res.json(result);

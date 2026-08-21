@@ -3,10 +3,12 @@ import { encrypt, decrypt } from '../lib/encryption.js';
 import {
   getWabaPhoneNumbers, systemClient, subscribeAppToWaba, getSubscribedApps,
   exchangeEmbeddedSignupCode, getLongLivedToken, registerPhoneNumber, getPhoneNumberById,
+  getPhoneNumberStatus, requestOtp, verifyOtp,
 } from '../lib/meta.js';
 import { syncTemplatesFromMeta } from './templates.service.js';
 import { assertNotOptedOut, normalizePhone as normalizeMsisdn } from './optout.service.js';
 import { env } from '../config/env.js';
+import { markNumberUnreachable } from './outbound.service.js';
 
 // Subscribe our Meta app to a WABA so webhooks (inbound messages, delivery/read
 // receipts, template status) start flowing. Without this, the Inbox stays empty
@@ -27,28 +29,131 @@ async function ensureWabaSubscribed(waNumberId, wabaId, accessToken) {
   }
 }
 
-// Refresh quality/status of numbers already assigned to this workspace — never creates new records.
+// Re-reads each of this workspace's numbers from Meta, using the number's own
+// access token.
+//
+// It previously enumerated the *platform's* WABA and updated only numbers that
+// happened to appear there, so a customer's own WABA (which is what Embedded
+// Signup creates) was never refreshed at all. It also never recorded
+// verification state, and a number Meta no longer recognises simply stayed
+// "ACTIVE" forever — two such numbers exist in the live database today.
 async function refreshExistingFromMeta(workspaceId) {
-  try {
-    const metaNumbers = await getWabaPhoneNumbers(env.META_WABA_ID);
-    for (const num of metaNumbers) {
-      const exists = await prisma.waNumber.findFirst({
-        where: { workspaceId, metaPhoneNumberId: num.id },
-      });
-      if (!exists) continue;
+  const numbers = await prisma.waNumber.findMany({ where: { workspaceId } });
+
+  await Promise.all(numbers.map(async (n) => {
+    try {
+      const details = await getPhoneNumberStatus(n.metaPhoneNumberId, decrypt(n.encryptedAccessToken));
       await prisma.waNumber.update({
-        where: { id: exists.id },
+        where: { id: n.id },
         data: {
-          phoneNumber: num.display_phone_number,
-          displayName: num.verified_name ?? exists.displayName,
-          quality:     num.quality_rating  ?? exists.quality,
-          status:      num.status          ?? exists.status,
+          phoneNumber: details.display_phone_number ?? n.phoneNumber,
+          displayName: details.verified_name ?? n.displayName,
+          quality: details.quality_rating ?? n.quality,
+          status: details.status ?? n.status,
+          codeVerificationStatus: details.code_verification_status ?? n.codeVerificationStatus,
+          ...(details.code_verification_status === 'VERIFIED' ? { lastVerifiedAt: new Date() } : {}),
+          // Answering at all clears a previous unreachable mark.
+          unreachableSince: null,
+          unreachableReason: null,
         },
       });
+    } catch (err) {
+      const meta = err.response?.data?.error;
+      const gone = Number(meta?.code) === 100 || Number(meta?.code) === 190;
+      console.error(`[whatsapp] Could not refresh ${n.phoneNumber}:`, meta?.message || err.message);
+      if (gone) {
+        await markNumberUnreachable(n.id, meta).catch(() => {});
+      }
     }
+  }));
+}
+
+// ─── Number verification (the customer's own numbers) ────────────────────────
+//
+// Verification existed only in the super-admin number-pool flow, and it
+// authenticated as the platform's system user. A customer who connected their
+// own number through Embedded Signup therefore had no way to request a code at
+// all — which is exactly the reported "after adding a number, no OTP arrives".
+// These use the number's own stored token, so they work for both.
+
+export async function requestNumberVerification(workspaceId, numberId, method = 'SMS') {
+  const n = await prisma.waNumber.findFirst({ where: { id: numberId, workspaceId } });
+  if (!n) { const e = new Error('Number not found in this workspace'); e.status = 404; throw e; }
+
+  const codeMethod = String(method).toUpperCase() === 'VOICE' ? 'VOICE' : 'SMS';
+  try {
+    await requestOtp(n.metaPhoneNumberId, codeMethod, decrypt(n.encryptedAccessToken));
   } catch (err) {
-    console.error('[whatsapp] Meta refresh failed:', err.message);
+    throw describeVerificationError(err, codeMethod);
   }
+  return {
+    ok: true,
+    method: codeMethod,
+    message: `WhatsApp is sending a 6-digit code to ${n.phoneNumber} by ${codeMethod === 'VOICE' ? 'phone call' : 'SMS'}. It can take a minute to arrive.`,
+  };
+}
+
+export async function confirmNumberVerification(workspaceId, numberId, code) {
+  const n = await prisma.waNumber.findFirst({ where: { id: numberId, workspaceId } });
+  if (!n) { const e = new Error('Number not found in this workspace'); e.status = 404; throw e; }
+
+  const digits = String(code || '').replace(/\D/g, '');
+  if (digits.length !== 6) {
+    const e = new Error('Enter the 6-digit code exactly as WhatsApp sent it.'); e.status = 400; throw e;
+  }
+
+  const accessToken = decrypt(n.encryptedAccessToken);
+  try {
+    await verifyOtp(n.metaPhoneNumberId, digits, accessToken);
+  } catch (err) {
+    throw describeVerificationError(err);
+  }
+
+  // Read the state back rather than assuming success flipped it — Meta is the
+  // authority on whether the number counts as verified.
+  const details = await getPhoneNumberStatus(n.metaPhoneNumberId, accessToken).catch(() => ({}));
+  const updated = await prisma.waNumber.update({
+    where: { id: n.id },
+    data: {
+      codeVerificationStatus: details.code_verification_status ?? 'VERIFIED',
+      lastVerifiedAt: new Date(),
+      status: details.status ?? n.status,
+      unreachableSince: null,
+      unreachableReason: null,
+    },
+  });
+
+  // A freshly verified number still has to be registered on Cloud API before it
+  // can send. Non-fatal: an already-registered number reports so and is fine.
+  await registerPhoneNumber(n.metaPhoneNumberId, accessToken).catch((err) => {
+    console.warn('[whatsapp] registerPhoneNumber after verification:', err.response?.data?.error?.message || err.message);
+  });
+
+  const { encryptedAccessToken: _o, ...safe } = updated;
+  return { ok: true, number: safe };
+}
+
+// Meta's verification errors are the ones users hit most, and its raw text does
+// not say what to do about any of them.
+function describeVerificationError(err, method) {
+  const meta = err.response?.data?.error;
+  const code = Number(meta?.code);
+  const raw = meta ? `${meta.message} (code ${meta.code})` : err.message;
+  const map = {
+    136024: 'WhatsApp is rate limiting verification for this number. Wait a few minutes before requesting another code.',
+    136025: 'That code was not accepted. Request a new one and try again.',
+    100: 'WhatsApp does not recognise this phone number ID, or the stored access token has lost permission for it. Reconnect the number.',
+    190: 'The access token for this number has expired. Reconnect the number, then verify it.',
+    133005: 'This number is already verified and registered.',
+  };
+  const e = new Error(
+    map[code]
+      ? `${map[code]} (${raw})`
+      : `WhatsApp could not ${method ? 'send the verification code' : 'verify that code'}: ${raw}`,
+  );
+  e.status = code === 133005 ? 409 : 400;
+  e.expose = true;
+  return e;
 }
 
 // Today's send count per number, keyed by waNumberId.
@@ -116,9 +221,49 @@ export async function connectOwnNumber(workspaceId, { phoneNumber, metaPhoneNumb
     e.status = 400;
     throw e;
   }
+
+  // Nothing verified any of this before, so whatever was typed into the form
+  // was saved as a working number. The live database ended up holding rows with
+  // ids like "PN123" and "test_pnid" — connected in the UI, guaranteed to fail
+  // on the first send, with no indication of why. Asking Meta first turns a
+  // typo into an error at the point it can still be corrected.
+  let details;
+  try {
+    details = await getPhoneNumberStatus(metaPhoneNumberId, accessToken);
+  } catch (err) {
+    const meta = err.response?.data?.error;
+    const e = new Error(
+      meta
+        ? `WhatsApp rejected these details: ${meta.message} (code ${meta.code}). Check the phone number ID and that the access token has permission for it.`
+        : `Could not reach WhatsApp to verify these details: ${err.message}`,
+    );
+    e.status = 400;
+    e.expose = true;
+    throw e;
+  }
+
+  const existing = await prisma.waNumber.findFirst({ where: { workspaceId, metaPhoneNumberId } });
+  if (existing) {
+    const e = new Error('That WhatsApp number is already connected to this workspace.');
+    e.status = 409;
+    throw e;
+  }
+
   const encryptedAccessToken = encrypt(accessToken);
   const number = await prisma.waNumber.create({
-    data: { workspaceId, phoneNumber, metaPhoneNumberId, wabaId, encryptedAccessToken, displayName },
+    data: {
+      workspaceId,
+      // Prefer what Meta says the number is over what was typed.
+      phoneNumber: details.display_phone_number || phoneNumber,
+      metaPhoneNumberId,
+      wabaId,
+      encryptedAccessToken,
+      displayName: details.verified_name || displayName || null,
+      status: details.status || 'ACTIVE',
+      quality: details.quality_rating || null,
+      codeVerificationStatus: details.code_verification_status || null,
+      lastVerifiedAt: details.code_verification_status === 'VERIFIED' ? new Date() : null,
+    },
   });
 
   // Register for webhook events so the Inbox and delivery counters actually work.

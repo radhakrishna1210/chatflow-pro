@@ -2,7 +2,8 @@ import { prisma } from '../lib/prisma.js';
 import { generateAgentReply } from './aiAgent.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage } from '../lib/meta.js';
-import { consumeMessageCredit } from './subscription.service.js';
+import { getWindowState, outsideWindowError, windowStateFrom, describeWindow } from './messagingWindow.js';
+import { consumeMessageCredit, releaseMessageCredit } from './subscription.service.js';
 import { assertNotOptedOut } from './optout.service.js';
 
 export async function listConversations(workspaceId, { page = 1, limit = 20 } = {}) {
@@ -46,11 +47,51 @@ export async function getMessages(workspaceId, conversationId) {
 
   await prisma.conversation.update({ where: { id: conversationId }, data: { unreadCount: 0 } });
 
-  return prisma.message.findMany({
+  const messages = await prisma.message.findMany({
     where: { conversationId },
     orderBy: { sentAt: 'asc' },
     include: { senderUser: { select: { id: true, name: true } } },
   });
+
+  // The composer needs to know whether a free-form reply is even allowed before
+  // the agent types one. Returned alongside the thread so the inbox can say
+  // "the window closed, send a template" rather than letting the send fail.
+  const window = windowStateFrom(conversation.lastInboundAt);
+
+  return {
+    messages,
+    window: {
+      open: window.open,
+      lastInboundAt: window.lastInboundAt,
+      expiresAt: window.expiresAt,
+      msRemaining: window.msRemaining,
+      description: describeWindow(window),
+    },
+  };
+}
+
+// Meta's rejections reach the agent verbatim otherwise — "Request failed with
+// status code 400" says nothing about what to do next. The codes translated
+// here are the ones with an actual remedy.
+function describeSendFailure(err) {
+  const meta = err.response?.data?.error;
+  if (!meta) {
+    const e = new Error(`Could not reach WhatsApp: ${err.message}`);
+    e.status = 502; e.expose = true; return e;
+  }
+  const raw = `${meta.message}${meta.error_data?.details ? ` — ${meta.error_data.details}` : ''} (code ${meta.code})`;
+  const map = {
+    131047: 'The 24-hour reply window has closed — send an approved template to reopen the conversation.',
+    131026: 'That number is not a valid WhatsApp account.',
+    190:    'The WhatsApp access token has expired — reconnect the number in Number Setup.',
+    100:    'WhatsApp no longer recognises this number. Reconnect it in Number Setup.',
+    131042: 'WhatsApp refused the send for a billing or rate limit reason on the business account.',
+  };
+  const e = new Error(map[Number(meta.code)] ? `${map[Number(meta.code)]} (${raw})` : raw);
+  e.status = Number(meta.code) === 131047 ? 409 : 502;
+  e.code = Number(meta.code) === 131047 ? 'OUTSIDE_24H_WINDOW' : 'WHATSAPP_SEND_FAILED';
+  e.expose = true;
+  return e;
 }
 
 export async function sendMessage(workspaceId, conversationId, userId, { type, body }) {
@@ -72,6 +113,13 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   // from the inbox — a customer who sent STOP must not be messaged again.
   await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
 
+  // WhatsApp's 24-hour rule. Checked here rather than discovered at Meta,
+  // because the rejection that comes back (error 131047) reached the agent as
+  // an unexplained 400 — and, crucially, the message credit below had already
+  // been spent by then.
+  const windowState = await getWindowState(conversationId);
+  if (!windowState.open) throw outsideWindowError(windowState);
+
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Message overage' });
   if (!credit.ok) {
     const e = new Error('Message quota and wallet balance exhausted — recharge your wallet or upgrade your plan');
@@ -80,19 +128,31 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   }
 
   const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
-  const result = await sendTextMessage(
-    conversation.waNumber.metaPhoneNumberId,
-    accessToken,
-    conversation.contact.phoneNumber,
-    body
-  );
+  let result;
+  try {
+    result = await sendTextMessage(
+      conversation.waNumber.metaPhoneNumberId,
+      accessToken,
+      conversation.contact.phoneNumber,
+      body
+    );
+  } catch (err) {
+    // The credit was consumed before the send. Nothing went out, so hand it
+    // back rather than charging for a message that does not exist.
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    throw describeSendFailure(err);
+  }
 
   const message = await prisma.message.create({
     data: {
       conversationId,
       body,
       direction: 'OUTBOUND',
+      type: 'TEXT',
       metaMessageId: result?.messages?.[0]?.id,
+      // Accepted by Meta; the status webhook moves it on to DELIVERED/READ.
+      status: 'SENT',
+      statusAt: new Date(),
       senderUserId: userId,
     },
     include: { senderUser: { select: { id: true, name: true } } },

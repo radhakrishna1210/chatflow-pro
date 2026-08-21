@@ -10,24 +10,24 @@ datasource db {
 }
 
 model User {
-  id                    String            @id @default(cuid())
+  id                    String             @id @default(cuid())
   name                  String
-  email                 String            @unique
+  email                 String             @unique
   passwordHash          String?
-  googleId              String?           @unique
+  googleId              String?            @unique
   phone                 String?
   jobTitle              String?
   company               String?
   timezone              String?
   language              String?
   lastLoginAt           DateTime?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @default(now()) @updatedAt
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @default(now()) @updatedAt
   messages              Message[]
   refreshTokens         RefreshToken[]
   workspaceMembers      WorkspaceMember[]
   sentInvitations       Invitation[]
-  assignedConversations Conversation[]    @relation("ConversationAssignee")
+  assignedConversations Conversation[]     @relation("ConversationAssignee")
   conversationNotes     ConversationNote[]
   notifications         Notification[]
 }
@@ -198,23 +198,38 @@ enum InviteKind {
 }
 
 model WaNumber {
-  id                   String         @id @default(cuid())
-  workspaceId          String
-  phoneNumber          String
-  metaPhoneNumberId    String
-  wabaId               String
-  encryptedAccessToken String
-  displayName          String?
-  quality              String?
-  status               String         @default("ACTIVE")
-  messagingLimit       String?
-  appSubscribed        Boolean        @default(false)
-  createdAt            DateTime       @default(now())
-  campaigns            Campaign[]
-  conversations        Conversation[]
-  templates            Template[]
-  widgets              Widget[]
-  workspace            Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                     String    @id @default(cuid())
+  workspaceId            String
+  phoneNumber            String
+  metaPhoneNumberId      String
+  wabaId                 String
+  encryptedAccessToken   String
+  displayName            String?
+  quality                String?
+  status                 String    @default("ACTIVE")
+  messagingLimit         String?
+  appSubscribed          Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  // Meta's own verification state for the number (code_verification_status).
+  // It was never read, so a number whose verification had EXPIRED looked
+  // healthy in the UI right up until every send failed.
+  codeVerificationStatus String?
+  lastVerifiedAt         DateTime?
+  // Set when Meta stops recognising the phone number id (error 100/33), so a
+  // dead number is visible as dead instead of failing silently on every send.
+  unreachableSince       DateTime?
+  unreachableReason      String?
+
+  campaigns     Campaign[]
+  conversations Conversation[]
+  templates     Template[]
+  widgets       Widget[]
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // One workspace cannot hold the same Meta phone number twice. Without this,
+  // a double-clicked "connect" wrote six identical rows (observed in
+  // production data) and every list, count and send-from picker disagreed.
+  @@unique([workspaceId, metaPhoneNumberId])
 }
 
 model NumberPool {
@@ -453,6 +468,11 @@ model Conversation {
   // SetNull so removing a member detaches their threads instead of blocking.
   assignedToUserId String?
   lastMessageAt    DateTime            @default(now())
+  // When the customer last wrote to us. Meta only allows a free-form (non
+  // template) reply within 24 hours of this moment; outside it the send is
+  // rejected with error 131047. Nothing tracked it before, so the app had no
+  // way to know the window had closed and simply let every reply fail.
+  lastInboundAt    DateTime?
   createdAt        DateTime            @default(now())
   contact          Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
   waNumber         WaNumber?           @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
@@ -462,6 +482,11 @@ model Conversation {
   workflowRuns     WorkflowRun[]
   aiSessions       CampaignAiSession[]
   notes            ConversationNote[]
+
+  // Enforced as a partial unique index in the migration (waNumberId IS NOT
+  // NULL), which Prisma cannot express here. Declared as an index so the
+  // client still plans lookups against it.
+  @@index([workspaceId, contactId, waNumberId])
 }
 
 // One customer's "Ask Anything" conversation with the AI agent attached to a
@@ -502,20 +527,73 @@ model CampaignAiSession {
 }
 
 model Message {
-  id                  String             @id @default(cuid())
+  id                  String           @id @default(cuid())
   conversationId      String
   body                String
   direction           MessageDirection
-  metaMessageId       String?
+  // Unique, not merely indexed. Meta retries a webhook until it gets a 200, and
+  // nothing de-duplicated on this id — so a retried delivery wrote the message
+  // again *and* re-ran the automation behind it. Production data carried inbound
+  // messages stored four times over. This constraint is what makes the webhook
+  // handler's upsert idempotent.
+  metaMessageId       String?          @unique
   senderUserId        String?
   campaignRecipientId String?
-  sentAt              DateTime           @default(now())
-  createdAt           DateTime           @default(now())
-  conversation        Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderUser          User?              @relation(fields: [senderUserId], references: [id])
-  campaignRecipient   CampaignRecipient? @relation(fields: [campaignRecipientId], references: [id], onDelete: SetNull)
+  // What kind of message this is. Anything that is not plain text used to be
+  // stored as an empty body with no record of what had actually arrived.
+  type                MessageType      @default(TEXT)
+  // Delivery lifecycle, mirrored from Meta's status webhooks. Statuses were
+  // previously applied only to campaign sends, so an inbox reply or an
+  // automated reply never showed whether it had been delivered or read.
+  status              MessageStatus    @default(PENDING)
+  statusAt            DateTime?
+  errorCode           Int?
+  errorMessage        String?
+  // Media, for image/video/audio/document/sticker messages. `mediaUrl` is
+  // Meta's short-lived download URL; `mediaId` is the durable handle used to
+  // re-fetch it, since the URL expires in minutes.
+  mediaId             String?
+  mediaUrl            String?
+  mediaMimeType       String?
+  mediaFilename       String?
+  mediaSha256         String?
+  // Latitude/longitude arrive as their own message type rather than as text.
+  locationLat         Float?
+  locationLng         Float?
+  locationName        String?
 
-  @@index([metaMessageId])
+  sentAt            DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+  conversation      Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser        User?              @relation(fields: [senderUserId], references: [id])
+  campaignRecipient CampaignRecipient? @relation(fields: [campaignRecipientId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, sentAt])
+  @@index([status])
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  STICKER
+  LOCATION
+  CONTACTS
+  INTERACTIVE
+  BUTTON
+  TEMPLATE
+  SYSTEM
+  UNSUPPORTED
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
 }
 
 model AutomationTrigger {

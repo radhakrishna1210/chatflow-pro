@@ -22,6 +22,8 @@ router.patch('/numbers/pool/:id/unban', adminController.unbanPoolEntry);
 router.get('/platform/settings',  adminController.getSystemSettings);
 router.post('/platform/settings', adminController.updateSystemSettings);
 router.get('/platform/credential-check', adminController.checkSystemCredentials);
+router.get('/platform/webhooks',        adminController.inspectWebhooks);
+router.post('/platform/webhooks/repair', adminController.repairWebhooks);
 
 // Workspaces (for admin assignment picker)
 router.get('/workspaces',               adminController.listWorkspaces);

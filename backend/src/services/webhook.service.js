@@ -11,6 +11,7 @@ import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import { isWithinBusinessHours } from './businessHours.service.js';
 import { matchOptOutKeyword, recordOptOut } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
+import { parseInboundMessage, carriesCustomerText } from './inboundMessage.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
 
@@ -195,27 +196,20 @@ async function handleTemplateCategoryUpdate(wabaId, value) {
 async function handleInboundMessage(value, msg) {
   const phoneNumberId = value.metadata?.phone_number_id;
   const fromPhone = msg.from;
-  let messageBody = '';
-  if (msg.text?.body) {
-    messageBody = msg.text.body;
-  } else if (msg.button?.text) {
-    messageBody = msg.button.text;
-  } else if (msg.interactive?.button_reply?.title) {
-    messageBody = msg.interactive.button_reply.title;
-  } else if (msg.interactive?.list_reply?.title) {
-    messageBody = msg.interactive.list_reply.title;
-  }
+
+  // Every inbound shape Meta sends, not just the four that used to be handled
+  // (see services/inboundMessage.js). Media, location and contact cards were
+  // previously stored as an empty body with no trace of the attachment.
+  const parsed = parseInboundMessage(msg);
+  const messageBody = parsed.body;
 
   // Tapping a template quick-reply delivers the payload the send attached to
   // that button (msg.button.payload); an interactive reply carries it as the
   // reply's id. Campaigns stamp the recipient's id there, so a CTA tap names
   // the exact campaign message the customer is looking at.
-  const buttonPayload = msg.button?.payload
-    ?? msg.interactive?.button_reply?.id
-    ?? msg.interactive?.list_reply?.id
-    ?? null;
+  const buttonPayload = parsed.buttonPayload;
 
-  console.log(`[Inbound] from=${fromPhone} phone_number_id=${phoneNumberId} body="${messageBody}"`);
+  console.log(`[Inbound] from=${fromPhone} phone_number_id=${phoneNumberId} type=${parsed.type} body="${messageBody}"`);
 
   const waNumber = await prisma.waNumber.findFirst({ where: { metaPhoneNumberId: phoneNumberId } });
   if (!waNumber) {
@@ -250,10 +244,54 @@ async function handleInboundMessage(value, msg) {
 
   if (!contact) {
     const displayName = value.contacts?.[0]?.profile?.name || fromPhone;
-    contact = await prisma.contact.create({
-      data: { workspaceId: waNumber.workspaceId, name: displayName, phoneNumber: fromPhone },
-    });
+    // Meta delivers a burst of messages together when someone sends several at
+    // once (a photo plus a caption plus a follow-up). Each was creating the
+    // contact independently, and all but the first lost the race on
+    // Contact's (workspaceId, phoneNumber) unique constraint — the P2002 threw
+    // out of the handler and those messages were dropped entirely. Converge on
+    // whichever write won instead.
+    //
+    // Written as create-then-recover rather than upsert on purpose: Prisma
+    // compiles an upsert with an empty `update` into a select-then-insert,
+    // which has the same race inside it. Catching the constraint violation is
+    // the only form that cannot lose.
+    try {
+      contact = await prisma.contact.create({
+        data: { workspaceId: waNumber.workspaceId, name: displayName, phoneNumber: fromPhone },
+      });
+    } catch (err) {
+      if (err.code !== 'P2002') throw err;
+      contact = await prisma.contact.findUnique({
+        where: { workspaceId_phoneNumber: { workspaceId: waNumber.workspaceId, phoneNumber: fromPhone } },
+      });
+      if (!contact) throw err;
+    }
   }
+
+  // Same race, one level down: two messages from a brand-new contact can both
+  // reach this point before either has created the conversation.
+  const ensureConversation = async () => {
+    const found = await prisma.conversation.findFirst({
+      where: { workspaceId: waNumber.workspaceId, contactId: contact.id, waNumberId: waNumber.id },
+    });
+    if (found) return found;
+    try {
+      return await prisma.conversation.create({
+        data: {
+          workspaceId: waNumber.workspaceId,
+          contactId: contact.id,
+          waNumberId: waNumber.id,
+          status: 'OPEN',
+        },
+      });
+    } catch (err) {
+      const retry = await prisma.conversation.findFirst({
+        where: { workspaceId: waNumber.workspaceId, contactId: contact.id, waNumberId: waNumber.id },
+      });
+      if (retry) return retry;
+      throw err;
+    }
+  };
 
   let conversation = await prisma.conversation.findFirst({
     where: { workspaceId: waNumber.workspaceId, contactId: contact.id, waNumberId: waNumber.id },
@@ -261,30 +299,52 @@ async function handleInboundMessage(value, msg) {
   const wasClosed = conversation?.status === 'CLOSED';
   const previousLastMessageAt = conversation?.lastMessageAt ?? null;
 
-  if (!conversation) {
-    conversation = await prisma.conversation.create({
+  if (!conversation) conversation = await ensureConversation();
+
+  // Idempotency. Meta redelivers a webhook until it gets a 200, and retries are
+  // routine — a slow response, a deploy mid-delivery, a 500. Nothing guarded
+  // against it, so a redelivery wrote the message again *and* ran the whole
+  // automation chain below a second time: the customer received duplicate
+  // replies, and production data held inbound messages stored four times over.
+  //
+  // `metaMessageId` is unique now, so the create fails on a repeat. Bailing out
+  // here rather than at the write is what stops the automation re-running.
+  const sentAt = new Date(parseInt(msg.timestamp, 10) * 1000);
+  try {
+    await prisma.message.create({
       data: {
-        workspaceId: waNumber.workspaceId,
-        contactId: contact.id,
-        waNumberId: waNumber.id,
-        status: 'OPEN',
+        conversationId: conversation.id,
+        body: messageBody,
+        direction: 'INBOUND',
+        type: parsed.type,
+        metaMessageId: msg.id,
+        // Inbound messages have no delivery lifecycle of their own — arriving
+        // is the terminal state.
+        status: 'DELIVERED',
+        statusAt: sentAt,
+        sentAt,
+        ...(parsed.media || {}),
+        ...(parsed.location || {}),
       },
     });
+  } catch (err) {
+    if (err.code === 'P2002') {
+      console.log(`[Inbound] Duplicate delivery of ${msg.id} — already processed, ignoring.`);
+      return;
+    }
+    throw err;
   }
-
-  await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      body: messageBody,
-      direction: 'INBOUND',
-      metaMessageId: msg.id,
-      sentAt: new Date(parseInt(msg.timestamp) * 1000),
-    },
-  });
 
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { unreadCount: { increment: 1 }, lastMessageAt: new Date() },
+    data: {
+      unreadCount: { increment: 1 },
+      lastMessageAt: new Date(),
+      // Opens (or re-opens) the 24-hour window in which Meta permits a
+      // free-form reply. Every outbound path checks this — see
+      // services/messagingWindow.js.
+      lastInboundAt: sentAt,
+    },
   });
 
   const workspaceId = waNumber.workspaceId;
@@ -295,7 +355,11 @@ async function handleInboundMessage(value, msg) {
   //    exactly what opting out is supposed to prevent. Matching ignores case,
   //    surrounding spaces and punctuation, so "STOP", " stop ", "Stop." and
   //    "STOP!" all land here. Repeat STOPs are idempotent.
-  const optOutKeyword = matchOptOutKeyword(messageBody);
+  // Only words the customer actually typed. `messageBody` may be a placeholder
+  // we generated for a photo or a location, and matching our own text against
+  // the opt-out keywords would let a picture opt someone out.
+  const customerText = carriesCustomerText(parsed);
+  const optOutKeyword = customerText ? matchOptOutKeyword(messageBody) : null;
   if (optOutKeyword) {
     try {
       await recordOptOut({
@@ -393,7 +457,7 @@ async function handleInboundMessage(value, msg) {
   let autoReplyText = null;
 
   // 2. Exact keyword trigger (deterministic, highest priority after workflows).
-  if (messageBody && !workflowWillReply) {
+  if (customerText && !workflowWillReply) {
     const trigger = await findMatchingTrigger(workspaceId, messageBody);
     if (trigger) autoReplyText = trigger.responseTemplate;
 
@@ -428,7 +492,7 @@ async function handleInboundMessage(value, msg) {
   //    campaign this conversation was about if there was one. Without them it
   //    answered every message in isolation and offered a human whenever the
   //    knowledge base fell short.
-  if (!autoReplyText && !workflowWillReply && messageBody) {
+  if (!autoReplyText && !workflowWillReply && customerText) {
     autoReplyText = await generateAgentReply(workspaceId, messageBody, {
       contactName: contact?.name,
       conversationId: conversation.id,
@@ -468,13 +532,49 @@ async function handleStatusUpdate(status) {
   const newStatus = status.status;
   const eventTime = status.timestamp ? new Date(parseInt(status.timestamp, 10) * 1000) : new Date();
 
-  // The campaign worker stores campaignRecipientId on each outbound message,
-  // so a Meta status webhook maps 1:1 to the recipient it belongs to.
-  const message = await prisma.message.findFirst({
+  const message = await prisma.message.findUnique({
     where: { metaMessageId },
-    select: { id: true, campaignRecipientId: true },
+    select: { id: true, campaignRecipientId: true, status: true },
   });
-  if (!message || !message.campaignRecipientId) return;
+  if (!message) return;
+
+  // Record the status on the message itself, whatever sent it.
+  //
+  // This used to return immediately unless the message belonged to a campaign,
+  // so a human's inbox reply and every automated reply had no delivery state at
+  // all — the inbox could not show a tick, and "was that delivered?" had no
+  // answer. Campaign counters are still maintained below; they are now one
+  // consumer of this event rather than the only one.
+  const RANK = { PENDING: 0, SENT: 1, DELIVERED: 2, READ: 3 };
+  const mapped = { sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED' }[newStatus];
+  if (mapped) {
+    const errObj = status.errors?.[0];
+    // Statuses can arrive out of order (a `read` before its `delivered`).
+    // Never move a message backwards — but `failed` always wins, since it is
+    // terminal and is the one the user most needs to see.
+    const isRegression = mapped !== 'FAILED'
+      && message.status !== 'FAILED'
+      && (RANK[mapped] ?? 0) <= (RANK[message.status] ?? 0);
+    if (!isRegression) {
+      await prisma.message.update({
+        where: { id: message.id },
+        data: {
+          status: mapped,
+          statusAt: eventTime,
+          ...(mapped === 'FAILED'
+            ? {
+                errorCode: errObj?.code ?? null,
+                errorMessage: errObj?.title || errObj?.message || 'Delivery failed',
+              }
+            : {}),
+        },
+      }).catch((err) => console.error('[Status] Could not update message:', err.message));
+    }
+  }
+
+  // Everything below is campaign bookkeeping, which only applies to a send that
+  // belongs to a campaign recipient.
+  if (!message.campaignRecipientId) return;
 
   const recipient = await prisma.campaignRecipient.findUnique({
     where: { id: message.campaignRecipientId },

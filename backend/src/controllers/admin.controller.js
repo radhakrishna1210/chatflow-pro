@@ -245,6 +245,21 @@ export async function getSystemSettings(req, res) {
 // The settings screen shows a masked value and a source, which says a key is
 // *present* but never whether the provider accepts it — the distinction that
 // matters when every AI reply has quietly stopped working.
+// Which Meta webhook events the app is actually subscribed to. The live app
+// was subscribed to `messages` alone, so no template status or category update
+// ever reached the handlers that exist for them.
+export async function inspectWebhooks(req, res) {
+  const { inspectWebhookSubscription } = await import('../lib/meta.js');
+  res.json(await inspectWebhookSubscription());
+}
+
+// Re-registers the subscription with every field the webhook handler supports.
+export async function repairWebhooks(req, res) {
+  const { setAppWebhookSubscription, inspectWebhookSubscription } = await import('../lib/meta.js');
+  await setAppWebhookSubscription(req.body?.callbackUrl);
+  res.json({ ok: true, subscription: await inspectWebhookSubscription() });
+}
+
 export async function checkSystemCredentials(req, res) {
   res.json(await platformSettings.checkPlatformCredentials());
 }

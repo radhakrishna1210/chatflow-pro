@@ -230,8 +230,17 @@ export async function getWabaTemplates(wabaId, accessToken) {
   return results;
 }
 
-export async function requestOtp(phoneNumberId, method = 'SMS') {
-  const client = metaClient(env.META_SYSTEM_USER_TOKEN);
+// `accessToken` must be the token that owns the number.
+//
+// Both of these were hardcoded to META_SYSTEM_USER_TOKEN, which is the
+// platform's own system user. That works for numbers in the platform's WABA
+// (the super-admin number pool) and cannot work for a customer's own WABA
+// created by Embedded Signup — the platform token has no permission there, so
+// the request failed and the customer never received a code. Callers now pass
+// the number's own token; the system token stays the default so the pool flow
+// is unchanged.
+export async function requestOtp(phoneNumberId, method = 'SMS', accessToken = null) {
+  const client = metaClient(accessToken || env.META_SYSTEM_USER_TOKEN);
   const { data } = await client.post(`/${phoneNumberId}/request_code`, {
     code_method: method,
     language: 'en_US',
@@ -239,9 +248,23 @@ export async function requestOtp(phoneNumberId, method = 'SMS') {
   return data;
 }
 
-export async function verifyOtp(phoneNumberId, code) {
-  const client = metaClient(env.META_SYSTEM_USER_TOKEN);
+export async function verifyOtp(phoneNumberId, code, accessToken = null) {
+  const client = metaClient(accessToken || env.META_SYSTEM_USER_TOKEN);
   const { data } = await client.post(`/${phoneNumberId}/verify_code`, { code });
+  return data;
+}
+
+// Everything the app needs to know about a number's standing with Meta,
+// including `code_verification_status` — which the app never read, so a number
+// whose verification had EXPIRED looked perfectly healthy until every send
+// failed.
+export async function getPhoneNumberStatus(phoneNumberId, accessToken) {
+  const client = metaClient(accessToken);
+  const { data } = await client.get(`/${phoneNumberId}`, {
+    params: {
+      fields: 'id,display_phone_number,verified_name,status,quality_rating,code_verification_status,platform_type,throughput',
+    },
+  });
   return data;
 }
 
@@ -334,4 +357,74 @@ export async function getPhoneNumberById(phoneNumberId, accessToken) {
     params: { fields: 'id,display_phone_number,verified_name,status,quality_rating' },
   });
   return data;
+}
+
+// ─── App-level webhook subscription ──────────────────────────────────────────
+//
+// Subscribing the app to a customer's WABA (subscribeAppToWaba, above) decides
+// *which accounts* send us events. This decides *which events* — and it is set
+// once, on the app itself.
+//
+// The live app was subscribed to `messages` only, so template approvals and
+// re-categorisations never arrived: handleTemplateStatusUpdate() and
+// handleTemplateCategoryUpdate() in webhook.service.js could not fire, and a
+// template's status went stale the moment it was submitted.
+
+// Everything the webhook handler knows how to process.
+export const REQUIRED_WEBHOOK_FIELDS = [
+  'messages',
+  'message_template_status_update',
+  'message_template_category_update',
+];
+
+const appAccessToken = () => `${env.META_APP_ID}|${env.META_APP_SECRET}`;
+
+export async function getAppWebhookSubscriptions() {
+  const { data } = await axios.get(`${BASE}/${env.META_APP_ID}/subscriptions`, {
+    params: { access_token: appAccessToken() },
+  });
+  return data.data || [];
+}
+
+// Reports which of the fields we depend on are actually subscribed, so the
+// difference between "no messages are arriving" and "template updates are not
+// arriving" is answerable without reading the Meta dashboard.
+export async function inspectWebhookSubscription() {
+  const subs = await getAppWebhookSubscriptions();
+  const waba = subs.find((s) => s.object === 'whatsapp_business_account');
+  const subscribed = (waba?.fields || []).map((f) => f.name);
+  const expectedCallback = `${env.API_PUBLIC_URL}/api/v1/webhook/meta`;
+  return {
+    subscribed: Boolean(waba),
+    active: waba?.active ?? false,
+    callbackUrl: waba?.callback_url ?? null,
+    expectedCallbackUrl: expectedCallback,
+    callbackMatches: waba?.callback_url === expectedCallback,
+    fields: subscribed,
+    missingFields: REQUIRED_WEBHOOK_FIELDS.filter((f) => !subscribed.includes(f)),
+  };
+}
+
+// Rewrites the app's WABA subscription so it carries every field we handle.
+// `callbackUrl` must be publicly reachable over HTTPS — Meta verifies it by
+// calling GET with hub.challenge before accepting the change.
+export async function setAppWebhookSubscription(callbackUrl) {
+  const url = callbackUrl || `${env.API_PUBLIC_URL}/api/v1/webhook/meta`;
+  if (!url.startsWith('https://')) {
+    const e = new Error(
+      `Meta only accepts an HTTPS webhook URL, and this server's API_PUBLIC_URL is "${env.API_PUBLIC_URL}". `
+      + 'Set API_PUBLIC_URL to the public HTTPS origin of this service (or pass a callbackUrl) before subscribing.',
+    );
+    e.status = 400; e.expose = true; throw e;
+  }
+  const { data } = await axios.post(`${BASE}/${env.META_APP_ID}/subscriptions`, null, {
+    params: {
+      object: 'whatsapp_business_account',
+      callback_url: url,
+      verify_token: env.META_WEBHOOK_VERIFY_TOKEN,
+      fields: REQUIRED_WEBHOOK_FIELDS.join(','),
+      access_token: appAccessToken(),
+    },
+  });
+  return { ...data, callbackUrl: url, fields: REQUIRED_WEBHOOK_FIELDS };
 }
