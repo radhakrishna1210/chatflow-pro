@@ -179,6 +179,11 @@ export default function InboxView() {
   const [windowState, setWindowState] = useState({});
   const fileInputRef = useRef(null);
   const [attaching, setAttaching] = useState(false);
+  // Approved templates, for reopening a conversation whose free-form window has
+  // closed — the only message WhatsApp accepts at that point.
+  const [templates, setTemplates] = useState([]);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [sendingTemplate, setSendingTemplate] = useState(null);
   const [activeId, setActiveId] = useState(null);
   const [isBot, setIsBot]       = useState(false);
   const [input, setInput]       = useState('');
@@ -407,6 +412,32 @@ export default function InboxView() {
       setMsgs(p => ({ ...p, [activeId]: (p[activeId] || []).filter(m => m.id !== temp.id) }));
     } finally {
       setSending(false);
+    }
+  };
+
+  useEffect(() => {
+    wFetch('/templates?status=APPROVED')
+      .then(r => (r.ok ? r.json() : []))
+      .then(d => { if (Array.isArray(d)) setTemplates(d.filter(t => t.status === 'APPROVED')); })
+      .catch(() => {});
+  }, []);
+
+  const sendTemplate = async (template) => {
+    if (!activeId) return;
+    setSendError(null);
+    setSendingTemplate(template.id);
+    try {
+      const res = await wFetch(`/conversations/${activeId}/template`, {
+        method: 'POST', body: JSON.stringify({ templateId: template.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSendError(data.error || `Could not send that template (${res.status})`); return; }
+      setMsgs(p => ({ ...p, [activeId]: [...(p[activeId] || []), data] }));
+      setTemplatePickerOpen(false);
+    } catch (e) {
+      setSendError(e.message);
+    } finally {
+      setSendingTemplate(null);
     }
   };
 
@@ -732,9 +763,39 @@ export default function InboxView() {
                 {/* WhatsApp's 24-hour rule, stated before the agent types
                     rather than discovered when Meta rejects the send. */}
                 {activeWindow && !activeWindow.open && (
-                  <div style={{ padding:'9px 16px', borderTop:'1px solid var(--bd)', background:'rgba(245,158,11,.07)', display:'flex', alignItems:'center', gap:8 }}>
-                    <I n="alertt" s={13} c="#fbbf24" />
-                    <span style={{ fontSize:12, color:'#fbbf24', lineHeight:1.45 }}>{activeWindow.description}</span>
+                  <div style={{ padding:'9px 16px', borderTop:'1px solid var(--bd)', background:'rgba(245,158,11,.07)' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                      <I n="alertt" s={13} c="#fbbf24" />
+                      <span style={{ fontSize:12, color:'#fbbf24', lineHeight:1.45 }}>{activeWindow.description}</span>
+                      {/* The way through the closed window. Telling someone to
+                          send a template while offering no way to send one is
+                          not a workable instruction. */}
+                      <button onClick={() => setTemplatePickerOpen(o => !o)}
+                        style={{ marginLeft:'auto', padding:'4px 10px', borderRadius:6, fontSize:11.5, fontWeight:600,
+                                 cursor:'pointer', background:'rgba(245,158,11,.12)', border:'1px solid rgba(245,158,11,.35)',
+                                 color:'#fbbf24', fontFamily:"'Manrope',sans-serif" }}>
+                        {templatePickerOpen ? 'Close' : 'Send a template'}
+                      </button>
+                    </div>
+                    {templatePickerOpen && (
+                      <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6, maxHeight:180, overflowY:'auto' }}>
+                        {templates.length === 0 && (
+                          <span style={{ fontSize:11.5, color:'var(--t3)' }}>
+                            No approved templates yet. Create one on the Templates page and wait for Meta to approve it.
+                          </span>
+                        )}
+                        {templates.map(t => (
+                          <button key={t.id} onClick={() => sendTemplate(t)} disabled={sendingTemplate === t.id}
+                            style={{ textAlign:'left', padding:'7px 10px', borderRadius:7, cursor:'pointer',
+                                     background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)',
+                                     color:'var(--t1)', fontSize:12, fontFamily:"'Manrope',sans-serif" }}>
+                            <span style={{ fontWeight:600 }}>{t.name}</span>
+                            <span style={{ color:'var(--t3)', marginLeft:8, fontSize:11 }}>{t.category} · {t.language}</span>
+                            {sendingTemplate === t.id && <span style={{ color:'var(--t3)', marginLeft:8 }}>sending…</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
                 {activeWindow?.open && activeWindow.msRemaining < 2 * 3600_000 && (

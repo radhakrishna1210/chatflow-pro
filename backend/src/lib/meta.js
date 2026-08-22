@@ -32,11 +32,25 @@ export const systemClient = new Proxy({}, {
   },
 });
 
+// Meta addresses a recipient by bare digits in international format. A number
+// carrying a "+", spaces, dashes or brackets is not reliably accepted, and when
+// it is refused the answer is a bare "Request failed with status code 400" that
+// names nothing.
+//
+// This normalises at the one place every send passes through, rather than at
+// each call site. It was done per-call-site before, and three of them had been
+// missed — the inbox reply, the inbox attachment, and every automated reply
+// routed through outbound.service (forms, workflows, the campaign AI agent).
+// 136 of the 159 contacts in the live database are stored with a leading "+",
+// so those paths were handing Meta a format it does not promise to accept for
+// the overwhelming majority of contacts.
+const toRecipient = (value) => String(value ?? '').replace(/[^\d]/g, '');
+
 export async function sendWhatsAppMessage(phoneNumberId, accessToken, to, template) {
   const client = metaClient(accessToken);
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to,
+    to: toRecipient(to),
     type: 'template',
     template,
   });
@@ -47,7 +61,7 @@ export async function sendTextMessage(phoneNumberId, accessToken, to, body) {
   const client = metaClient(accessToken);
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to,
+    to: toRecipient(to),
     type: 'text',
     text: { body },
   });
@@ -447,7 +461,7 @@ export async function sendMediaMessage(phoneNumberId, accessToken, to, { mediaId
 
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to,
+    to: toRecipient(to),
     type,
     [type]: media,
   });

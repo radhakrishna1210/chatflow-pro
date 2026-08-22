@@ -26,6 +26,16 @@ export async function sendMedia(req, res) {
   res.status(201).json(message);
 }
 
+// The only thing WhatsApp permits once the 24-hour window has closed. Every
+// error message told the agent to send a template; this is the route that lets
+// them actually do it.
+export async function sendTemplate(req, res) {
+  const message = await conversationsService.sendTemplateMessage(
+    req.params.workspaceId, req.params.id, req.user.id, req.body || {},
+  );
+  res.status(201).json(message);
+}
+
 export async function sendMessage(req, res) {
   const message = await conversationsService.sendMessage(
     req.params.workspaceId,

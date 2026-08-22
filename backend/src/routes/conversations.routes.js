@@ -18,6 +18,9 @@ router.delete('/:id/notes/:noteId', conversationsController.deleteNote);
 router.patch('/:id/assign', conversationsController.assign);
 router.patch('/:id/status', conversationsController.setStatus);
 router.post('/:id/messages', conversationsController.sendMessage);
+// Approved templates only, and permitted whether or not the window is open —
+// this is the documented way back into a conversation that has gone quiet.
+router.post('/:id/template', conversationsController.sendTemplate);
 // Attachments. Same guards as a text reply (opt-out, the 24-hour window, a
 // message credit), plus the upload validation every other file route uses.
 router.post('/:id/media',

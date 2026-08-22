@@ -1,10 +1,12 @@
 import { prisma } from '../lib/prisma.js';
 import { generateAgentReply } from './aiAgent.service.js';
 import { decrypt } from '../lib/encryption.js';
-import { sendTextMessage } from '../lib/meta.js';
+import { sendTextMessage, sendWhatsAppMessage } from '../lib/meta.js';
 import { getWindowState, outsideWindowError, windowStateFrom, describeWindow } from './messagingWindow.js';
 import { consumeMessageCredit, releaseMessageCredit } from './subscription.service.js';
 import { assertNotOptedOut } from './optout.service.js';
+import { countVariables, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
+import { headerImageComponent } from './templateImage.service.js';
 
 export async function listConversations(workspaceId, { page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
@@ -256,6 +258,114 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     data: { lastMessageAt: new Date() },
   });
 
+  return message;
+}
+
+// Sends an approved template on a conversation, which is the only thing
+// WhatsApp permits once the 24-hour window has closed.
+//
+// The app enforced the window and then offered no way through it: every error
+// message told the agent to "send an approved template to reopen the
+// conversation" while no route existed to send one. Closing the window without
+// this is only half the rule.
+export async function sendTemplateMessage(workspaceId, conversationId, userId, { templateId, variables = [] } = {}) {
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    include: { contact: true, waNumber: true },
+  });
+  if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+  if (!conversation.waNumber) {
+    const e = new Error('The WhatsApp number for this conversation was disconnected — connect a number to reply.');
+    e.status = 409; throw e;
+  }
+
+  // Opt-out still applies. A template is not an exemption from someone asking
+  // to be left alone — it is only an exemption from the timing rule.
+  await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
+
+  const template = await prisma.template.findFirst({
+    where: { id: templateId, workspaceId },
+  });
+  if (!template) { const e = new Error('Template not found'); e.status = 404; throw e; }
+  if (template.status !== 'APPROVED') {
+    const e = new Error(
+      `"${template.name}" is ${String(template.status).toLowerCase()} and cannot be sent. `
+      + 'Only templates Meta has approved may be used.',
+    );
+    e.status = 422; e.code = 'TEMPLATE_NOT_SENDABLE'; e.expose = true; throw e;
+  }
+
+  const credit = await consumeMessageCredit(workspaceId, {
+    reason: 'Template message',
+    messageCategory: template.category ?? null,
+  });
+  if (!credit.ok) {
+    const e = new Error('Message quota and wallet balance exhausted — recharge your wallet or upgrade your plan');
+    e.status = 403;
+    throw e;
+  }
+
+  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
+  const components = Array.isArray(template.components) ? template.components : [];
+  const required = components.reduce((max, c) => Math.max(max, countVariables(c?.text)), 0);
+  const supplied = (Array.isArray(variables) ? variables : []).map((v) => String(v ?? ''));
+  if (required > 0 && supplied.filter((v) => v.trim()).length < required) {
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    const e = new Error(
+      `"${template.name}" needs ${required} variable value${required === 1 ? '' : 's'}. Fill them in and try again.`,
+    );
+    e.status = 422; e.code = 'TEMPLATE_VARIABLES_REQUIRED'; e.details = { requiredVariables: required };
+    e.expose = true; throw e;
+  }
+
+  // Assembled exactly as a campaign send is, so an image header or a link
+  // button behaves the same here as it does in a campaign.
+  const resolve = (i) => String(supplied[i] ?? '').trim() || ' ';
+  const payload = { name: template.name, language: { code: template.language } };
+  const header = await headerImageComponent(template, {
+    phoneNumberId: conversation.waNumber.metaPhoneNumberId, accessToken,
+  });
+  const parts = [
+    ...(header ? [header] : []),
+    ...(required > 0 ? buildTextComponents(components, resolve) : []),
+    ...buildButtonComponents(components),
+  ];
+  if (parts.length) payload.components = parts;
+
+  let result;
+  try {
+    result = await sendWhatsAppMessage(
+      conversation.waNumber.metaPhoneNumberId, accessToken,
+      conversation.contact.phoneNumber, payload,
+    );
+  } catch (err) {
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    throw describeSendFailure(err);
+  }
+
+  const message = await prisma.message.create({
+    data: {
+      conversationId,
+      body: `[Template: ${template.name}]`,
+      direction: 'OUTBOUND',
+      type: 'TEMPLATE',
+      metaMessageId: result?.messages?.[0]?.id,
+      status: 'SENT',
+      statusAt: new Date(),
+      senderUserId: userId,
+    },
+    include: { senderUser: { select: { id: true, name: true } } },
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { lastMessageAt: new Date() },
+  });
+
+  // Deliberately does NOT touch lastInboundAt. A template does not reopen the
+  // free-form window — only the customer replying does. Setting it here would
+  // let an agent send one template and then chat freely, which is exactly the
+  // rule WhatsApp is enforcing.
   return message;
 }
 
