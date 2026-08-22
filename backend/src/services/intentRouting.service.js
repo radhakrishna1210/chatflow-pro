@@ -115,7 +115,15 @@ export async function escalateToHuman({ workspaceId, conversationId, contact, re
   // been auto-assigned, and escalation means it is up for grabs again.
   await prisma.conversation.update({
     where: { id: conversationId },
-    data: { status: 'OPEN', assignedToUserId: null, ...(team ? { label: String(team).slice(0, 60) } : {}) },
+    data: {
+      status: 'OPEN',
+      assignedToUserId: null,
+      // Stops the automation on this thread from here on. Without it the next
+      // inbound message ran the whole chain again and the bot talked over the
+      // person who had just been handed the conversation.
+      humanHandoffAt: new Date(),
+      ...(team ? { label: String(team).slice(0, 60) } : {}),
+    },
   }).catch((err) => console.error('[Escalation] Could not flag the conversation:', err.message));
 
   await notifyWorkspace(workspaceId, {

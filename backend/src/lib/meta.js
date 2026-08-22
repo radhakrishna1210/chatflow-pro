@@ -554,3 +554,102 @@ export function describeConnectionError(err, stage) {
   e.expose = true;
   return e;
 }
+
+// ─── Interactive messages (reply buttons and lists) ──────────────────────────
+//
+// Flows could only ever send plain text, so an automation that offered choices
+// had to write them out ("reply 1 for sales, 2 for support") and then parse
+// whatever the customer typed back. Meta's interactive messages give the
+// customer real tappable options, and the reply arrives as a button/list reply
+// which parseInboundMessage already turns into the option's own text — so the
+// existing keyword triggers and `contains` conditions match it unchanged.
+//
+// Meta's published limits, enforced here rather than discovered as an API error:
+export const INTERACTIVE_LIMITS = {
+  bodyChars: 1024,
+  buttonCount: 3,      // reply buttons per message
+  buttonTitleChars: 20,
+  rowCount: 10,        // list rows across all sections
+  rowTitleChars: 24,
+  listButtonChars: 20,
+};
+
+const clip = (value, max) => String(value ?? '').trim().slice(0, max);
+
+// Meta requires each option to carry an id that is unique within the message
+// and comes back on the reply. Authors write only a label, so derive one.
+const optionId = (label, index) => {
+  const slug = String(label ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return `${slug || 'option'}_${index}`.slice(0, 250);
+};
+
+/**
+ * Up to three tappable reply buttons under a line of text.
+ * @param {string[]} buttons option labels
+ */
+export async function sendButtonMessage(phoneNumberId, accessToken, to, { body, buttons, footer }) {
+  const labels = (Array.isArray(buttons) ? buttons : [])
+    .map((b) => clip(typeof b === 'string' ? b : b?.title, INTERACTIVE_LIMITS.buttonTitleChars))
+    .filter(Boolean)
+    .slice(0, INTERACTIVE_LIMITS.buttonCount);
+
+  if (labels.length === 0) throw new Error('An interactive message needs at least one button.');
+  const text = clip(body, INTERACTIVE_LIMITS.bodyChars);
+  if (!text) throw new Error('An interactive message needs body text.');
+
+  const client = metaClient(accessToken);
+  const { data } = await client.post(`/${phoneNumberId}/messages`, {
+    messaging_product: 'whatsapp',
+    to: toRecipient(to),
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text },
+      ...(footer ? { footer: { text: clip(footer, 60) } } : {}),
+      action: {
+        buttons: labels.map((title, i) => ({
+          type: 'reply',
+          reply: { id: optionId(title, i), title },
+        })),
+      },
+    },
+  });
+  return data;
+}
+
+/**
+ * A single-section list, for the four-to-ten options a button message cannot
+ * carry. Meta shows these behind a button rather than inline.
+ */
+export async function sendListMessage(phoneNumberId, accessToken, to, { body, rows, buttonText, header, footer }) {
+  const items = (Array.isArray(rows) ? rows : [])
+    .map((r) => (typeof r === 'string' ? { title: r } : r))
+    .map((r) => ({
+      title: clip(r?.title, INTERACTIVE_LIMITS.rowTitleChars),
+      description: r?.description ? clip(r.description, 72) : undefined,
+    }))
+    .filter((r) => r.title)
+    .slice(0, INTERACTIVE_LIMITS.rowCount);
+
+  if (items.length === 0) throw new Error('A list message needs at least one option.');
+  const text = clip(body, INTERACTIVE_LIMITS.bodyChars);
+  if (!text) throw new Error('A list message needs body text.');
+
+  const client = metaClient(accessToken);
+  const { data } = await client.post(`/${phoneNumberId}/messages`, {
+    messaging_product: 'whatsapp',
+    to: toRecipient(to),
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      ...(header ? { header: { type: 'text', text: clip(header, 60) } } : {}),
+      body: { text },
+      ...(footer ? { footer: { text: clip(footer, 60) } } : {}),
+      action: {
+        button: clip(buttonText, INTERACTIVE_LIMITS.listButtonChars) || 'Choose',
+        sections: [{ title: 'Options', rows: items.map((r, i) => ({ id: optionId(r.title, i), ...r })) }],
+      },
+    },
+  });
+  return data;
+}

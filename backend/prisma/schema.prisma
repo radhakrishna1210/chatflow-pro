@@ -478,6 +478,15 @@ model Conversation {
   // Set by a workflow's "assign to agent" action, or manually from the inbox.
   // SetNull so removing a member detaches their threads instead of blocking.
   assignedToUserId String?
+  // When a person took this conversation over from the automation.
+  //
+  // Handing off used to flag the thread and notify the workspace and then let
+  // the next inbound message run the whole automation chain again — keyword
+  // triggers, intent routing, the AI agent — so the bot talked straight over
+  // the human who had just picked it up. While this is set, automation stays
+  // out of the thread; resolving the conversation, or switching the bot back
+  // on from the inbox, clears it.
+  humanHandoffAt   DateTime?
   lastMessageAt    DateTime            @default(now())
   // When the customer last wrote to us. Meta only allows a free-form (non
   // template) reply within 24 hours of this moment; outside it the send is
@@ -650,6 +659,10 @@ model WorkflowRun {
   nodes          Json
   trace          Json?
   triggerMessage String?
+  // Values collected during the run, available to later steps as {{token}}.
+  // Steps could previously only send fixed text, so every recipient of an
+  // automation got a byte-identical message.
+  variables      Json?
   error          String?
   startedAt      DateTime          @default(now())
   finishedAt     DateTime?

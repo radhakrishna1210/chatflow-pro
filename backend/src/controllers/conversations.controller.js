@@ -66,6 +66,13 @@ export async function suggest(req, res) {
   }
 }
 
+// Hand the thread back to the automation, or keep it away.
+export async function setBot(req, res) {
+  res.json(await conversationsService.setBotEnabled(
+    req.params.workspaceId, req.params.id, req.body?.enabled !== false,
+  ));
+}
+
 // ── Internal notes, assignment and status ──
 const handle = (res, fn, fallback) => fn().then((data) => res.json(data)).catch((err) => {
   if (!err?.status || err.status >= 500) console.error('[Conversations]', err);

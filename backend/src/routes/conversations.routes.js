@@ -17,6 +17,9 @@ router.post('/:id/notes', conversationsController.addNote);
 router.delete('/:id/notes/:noteId', conversationsController.deleteNote);
 router.patch('/:id/assign', conversationsController.assign);
 router.patch('/:id/status', conversationsController.setStatus);
+// Whether the automation may answer this thread. Handing off is easy to
+// trigger and, without this, only resolving the conversation undid it.
+router.patch('/:id/bot', conversationsController.setBot);
 router.post('/:id/messages', conversationsController.sendMessage);
 // Approved templates only, and permitted whether or not the window is open —
 // this is the documented way back into a conversation that has gone quiet.

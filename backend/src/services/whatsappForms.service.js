@@ -243,6 +243,16 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
     });
 
     if (done) {
+      // Answers land on the contact, not only on the submission row.
+      //
+      // A form that asks for an email captured it into WhatsappFormSubmission
+      // and stopped there, so the person's record still showed nothing and no
+      // later automation could use what they had just told us. Anything whose
+      // key matches a built-in column or one of the workspace's custom fields
+      // is written through; the rest stays on the submission, as before.
+      await applyAnswersToContact(workspaceId, contact.id, answers).catch((err) =>
+        console.error('[Forms] Could not apply answers to the contact:', err.message));
+
       await prisma.whatsappForm.update({
         where: { id: open.formId },
         data: { submissions: { increment: 1 } },
@@ -275,4 +285,48 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
   });
   await reply(promptFor(schemaOf(started)[0]));
   return true;
+}
+
+// Writes a completed form's answers onto the contact record.
+//
+// Built-in columns (name, email) are set when they are empty — a form must not
+// silently overwrite a name someone has already curated. Everything else is
+// matched against the workspace's custom field definitions, so a form field
+// called "order_number" fills the custom field of the same name and becomes
+// available to later automations as {{custom.order_number}}.
+async function applyAnswersToContact(workspaceId, contactId, answers) {
+  const values = answers && typeof answers === 'object' ? answers : {};
+  if (Object.keys(values).length === 0) return;
+
+  const [contact, definitions] = await Promise.all([
+    prisma.contact.findUnique({ where: { id: contactId } }),
+    prisma.workspaceCustomField.findMany({ where: { workspaceId } }),
+  ]);
+  if (!contact) return;
+
+  const byKey = new Map(definitions.map((d) => [d.key.toLowerCase(), d]));
+  const data = {};
+  const custom = { ...(contact.customFields && typeof contact.customFields === 'object' ? contact.customFields : {}) };
+  let touchedCustom = false;
+
+  for (const [rawKey, rawValue] of Object.entries(values)) {
+    const key = String(rawKey).toLowerCase();
+    const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
+    if (value === '' || value === null || value === undefined) continue;
+
+    if (key === 'email' && !contact.email) { data.email = String(value).slice(0, 254); continue; }
+    // Only when the stored name is still the placeholder the webhook created
+    // from the phone number, never over a real one.
+    if (key === 'name' && (!contact.name || contact.name === contact.phoneNumber)) {
+      data.name = String(value).slice(0, 120);
+      continue;
+    }
+
+    const definition = byKey.get(key);
+    if (definition) { custom[definition.key] = value; touchedCustom = true; }
+  }
+
+  if (touchedCustom) data.customFields = custom;
+  if (Object.keys(data).length === 0) return;
+  await prisma.contact.update({ where: { id: contactId }, data });
 }

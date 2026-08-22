@@ -62,6 +62,11 @@ export async function getMessages(workspaceId, conversationId) {
 
   return {
     messages,
+    // Whether the automation is currently allowed to answer this thread, so the
+    // composer can show it rather than leaving the agent guessing whether the
+    // bot is about to reply over them.
+    botEnabled: conversation.humanHandoffAt === null,
+    humanHandoffAt: conversation.humanHandoffAt,
     window: {
       open: window.open,
       lastInboundAt: window.lastInboundAt,
@@ -162,7 +167,14 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
 
   await prisma.conversation.update({
     where: { id: conversationId },
-    data: { lastMessageAt: new Date() },
+    data: {
+      lastMessageAt: new Date(),
+      // A person replying is a takeover. Shared inboxes work this way for a
+      // reason: once an agent is in the thread, an automated reply arriving
+      // between their messages reads as the company talking to itself.
+      // Resolving the thread, or the Bot toggle, hands it back.
+      ...(userId ? { humanHandoffAt: new Date() } : {}),
+    },
   });
 
   return message;
@@ -592,5 +604,34 @@ export async function setConversationStatus(workspaceId, conversationId, status)
   }
   const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
-  return prisma.conversation.update({ where: { id: conversationId }, data: { status: next } });
+  return prisma.conversation.update({
+    where: { id: conversationId },
+    data: {
+      status: next,
+      // Resolving ends the human's ownership: a customer who writes again
+      // starts a fresh exchange, and the automation should answer it.
+      ...(next === 'RESOLVED' ? { humanHandoffAt: null } : {}),
+    },
+  });
+}
+
+// Hands a conversation back to the automation, or takes it away from it.
+//
+// Handing off is easy to trigger and hard to undo without this: the bot stays
+// out of a thread until someone resolves it, which is not always what an agent
+// wants after answering one question.
+export async function setBotEnabled(workspaceId, conversationId, enabled) {
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId }, select: { id: true },
+  });
+  if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+
+  const updated = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { humanHandoffAt: enabled ? null : new Date() },
+  });
+  return {
+    botEnabled: updated.humanHandoffAt === null,
+    humanHandoffAt: updated.humanHandoffAt,
+  };
 }

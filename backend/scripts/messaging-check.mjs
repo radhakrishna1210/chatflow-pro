@@ -371,9 +371,14 @@ try {
     check('formatting: the Meta client exposes the send helpers',
       typeof metaLib.sendTextMessage === 'function' && typeof metaLib.sendMediaMessage === 'function');
     const source = await import('node:fs').then((fs) => fs.promises.readFile('src/lib/meta.js', 'utf8'));
+    // Counted rather than fixed at a number, so adding a send path (interactive
+    // buttons and lists were added after this was written) does not pass by
+    // simply moving the goalposts — every `to:` in the file must be normalised.
     const normalisedSends = (source.match(/to: toRecipient\(to\)/g) || []).length;
+    const allRecipients = (source.match(/^\s*to:/gm) || []).length;
     check('formatting: every send normalises the recipient at the client boundary',
-      normalisedSends === 3, `${normalisedSends} of 3 send functions`);
+      normalisedSends >= 3 && normalisedSends === allRecipients,
+      `${normalisedSends} normalised of ${allRecipients} send functions`);
   }
 
   // ── Disconnected number ────────────────────────────────────────────────────

@@ -433,6 +433,19 @@ async function handleInboundMessage(value, msg) {
   //    it, and a keyword trigger would talk over a live chat. Returns false
   //    unless a CTA was tapped or a session is live, so nothing changes for
   //    workspaces that don't use the feature.
+  // A person is holding this conversation. The message is stored, the inbox
+  // shows it and the webhook fires, but no automation runs — replying over an
+  // agent mid-conversation is worse than not replying at all, and it is exactly
+  // what handing off is meant to stop.
+  //
+  // The delayed-response check is skipped too: its whole purpose is to chase a
+  // thread nobody has answered, and someone has.
+  if (conversation.humanHandoffAt) {
+    console.log(`[Inbound] Conversation ${conversation.id} is with a human since `
+      + `${conversation.humanHandoffAt.toISOString()} — automation suppressed.`);
+    return;
+  }
+
   const consumedByCampaignAi = await handleCampaignAiInbound({
     workspaceId,
     conversation,

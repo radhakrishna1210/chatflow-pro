@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
-import { sendTextMessage } from '../lib/meta.js';
+import { sendTextMessage, sendButtonMessage, sendListMessage, INTERACTIVE_LIMITS } from '../lib/meta.js';
 import { isOptedOut } from './optout.service.js';
 import { getWindowState, WINDOW_MS } from './messagingWindow.js';
 
@@ -26,9 +26,20 @@ export async function markNumberUnreachable(waNumberId, metaError) {
 // so it shows up in the inbox. This used to be inlined in webhook.service.js;
 // pulling it out is what lets the workflow worker reply from outside the
 // webhook request.
-export async function sendAutomatedReply({ conversationId, waNumberId, toPhone, body }) {
+/**
+ * @param {string[]} [options] tappable choices to offer with the text. One to
+ *   three are sent as reply buttons; four to ten as a list. More than ten is
+ *   more than WhatsApp will show, so the extras are dropped rather than
+ *   silently turning the whole send into a Meta error.
+ */
+export async function sendAutomatedReply({ conversationId, waNumberId, toPhone, body, options }) {
   const text = String(body || '').trim();
   if (!text) return null;
+
+  const choices = (Array.isArray(options) ? options : [])
+    .map((o) => String(typeof o === 'string' ? o : o?.title ?? '').trim())
+    .filter(Boolean)
+    .slice(0, INTERACTIVE_LIMITS.rowCount);
 
   const waNumber = await prisma.waNumber.findUnique({ where: { id: waNumberId } });
   if (!waNumber) {
@@ -63,7 +74,15 @@ export async function sendAutomatedReply({ conversationId, waNumberId, toPhone, 
   let result;
   try {
     const accessToken = decrypt(waNumber.encryptedAccessToken);
-    result = await sendTextMessage(waNumber.metaPhoneNumberId, accessToken, toPhone, text);
+    if (choices.length === 0) {
+      result = await sendTextMessage(waNumber.metaPhoneNumberId, accessToken, toPhone, text);
+    } else if (choices.length <= INTERACTIVE_LIMITS.buttonCount) {
+      result = await sendButtonMessage(waNumber.metaPhoneNumberId, accessToken, toPhone,
+        { body: text, buttons: choices });
+    } else {
+      result = await sendListMessage(waNumber.metaPhoneNumberId, accessToken, toPhone,
+        { body: text, rows: choices });
+    }
   } catch (err) {
     const meta = err?.response?.data?.error;
     console.error('[Outbound] Meta send failed:', meta || err.message);
@@ -77,10 +96,17 @@ export async function sendAutomatedReply({ conversationId, waNumberId, toPhone, 
   }
   if (!result) return null;
 
+  // The inbox renders message.body, so the options are recorded with it —
+  // otherwise the agent reading the thread sees the question and no sign of
+  // what the customer was actually offered.
+  const stored = choices.length === 0
+    ? text
+    : [text, '', ...choices.map((c) => `• ${c}`)].join('\n');
+
   const message = await prisma.message.create({
     data: {
       conversationId,
-      body: text,
+      body: stored,
       direction: 'OUTBOUND',
       type: 'TEXT',
       metaMessageId: result?.messages?.[0]?.id,
