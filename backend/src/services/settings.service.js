@@ -157,7 +157,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(number)} — Spandan</title>
+<title>${escapeHtml(number)} — ChatFlow Pro</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -192,7 +192,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
   <div class="sheet">
     <div class="head">
       <div>
-        <p class="brand">spandan</p>
+        <p class="brand">chatflow pro</p>
         <p class="muted">WhatsApp Business Platform</p>
       </div>
       <div class="num">
@@ -223,7 +223,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
       </thead>
       <tbody>
         <tr>
-          <td>${escapeHtml(invoice.description || 'Spandan services')}</td>
+          <td>${escapeHtml(invoice.description || 'ChatFlow Pro services')}</td>
           <td class="right">${escapeHtml(symbol)}${escapeHtml(amount)}</td>
         </tr>
       </tbody>
@@ -233,7 +233,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
     </table>
 
     <div class="foot">
-      <p>This invoice was generated automatically by Spandan on ${escapeHtml(new Date().toLocaleString('en-IN'))}.</p>
+      <p>This invoice was generated automatically by ChatFlow Pro on ${escapeHtml(new Date().toLocaleString('en-IN'))}.</p>
       <p>To save it as a PDF, open this file in your browser and choose Print → Save as PDF.</p>
     </div>
   </div>
@@ -246,16 +246,40 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
 // Sends a small sample payload to the workspace's configured webhook URL so
 // the user can confirm their endpoint is reachable before relying on it.
 export async function testWebhook(workspaceId) {
-  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { webhookUrl: true } });
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { webhookUrl: true, webhookVerifyToken: true },
+  });
   if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
   if (!ws.webhookUrl) { const e = new Error('No webhook URL configured — save one first'); e.status = 400; throw e; }
 
+  // Signed and shaped exactly like a real delivery. It used to send a bare
+  // unsigned {event:'test'} body, so a receiver that verified signatures — the
+  // thing the test is meant to prove works — rejected the test and accepted
+  // production traffic, or vice versa.
+  const { signPayload } = await import('./outgoingWebhook.service.js');
+  const { randomUUID } = await import('crypto');
+  const deliveryId = randomUUID();
+  const body = JSON.stringify({
+    id: deliveryId,
+    event: 'test',
+    workspaceId,
+    sentAt: new Date().toISOString(),
+    data: { message: 'This is a test delivery from ChatFlow Pro.' },
+  });
+
   try {
-    const res = await axios.post(ws.webhookUrl, {
-      event: 'test',
-      workspaceId,
-      timestamp: new Date().toISOString(),
-    }, { timeout: 8000, validateStatus: () => true });
+    const res = await axios.post(ws.webhookUrl, body, {
+      timeout: 8000,
+      validateStatus: () => true,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'ChatFlowPro-Webhook/1',
+        'X-ChatFlow-Event': 'test',
+        'X-ChatFlow-Delivery': deliveryId,
+        'X-ChatFlow-Signature-256': signPayload(body, ws.webhookVerifyToken),
+      },
+    });
 
     if (res.status >= 200 && res.status < 300) {
       return { ok: true, status: res.status };

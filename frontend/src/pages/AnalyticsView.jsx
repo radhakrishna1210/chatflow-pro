@@ -52,12 +52,12 @@ export default function AnalyticsView() {
     }
   }, []);
 
-  const loadData = () => {
+  const loadData = (days = range) => {
     Promise.all([
-      wFetch('/analytics/overview').then(r=>r.ok&&r.json()).catch(()=>null),
-      wFetch('/analytics/delivery').then(r=>r.ok&&r.json()).catch(()=>null),
-      wFetch('/analytics/campaigns').then(r=>r.ok&&r.json()).catch(()=>null),
-      wFetch('/analytics/agents').then(r=>r.ok&&r.json()).catch(()=>null),
+      wFetch(`/analytics/overview?days=${days}`).then(r=>r.ok&&r.json()).catch(()=>null),
+      wFetch(`/analytics/delivery?days=${days}`).then(r=>r.ok&&r.json()).catch(()=>null),
+      wFetch(`/analytics/campaigns?days=${days}`).then(r=>r.ok&&r.json()).catch(()=>null),
+      wFetch(`/analytics/agents?days=${days}`).then(r=>r.ok&&r.json()).catch(()=>null),
     ]).then(([ov, del, camp, ag]) => {
       if (ov)  setKpi(ov);
       if (Array.isArray(del))  setDelivery(del);
@@ -68,16 +68,14 @@ export default function AnalyticsView() {
   };
 
   useEffect(() => {
-    loadData();
-    
     const onDataUpdated = (e) => {
       if (e.detail?.campaigns || e.detail?.templates) {
-        loadData();
+        loadData(range);
       }
     };
     window.addEventListener('app:data-updated', onDataUpdated);
     return () => window.removeEventListener('app:data-updated', onDataUpdated);
-  }, []);
+  }, [range]);
 
   const currentAgent = currentUser ? agents.find(a => a.agentId === currentUser.id) : null;
   const maxBar = Math.max(1, ...delivery.map(d => Number(d.sent) || 0));
@@ -97,8 +95,8 @@ export default function AnalyticsView() {
       ['Overview', 'Opt-out Rate (%)', kpi?.optOutRate ?? 0],
       ['Overview', 'Total Contacts', kpi?.totalContacts ?? 0],
       [],
-      ['7-Day Delivery', 'Day', 'Sent', 'Delivered', 'Delivery Rate (%)'],
-      ...delivery.map(d => ['7-Day Delivery', d.date, d.sent, d.delivered, d.rate]),
+      [`${range}-Day Delivery`, 'Day', 'Sent', 'Delivered', 'Delivery Rate (%)'],
+      ...delivery.map(d => [`${range}-Day Delivery`, d.date, d.sent, d.delivered, d.rate]),
       [],
       ['Campaign Performance', 'Campaign', 'Sent', 'Delivered', 'Read', 'Failed', 'Recipients'],
       ...campaigns.map(c => ['Campaign Performance', c.name, c.sent, c.delivered, c.read, c.failed, c.totalContacts]),
@@ -123,25 +121,25 @@ export default function AnalyticsView() {
   // build a print-styled document and let the browser's Print → Save as PDF
   // produce the file, rather than pulling in a PDF library.
   useEffect(() => {
-    let alive = true;
+    loadData(range);
+
+    let perfAlive = true;
     wFetch(`/analytics/performance?days=${range}`)
       .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (alive && d) setPerf(d); })
+      .then(d => { if (perfAlive && d) setPerf(d); })
       .catch(() => {});
-    return () => { alive = false; };
-  }, [range]);
 
-  // Topic clusters are computed once for the whole product and shown on both
-  // analytics pages, rather than each page growing its own idea of what
-  // customers ask about.
-  useEffect(() => {
-    let alive = true;
-    wFetch('/analytics/insights?days=30')
+    let insightsAlive = true;
+    wFetch(`/analytics/insights?days=${range}`)
       .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (alive && d) setTopics(d.topics || []); })
+      .then(d => { if (insightsAlive && d) setTopics(d.topics || []); })
       .catch(() => {});
-    return () => { alive = false; };
-  }, []);
+
+    return () => {
+      perfAlive = false;
+      insightsAlive = false;
+    };
+  }, [range]);
 
   const downloadPdf = () => {
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => (
@@ -150,7 +148,7 @@ export default function AnalyticsView() {
     const win = window.open('', '_blank');
     if (!win) return; // popup blocked — nothing we can do from here
     win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<title>Spandan — Analytics ${esc(today())}</title>
+<title>ChatFlow Pro — Analytics ${esc(today())}</title>
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color:#111827; margin:0; padding:32px; }
   h1 { font-size:20px; margin:0 0 4px; letter-spacing:-.02em; }
@@ -167,7 +165,7 @@ export default function AnalyticsView() {
   .foot { margin-top:28px; font-size:12px; color:#6b7280; }
   @media print { body { padding:0; } }
 </style></head><body>
-  <h1>Spandan — Analytics</h1>
+  <h1>ChatFlow Pro — Analytics</h1>
   <p class="muted">Generated ${esc(new Date().toLocaleString('en-IN'))}</p>
   <div class="kpis">
     <div class="kpi"><span>Messages Sent</span><strong>${esc((kpi?.messagesSent ?? 0).toLocaleString())}</strong></div>
@@ -176,9 +174,9 @@ export default function AnalyticsView() {
     <div class="kpi"><span>Total Contacts</span><strong>${esc((kpi?.totalContacts ?? 0).toLocaleString())}</strong></div>
   </div>
 
-  <h2>7-Day Message Delivery</h2>
+  <h2>${esc(range)}-Day Message Delivery</h2>
   <table><thead><tr><th>Day</th><th class="n">Sent</th><th class="n">Delivered</th><th class="n">Rate</th></tr></thead><tbody>
-    ${delivery.map(d => `<tr><td>${esc(d.date)}</td><td class="n">${esc(d.sent)}</td><td class="n">${esc(d.delivered)}</td><td class="n">${esc(d.rate)}%</td></tr>`).join('') || '<tr><td colspan="4">No sends in the last 7 days.</td></tr>'}
+    ${delivery.map(d => `<tr><td>${esc(d.date)}</td><td class="n">${esc(d.sent)}</td><td class="n">${esc(d.delivered)}</td><td class="n">${esc(d.rate)}%</td></tr>`).join('') || `<tr><td colspan="4">No sends in the last ${esc(range)} days.</td></tr>`}
   </tbody></table>
 
   <h2>Campaign Performance</h2>
@@ -432,7 +430,7 @@ export default function AnalyticsView() {
         <div style={{ ...card, padding:'22px 24px' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:22, flexWrap: 'wrap', rowGap: 10 }}>
             <div>
-              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>7-Day Message Delivery Rate</h3>
+              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>{range}-Day Message Delivery Rate</h3>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Daily breakdown of delivery performance</p>
             </div>
             <Btn variant="outline" size="sm" onClick={downloadCsv}>
@@ -442,7 +440,7 @@ export default function AnalyticsView() {
           </div>
 
           {delivery.every(d => d.sent === 0) && (
-            <p style={{ textAlign:'center', padding:'30px 0', color:'var(--t3)', fontSize:12 }}>No campaign sends in the last 7 days yet.</p>
+            <p style={{ textAlign:'center', padding:'30px 0', color:'var(--t3)', fontSize:12 }}>No campaign sends in the last {range} days yet.</p>
           )}
           {/* bars */}
           <div style={{ display:'flex', gap:8, alignItems:'flex-end', height:BAR_H+48 }}>

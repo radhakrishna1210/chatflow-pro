@@ -6,6 +6,53 @@ import { runFallbackForRecipient } from './fallback.service.js';
 import { notifyWorkspace, notifyWorkspaceGrouped } from './notification.service.js';
 import { markRecipientNotCharged } from './campaignBilling.service.js';
 
+// Recomputes a campaign's headline counters from its recipients.
+//
+// sent/delivered/read/failed/skipped are denormalised columns incremented from
+// four different files — the worker, the retry path, the status webhook and the
+// failure handler — with nothing reconciling them. Any increment lost to a
+// crash, or applied twice by a redelivery, left the campaign list and the
+// Analytics page quoting figures that disagreed with the recipients themselves.
+//
+// The campaign detail view already recomputed its own report from recipient
+// rows, which is why the two never matched. This makes the stored columns agree
+// with that same source of truth, once, when the campaign finishes.
+async function reconcileCampaignCounters(campaignId) {
+  const groups = await prisma.campaignRecipient.groupBy({
+    by: ['status'],
+    where: { campaignId },
+    _count: { _all: true },
+  });
+  const n = Object.fromEntries(groups.map((g) => [g.status, g._count._all]));
+
+  // DELIVERED and READ are states a send reached *through* SENT, so each counts
+  // toward every stage below it — the same rollup the detail view uses.
+  const read = n.READ ?? 0;
+  const delivered = (n.DELIVERED ?? 0) + read;
+  const sent = (n.SENT ?? 0) + delivered;
+
+  const totals = {
+    sent,
+    delivered,
+    read,
+    failed: n.FAILED ?? 0,
+    skipped: n.SKIPPED ?? 0,
+  };
+
+  const before = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    select: { sent: true, delivered: true, read: true, failed: true, skipped: true },
+  });
+  const drifted = before && Object.entries(totals).some(([k, v]) => before[k] !== v);
+  if (drifted) {
+    console.warn(`[Campaign] Counters for ${campaignId} drifted from the recipients — correcting`,
+      { stored: before, actual: totals });
+  }
+
+  await prisma.campaign.update({ where: { id: campaignId }, data: totals });
+  return totals;
+}
+
 export async function checkAndCompleteCampaign(campaignId) {
   const pendingCount = await prisma.campaignRecipient.count({
     where: {
@@ -21,6 +68,10 @@ export async function checkAndCompleteCampaign(campaignId) {
     });
     if (done.count > 0) {
       console.log(`[CampaignWorker] All recipients finished. Campaign ${campaignId} completed.`);
+      // Before anything reads the totals — the completion email, the
+      // notification and the outgoing webhook all quote them.
+      await reconcileCampaignCounters(campaignId).catch((e) =>
+        console.error(`[Campaign] Could not reconcile counters for ${campaignId}:`, e.message));
       const completed = await prisma.campaign.findUnique({ where: { id: campaignId } });
       if (completed) {
         // Anything paid for but never sent (a contact who replied STOP after
@@ -31,6 +82,20 @@ export async function checkAndCompleteCampaign(campaignId) {
           console.error(`[Campaign] Settlement failed for ${campaignId}:`, e.message));
 
         queueCampaignCompletedEmail(completed).catch(() => {});
+        // The customer's own system is told too — the settings screen has
+        // offered a "campaign.completed" subscription all along while nothing
+        // ever dispatched one.
+        const { emitWebhook } = await import('./outgoingWebhook.service.js');
+        emitWebhook(completed.workspaceId, 'campaign.completed', {
+          campaignId: completed.id,
+          name: completed.name,
+          sent: completed.sent,
+          delivered: completed.delivered,
+          read: completed.read,
+          failed: completed.failed,
+          skipped: completed.skipped,
+          completedAt: completed.completedAt,
+        });
         notifyWorkspace(completed.workspaceId, {
           type: 'CAMPAIGN_COMPLETED',
           title: `Campaign "${completed.name}" finished`,

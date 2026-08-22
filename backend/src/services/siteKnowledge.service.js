@@ -180,7 +180,7 @@ function siteDocuments() {
   docs.push({
     id: 'site-reactor',
     source: 'site',
-    title: 'How Spandan works, end to end',
+    title: 'How ChatFlow Pro works, end to end',
     topic: 'How it works',
     body: `${site.REACTOR.sub}
 

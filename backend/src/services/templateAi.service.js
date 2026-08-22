@@ -259,7 +259,7 @@ export async function generateUtilityVariant({ name, category, language, compone
   const ai = getAi();
   if (!ai) {
     const e = new Error('A utility rewrite needs an AI key on the server. Edit the template by hand to remove promotional wording.');
-    e.status = 503; throw e;
+    e.status = 503; e.expose = true; throw e;
   }
 
   let parsed;

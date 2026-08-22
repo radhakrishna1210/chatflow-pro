@@ -3,9 +3,9 @@ import passport from 'passport';
 import { randomBytes } from 'crypto';
 import * as authController from '../controllers/auth.controller.js';
 import * as instagramController from '../controllers/instagram.controller.js';
-import { authenticate } from '../middleware/authenticate.js';
+import { authenticate, authenticateOptional } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
-import { rateLimit } from '../middleware/rateLimit.js';
+import { rateLimit, emailSubject } from '../middleware/rateLimit.js';
 import { validate, authSchemas } from '../validators/index.js';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
@@ -14,21 +14,54 @@ import { signState, verifyState } from '../lib/oauthState.js';
 const router = Router();
 
 // Brute-force protection on credential + token endpoints.
-const loginLimiter   = rateLimit({ windowMs: 15 * 60_000, max: 20,  keyPrefix: 'login' });
-const refreshLimiter = rateLimit({ windowMs: 60_000,      max: 60,  keyPrefix: 'refresh' });
+//
+// `countFailuresOnly` is what makes the allowance a guessing budget rather than
+// a usage budget: signing in correctly costs nothing, so an office sharing one
+// public IP is never locked out by its own successful logins.
+//
+// The `subject` bucket is the account being targeted. Per-IP alone does nothing
+// against a spray from many addresses — that bucket is what actually protects a
+// single account, and it is deliberately tighter than the per-IP one.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 20,
+  keyPrefix: 'login',
+  countFailuresOnly: true,
+  subject: emailSubject,
+  subjectMax: 10,
+});
+// Requesting an emailed code is expensive (it sends mail) and is not a
+// credential guess, so this one counts every call.
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  keyPrefix: 'otp',
+  subject: emailSubject,
+  subjectMax: 5,
+});
+const refreshLimiter = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'refresh' });
 
-router.post('/register', loginLimiter, validate({ body: authSchemas.register }), authController.register);
+// POST /register is deliberately gone.
+//
+// It created a fully usable account straight from the request body with no
+// email verification at all, which made the whole OTP flow optional: anyone who
+// skipped the UI and posted here got an account on an address they had never
+// proved they owned. Account creation is /register/start + /register/verify, or
+// Google OAuth (where Google has already verified the address).
 // OTP-verified email signup (account is created only after the code is verified)
-router.post('/register/start',  loginLimiter, validate({ body: authSchemas.signupStart }), authController.startSignup);
+router.post('/register/start',  otpLimiter, validate({ body: authSchemas.signupStart }), authController.startSignup);
 router.post('/register/verify', loginLimiter, validate({ body: authSchemas.signupVerify }), authController.verifySignup);
-router.post('/register/resend', loginLimiter, validate({ body: authSchemas.signupResend }), authController.resendSignupOtp);
+router.post('/register/resend', otpLimiter, validate({ body: authSchemas.signupResend }), authController.resendSignupOtp);
 // OTP-verified password reset (same shape as signup: a code is emailed, the
 // new password only takes effect once it's verified).
-router.post('/forgot-password', loginLimiter, validate({ body: authSchemas.forgotPassword }), authController.forgotPassword);
+router.post('/forgot-password', otpLimiter, validate({ body: authSchemas.forgotPassword }), authController.forgotPassword);
 router.post('/reset-password',  loginLimiter, validate({ body: authSchemas.resetPassword }),  authController.resetPassword);
 router.post('/login',    loginLimiter, validate({ body: authSchemas.login }),    authController.login);
 router.post('/refresh',  refreshLimiter, validate({ body: authSchemas.refresh }), authController.refresh);
-router.post('/logout',   authController.logout);
+// `authenticateOptional` so a sign-out still works with an already-expired
+// token (the user just wants the session gone), while a live token is
+// identified so its jti can be revoked.
+router.post('/logout',   authenticateOptional, authController.logout);
 // Exchanges the one-time code issued by the Google callback for real tokens
 // (keeps access/refresh tokens out of browser history and server logs).
 router.post('/exchange', refreshLimiter, authController.exchangeOneTimeCode);
@@ -80,6 +113,20 @@ router.get('/meta/start', authenticate, async (req, res) => {
   });
   if (!member || member.role !== 'ADMIN') {
     return res.status(403).json({ error: 'Only workspace admins can connect WhatsApp numbers' });
+  }
+
+  // Meta refuses a non-HTTPS redirect_uri outright, and only accepts one that is
+  // registered on the app. Handing the browser a URL we know will be rejected is
+  // how "Connect to Meta" ended up opening an error page — say so here instead.
+  if (!/^https:\/\//i.test(env.META_REDIRECT_URI || '')) {
+    return res.status(503).json({
+      error: 'WhatsApp sign-in is not configured on this server: Meta requires an HTTPS redirect URI and '
+        + `this one is "${env.META_REDIRECT_URI}". Set API_PUBLIC_URL to the public HTTPS origin of this `
+        + 'service and register that exact callback under Meta App Dashboard → Facebook Login → '
+        + 'Valid OAuth Redirect URIs.',
+      code: 'META_REDIRECT_URI_INVALID',
+      redirectUri: env.META_REDIRECT_URI,
+    });
   }
 
   const state = signState({ workspaceId, userId: req.user.id, n: randomBytes(8).toString('hex'), ts: Date.now() });

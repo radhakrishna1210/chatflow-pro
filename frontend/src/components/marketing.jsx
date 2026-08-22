@@ -129,7 +129,7 @@ export const Aurora = () => (
   </>
 );
 
-export const SpandanMark = ({ size = 32, radius = 9, glow = true }) => (
+export const BrandMark = ({ size = 32, radius = 9, glow = true }) => (
   <div style={{ width: size, height: size, borderRadius: radius, background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: glow ? '0 0 18px rgba(53,232,242,0.35)' : 'none' }}>
     <svg width={size * 0.44} height={size * 0.44} viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#08090c" />
@@ -167,8 +167,8 @@ export const MarketingNav = ({ onNav, links = [['Product', '#story'], ['Live dem
     }}>
       <div style={{ maxWidth: 1240, width: '100%', margin: '0 auto', padding: '0 clamp(18px,4vw,32px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <button onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
-          <SpandanMark />
-          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>spandan</span>
+          <BrandMark />
+          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>ChatFlow Pro</span>
         </button>
 
         <div className="nav-links" style={{ display: 'flex', gap: 30 }}>
@@ -203,8 +203,8 @@ export const MarketingFooter = ({ onNav }) => (
       <div className="footer-grid" style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr 1fr 1fr', gap: 40, marginBottom: 44 }}>
         <div>
           <button onClick={() => onNav('landing')} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, cursor: 'pointer', marginBottom: 14, background: 'none', border: 'none', padding: 0 }}>
-            <SpandanMark size={28} radius={8} glow={false} />
-            <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>spandan</span>
+            <BrandMark size={28} radius={8} glow={false} />
+            <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>ChatFlow Pro</span>
           </button>
           <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.65, maxWidth: 240 }}>
             {FOOTER_BLURB}

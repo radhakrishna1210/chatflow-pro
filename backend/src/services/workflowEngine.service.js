@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { keywordMatches } from './automation.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
+import { evaluateCondition, skipCount, renderTemplate, tidy, CONDITION_SUBTYPES } from './workflowConditions.js';
 
 // The Workflows tab used to be a drawing surface: workflows were saved,
 // toggled active, and never executed by anything. This is the interpreter that
@@ -34,7 +35,12 @@ export function parseDelayMs(raw) {
 }
 
 const triggerOf = (nodes) => (Array.isArray(nodes) ? nodes : []).find((n) => n?.type === 'trigger');
-const actionsOf = (nodes) => (Array.isArray(nodes) ? nodes : []).filter((n) => n?.type === 'action').slice(0, MAX_ACTIONS);
+// Conditions live in the same ordered list as actions: a skip count is measured
+// in steps as the builder shows them, so filtering conditions out here would
+// make "skip the next 2" point at the wrong places.
+const actionsOf = (nodes) => (Array.isArray(nodes) ? nodes : [])
+  .filter((n) => n?.type === 'action' || n?.type === 'condition')
+  .slice(0, MAX_ACTIONS);
 
 // Decides whether a workflow's trigger fires for this inbound event. Mirrors
 // the trigger subtypes the builder offers.
@@ -70,6 +76,33 @@ export async function findMatchingWorkflows(workspaceId, ctx) {
 
 // ── Action executors ───────────────────────────────────────────────────────
 
+
+// What a condition is allowed to ask about. Loaded once per advanceRun rather
+// than per step, since a workflow can carry several conditions.
+async function conditionContext(run) {
+  const conversation = run.conversationId
+    ? await prisma.conversation.findUnique({
+        where: { id: run.conversationId },
+        include: { contact: true },
+      })
+    : null;
+  return {
+    messageBody: run.triggerMessage ?? '',
+    contact: conversation?.contact ?? null,
+    // A contact created within the last few minutes of this run starting is the
+    // closest the engine can get to "new" once the run may have been resumed
+    // from a delay hours later.
+    isNewContact: Boolean(conversation?.contact
+      && conversation.contact.createdAt >= new Date(run.startedAt.getTime() - 60_000)),
+  };
+}
+
+const describeCondition = (node) => {
+  const spec = CONDITION_SUBTYPES.find((c) => c.id === node.subtype);
+  const label = spec?.label ?? node.subtype;
+  return spec?.needsValue ? `${label} "${node.value ?? ''}"` : label;
+};
+
 async function actionMessage(run, node) {
   if (!run.conversationId) return { result: 'skipped', detail: 'No conversation to reply to' };
 
@@ -79,15 +112,70 @@ async function actionMessage(run, node) {
   });
   if (!conversation?.waNumberId) return { result: 'skipped', detail: 'Conversation has no connected number' };
 
+  // `{{name}}`, `{{custom.order_number}}` and anything the run has collected.
+  // Without this every automated message was identical for every recipient.
+  const body = tidy(renderTemplate(node.value, {
+    contact: conversation.contact,
+    variables: run.variables && typeof run.variables === 'object' ? run.variables : {},
+    messageBody: run.triggerMessage ?? '',
+  }));
+  if (!body) return { result: 'skipped', detail: 'Message was empty after filling in variables' };
+
   const sent = await sendAutomatedReply({
     conversationId: conversation.id,
     waNumberId: conversation.waNumberId,
     toPhone: conversation.contact.phoneNumber,
-    body: node.value,
+    body,
   });
 
   return sent
     ? { result: 'sent', detail: `Sent: "${node.value}"` }
+    : { result: 'failed', detail: 'Meta rejected the send' };
+}
+
+// Offer the customer tappable choices instead of asking them to type.
+//
+// Authored in the linear builder as "Question | Option A | Option B", the same
+// single-field convention the conditions use, or as an explicit `options` array
+// for anything built through the API. The reply arrives back as the option's own
+// text, so the keyword triggers and `contains` conditions match it unchanged.
+async function actionButtons(run, node) {
+  if (!run.conversationId) return { result: 'skipped', detail: 'No conversation to reply to' };
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: run.conversationId },
+    include: { contact: true },
+  });
+  if (!conversation?.waNumberId) return { result: 'skipped', detail: 'Conversation has no connected number' };
+
+  const context = {
+    contact: conversation.contact,
+    variables: run.variables && typeof run.variables === 'object' ? run.variables : {},
+    messageBody: run.triggerMessage ?? '',
+  };
+
+  const explicit = Array.isArray(node.options) ? node.options : null;
+  const parts = String(node.value ?? '').split('|').map((p) => p.trim()).filter(Boolean);
+  const body = tidy(renderTemplate(parts[0] ?? '', context));
+  const options = (explicit ?? parts.slice(1))
+    .map((o) => tidy(renderTemplate(String(typeof o === 'string' ? o : o?.title ?? ''), context)))
+    .filter(Boolean);
+
+  if (!body) return { result: 'skipped', detail: 'No question to ask' };
+  if (options.length === 0) {
+    return { result: 'skipped', detail: 'No options configured — write them as "Question | Option A | Option B"' };
+  }
+
+  const sent = await sendAutomatedReply({
+    conversationId: conversation.id,
+    waNumberId: conversation.waNumberId,
+    toPhone: conversation.contact.phoneNumber,
+    body,
+    options,
+  });
+
+  return sent
+    ? { result: 'sent', detail: `Asked "${body}" with ${options.length} option(s)` }
     : { result: 'failed', detail: 'Meta rejected the send' };
 }
 
@@ -125,7 +213,13 @@ async function actionAgent(run, node) {
 
   await prisma.conversation.update({
     where: { id: run.conversationId },
-    data: { assignedToUserId: assignee.userId, status: 'OPEN' },
+    data: {
+      assignedToUserId: assignee.userId,
+      status: 'OPEN',
+      // Assigning to a person is a handoff. Without this the automation kept
+      // answering the thread it had just put in someone's queue.
+      humanHandoffAt: new Date(),
+    },
   });
 
   const exact = matched ? '' : ` (no member matched "${node.value}", used ${assignee.user.name})`;
@@ -186,11 +280,36 @@ export async function advanceRun(runId) {
       continue;
     }
 
+    // A condition asks something about the conversation and, when the answer is
+    // no, skips the steps it guards. Expressed as a skip count rather than a
+    // nested branch because the runtime is a flat array with an integer cursor
+    // that is persisted across delays and restarts — nesting would need a stack
+    // to serialise and resume, while a skip survives that for free.
+    // Keyed on `type`, not `subtype`: a condition step is
+    // { type: 'condition', subtype: 'contains' }, so matching on subtype here
+    // never fired — every condition fell through to the action dispatch, was
+    // recorded as an unknown action, and guarded nothing.
+    if (node.type === 'condition') {
+      const context = await conditionContext(run);
+      const held = evaluateCondition(node, context);
+      const skip = skipCount(node);
+      trace.push({
+        step: i,
+        subtype: 'condition',
+        detail: `${describeCondition(node)} → ${held ? 'yes' : `no, skipping ${skip} step(s)`}`,
+        result: held ? 'ok' : 'skipped',
+        at: new Date().toISOString(),
+      });
+      if (!held) i += skip;
+      continue;
+    }
+
     let outcome;
     try {
       if (node.subtype === 'message') outcome = await actionMessage(run, node);
       else if (node.subtype === 'tag') outcome = await actionTag(run, node);
       else if (node.subtype === 'agent') outcome = await actionAgent(run, node);
+      else if (node.subtype === 'buttons') outcome = await actionButtons(run, node);
       else outcome = { result: 'skipped', detail: `Unknown action "${node.subtype}"` };
     } catch (err) {
       console.error(`[WorkflowEngine] step ${i} of run ${run.id} failed:`, err);
@@ -235,11 +354,16 @@ export async function runWorkflowsForInbound(workspaceId, ctx) {
   return runs;
 }
 
+// Steps that put a message in front of the customer. A 'buttons' step is a
+// message too, so a run that ends on one has replied and the inbound handler
+// must not add a welcome or AI answer on top of it.
+const REPLY_SUBTYPES = new Set(['message', 'buttons']);
+
 // True if the run actually sent something — lets the inbound handler decide
 // whether a further auto-reply would be a duplicate.
 export function runSentMessage(run) {
   const trace = Array.isArray(run?.trace) ? run.trace : [];
-  return trace.some((t) => t.subtype === 'message' && t.result === 'sent');
+  return trace.some((t) => REPLY_SUBTYPES.has(t.subtype) && t.result === 'sent');
 }
 
 // A workflow that is still WAITING on a delay before its first message will
@@ -249,7 +373,7 @@ export function runWillSendMessage(run) {
   if (!run) return false;
   if (runSentMessage(run)) return true;
   if (run.status !== 'WAITING') return false;
-  return actionsOf(run.nodes).slice(run.cursor).some((n) => n.subtype === 'message');
+  return actionsOf(run.nodes).slice(run.cursor).some((n) => REPLY_SUBTYPES.has(n.subtype));
 }
 
 export async function listRuns(workspaceId, { workflowId, limit = 20 } = {}) {
@@ -258,4 +382,21 @@ export async function listRuns(workspaceId, { workflowId, limit = 20 } = {}) {
     orderBy: { startedAt: 'desc' },
     take: Math.min(limit, 100),
   });
+}
+
+// Starts a named workflow directly, rather than by matching its trigger.
+//
+// Used by intent routing: a rule whose action is "run this workflow" names the
+// workflow by id, so the trigger-matching path in findMatchingWorkflows() does
+// not apply. Returns null when the workflow is missing or inactive, so the
+// caller can fall through instead of silently doing nothing.
+export async function startRunForWorkflowId(workspaceId, workflowId, { conversationId, contactId, triggerMessage }) {
+  const workflow = await prisma.workflow.findFirst({
+    where: { id: workflowId, workspaceId, isActive: true },
+  });
+  if (!workflow) {
+    console.warn(`[WorkflowEngine] Workflow ${workflowId} not found or inactive — nothing started.`);
+    return null;
+  }
+  return startRun(workflow, { workspaceId, conversationId, contactId, triggerMessage });
 }

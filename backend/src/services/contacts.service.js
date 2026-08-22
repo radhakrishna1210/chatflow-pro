@@ -157,7 +157,7 @@ export async function getContact(workspaceId, id) {
   };
 }
 
-export async function createContact(workspaceId, { name, phoneNumber, email, tags = [] }) {
+export async function createContact(workspaceId, { name, phoneNumber, email, tags = [], customFields }) {
   if (!isValidPhone(phoneNumber)) {
     const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e;
   }
@@ -165,7 +165,17 @@ export async function createContact(workspaceId, { name, phoneNumber, email, tag
   const existing = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber: normalized } });
   if (existing) { const e = new Error('A contact with this phone number already exists'); e.status = 409; throw e; }
   await assertWithinLimit(workspaceId, 'contact');
-  return prisma.contact.create({ data: { workspaceId, name: name || normalized, phoneNumber: normalized, email: email || null, tags } });
+  // Values are checked against the workspace's own field definitions, so an
+  // unknown key is refused rather than quietly stored and never displayed.
+  const { validateCustomFields } = await import('./customFields.service.js');
+  const custom = await validateCustomFields(workspaceId, customFields);
+  return prisma.contact.create({
+    data: {
+      workspaceId, name: name || normalized, phoneNumber: normalized,
+      email: email || null, tags,
+      ...(custom === undefined ? {} : { customFields: custom }),
+    },
+  });
 }
 
 export async function importContacts(workspaceId, csvBuffer) {
@@ -244,5 +254,82 @@ export async function updateContact(workspaceId, id, updates) {
     if (!isValidPhone(data.phoneNumber)) { const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e; }
     data.phoneNumber = normalizePhone(data.phoneNumber);
   }
+  if (data.customFields !== undefined) {
+    const { validateCustomFields } = await import('./customFields.service.js');
+    // Merged, not replaced: a form that edits one field must not wipe the rest.
+    const patch = await validateCustomFields(workspaceId, data.customFields);
+    data.customFields = { ...(contact.customFields || {}), ...(patch || {}) };
+  }
   return prisma.contact.update({ where: { id }, data });
+}
+
+// ─── Export ──────────────────────────────────────────────────────────────────
+//
+// There was no export at all — contacts could be imported from CSV and never
+// got back out, which makes the data feel like a one-way door. This deliberately
+// reuses buildContactWhere, so whatever the Contacts screen is currently showing
+// (search, tags, segment, cluster, status, date ranges) is exactly what comes
+// out. An export that silently ignored the filters would be worse than none.
+
+const CSV_COLUMNS = [
+  ['name', (c) => c.name],
+  ['phoneNumber', (c) => c.phoneNumber],
+  ['email', (c) => c.email],
+  ['tags', (c) => (c.tags || []).join('; ')],
+  ['segments', (c) => (c.segments || []).map((s) => s.name).join('; ')],
+  ['optedOut', (c) => (c.optedOut ? 'yes' : 'no')],
+  ['createdAt', (c) => c.createdAt?.toISOString() ?? ''],
+  ['updatedAt', (c) => c.updatedAt?.toISOString() ?? ''],
+];
+
+// A leading =, +, -, @, tab or CR makes a spreadsheet treat the cell as a
+// formula, and contact names are attacker-supplied — so the export is a way to
+// get a payload in front of whoever opens it. An apostrophe keeps it text.
+//
+// An international phone number legitimately starts with '+' and is not a
+// formula, so it is exempted: guarding it would put an apostrophe in front of
+// every number in the file and break re-importing what was just exported.
+const PHONE_LIKE = /^\+[\d\s()-]+$/;
+
+function csvCell(value) {
+  const raw = String(value ?? '');
+  const risky = /^[=+\-@\t\r]/.test(raw) && !PHONE_LIKE.test(raw);
+  return `"${(risky ? `'${raw}` : raw).replace(/"/g, '""')}"`;
+}
+
+// Capped so one request cannot try to hold an unbounded workspace in memory.
+const EXPORT_LIMIT = 50_000;
+
+export async function exportContactsCsv(workspaceId, filters = {}) {
+  const where = buildContactWhere(workspaceId, filters);
+  const [contacts, customDefs] = await Promise.all([
+    prisma.contact.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: EXPORT_LIMIT,
+      include: { segments: { select: { name: true } } },
+    }),
+    prisma.workspaceCustomField.findMany({
+      where: { workspaceId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    }),
+  ]);
+
+  // Custom fields become their own columns. An export that silently dropped
+  // them would not be the customer's data.
+  const columns = [
+    ...CSV_COLUMNS,
+    ...customDefs.map((d) => [d.label, (c) => (c.customFields || {})[d.key] ?? '']),
+  ];
+
+  const lines = [columns.map(([header]) => csvCell(header)).join(',')];
+  for (const c of contacts) {
+    lines.push(columns.map(([, read]) => csvCell(read(c))).join(','));
+  }
+
+  return {
+    csv: lines.join('\r\n'),
+    count: contacts.length,
+    truncated: contacts.length === EXPORT_LIMIT,
+    filename: `contacts-${new Date().toISOString().slice(0, 10)}.csv`,
+  };
 }

@@ -7,7 +7,11 @@ const STATE_TTL_SEC = 600;
 
 export async function connection(req, res) {
   try {
-    res.json(await ig.getConnection(req.params.workspaceId));
+    // The configuration status rides along, so the screen can explain why the
+    // Connect button will not work rather than letting the user discover it on
+    // instagram.com as an "incorrect password" error.
+    const [connection, config] = [await ig.getConnection(req.params.workspaceId), ig.instagramConfigStatus()];
+    res.json({ ...connection, setup: config });
   } catch (err) {
     console.error('[Instagram] connection error:', err);
     res.status(err.status || 500).json({ error: err.message || 'Failed to read connection' });
@@ -20,9 +24,12 @@ export async function connection(req, res) {
 export async function authUrl(req, res) {
   try {
     if (!ig.instagramConfigured()) {
+      const status = ig.instagramConfigStatus();
       return res.status(503).json({
-        error: 'Instagram is not configured on this server. Set INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET.',
+        error: `Instagram is not configured on this server — ${status.missing.join(' and ')} ${status.missing.length > 1 ? 'are' : 'is'} missing. `
+          + 'These are the Instagram app credentials, not the Facebook ones used for WhatsApp.',
         code: 'INSTAGRAM_NOT_CONFIGURED',
+        setup: status,
       });
     }
     const state = randomUUID();

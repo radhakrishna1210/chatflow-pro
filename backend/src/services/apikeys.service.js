@@ -6,6 +6,7 @@ import { assertNotOptedOut, normalizePhone } from './optout.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { countVariables, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
 import { headerImageComponent, carouselComponent } from './templateImage.service.js';
+import { normaliseScopes, API_SCOPES } from '../lib/apiScopes.js';
 
 function generateKey() {
   const raw = 'cfp_' + randomBytes(32).toString('hex');
@@ -17,15 +18,22 @@ function generateKey() {
 export async function listApiKeys(workspaceId) {
   return prisma.apiKey.findMany({
     where: { workspaceId, revokedAt: null },
-    select: { id: true, name: true, keyPrefix: true, environment: true, lastUsedAt: true, createdAt: true },
+    select: { id: true, name: true, keyPrefix: true, environment: true, scopes: true, lastUsedAt: true, createdAt: true },
     orderBy: { createdAt: 'desc' },
   });
 }
 
-export async function createApiKey(workspaceId, { name, environment = 'production' }, user) {
+// The catalogue the UI renders its scope checkboxes from, so the two cannot
+// drift out of step.
+export function listApiScopes() {
+  return API_SCOPES;
+}
+
+export async function createApiKey(workspaceId, { name, environment = 'production', scopes }, user) {
   await assertWithinLimit(workspaceId, 'apiKey');
+  const granted = normaliseScopes(scopes);
   const { raw, hash, prefix } = generateKey();
-  await prisma.apiKey.create({ data: { workspaceId, name, keyHash: hash, keyPrefix: prefix, environment } });
+  await prisma.apiKey.create({ data: { workspaceId, name, keyHash: hash, keyPrefix: prefix, environment, scopes: granted } });
 
   if (user) {
     queueApiKeyCreatedEmail({
@@ -37,16 +45,18 @@ export async function createApiKey(workspaceId, { name, environment = 'productio
     }).catch(() => {});
   }
 
-  return { rawKey: raw, keyPrefix: prefix, name, environment };
+  return { rawKey: raw, keyPrefix: prefix, name, environment, scopes: granted };
 }
 
 export async function rotateApiKey(workspaceId, id) {
   const key = await prisma.apiKey.findFirst({ where: { id, workspaceId, revokedAt: null } });
   if (!key) { const e = new Error('API key not found'); e.status = 404; throw e; }
 
+  // Rotation replaces the secret, never the permissions — a rotated key must
+  // keep doing exactly what the integration using it already does.
   const { raw, hash, prefix } = generateKey();
   await prisma.apiKey.update({ where: { id }, data: { keyHash: hash, keyPrefix: prefix } });
-  return { rawKey: raw, keyPrefix: prefix };
+  return { rawKey: raw, keyPrefix: prefix, scopes: key.scopes ?? null };
 }
 
 export async function revokeApiKey(workspaceId, id) {

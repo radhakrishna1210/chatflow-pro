@@ -53,7 +53,13 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
   return prisma.$transaction(async (tx) => {
     const subscription = await tx.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
     if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
-    if (subscription.status !== 'ACTIVE') {
+    // PAST_DUE still sends. It means a renewal charge failed and the grace
+    // window is running, and the whole point of that window is that the
+    // workspace keeps working while the customer tops up — matching
+    // workspaceContext, which also blocks only CANCELLED and EXPIRED. Refusing
+    // here would have made the grace period cosmetic: access to the screens,
+    // but no messages.
+    if (!['ACTIVE', 'PAST_DUE'].includes(subscription.status)) {
       return { ok: false, code: 'SUBSCRIPTION_INACTIVE' };
     }
 
@@ -324,56 +330,194 @@ export async function verifyCheckoutPayment(workspaceId, { orderId, paymentId, s
 // what failed. Idempotent: re-fetching inside the transaction and only
 // advancing rows still due (currentPeriodEnd <= now, still ACTIVE) means a
 // second run over the same data is a no-op.
+// Amounts inside notification copy, in the wallet's currency. Written out here
+// because these strings are read by a person deciding whether to top up, and
+// "1500" and "₹1,500.00" are not equally clear at that moment.
+const formatMoney = (value) => `₹${Number(value || 0).toLocaleString('en-IN', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})}`;
+
+// How long a workspace keeps working after a renewal charge fails.
+//
+// PAST_DUE is deliberately not blocked by workspaceContext (only CANCELLED and
+// EXPIRED are), so this window is real access rather than a warning banner. It
+// exists so a customer whose wallet ran dry over a weekend can top up before
+// their campaigns and inbox go dark.
+const RENEWAL_GRACE_DAYS = 3;
+
+// A period of roughly three months is a quarterly subscription. Compared
+// loosely because month lengths vary: Jan 31 → Apr 30 is 89 days, Mar → Jun 92.
+const QUARTERLY_MIN_DAYS = 80;
+
+// What this subscription owes for its next period, and which cycle it is on.
+function renewalCharge(subscription, plan) {
+  const cycleMs = subscription.currentPeriodEnd.getTime() - subscription.currentPeriodStart.getTime();
+  const cycleDays = Math.round(cycleMs / 86_400_000);
+  const quarterly = cycleDays >= QUARTERLY_MIN_DAYS && plan.priceQuarterly != null;
+  const amount = Number(quarterly ? plan.priceQuarterly : plan.priceMonthly) || 0;
+  return {
+    amount,
+    cycleDays,
+    cycle: quarterly ? 'quarterly' : 'monthly',
+    // Guards a malformed row with a zero-length cycle, which would otherwise
+    // roll the period to exactly where it already is and be swept forever.
+    cycleMs: cycleMs > 0 ? cycleMs : 30 * 86_400_000,
+  };
+}
+
 export async function runBillingCycleSweep(now = new Date()) {
+  // PAST_DUE is included so a failed charge is retried on the next sweep. This
+  // selected ACTIVE only, which — once renewal can fail at all — would leave a
+  // past-due subscription never looked at again: neither charged nor expired.
   const due = await prisma.subscription.findMany({
-    where: { status: 'ACTIVE', currentPeriodEnd: { lte: now } },
+    where: { status: { in: ['ACTIVE', 'PAST_DUE'] }, currentPeriodEnd: { lte: now } },
+    include: { plan: true, pendingPlan: true },
   });
 
-  let renewed = 0, cancelled = 0, failed = 0;
+  let renewed = 0, cancelled = 0, failed = 0, pastDue = 0, expired = 0, charged = 0;
+  // Side effects that must not run inside a transaction, and must not happen at
+  // all if one rolls back.
+  const announcements = [];
+
   for (const sub of due) {
     try {
       const outcome = await prisma.$transaction(async (tx) => {
         const fresh = await tx.subscription.findUnique({ where: { id: sub.id } });
-        // Already processed by a concurrent/earlier run of this same sweep.
-        if (!fresh || fresh.status !== 'ACTIVE' || fresh.currentPeriodEnd > now) return null;
+        // Already handled by a concurrent or earlier run of this same sweep.
+        if (!fresh || !['ACTIVE', 'PAST_DUE'].includes(fresh.status) || fresh.currentPeriodEnd > now) return null;
 
         if (fresh.cancelAtPeriodEnd) {
           await tx.subscription.update({ where: { id: fresh.id }, data: { status: 'CANCELLED' } });
-          // No separate suspension flag (README §12.4) — workspaceContext
-          // already blocks access once Subscription.status is CANCELLED.
-          return 'cancelled';
+          // No separate suspension flag (README 12.4) — workspaceContext blocks
+          // access once Subscription.status is CANCELLED.
+          return { kind: 'cancelled' };
         }
 
-        const cycleMs = fresh.currentPeriodEnd.getTime() - fresh.currentPeriodStart.getTime();
+        // A scheduled plan change takes effect at rollover, so the period about
+        // to begin is billed at the plan it will actually be on.
+        const effectivePlan = sub.pendingPlan ?? sub.plan;
+        const { amount, cycle, cycleMs } = renewalCharge(fresh, effectivePlan);
         const newPeriodStart = fresh.currentPeriodEnd;
-        const newPeriodEnd = new Date(newPeriodStart.getTime() + (cycleMs > 0 ? cycleMs : 30 * 24 * 60 * 60 * 1000));
+        const newPeriodEnd = new Date(newPeriodStart.getTime() + cycleMs);
 
-        await tx.subscription.update({
-          where: { id: fresh.id },
-          data: {
-            planId: fresh.pendingPlanId || fresh.planId,
-            pendingPlanId: null,
-            currentPeriodStart: newPeriodStart,
-            currentPeriodEnd: newPeriodEnd,
-          },
-        });
+        const rollForward = async () => {
+          await tx.subscription.update({
+            where: { id: fresh.id },
+            data: {
+              planId: fresh.pendingPlanId || fresh.planId,
+              pendingPlanId: null,
+              status: 'ACTIVE',
+              currentPeriodStart: newPeriodStart,
+              currentPeriodEnd: newPeriodEnd,
+            },
+          });
+          // Quota resets on renewal. Wallet balance is separate money and is
+          // only moved by the charge above.
+          await tx.usageCounter.upsert({
+            where: { workspaceId_periodStart: { workspaceId: fresh.workspaceId, periodStart: newPeriodStart } },
+            update: {},
+            create: { workspaceId: fresh.workspaceId, periodStart: newPeriodStart, periodEnd: newPeriodEnd, messagesUsed: 0 },
+          });
+        };
 
-        // Quota resets on renewal — wallet balance is untouched, it's separate money.
-        await tx.usageCounter.upsert({
-          where: { workspaceId_periodStart: { workspaceId: fresh.workspaceId, periodStart: newPeriodStart } },
-          update: {},
-          create: { workspaceId: fresh.workspaceId, periodStart: newPeriodStart, periodEnd: newPeriodEnd, messagesUsed: 0 },
-        });
-        return 'renewed';
+        // Free plans have nothing to collect.
+        if (amount <= 0) {
+          await rollForward();
+          return { kind: 'renewed', amount: 0 };
+        }
+
+        // The renewal charge itself. This is what the sweep never did — it
+        // rolled the period forward and reset the quota while collecting
+        // nothing, so a workspace paid once for a paid plan and then held it
+        // indefinitely for free.
+        //
+        // The key names the period being paid for rather than the run, so
+        // tomorrow's retry of the same overdue period reuses it and nobody is
+        // charged twice for one month.
+        const charge = await debit(fresh.workspaceId, amount, {
+          reason: `${effectivePlan.name} subscription (${cycle})`,
+          reference: fresh.id,
+          category: 'SUBSCRIPTION',
+          idempotencyKey: `sub_renew_${fresh.id}_${newPeriodStart.getTime()}`,
+        }, tx);
+
+        if (!charge.ok) {
+          // Out of money. The period end stays where it is: it is what the
+          // grace window is measured from, and it is the period nobody has
+          // paid for.
+          const graceEndsAt = new Date(fresh.currentPeriodEnd.getTime() + RENEWAL_GRACE_DAYS * 86_400_000);
+          if (now > graceEndsAt) {
+            await tx.subscription.update({ where: { id: fresh.id }, data: { status: 'EXPIRED' } });
+            return { kind: 'expired', amount, balance: charge.balance, graceEndsAt };
+          }
+          await tx.subscription.update({ where: { id: fresh.id }, data: { status: 'PAST_DUE' } });
+          return { kind: 'past_due', amount, balance: charge.balance, graceEndsAt };
+        }
+
+        // Paid. The invoice is written in the same transaction as the debit, so
+        // the ledger and the invoice list can never disagree.
+        if (!charge.alreadyProcessed) {
+          await tx.invoice.create({
+            data: {
+              workspaceId: fresh.workspaceId,
+              invoiceDate: now,
+              description: `${effectivePlan.name} plan, ${cycle} renewal`,
+              amount,
+              currency: effectivePlan.currency || 'INR',
+              status: 'PAID',
+              reference: `sub_renew_${fresh.id}_${newPeriodStart.getTime()}`,
+            },
+          });
+        }
+
+        await rollForward();
+        return { kind: 'renewed', amount, balance: charge.balance };
       });
 
-      if (outcome === 'cancelled') cancelled++;
-      else if (outcome === 'renewed') renewed++;
+      if (!outcome) continue;
+
+      if (outcome.kind === 'cancelled') {
+        cancelled += 1;
+      } else if (outcome.kind === 'renewed') {
+        renewed += 1;
+        charged += outcome.amount;
+      } else if (outcome.kind === 'past_due') {
+        pastDue += 1;
+        announcements.push({
+          workspaceId: sub.workspaceId,
+          type: 'SUBSCRIPTION_PAST_DUE',
+          title: 'Your subscription could not be renewed',
+          body: `We could not collect ${formatMoney(outcome.amount)} for your plan; the wallet balance is `
+            + `${formatMoney(outcome.balance ?? 0)}. Top up before `
+            + `${outcome.graceEndsAt.toLocaleDateString('en-IN')} to keep the workspace running.`,
+          link: 'payments',
+          meta: { amount: outcome.amount, graceEndsAt: outcome.graceEndsAt },
+        });
+      } else if (outcome.kind === 'expired') {
+        expired += 1;
+        announcements.push({
+          workspaceId: sub.workspaceId,
+          type: 'SUBSCRIPTION_EXPIRED',
+          title: 'Your subscription has expired',
+          body: `The renewal charge of ${formatMoney(outcome.amount)} could not be collected within the grace `
+            + 'period. Top up your wallet and renew from the Payments screen to restore access.',
+          link: 'payments',
+          meta: { amount: outcome.amount },
+        });
+      }
     } catch (err) {
       failed++;
       console.error(`[BillingCycle] Failed to process subscription ${sub.id}:`, err.message);
     }
   }
 
-  return { processed: due.length, renewed, cancelled, failed };
+  // Outside the transactions, and never fatal: a notification that could not be
+  // written must not undo a charge that succeeded.
+  if (announcements.length > 0) {
+    const { notifyWorkspace } = await import('./notification.service.js');
+    await Promise.allSettled(announcements.map(({ workspaceId, ...note }) => notifyWorkspace(workspaceId, note)));
+  }
+
+  return { processed: due.length, renewed, cancelled, failed, pastDue, expired, charged };
 }

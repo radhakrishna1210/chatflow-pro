@@ -90,7 +90,7 @@ export default function ForgotPassword() {
             </svg>
           </div>
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
-            spandan
+            ChatFlow Pro
           </span>
         </div>
 

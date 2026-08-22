@@ -65,8 +65,16 @@ export function useWallet({ pollMs = 60000 } = {}) {
   return { wallet, loading, refresh: load };
 }
 
-// Sends the user to the wallet, using the navigation event the app already
-// uses for cross-section jumps.
+// Sends the user to the wallet and puts the cursor in the amount field.
+//
+// This used to only dispatch the cross-section nav event. On the Payments
+// screen's own wallet tab — where this banner also renders — that navigates to
+// the page already open, and the router returns early when the URL has not
+// changed, so the button did nothing at all. Firing a second event that the
+// recharge form listens for makes it work from both places: from elsewhere it
+// navigates and then focuses, from here it just focuses.
 export const goToRecharge = () => {
   window.dispatchEvent(new CustomEvent('app:nav', { detail: { section: 'payments', subTab: 'wallet' } }));
+  // After the navigation has had a tick to render the wallet tab.
+  setTimeout(() => window.dispatchEvent(new CustomEvent('wallet:focus-recharge')), 60);
 };

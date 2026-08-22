@@ -13,13 +13,17 @@
 
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { env } from '../config/env.js';
 
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_BYTES = 1_500_000;      // ~1.5 MB of HTML is far beyond any real page
 const MAX_REDIRECTS = 3;
 const MAX_PAGES = 6;              // homepage + up to 5 discovered key pages
 
-const USER_AGENT = 'SpandanBot/1.0 (+https://spandan.pro/bot; website analysis for WhatsApp automation)';
+// Identifies this deployment rather than a hardcoded marketing domain, so a
+// site owner who finds it in their logs can trace it back to the service that
+// actually made the request.
+const USER_AGENT = `ChatFlowProBot/1.0 (+${env.APP_URL || env.API_PUBLIC_URL}; website analysis for WhatsApp automation)`;
 
 // ── Address safety ──────────────────────────────────────────────────────────
 

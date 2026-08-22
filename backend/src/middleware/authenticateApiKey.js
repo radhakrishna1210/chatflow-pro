@@ -18,7 +18,8 @@ export async function authenticateApiKey(req, res, next) {
       where: {
         keyHash: hash,
         revokedAt: null
-      }
+      },
+      select: { id: true, name: true, workspaceId: true, scopes: true }
     });
 
     if (!apiKey) {
@@ -33,13 +34,21 @@ export async function authenticateApiKey(req, res, next) {
 
     // Attach to request
     req.workspaceId = apiKey.workspaceId;
-    
-    // Mock req.user for controllers that rely on the dashboard authenticate middleware
+    req.apiKey = { id: apiKey.id, name: apiKey.name, scopes: apiKey.scopes ?? null };
+
+    // Stands in for req.user so controllers written for the dashboard's
+    // authenticate middleware work unchanged.
+    //
+    // The role is CLIENT, not ADMIN. Every key used to be handed ADMIN, which
+    // is the role that guards spending money and granting access — neither of
+    // which any public endpoint offers, so the elevation bought nothing and
+    // would have been the blast radius of a leaked key. What a key may actually
+    // do is decided by its scopes (lib/apiScopes.js).
     req.user = {
-      id: 'api-key-caller',
+      id: `api-key:${apiKey.id}`,
       workspaceId: apiKey.workspaceId,
-      role: 'ADMIN',
-      superAdmin: false
+      role: 'CLIENT',
+      superAdmin: false,
     };
 
     next();

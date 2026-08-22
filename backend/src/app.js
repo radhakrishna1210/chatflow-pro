@@ -5,12 +5,28 @@ import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { securityHeaders } from './middleware/securityHeaders.js';
 import { findOrCreateGoogleUser } from './services/auth.service.js';
 import apiRoutes from './routes/index.js';
 import widgetPublicRoutes from './routes/widgetPublic.routes.js';
 import { logToFile } from './lib/logger.js';
 
 const app = express();
+
+// Version disclosure: nothing needs to know the server is Express.
+app.disable('x-powered-by');
+
+// How many proxy hops in front of this service are ours and may be believed.
+//
+// This is what makes `req.ip` — and therefore every rate limit — trustworthy.
+// Without it Express ignores X-Forwarded-For, and the limiter's old habit of
+// reading that header directly meant an attacker could mint a fresh bucket per
+// request simply by changing it. Render (and most PaaS) puts exactly one proxy
+// in front of the app; set TRUST_PROXY_HOPS if yours differs. It stays 0 in
+// local development, where there is no proxy and the header is pure input.
+app.set('trust proxy', env.TRUST_PROXY_HOPS);
+
+app.use(securityHeaders);
 
 app.use((req, res, next) => {
   const start = Date.now();

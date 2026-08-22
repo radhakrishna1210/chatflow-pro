@@ -47,6 +47,38 @@ export async function loadPlatformSettings() {
   }
 }
 
+// Provider-side checks for the credentials we can verify cheaply. Keys with no
+// entry here are stored as given — the point is to catch the ones whose failure
+// mode is silent, not to gate every field behind a network call.
+async function validateSettingValue(key, value) {
+  if (key === 'GEMINI_API_KEY') {
+    const { verifyGeminiKey } = await import('../lib/llm.js');
+    return verifyGeminiKey(value);
+  }
+  return { ok: true };
+}
+
+// Re-checks the credentials currently in force (whatever their source) and
+// reports what actually works. This is the answer to "the AI has stopped
+// replying and nothing in the UI says why".
+export async function checkPlatformCredentials() {
+  const { env } = await import('../config/env.js');
+  const { verifyGeminiKey, llmHealth } = await import('../lib/llm.js');
+  const { verifySmtp } = await import('../lib/mailer.js');
+  const overridden = new Set(systemSettingKeys());
+  const sourceOf = (key) => (overridden.has(key) ? 'database' : (env[key] ? 'environment' : 'unset'));
+
+  const [gemini, smtp] = await Promise.all([
+    env.GEMINI_API_KEY ? verifyGeminiKey(env.GEMINI_API_KEY) : Promise.resolve({ ok: false, reason: 'No GEMINI_API_KEY configured' }),
+    verifySmtp(),
+  ]);
+
+  return {
+    gemini: { ...gemini, source: sourceOf('GEMINI_API_KEY'), model: env.GEMINI_MODEL, runtime: llmHealth() },
+    smtp: { ...smtp, source: sourceOf('SMTP_PASSWORD'), host: env.SMTP_HOST || null, user: env.SMTP_USER || null },
+  };
+}
+
 // Applies a partial update. Keys absent from the object are untouched, a
 // masked value means "unchanged", and an empty string clears the override so
 // the environment variable takes over again.
@@ -67,6 +99,20 @@ export async function updateSettings(input = {}) {
       await prisma.systemSetting.deleteMany({ where: { key } });
       cleared.push(key);
       continue;
+    }
+
+    // Credentials are checked against the provider before they are stored.
+    //
+    // This screen writes an override that *shadows* the environment variable,
+    // so saving a bad value here does not fail loudly — it silently replaces a
+    // working configuration with a broken one, and every feature that depends
+    // on it degrades quietly. A revoked Gemini key sat here doing exactly that.
+    const check = await validateSettingValue(key, value);
+    if (!check.ok) {
+      const e = new Error(`${key} was not saved — ${check.reason}`);
+      e.status = 400;
+      e.code = 'INVALID_PLATFORM_CREDENTIAL';
+      throw e;
     }
 
     const encrypted = encrypt(value);

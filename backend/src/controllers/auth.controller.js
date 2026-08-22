@@ -1,12 +1,8 @@
 import { randomBytes } from 'crypto';
 import * as authService from '../services/auth.service.js';
 import { redis } from '../lib/redis.js';
+import { revokeAccessToken } from '../lib/tokenDenylist.js';
 import { env } from '../config/env.js';
-
-export async function register(req, res) {
-  const result = await authService.register(req.body);
-  res.status(201).json(result);
-}
 
 // ─── OTP signup ───────────────────────────────────────────────────────────────
 export async function startSignup(req, res) {
@@ -44,9 +40,14 @@ export async function refresh(req, res) {
   res.json(result);
 }
 
+// Ends the session properly: the refresh token is deleted so it can never mint
+// another access token, *and* the access token presented with this request is
+// revoked by jti so it stops working immediately instead of remaining valid for
+// the rest of its lifetime.
 export async function logout(req, res) {
-  const { refreshToken } = req.body;
+  const { refreshToken } = req.body || {};
   await authService.logout(refreshToken);
+  if (req.user?.jti) await revokeAccessToken(req.user.jti, req.user.exp);
   res.json({ message: 'Logged out successfully' });
 }
 

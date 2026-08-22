@@ -32,8 +32,12 @@ export default function Login({ onNav, mode = 'login' }) {
     if (isRegister && form.password.length < 8) { setErrMsg('Password must be at least 8 characters.'); setStatus('error'); return; }
     setStatus('loading');
     try {
-      const endpoint = isRegister ? '/api/v1/auth/register' : '/api/v1/auth/login';
-      const payload = isRegister ? form : { email: form.email, password: form.password };
+      // Sign-up lives on its own screen (Register.jsx), which runs the
+      // email-verification flow. This form only ever signs in — the branch that
+      // posted to /auth/register created an account with no verification at
+      // all, and that endpoint no longer exists.
+      const endpoint = '/api/v1/auth/login';
+      const payload = { email: form.email, password: form.password };
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -98,7 +102,7 @@ export default function Login({ onNav, mode = 'login' }) {
             </svg>
           </div>
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
-            spandan
+            ChatFlow Pro
           </span>
         </div>
 

@@ -45,3 +45,19 @@ export async function update(req, res) {
   const contact = await contactsService.updateContact(req.params.workspaceId, req.params.id, req.body);
   res.json(contact);
 }
+
+// CSV download. Sends the same filters the list endpoint takes, so "export"
+// means "export what I am looking at".
+export async function exportCsv(req, res) {
+  const { page: _p, limit: _l, ...filters } = req.query;
+  const { csv, filename, count, truncated } = await contactsService.exportContactsCsv(
+    req.params.workspaceId, filters,
+  );
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('X-Export-Count', String(count));
+  if (truncated) res.setHeader('X-Export-Truncated', 'true');
+  // A BOM so Excel opens non-ASCII names in the right encoding instead of
+  // mangling them.
+  res.send('﻿' + csv);
+}

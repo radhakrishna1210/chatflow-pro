@@ -1,22 +1,22 @@
 import * as analyticsService from '../services/analytics.service.js';
 
 export async function overview(req, res) {
-  const data = await analyticsService.getOverview(req.params.workspaceId);
+  const data = await analyticsService.getOverview(req.params.workspaceId, req.query.days);
   res.json(data);
 }
 
 export async function delivery(req, res) {
-  const data = await analyticsService.getDeliveryStats(req.params.workspaceId);
+  const data = await analyticsService.getDeliveryStats(req.params.workspaceId, req.query.days);
   res.json(data);
 }
 
 export async function campaigns(req, res) {
-  const data = await analyticsService.getCampaignStats(req.params.workspaceId);
+  const data = await analyticsService.getCampaignStats(req.params.workspaceId, req.query.days);
   res.json(data);
 }
 
 export async function agents(req, res) {
-  const data = await analyticsService.getAgentStats(req.params.workspaceId);
+  const data = await analyticsService.getAgentStats(req.params.workspaceId, req.query.days);
   res.json(data);
 }
 

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { checkRoleCapability } from './roleCapabilities.js';
 
 export async function workspaceContext(req, res, next) {
   const { workspaceId } = req.params;
@@ -37,5 +38,13 @@ export async function workspaceContext(req, res, next) {
   // Flag so authorize() can skip a duplicate WorkspaceMember lookup.
   req.user.workspaceRoleVerified = true;
   req.workspace = member.workspace;
+
+  // Capability floor for the read-mostly roles (VIEWER, AGENT). Applied here,
+  // once, rather than as forty separate authorize() annotations — a workspace
+  // route that nobody remembered to guard is then closed to them by default
+  // instead of silently writable. See middleware/roleCapabilities.js.
+  const refusal = checkRoleCapability(req);
+  if (refusal) return res.status(refusal.status).json(refusal.body);
+
   next();
 }

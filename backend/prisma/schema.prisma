@@ -10,24 +10,24 @@ datasource db {
 }
 
 model User {
-  id                    String            @id @default(cuid())
+  id                    String             @id @default(cuid())
   name                  String
-  email                 String            @unique
+  email                 String             @unique
   passwordHash          String?
-  googleId              String?           @unique
+  googleId              String?            @unique
   phone                 String?
   jobTitle              String?
   company               String?
   timezone              String?
   language              String?
   lastLoginAt           DateTime?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @default(now()) @updatedAt
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @default(now()) @updatedAt
   messages              Message[]
   refreshTokens         RefreshToken[]
   workspaceMembers      WorkspaceMember[]
   sentInvitations       Invitation[]
-  assignedConversations Conversation[]    @relation("ConversationAssignee")
+  assignedConversations Conversation[]     @relation("ConversationAssignee")
   conversationNotes     ConversationNote[]
   notifications         Notification[]
 }
@@ -145,6 +145,9 @@ model Workspace {
   knowledgeSources             KnowledgeSource[]
   intentRules                  IntentRule[]
   intentMatchEvents            IntentMatchEvent[]
+  addons                       WorkspaceAddon[]
+  customFields                 WorkspaceCustomField[]
+  customEvents                 WorkspaceCustomEvent[]
 }
 
 model WorkspaceMember {
@@ -198,23 +201,43 @@ enum InviteKind {
 }
 
 model WaNumber {
-  id                   String         @id @default(cuid())
-  workspaceId          String
-  phoneNumber          String
-  metaPhoneNumberId    String
-  wabaId               String
-  encryptedAccessToken String
-  displayName          String?
-  quality              String?
-  status               String         @default("ACTIVE")
-  messagingLimit       String?
-  appSubscribed        Boolean        @default(false)
-  createdAt            DateTime       @default(now())
-  campaigns            Campaign[]
-  conversations        Conversation[]
-  templates            Template[]
-  widgets              Widget[]
-  workspace            Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                     String    @id @default(cuid())
+  workspaceId            String
+  phoneNumber            String
+  metaPhoneNumberId      String
+  wabaId                 String
+  encryptedAccessToken   String
+  displayName            String?
+  quality                String?
+  status                 String    @default("ACTIVE")
+  messagingLimit         String?
+  appSubscribed          Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  // Meta's own verification state for the number (code_verification_status).
+  // It was never read, so a number whose verification had EXPIRED looked
+  // healthy in the UI right up until every send failed.
+  codeVerificationStatus String?
+  lastVerifiedAt         DateTime?
+  // Set when Meta stops recognising the phone number id (error 100/33), so a
+  // dead number is visible as dead instead of failing silently on every send.
+  unreachableSince       DateTime?
+  unreachableReason      String?
+
+  campaigns     Campaign[]
+  conversations Conversation[]
+  templates     Template[]
+  widgets       Widget[]
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // A WhatsApp number belongs to exactly one workspace, globally.
+  //
+  // This was scoped per workspace, which only stopped the same workspace
+  // connecting a number twice. Across workspaces it allowed two tenants to
+  // claim one phone number id — and inbound routing resolves a number with
+  // `findFirst({ metaPhoneNumberId })`, with no workspace to scope it by, so
+  // whichever row happened to be found first received the other tenant's
+  // customer messages. Global uniqueness is what makes that resolution correct.
+  @@unique([metaPhoneNumberId])
 }
 
 model NumberPool {
@@ -301,6 +324,9 @@ model Contact {
   tags               String[]
   optedOut           Boolean             @default(false)
   optedOutAt         DateTime?
+  // { fieldKey: value } against WorkspaceCustomField definitions. Null until
+  // the workspace defines a field and sets one.
+  customFields       Json?
   createdAt          DateTime            @default(now())
   // Backfilled from createdAt for rows that predate the column, so "Recently
   // Updated" means something the first time it is used.
@@ -452,7 +478,21 @@ model Conversation {
   // Set by a workflow's "assign to agent" action, or manually from the inbox.
   // SetNull so removing a member detaches their threads instead of blocking.
   assignedToUserId String?
+  // When a person took this conversation over from the automation.
+  //
+  // Handing off used to flag the thread and notify the workspace and then let
+  // the next inbound message run the whole automation chain again — keyword
+  // triggers, intent routing, the AI agent — so the bot talked straight over
+  // the human who had just picked it up. While this is set, automation stays
+  // out of the thread; resolving the conversation, or switching the bot back
+  // on from the inbox, clears it.
+  humanHandoffAt   DateTime?
   lastMessageAt    DateTime            @default(now())
+  // When the customer last wrote to us. Meta only allows a free-form (non
+  // template) reply within 24 hours of this moment; outside it the send is
+  // rejected with error 131047. Nothing tracked it before, so the app had no
+  // way to know the window had closed and simply let every reply fail.
+  lastInboundAt    DateTime?
   createdAt        DateTime            @default(now())
   contact          Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
   waNumber         WaNumber?           @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
@@ -462,6 +502,11 @@ model Conversation {
   workflowRuns     WorkflowRun[]
   aiSessions       CampaignAiSession[]
   notes            ConversationNote[]
+
+  // Enforced as a partial unique index in the migration (waNumberId IS NOT
+  // NULL), which Prisma cannot express here. Declared as an index so the
+  // client still plans lookups against it.
+  @@index([workspaceId, contactId, waNumberId])
 }
 
 // One customer's "Ask Anything" conversation with the AI agent attached to a
@@ -502,20 +547,73 @@ model CampaignAiSession {
 }
 
 model Message {
-  id                  String             @id @default(cuid())
+  id                  String           @id @default(cuid())
   conversationId      String
   body                String
   direction           MessageDirection
-  metaMessageId       String?
+  // Unique, not merely indexed. Meta retries a webhook until it gets a 200, and
+  // nothing de-duplicated on this id — so a retried delivery wrote the message
+  // again *and* re-ran the automation behind it. Production data carried inbound
+  // messages stored four times over. This constraint is what makes the webhook
+  // handler's upsert idempotent.
+  metaMessageId       String?          @unique
   senderUserId        String?
   campaignRecipientId String?
-  sentAt              DateTime           @default(now())
-  createdAt           DateTime           @default(now())
-  conversation        Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderUser          User?              @relation(fields: [senderUserId], references: [id])
-  campaignRecipient   CampaignRecipient? @relation(fields: [campaignRecipientId], references: [id], onDelete: SetNull)
+  // What kind of message this is. Anything that is not plain text used to be
+  // stored as an empty body with no record of what had actually arrived.
+  type                MessageType      @default(TEXT)
+  // Delivery lifecycle, mirrored from Meta's status webhooks. Statuses were
+  // previously applied only to campaign sends, so an inbox reply or an
+  // automated reply never showed whether it had been delivered or read.
+  status              MessageStatus    @default(PENDING)
+  statusAt            DateTime?
+  errorCode           Int?
+  errorMessage        String?
+  // Media, for image/video/audio/document/sticker messages. `mediaUrl` is
+  // Meta's short-lived download URL; `mediaId` is the durable handle used to
+  // re-fetch it, since the URL expires in minutes.
+  mediaId             String?
+  mediaUrl            String?
+  mediaMimeType       String?
+  mediaFilename       String?
+  mediaSha256         String?
+  // Latitude/longitude arrive as their own message type rather than as text.
+  locationLat         Float?
+  locationLng         Float?
+  locationName        String?
 
-  @@index([metaMessageId])
+  sentAt            DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+  conversation      Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser        User?              @relation(fields: [senderUserId], references: [id])
+  campaignRecipient CampaignRecipient? @relation(fields: [campaignRecipientId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, sentAt])
+  @@index([status])
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  STICKER
+  LOCATION
+  CONTACTS
+  INTERACTIVE
+  BUTTON
+  TEMPLATE
+  SYSTEM
+  UNSUPPORTED
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
 }
 
 model AutomationTrigger {
@@ -561,6 +659,10 @@ model WorkflowRun {
   nodes          Json
   trace          Json?
   triggerMessage String?
+  // Values collected during the run, available to later steps as {{token}}.
+  // Steps could previously only send fixed text, so every recipient of an
+  // automation got a byte-identical message.
+  variables      Json?
   error          String?
   startedAt      DateTime          @default(now())
   finishedAt     DateTime?
@@ -583,9 +685,16 @@ model ApiKey {
   id          String    @id @default(cuid())
   workspaceId String
   name        String
-  keyHash     String
+  keyHash     String    @unique
   keyPrefix   String
   environment String    @default("production")
+  // What this key is allowed to do, e.g. ["messages:send", "contacts:read"].
+  // There were no scopes at all: every key could do everything the dashboard
+  // could, and authenticateApiKey handed each caller role ADMIN outright — so
+  // a key minted for a read-only reporting script could launch campaigns and
+  // spend the wallet. Null means the legacy full-access behaviour, preserved
+  // for keys issued before scopes existed.
+  scopes      Json?
   lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())
   revokedAt   DateTime?
@@ -614,8 +723,13 @@ model RefreshToken {
 }
 
 enum Role {
-  ADMIN
+  // Ordered by capability, low to high. See middleware/authorize.js for what
+  // each one means and middleware/roleCapabilities.js for how the two new ones
+  // are enforced without annotating forty route files.
+  VIEWER
+  AGENT
   CLIENT
+  ADMIN
 }
 
 enum NumberPoolStatus {
@@ -636,6 +750,10 @@ enum CampaignStatus {
   DRAFT
   SCHEDULED
   RUNNING
+  // Stopped mid-flight but resumable. Cancelling was the only way to halt a
+  // running campaign, and it is irreversible — so "wait, that's the wrong
+  // audience" meant destroying the campaign and rebuilding it.
+  PAUSED
   COMPLETED
   FAILED
   CANCELLED
@@ -643,6 +761,10 @@ enum CampaignStatus {
 
 enum CampaignRecipientStatus {
   PENDING
+  // Claimed by a worker and mid-flight. Exists so a recipient can be claimed
+  // atomically before the send: without it two concurrent runs of the batch
+  // both saw PENDING and both sent to the same person.
+  SENDING
   RETRYING
   SENT
   DELIVERED
@@ -963,6 +1085,80 @@ model UsageCounter {
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, periodStart])
+}
+
+// A paid add-on a workspace has bought.
+//
+// Add-ons were entirely fictional: the Payments screen listed four of them with
+// prices written into the JSX, and "Add to Plan" wrote a boolean to
+// localStorage. No order was created, no payment was taken, nothing reached the
+// server, and clearing browser data undid the "purchase". The prices shown
+// could not match the gateway because the gateway was never involved.
+// A custom field a workspace has defined on its contacts.
+//
+// The "Pack of 5 Custom Fields" add-on was purchasable while nothing anywhere
+// stored a custom field: there was no definition table, no value column, and no
+// code that read either. This is the storage that makes the add-on real, and
+// what services/addons.service.js#assertAddonCapacity meters.
+model WorkspaceCustomField {
+  id          String    @id @default(cuid())
+  workspaceId String
+  // Stable machine name used as the key inside Contact.customFields. Never
+  // changes once created, so renaming the label cannot orphan stored values.
+  key         String
+  label       String
+  // TEXT | NUMBER | DATE | SELECT
+  type        String    @default("TEXT")
+  // Allowed values, for SELECT only.
+  options     Json?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId, sortOrder])
+}
+
+// A customer-defined event they can post from their own systems, which fans out
+// to their configured webhook. The "Pack of 3 Custom Events" add-on sold exactly
+// this and nothing implemented it.
+model WorkspaceCustomEvent {
+  id          String    @id @default(cuid())
+  workspaceId String
+  key         String
+  label       String
+  description String?
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime?
+  // Cheap "is anyone using this" signal for the settings screen.
+  seenCount   Int       @default(0)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+}
+
+model WorkspaceAddon {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  // Catalogue key, e.g. "crm" — see lib/addonCatalogue.js, which is the only
+  // place a price is defined.
+  addonKey         String
+  status           String    @default("ACTIVE") // ACTIVE | CANCELLED
+  // What was actually charged, in the smallest currency unit, kept alongside
+  // the catalogue key so a later price change never rewrites history.
+  amountPaid       Decimal   @db.Decimal(10, 2)
+  currency         String    @default("INR")
+  gateway          String?
+  reference        String?
+  activatedAt      DateTime  @default(now())
+  cancelledAt      DateTime?
+  currentPeriodEnd DateTime
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // One active row per add-on per workspace. Buying an add-on twice is a
+  // mistake, not an upgrade.
+  @@unique([workspaceId, addonKey])
+  @@index([workspaceId, status])
 }
 
 model SupportTicket {

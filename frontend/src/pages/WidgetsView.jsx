@@ -56,7 +56,46 @@ const Section = ({ title, children, right }) => (
 // than an iframe of the real thing: an iframe would need a saved, published
 // widget and a reachable origin, so it could not preview an unsaved change —
 // which is the entire point of a live preview.
-const Preview = ({ form }) => {
+const Preview = ({ form, widgetId }) => {
+  // The preview used to be chrome only — it drew what the panel looks like and
+  // could answer nothing, so there was no way to try the assistant before
+  // pasting it into a live site. These run the real thing.
+  const [question, setQuestion] = useState('');
+  const [turns, setTurns] = useState([]);
+  const [asking, setAsking] = useState(false);
+
+  const canAsk = form.type !== 'WHATSAPP' && Boolean(widgetId);
+
+  const ask = async () => {
+    const q = question.trim();
+    if (!q || asking) return;
+    setQuestion('');
+    setTurns(t => [...t, { role: 'user', text: q }]);
+    setAsking(true);
+    try {
+      const res = await wFetch(`/widgets/${widgetId}/preview`, {
+        method: 'POST',
+        body: JSON.stringify({ question: q, config: form.config, type: form.type }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTurns(t => [...t, { role: 'error', text: data.error || 'Could not get an answer.' }]);
+      } else {
+        setTurns(t => [...t, {
+          role: 'assistant',
+          text: data.answer,
+          grounded: data.grounded,
+          reason: data.reason,
+          sources: data.sources || [],
+        }]);
+      }
+    } catch (e) {
+      setTurns(t => [...t, { role: 'error', text: e.message }]);
+    } finally {
+      setAsking(false);
+    }
+  };
+
   const c = form.config;
   const width = c.size === 'small' ? 300 : c.size === 'large' ? 360 : 330;
   const accent = c.primaryColor || '#35e8f2';
@@ -90,6 +129,32 @@ const Preview = ({ form }) => {
             <div style={{ alignSelf: 'flex-start', maxWidth: '88%', background: '#fff', border: '1px solid #e6e8ec', borderRadius: '14px 14px 14px 4px', padding: '9px 12px', fontSize: 12.5, color: '#111', lineHeight: 1.5 }}>
               {c.welcomeMessage || 'Hi! How can we help?'}
             </div>
+            {turns.map((t, i) => (
+              <div key={i} style={{
+                alignSelf: t.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%',
+                background: t.role === 'user' ? accent : t.role === 'error' ? '#fee2e2' : '#fff',
+                color: t.role === 'user' ? '#fff' : t.role === 'error' ? '#991b1b' : '#111',
+                border: t.role === 'user' ? 'none' : '1px solid #e6e8ec',
+                borderRadius: t.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+                padding: '9px 12px', fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap',
+              }}>
+                {t.text}
+                {t.role === 'assistant' && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: '#6b7280' }}>
+                    {/* Says why an answer is thin: an empty knowledge base and a
+                        failing model look identical from the outside. */}
+                    {t.reason === 'llm_unavailable'
+                      ? 'Answered from your content without the AI model — check the AI key in settings.'
+                      : t.sources.length > 0
+                        ? `From: ${t.sources.map(x => x.title).join(', ')}`
+                        : 'No matching content found — add a knowledge source.'}
+                  </div>
+                )}
+              </div>
+            ))}
+            {asking && (
+              <div style={{ alignSelf: 'flex-start', fontSize: 11.5, color: '#9aa0a6' }}>Thinking…</div>
+            )}
             {showAi && (c.suggestedQuestions || []).length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                 {c.suggestedQuestions.map((q, i) => (
@@ -101,8 +166,13 @@ const Preview = ({ form }) => {
 
           {showAi && (
             <div style={{ padding: 9, borderTop: '1px solid #e6e8ec', background: '#fff', display: 'flex', gap: 7 }}>
-              <div style={{ flex: 1, padding: '8px 11px', border: '1px solid #dfe2e7', borderRadius: 9, fontSize: 12.5, color: '#9aa0a6' }}>Ask a question…</div>
-              <div style={{ width: 34, height: 34, borderRadius: 9, background: accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>→</div>
+              <input value={question} onChange={e => setQuestion(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && ask()}
+                disabled={!canAsk || asking}
+                placeholder={canAsk ? 'Ask a question…' : 'Save the widget to try it'}
+                style={{ flex: 1, padding: '8px 11px', border: '1px solid #dfe2e7', borderRadius: 9, fontSize: 12.5, color: '#111', outline: 'none', fontFamily: "'Manrope',sans-serif", background: '#fff' }} />
+              <button onClick={ask} disabled={!canAsk || asking || !question.trim()}
+                style={{ width: 34, height: 34, borderRadius: 9, background: accent, color: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, cursor: (!canAsk || asking || !question.trim()) ? 'not-allowed' : 'pointer', opacity: (!canAsk || asking || !question.trim()) ? 0.5 : 1 }}>→</button>
             </div>
           )}
           {showWa && (
@@ -112,7 +182,7 @@ const Preview = ({ form }) => {
               </div>
             </div>
           )}
-          <p style={{ textAlign: 'center', fontSize: 9.5, color: '#9aa0a6', padding: 5 }}>Powered by Spandan</p>
+          <p style={{ textAlign: 'center', fontSize: 9.5, color: '#9aa0a6', padding: 5 }}>Powered by ChatFlow Pro</p>
         </div>
 
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 16px', borderRadius: 999, background: accent, color: '#fff', fontSize: 13, fontWeight: 600, boxShadow: '0 5px 18px rgba(0,0,0,.2)' }}>
@@ -618,7 +688,7 @@ const WidgetEditor = ({ widget, numbers, onClose, onSaved }) => {
             )}
           </div>
 
-          <Preview form={form} />
+          <Preview form={form} widgetId={widget?.id || null} />
         </div>
       </div>
     </div>

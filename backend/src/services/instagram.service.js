@@ -12,13 +12,44 @@ import { keywordMatches } from './automation.service.js';
 const GRAPH = 'https://graph.facebook.com';
 const IG_OAUTH_TOKEN_URL = 'https://api.instagram.com/oauth/access_token';
 
-// Instagram messaging runs on the Meta app credentials the project already
-// configures for WhatsApp; a dedicated IG app can override them.
-const appId = () => env.INSTAGRAM_APP_ID || env.META_APP_ID;
-const appSecret = () => env.INSTAGRAM_APP_SECRET || env.META_APP_SECRET;
+// Instagram Business Login needs the *Instagram* app id and secret — the pair
+// shown under the Instagram product in the Meta App Dashboard — not the
+// Facebook app id used for WhatsApp.
+//
+// Falling back to META_APP_ID is what produced the reported "incorrect
+// password" error, and the fallback is why it was so hard to place: the
+// connection looked configured, the authorize URL built fine, and the failure
+// surfaced on instagram.com as a login rejection rather than anywhere in this
+// app. Instagram serves its own login form for an unrecognised client_id and
+// then refuses the credentials, so the customer sees "incorrect password" for a
+// password that is perfectly correct.
+//
+// So there is no fallback any more. Either the Instagram credentials are set,
+// or the feature reports itself as unconfigured and says exactly which two
+// values are missing.
+const appId = () => env.INSTAGRAM_APP_ID;
+const appSecret = () => env.INSTAGRAM_APP_SECRET;
 
 export function instagramConfigured() {
   return Boolean(appId() && appSecret());
+}
+
+// What is missing, for the connection screen to show instead of a dead button.
+export function instagramConfigStatus() {
+  const missing = [];
+  if (!env.INSTAGRAM_APP_ID) missing.push('INSTAGRAM_APP_ID');
+  if (!env.INSTAGRAM_APP_SECRET) missing.push('INSTAGRAM_APP_SECRET');
+  return {
+    configured: missing.length === 0,
+    missing,
+    redirectUri: env.INSTAGRAM_REDIRECT_URI,
+    // The two things that have to be true on Meta's side, stated plainly
+    // because neither is discoverable from the error Instagram returns.
+    setupNotes: missing.length === 0 ? [] : [
+      'These are the Instagram app credentials from Meta App Dashboard → your app → Instagram → API setup with Instagram business login. They are not the Facebook App ID and secret used for WhatsApp.',
+      `The redirect URI below must be listed verbatim under "Business login settings" in that same screen: ${env.INSTAGRAM_REDIRECT_URI}`,
+    ],
+  };
 }
 
 export function buildAuthUrl(workspaceId, state) {
@@ -45,6 +76,7 @@ export async function completeOAuth(workspaceId, code, redirectUri) {
   if (!instagramConfigured()) {
     const e = new Error('Instagram is not configured on this server (INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET).');
     e.status = 503;
+    e.expose = true;
     throw e;
   }
 

@@ -317,7 +317,7 @@ export const chatWithAi = async (req, res) => {
         responseText = "Okay — what's the name of the campaign to delete?";
       } else {
         const aiGeneral = await llmText(
-          `You are Spandan's assistant. The user said: "${text}". Reply helpfully in 1-2 sentences, guiding them to create a template, campaign, or automation workflow.`,
+          `You are ChatFlow Pro's assistant. The user said: "${text}". Reply helpfully in 1-2 sentences, guiding them to create a template, campaign, or automation workflow.`,
           'You are a concise, friendly WhatsApp marketing assistant.'
         );
         responseText = aiGeneral || "I can build templates, campaigns and automation workflows for you. Try: \"create a template for an abandoned cart\" or \"build a workflow that replies when someone says HELP\".";

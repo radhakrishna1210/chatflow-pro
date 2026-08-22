@@ -59,10 +59,66 @@ const CheckItem = ({ text }) => (
 // the daily tier, how much of it is spent, the quality rating that sets the
 // tier, and the connection state. They were previously either missing or
 // scattered across three badges on a single number.
-const NumberCard = ({ number, isPrimary, onDisconnect, disconnecting }) => {
+const NumberCard = ({ number, isPrimary, onDisconnect, disconnecting, onRefresh }) => {
+  const [method, setMethod] = useState('SMS');
+  const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  const requestVerificationCode = async () => {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const res = await wFetch(`/whatsapp/numbers/${number.id}/request-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage({ error: data.error || 'Failed to request code' });
+      } else {
+        setMessage({ ok: data.message || 'Code requested successfully' });
+      }
+    } catch (err) {
+      setMessage({ error: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmVerificationCode = async () => {
+    if (code.length !== 6) {
+      setMessage({ error: 'Please enter a 6-digit code' });
+      return;
+    }
+    setLoading(true);
+    setMessage(null);
+    try {
+      const res = await wFetch(`/whatsapp/numbers/${number.id}/verify-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage({ error: data.error || 'Verification failed' });
+      } else {
+        setMessage({ ok: 'Number verified successfully!' });
+        setCode('');
+        if (onRefresh) onRefresh();
+      }
+    } catch (err) {
+      setMessage({ error: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const quality = number.quality || 'Unknown';
   const qc = qualityColor(quality);
   const connected = String(number.status || '').toUpperCase() === 'ACTIVE';
+  const isVerified = number.codeVerificationStatus === 'VERIFIED';
 
   const stats = [
     ['Daily limit', number.messagingLimit || 'Not reported', 'var(--t1)'],
@@ -93,6 +149,12 @@ const NumberCard = ({ number, isPrimary, onDisconnect, disconnecting }) => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', flexShrink: 0 }}>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '.06em', padding: '3px 8px', borderRadius: 6,
+            background: isVerified ? 'var(--gbg)' : 'rgba(245,158,11,.08)',
+            border: `1px solid ${isVerified ? 'var(--gbd)' : 'rgba(245,158,11,.28)'}`,
+            color: isVerified ? 'var(--success)' : '#fbbf24' }}>
+            VERIFICATION: {String(number.codeVerificationStatus || 'NOT_VERIFIED').toUpperCase()}
+          </span>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '.06em', padding: '3px 8px', borderRadius: 6, background: `${qc}1f`, border: `1px solid ${qc}44`, color: qc }}>
             QUALITY: {quality.toUpperCase()}
           </span>
@@ -120,6 +182,49 @@ const NumberCard = ({ number, isPrimary, onDisconnect, disconnecting }) => {
           </div>
         ))}
       </div>
+
+      {!isVerified && (
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px dashed var(--bd)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)' }}>Verify Phone Number:</div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select value={method} onChange={(e) => setMethod(e.target.value)} disabled={loading}
+                style={{ padding: '5px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 12 }}>
+                <option value="SMS">SMS</option>
+                <option value="VOICE">Voice Call</option>
+              </select>
+              
+              <button onClick={requestVerificationCode} disabled={loading}
+                style={{ padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: loading ? 'wait' : 'pointer', background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontFamily: "'Manrope',sans-serif" }}>
+                {loading ? 'Sending...' : 'Request Code'}
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+              <input type="text" maxLength={6} placeholder="6-digit OTP" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} disabled={loading}
+                style={{ width: 100, padding: '5px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 12, textAlign: 'center', boxSizing:'border-box' }} />
+              
+              {/* Disabled until the code is actually six digits: the handler
+                  already refuses a short code, but letting the button fire and
+                  answer with an error reads as a failure rather than as the
+                  field not being filled in yet. */}
+              <button onClick={confirmVerificationCode} disabled={loading || code.length !== 6}
+                style={{ padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                         cursor: (loading || code.length !== 6) ? 'not-allowed' : 'pointer',
+                         opacity: (loading || code.length !== 6) ? 0.5 : 1,
+                         background: 'rgba(14,165,233,.1)', border: '1px solid rgba(14,165,233,.25)', color: '#9d6bff', fontFamily: "'Manrope',sans-serif" }}>
+                {loading ? 'Verifying…' : 'Verify'}
+              </button>
+            </div>
+          </div>
+          {message && (
+            <div style={{ marginTop: 8, fontSize: 12, color: message.error ? '#f87171' : 'var(--green)' }}>
+              {message.error || message.ok}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -358,7 +463,18 @@ export default function NumberSetupView() {
         if (cfgRes.ok) cfg = await cfgRes.json();
       } catch { /* fall through to redirect */ }
 
-      const FB = cfg?.appId && cfg?.configId ? await loadFacebookSdk(cfg.appId) : null;
+      // Neither route is usable — say which configuration is missing rather
+      // than opening a Meta page that will answer with an error.
+      if (cfg && !cfg.embeddedSignupAvailable && !cfg.oauthFallbackAvailable) {
+        setMetaMsg({
+          error: 'WhatsApp sign-in is not configured on this server.',
+          blockers: cfg.blockers || [],
+        });
+        setMetaConnecting(false);
+        return;
+      }
+
+      const FB = cfg?.embeddedSignupAvailable ? await loadFacebookSdk(cfg.appId) : null;
 
       if (FB && cfg?.configId) {
         esRef.current = { code: null, wabaId: null, phoneNumberId: null };
@@ -383,7 +499,13 @@ export default function NumberSetupView() {
               });
               const data = await res.json();
               if (!res.ok) { setMetaMsg({ error: data.error || 'Could not complete connection.' }); return; }
-              setMetaMsg({ ok: `Connected ${data.phoneNumber || 'your number'} via Meta.` });
+              // A connection can succeed and still need work — an unsubscribed
+              // WABA receives no messages, and an unverified number cannot
+              // send. Saying "Connected" alone hides both.
+              setMetaMsg({
+                ok: `Connected ${data.phoneNumber || 'your number'} via Meta.`,
+                blockers: data.warnings || [],
+              });
               await load();
             } catch (e) {
               setMetaMsg({ error: e.message });
@@ -400,12 +522,26 @@ export default function NumberSetupView() {
         return; // FB.login callback drives the rest
       }
 
-      // Fallback: server-side OAuth redirect flow.
+      // Fallback: server-side OAuth redirect flow. Only reached when Embedded
+      // Signup is unavailable and the server has confirmed its redirect URI is
+      // one Meta will accept.
+      if (cfg && !cfg.oauthFallbackAvailable) {
+        setMetaMsg({
+          error: 'The Meta sign-in window could not be opened, and this server cannot use the fallback.',
+          blockers: cfg.blockers || [],
+        });
+        setMetaConnecting(false);
+        return;
+      }
       const res = await fetch(`/api/v1/auth/meta/start?workspaceId=${encodeURIComponent(workspaceId || '')}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (!res.ok) { setMetaMsg({ error: data.error || `Could not start Meta connection (${res.status})` }); setMetaConnecting(false); return; }
+      if (!res.ok) {
+        setMetaMsg({ error: data.error || `Could not start Meta connection (${res.status})` });
+        setMetaConnecting(false);
+        return;
+      }
       window.location.href = data.url;
     } catch (e) {
       setMetaMsg({ error: e.message });
@@ -452,7 +588,7 @@ export default function NumberSetupView() {
               </span>
             </div>
             {numbers.map((n, i) => (
-              <NumberCard key={n.id} number={n} isPrimary={i === 0} />
+              <NumberCard key={n.id} number={n} isPrimary={i === 0} onRefresh={load} />
             ))}
             <p style={{ fontSize:11, color:'var(--t3)', lineHeight:1.6, margin:0 }}>
               Daily limit and quality are set by Meta from your sending history. Keeping quality high is what raises the tier —
@@ -470,6 +606,14 @@ export default function NumberSetupView() {
             <div style={{ flex:1 }}>
               <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:22, color:'var(--t1)', letterSpacing:'-.03em', marginBottom:6 }}>{number?.phoneNumber || 'No number connected'}</p>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                {number?.codeVerificationStatus && (
+                  <span style={{ padding:'2px 9px', borderRadius:12, fontSize:11, fontWeight:700,
+                    background: number.codeVerificationStatus === 'VERIFIED' ? 'var(--gbg)' : 'rgba(245,158,11,.08)',
+                    border: `1px solid ${number.codeVerificationStatus === 'VERIFIED' ? 'var(--gbd)' : 'rgba(245,158,11,.28)'}`,
+                    color: number.codeVerificationStatus === 'VERIFIED' ? 'var(--green)' : '#fbbf24' }}>
+                    Verification: {number.codeVerificationStatus}
+                  </span>
+                )}
                 {number?.quality && (
                   <span style={{ padding:'2px 9px', borderRadius:12, fontSize:11, fontWeight:700, background:fmtQ(number.quality).bg, border:`1px solid ${fmtQ(number.quality).bd}`, color:fmtQ(number.quality).color }}>Quality: {number.quality}</span>
                 )}
@@ -532,6 +676,16 @@ export default function NumberSetupView() {
             border: `1px solid ${metaMsg.error ? 'rgba(239,68,68,.25)' : 'var(--gbd)'}`,
             display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <p style={{ fontSize:12.5, color: metaMsg.error ? '#f87171' : 'var(--green)' }}>{metaMsg.error || metaMsg.ok}</p>
+            {/* What specifically is missing, or what still needs doing after a
+                connection that succeeded but is not yet usable. Each line names
+                an environment variable or a Meta dashboard setting. */}
+            {Array.isArray(metaMsg.blockers) && metaMsg.blockers.length > 0 && (
+              <ul style={{ margin:'8px 0 0', paddingLeft:18, display:'flex', flexDirection:'column', gap:6 }}>
+                {metaMsg.blockers.map((b, i) => (
+                  <li key={i} style={{ fontSize:11.5, color:'var(--t2)', lineHeight:1.55 }}>{b}</li>
+                ))}
+              </ul>
+            )}
             <button onClick={() => setMetaMsg(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', fontSize:14 }}>×</button>
           </div>
         )}

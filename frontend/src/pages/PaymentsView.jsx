@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { canBill } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
@@ -101,13 +101,15 @@ export default function PaymentsView({ initialTab } = {}) {
   const [gstNum, setGstNum] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
 
-  // Subscriptions & Add-ons
-  const [addons, setAddons] = useState({
-    crm: false,
-    events: false,
-    tags: false,
-    fields: false
-  });
+  // Add-ons. The catalogue, the prices and which ones are active all come from
+  // the server — they used to be four hardcoded price strings in this file
+  // with a boolean in localStorage standing in for a purchase, which is why the
+  // price shown could never match what a gateway charged.
+  const [addonState, setAddonState] = useState({ addons: [], currency: 'INR' });
+  const [addonBusy, setAddonBusy] = useState(null);
+  const rechargeInputRef = useRef(null);
+  const [addonError, setAddonError] = useState('');
+  const [addonMessage, setAddonMessage] = useState('');
 
   // Subscription plan — server-authoritative (README §12). `subscription` is
   // the GET /subscription summary (current plan, usage, status, pending plan);
@@ -154,7 +156,7 @@ export default function PaymentsView({ initialTab } = {}) {
     window._reloadWallet = loadWallet;
 
     // 2. Billing details (still local until a billing backend exists)
-    const savedBilling = localStorage.getItem('spandan_billing_details');
+    const savedBilling = localStorage.getItem('ChatFlow Pro_billing_details');
     if (savedBilling) {
       try {
         const parsed = JSON.parse(savedBilling);
@@ -165,10 +167,7 @@ export default function PaymentsView({ initialTab } = {}) {
       } catch {}
     }
 
-    const savedAddons = localStorage.getItem('spandan_subscribed_addons');
-    if (savedAddons) {
-      try { setAddons(JSON.parse(savedAddons)); } catch {}
-    }
+    loadAddons();
 
     // 4. Load invoices from backend
     wFetch('/settings/invoices')
@@ -226,7 +225,7 @@ export default function PaymentsView({ initialTab } = {}) {
         amount: order.amount,
         currency: order.currency,
         order_id: order.orderId,
-        name: 'Spandan',
+        name: 'ChatFlow Pro',
         description: 'Wallet recharge',
         prefill: { email: user.email, name: user.name },
         theme: { color: '#35e8f2' },
@@ -294,7 +293,7 @@ export default function PaymentsView({ initialTab } = {}) {
         amount: order.amount,
         currency: order.currency,
         order_id: order.orderId,
-        name: 'Spandan',
+        name: 'ChatFlow Pro',
         description: `${plan.name} plan`,
         prefill: { email: user.email, name: user.name },
         theme: { color: '#35e8f2' },
@@ -346,15 +345,105 @@ export default function PaymentsView({ initialTab } = {}) {
 
   const handleSaveBilling = () => {
     const data = { bizName, bizEmail, bizAddress, gstNum };
-    localStorage.setItem('spandan_billing_details', JSON.stringify(data));
+    localStorage.setItem('ChatFlow Pro_billing_details', JSON.stringify(data));
     setSaveStatus('success');
     setTimeout(() => setSaveStatus(''), 2000);
   };
 
-  const toggleAddon = (key) => {
-    const updated = { ...addons, [key]: !addons[key] };
-    setAddons(updated);
-    localStorage.setItem('spandan_subscribed_addons', JSON.stringify(updated));
+  // The "Add Money" buttons on the wallet banners jump here. Switching to the
+  // wallet tab and focusing the amount is what makes the button do something
+  // visible even when the user is already on this screen.
+  useEffect(() => {
+    const onFocusRecharge = () => {
+      setActiveSubTab('wallet');
+      setTimeout(() => {
+        rechargeInputRef.current?.focus();
+        rechargeInputRef.current?.select();
+        rechargeInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 40);
+    };
+    window.addEventListener('wallet:focus-recharge', onFocusRecharge);
+    return () => window.removeEventListener('wallet:focus-recharge', onFocusRecharge);
+  }, []);
+
+  const loadAddons = () => wFetch('/subscription/addons')
+    .then(r => (r.ok ? r.json() : null))
+    .then(d => { if (d) setAddonState(d); })
+    .catch(() => {});
+
+  // A real purchase: the order is created server-side from the catalogue price,
+  // and the add-on is only activated once the signature has been verified
+  // server-side against the amount Razorpay reports for that order.
+  const buyAddon = async (addon) => {
+    setAddonError(''); setAddonMessage(''); setAddonBusy(addon.key);
+    try {
+      const orderRes = await wFetch('/subscription/addons/checkout', {
+        method: 'POST', body: JSON.stringify({ addonKey: addon.key }),
+      });
+      const order = await orderRes.json();
+      if (!orderRes.ok) { setAddonError(order.error || 'Could not start checkout'); setAddonBusy(null); return; }
+
+      if (!await loadRazorpayScript()) {
+        setAddonError('Could not load the payment widget. Check your connection and try again.');
+        setAddonBusy(null); return;
+      }
+
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const rzp = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        order_id: order.orderId,
+        name: 'ChatFlow Pro',
+        description: order.addon.title,
+        prefill: { email: user.email, name: user.name },
+        theme: { color: '#35e8f2' },
+        handler: async (response) => {
+          try {
+            const verifyRes = await wFetch('/subscription/addons/checkout/verify', {
+              method: 'POST',
+              body: JSON.stringify({
+                orderId: response.razorpay_order_id,
+                paymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+              }),
+            });
+            const data = await verifyRes.json();
+            if (!verifyRes.ok) { setAddonError(data.error || 'Payment verification failed'); return; }
+            setAddonMessage(`${data.addon.title} is active.`);
+            await loadAddons();
+            wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch(() => {});
+          } catch {
+            setAddonError(`Payment succeeded but we could not confirm it automatically. Contact support with payment ID ${response.razorpay_payment_id}.`);
+          } finally {
+            setAddonBusy(null);
+          }
+        },
+        modal: { ondismiss: () => setAddonBusy(null) },
+      });
+      rzp.on('payment.failed', (resp) => {
+        setAddonError(resp.error?.description || 'Payment failed');
+        setAddonBusy(null);
+      });
+      rzp.open();
+    } catch (e) {
+      setAddonError(e.message);
+      setAddonBusy(null);
+    }
+  };
+
+  const cancelAddon = async (addon) => {
+    setAddonError(''); setAddonMessage(''); setAddonBusy(addon.key);
+    try {
+      const res = await wFetch(`/subscription/addons/${addon.key}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) setAddonError(data.error || 'Could not cancel the add-on');
+      else { setAddonMessage(data.message); await loadAddons(); }
+    } catch (e) {
+      setAddonError(e.message);
+    } finally {
+      setAddonBusy(null);
+    }
   };
 
   // Render Inner Tabs
@@ -384,7 +473,7 @@ export default function PaymentsView({ initialTab } = {}) {
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
               <span style={{ position: 'absolute', left: 14, top: 11, fontSize: 14, fontWeight: 600, color: 'var(--t2)' }}>₹</span>
-              <input type="number" value={rechargeAmt} onChange={e => setRechargeAmt(e.target.value)}
+              <input ref={rechargeInputRef} type="number" value={rechargeAmt} onChange={e => setRechargeAmt(e.target.value)}
                 style={{ width: '100%', padding: '10px 14px 10px 28px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
             </div>
 
@@ -733,30 +822,60 @@ export default function PaymentsView({ initialTab } = {}) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <h4 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Add-ons</h4>
 
+          {addonMessage && (
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 12px', borderRadius:8, background:'var(--gbg)', border:'1px solid var(--gbd)' }}>
+              <I n="checkc" s={14} c="var(--green)" />
+              <span style={{ fontSize:12.5, color:'var(--green)' }}>{addonMessage}</span>
+            </div>
+          )}
+          {addonError && (
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,0.06)', border:'1px solid rgba(239,68,68,0.2)' }}>
+              <I n="alertt" s={14} c="#f87171" />
+              <span style={{ fontSize:12.5, color:'#f87171' }}>{addonError}</span>
+            </div>
+          )}
+
+          {addonState.addons.length === 0 && (
+            <p style={{ fontSize: 12.5, color: 'var(--t3)' }}>Loading add-ons…</p>
+          )}
+
           <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-            {[
-              { id: 'crm', title: 'Sales CRM Add-on', price: '₹1499/month', desc: 'Native lead owners, auto-assignments, pipeline management' },
-              { id: 'events', title: 'Pack of 3 Custom Events', price: '₹499/month', desc: 'Track external triggers and coordinate custom actions via Webhook' },
-              { id: 'tags', title: 'Pack of 10 Custom Tags', price: '₹499/month', desc: 'Expand categorizations to organize contacts effectively' },
-              { id: 'fields', title: 'Pack of 5 Custom Fields', price: '₹499/month', desc: 'Add user traits and extra attributes to contact profiles' }
-            ].map(addon => {
-              const hasAddon = addons[addon.id];
+            {addonState.addons.map(addon => {
+              const busy = addonBusy === addon.key;
               return (
-                <div key={addon.id} style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14 }}>
+                <div key={addon.key} style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14 }}>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, flexWrap: 'wrap', rowGap: 10 }}>
                       <h5 style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)' }}>{addon.title}</h5>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--green)' }}>{addon.price}</span>
+                      {/* Straight from the server's catalogue — the same figure
+                          the checkout order is created for. */}
+                      <span style={{ fontSize: 12, fontWeight: 600, color: addon.available === false ? 'var(--t3)' : 'var(--green)' }}>
+                        {addon.available === false ? 'Not available' : addon.priceLabel}
+                      </span>
                     </div>
-                    <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.desc}</p>
+                    <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.description}</p>
+                    {addon.active && addon.currentPeriodEnd && (
+                      <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
+                        {addon.status === 'CANCELLED' ? 'Ends' : 'Renews'} {new Date(addon.currentPeriodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    )}
                   </div>
-                  {isAdmin ? (
-                    <Btn variant={hasAddon ? 'outline' : 'primary'} onClick={() => toggleAddon(addon.id)} style={{ width: '100%', borderColor: hasAddon ? '#f8717144' : 'var(--bd)', color: hasAddon ? '#f87171' : '#0a0b0e' }}>
-                      {hasAddon ? 'Remove Add-on' : 'Add to Plan'}
+                  {/* An add-on that grants nothing must not be sellable. Two
+                      of the four cannot be delivered by a flag, so they say so
+                      instead of taking money — see lib/addonCatalogue.js. */}
+                  {addon.available === false ? (
+                    <div style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px dashed var(--bd)', color: 'var(--t3)', fontSize: 11.5, lineHeight: 1.5 }}>
+                      {addon.unavailableReason}
+                    </div>
+                  ) : isAdmin ? (
+                    <Btn variant={addon.active ? 'outline' : 'primary'} disabled={busy}
+                      onClick={() => (addon.active ? cancelAddon(addon) : buyAddon(addon))}
+                      style={{ width: '100%', borderColor: addon.active ? '#f8717144' : 'var(--bd)', color: addon.active ? '#f87171' : '#0a0b0e' }}>
+                      {busy ? 'Working…' : addon.active ? (addon.status === 'CANCELLED' ? 'Cancelled' : 'Cancel Add-on') : 'Add to Plan'}
                     </Btn>
                   ) : (
                     <div style={{ width: '100%', textAlign: 'center', padding: '9px 0', borderRadius: 8, border: '1px solid var(--bd)', color: 'var(--t3)', fontSize: 12 }}>
-                      {hasAddon ? 'Included' : 'Not included'}
+                      {addon.active ? 'Included' : 'Not included'}
                     </div>
                   )}
                 </div>

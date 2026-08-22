@@ -37,11 +37,11 @@ const INDUSTRIES = [
 ];
 
 const STEPS = [
-  { kicker: 'YOUR GOAL',    title: 'What brings you to Spandan?', sub: 'This tailors your setup and the agent we build for you.' },
+  { kicker: 'YOUR GOAL',    title: 'What brings you to ChatFlow Pro?', sub: 'This tailors your setup and the agent we build for you.' },
   { kicker: 'YOUR BUSINESS',title: 'What kind of business?',       sub: 'It tunes the assistant’s tone and what it assumes.' },
   { kicker: 'WORKSPACE',    title: 'Name your workspace',          sub: 'Your team, numbers, contacts and wallet all live inside it.' },
   { kicker: 'AI SETUP',     title: 'Turn on Campaign AI?',         sub: 'Let customers ask about your offers and get grounded answers.' },
-  { kicker: 'DONE',         title: 'Welcome to Spandan',           sub: '' },
+  { kicker: 'DONE',         title: 'Welcome to ChatFlow Pro',           sub: '' },
 ];
 
 // ─── pieces ──────────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ export default function WorkspaceSetup({ onNav }) {
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '18px clamp(18px,4vw,44px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="sp-pulse" style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 12px var(--accent)' }} />
-          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)', letterSpacing: '-.02em' }}>spandan</span>
+          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)', letterSpacing: '-.02em' }}>ChatFlow Pro</span>
         </div>
         {/* An escape hatch that does not strand anyone: there is no workspace
             to skip into yet, so this signs out rather than pretending. */}

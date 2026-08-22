@@ -414,7 +414,7 @@ export async function matchIntent(workspaceId, messageBody) {
 
 // Generates a free-form reply from the deployed agent, or null if the agent is
 // not deployed / no LLM is available / generation fails. Keeps replies short.
-export async function generateAgentReply(workspaceId, messageBody, { contactName, conversationId = null, waNumberId = null } = {}) {
+export async function generateAgentReply(workspaceId, messageBody, { contactName, conversationId = null, waNumberId = null, intentHint = null } = {}) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { aiAgentEnabled: true, ...AGENT_PROMPT_SELECT },
@@ -443,7 +443,16 @@ export async function generateAgentReply(workspaceId, messageBody, { contactName
   // Same generator as the campaign path, so both modes share one prompt, one
   // set of answer rules and one Gemini call — the only difference is whether
   // `context` is null.
-  const agent = { name: ws.aiAgentName, prompt: composeAgentPrompt(ws), knowledge: ws.aiAgentKnowledge };
+  // An intent rule that routed here named what the customer is asking about.
+  // Passing it on is the difference between the agent guessing the topic and
+  // being told it — the operator wrote that rule precisely to say so.
+  const prompt = intentHint
+    ? `${composeAgentPrompt(ws)}
+
+This message has been classified as being about: ${intentHint}. Answer on that basis.`
+    : composeAgentPrompt(ws);
+
+  const agent = { name: ws.aiAgentName, prompt, knowledge: ws.aiAgentKnowledge };
   return generateCampaignReply({ agent, context, business, messageBody, contactName, history });
 }
 

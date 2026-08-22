@@ -11,6 +11,31 @@ export async function getMessages(req, res) {
   res.json(messages);
 }
 
+// An attachment on an open conversation. The file arrives as multipart, so the
+// body carries only the optional caption.
+export async function sendMedia(req, res) {
+  const message = await conversationsService.sendMediaMessage(
+    req.params.workspaceId, req.params.id, req.user.id,
+    {
+      buffer: req.file?.buffer,
+      mimeType: String(req.file?.mimetype || '').split(';')[0].trim(),
+      fileName: req.file?.originalname,
+      caption: req.body?.caption,
+    },
+  );
+  res.status(201).json(message);
+}
+
+// The only thing WhatsApp permits once the 24-hour window has closed. Every
+// error message told the agent to send a template; this is the route that lets
+// them actually do it.
+export async function sendTemplate(req, res) {
+  const message = await conversationsService.sendTemplateMessage(
+    req.params.workspaceId, req.params.id, req.user.id, req.body || {},
+  );
+  res.status(201).json(message);
+}
+
 export async function sendMessage(req, res) {
   const message = await conversationsService.sendMessage(
     req.params.workspaceId,
@@ -39,6 +64,13 @@ export async function suggest(req, res) {
     console.error('[Conversations] suggest error:', err);
     res.status(err.status || 500).json({ error: err.message || 'Failed to draft a reply' });
   }
+}
+
+// Hand the thread back to the automation, or keep it away.
+export async function setBot(req, res) {
+  res.json(await conversationsService.setBotEnabled(
+    req.params.workspaceId, req.params.id, req.body?.enabled !== false,
+  ));
 }
 
 // ── Internal notes, assignment and status ──

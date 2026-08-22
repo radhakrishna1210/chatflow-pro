@@ -9,6 +9,8 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/', apiKeysController.list);
+// Literal path before any ':id' route.
+router.get('/scopes', apiKeysController.scopes);
 router.post('/', validate({ body: apiKeySchemas.create }), apiKeysController.create);
 router.post('/:id/rotate', apiKeysController.rotate);
 router.delete('/:id', apiKeysController.revoke);

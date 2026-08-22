@@ -7,6 +7,13 @@ const clampDays = (value) => {
   return [7, 30, 90].includes(days) ? days : 30;
 };
 
+// Analytics ranges are shorter and finer than the 7/30/90 the chat page uses:
+// a campaign's whole life is often a single day.
+const clampRangeDays = (value) => {
+  const days = Number.parseInt(value, 10);
+  return [1, 7, 14, 30, 90].includes(days) ? days : 14;
+};
+
 const percent = (part, total) => (total > 0 ? +((part / total) * 100).toFixed(1) : 0);
 
 const toIsoDay = (date) => date.toISOString().slice(0, 10);
@@ -23,33 +30,58 @@ const averageLatencyMs = (items, field) => {
   return Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length);
 };
 
-export async function getOverview(workspaceId) {
-  const [totalMessages, totalCampaigns, totalContacts, optOuts, agg] = await Promise.all([
-    prisma.message.count({ where: { conversation: { workspaceId } } }),
-    prisma.campaign.count({ where: { workspaceId } }),
-    prisma.contact.count({ where: { workspaceId } }),
-    prisma.contact.count({ where: { workspaceId, optedOut: true } }),
-    prisma.campaign.aggregate({
-      where: { workspaceId },
-      _sum: { sent: true, delivered: true, read: true, failed: true },
+export async function getOverview(workspaceId, daysParam) {
+  const days = clampRangeDays(daysParam);
+  // Midnight `days - 1` days ago, so "7 days" means seven whole days including
+  // today rather than a rolling 168 hours — which is what the label promises.
+  const since = new Date();
+  since.setDate(since.getDate() - (days - 1));
+  since.setHours(0, 0, 0, 0);
+
+  const [messagesSent, totalCampaigns, totalContacts, optOuts, statusGroups] = await Promise.all([
+    // Outbound only, and only within the range.
+    //
+    // This counted every Message row in the workspace and then added the
+    // campaigns' own `sent` counters on top. The campaign worker writes a
+    // Message row for each send, so campaign messages were already in the first
+    // number and were counted twice — while inbound messages *from* customers
+    // were being reported as messages the workspace had sent.
+    prisma.message.count({
+      where: { conversation: { workspaceId }, direction: 'OUTBOUND', sentAt: { gte: since } },
+    }),
+    prisma.campaign.count({ where: { workspaceId, createdAt: { gte: since } } }),
+    // Contacts and opt-outs are "added in this period", matching how every
+    // other figure on the page reads.
+    prisma.contact.count({ where: { workspaceId, createdAt: { gte: since } } }),
+    prisma.contact.count({ where: { workspaceId, optedOut: true, optedOutAt: { gte: since } } }),
+    // Delivery outcomes come from the recipients themselves rather than
+    // Campaign's denormalised counters, which are incremented from four
+    // different files with no reconciliation and can drift.
+    prisma.campaignRecipient.groupBy({
+      by: ['status'],
+      where: { campaign: { workspaceId }, sentAt: { gte: since } },
+      _count: { _all: true },
     }),
   ]);
 
-  const sent      = agg._sum.sent      ?? 0;
-  const delivered = agg._sum.delivered ?? 0;
-  const read      = agg._sum.read      ?? 0;
-  const failed    = agg._sum.failed    ?? 0;
-  const messagesSent = totalMessages + sent; // outbound from inbox + campaign sends
-  const deliveryRate = sent > 0 ? +((delivered / sent) * 100).toFixed(1) : 0;
-  const optOutRate   = totalContacts > 0 ? +((optOuts / totalContacts) * 100).toFixed(1) : 0;
+  const byStatus = Object.fromEntries(statusGroups.map((row) => [row.status, row._count._all]));
+  // DELIVERED and READ are states a send passed *through* SENT to reach, so
+  // each one counts toward every stage below it.
+  const read      = byStatus.READ ?? 0;
+  const delivered = (byStatus.DELIVERED ?? 0) + read;
+  const sent      = (byStatus.SENT ?? 0) + delivered;
+  const failed    = byStatus.FAILED ?? 0;
 
   return {
+    // Echoed so the page can label what it is showing instead of assuming.
+    days,
+    since,
     messagesSent,
     totalCampaigns,
     totalContacts,
     optOuts,
-    deliveryRate,        // number 0–100
-    optOutRate,          // number 0–100
+    deliveryRate: percent(delivered, sent),
+    optOutRate: percent(optOuts, totalContacts),
     sent,
     delivered,
     read,
@@ -57,11 +89,12 @@ export async function getOverview(workspaceId) {
   };
 }
 
-export async function getDeliveryStats(workspaceId) {
-  // One query for the whole 7-day window, bucketed in memory — replaces the
+export async function getDeliveryStats(workspaceId, daysParam) {
+  const days = clampRangeDays(daysParam);
+  // One query for the whole window, bucketed in memory — replaces the
   // previous 14 sequential COUNT round-trips.
   const windowStart = new Date();
-  windowStart.setDate(windowStart.getDate() - 6);
+  windowStart.setDate(windowStart.getDate() - (days - 1));
   windowStart.setHours(0, 0, 0, 0);
 
   const recipients = await prisma.campaignRecipient.findMany({
@@ -76,15 +109,15 @@ export async function getDeliveryStats(workspaceId) {
   });
 
   const buckets = new Map();
-  const days = [];
-  for (let i = 6; i >= 0; i--) {
+  const daysList = [];
+  for (let i = days - 1; i >= 0; i--) {
     const date = new Date();
     date.setDate(date.getDate() - i);
     date.setHours(0, 0, 0, 0);
     const key = date.toISOString().split('T')[0];
     const entry = { date: DAY_NAMES[date.getDay()], iso: key, sent: 0, delivered: 0, rate: 0 };
     buckets.set(key, entry);
-    days.push(entry);
+    daysList.push(entry);
   }
 
   const keyOf = (d) => {
@@ -97,33 +130,47 @@ export async function getDeliveryStats(workspaceId) {
     if (r.sentAt) buckets.get(keyOf(r.sentAt)) && buckets.get(keyOf(r.sentAt)).sent++;
     if (r.deliveredAt) buckets.get(keyOf(r.deliveredAt)) && buckets.get(keyOf(r.deliveredAt)).delivered++;
   }
-  for (const d of days) d.rate = d.sent > 0 ? +((d.delivered / d.sent) * 100).toFixed(1) : 0;
-  return days;
+  for (const d of daysList) d.rate = d.sent > 0 ? +((d.delivered / d.sent) * 100).toFixed(1) : 0;
+  return daysList;
 }
 
-export async function getCampaignStats(workspaceId) {
+export async function getCampaignStats(workspaceId, daysParam) {
+  const days = clampRangeDays(daysParam);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   return prisma.campaign.findMany({
-    where: { workspaceId },
+    where: { workspaceId, createdAt: { gte: since } },
     select: { id: true, name: true, sent: true, delivered: true, read: true, failed: true, totalContacts: true, createdAt: true },
     orderBy: { createdAt: 'desc' },
     take: 8,
   });
 }
 
-export async function getAgentStats(workspaceId) {
+export async function getAgentStats(workspaceId, daysParam) {
+  const days = clampRangeDays(daysParam);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
   const members = await prisma.workspaceMember.findMany({
     where: { workspaceId },
     include: { user: { select: { id: true, name: true } } },
   });
 
-  return Promise.all(
-    members.map(async (m) => {
-      const chatsHandled = await prisma.message.count({
-        where: { senderUserId: m.userId, conversation: { workspaceId } },
-      });
-      return { agentId: m.userId, name: m.user.name, chatsHandled };
-    })
-  );
+  const msgGroups = await prisma.message.groupBy({
+    by: ['senderUserId'],
+    where: {
+      conversation: { workspaceId },
+      sentAt: { gte: since },
+      senderUserId: { in: members.map((m) => m.userId) },
+    },
+    _count: { _all: true },
+  });
+
+  const countMap = new Map(msgGroups.map((g) => [g.senderUserId, g._count._all]));
+
+  return members.map((m) => ({
+    agentId: m.userId,
+    name: m.user.name,
+    chatsHandled: countMap.get(m.userId) || 0,
+  }));
 }
 
 // ─── Chat analysis ───────────────────────────────────────────────────────────
@@ -379,7 +426,7 @@ export async function getPaidMessagesInsights(workspaceId, daysParam = 7) {
 //
 // One deliberate omission: there is no revenue or lifetime-value figure here.
 // Nothing in this database records what a contact spent — orders live in the
-// customer's store, not in Spandan — so a "lifetime value" column would be a
+// customer's store, not in ChatFlow Pro — so a "lifetime value" column would be a
 // number invented to fill a column. Engagement is measured instead, from data
 // that exists, and the page says plainly what would be needed for revenue.
 
@@ -581,7 +628,11 @@ function classifySentiment(text) {
 }
 
 export async function getConversationInsights(workspaceId, daysParam = 30) {
-  const days = clampDays(daysParam);
+  // clampRangeDays, not clampDays: this feeds the Analytics page's topic panel,
+  // whose control offers 1/7/14/30/90. Under the 7/30/90 clamp a "24 hours" or
+  // "14 days" selection silently fell back to 30 and the panel showed a month
+  // of topics under a label that said otherwise.
+  const days = clampRangeDays(daysParam);
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const [intentRules, messages, fellThrough] = await Promise.all([
@@ -732,13 +783,6 @@ export async function getConversationInsights(workspaceId, daysParam = 30) {
 // purchase — that needs the customer's store or payment provider connected, and
 // until it is, those two bars would be decoration. The page says so where the
 // funnel ends, rather than showing a number nobody can trace.
-
-// Analytics ranges are shorter and finer than the 7/30/90 the chat page uses:
-// a campaign's whole life is often a single day.
-const clampRangeDays = (value) => {
-  const days = Number.parseInt(value, 10);
-  return [1, 7, 14, 30, 90].includes(days) ? days : 14;
-};
 
 export async function getPerformance(workspaceId, daysParam = 14) {
   const days = clampRangeDays(daysParam);

@@ -320,7 +320,7 @@ async function main() {
   }
 
   httpServer = app.listen(env.PORT, () => {
-    console.log(`[Server] Spandan backend running on port ${env.PORT}`);
+    console.log(`[Server] ChatFlow Pro backend running on port ${env.PORT}`);
     console.log(`[Server] Environment: ${env.NODE_ENV}`);
   });
 }

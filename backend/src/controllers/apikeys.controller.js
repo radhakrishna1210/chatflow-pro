@@ -5,6 +5,12 @@ export async function list(req, res) {
   res.json(keys);
 }
 
+// The scope catalogue, so the key-creation UI lists exactly what the server
+// will accept rather than a hardcoded copy of it.
+export async function scopes(req, res) {
+  res.json(apiKeysService.listApiScopes());
+}
+
 export async function create(req, res) {
   const result = await apiKeysService.createApiKey(req.params.workspaceId, req.body, req.user);
   res.status(201).json(result);

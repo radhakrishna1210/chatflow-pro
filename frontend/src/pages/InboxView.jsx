@@ -140,9 +140,50 @@ const ThreadContext = ({ context, onHandBackToAI, busy }) => {
   );
 };
 
+
+// Message types that are not plain text get a small label in the bubble, so a
+// photo or a voice note reads as one rather than as a bare placeholder string.
+// Names must exist in components/Icons.jsx — an unknown name renders nothing,
+// which would leave the label with no glyph beside it.
+const MEDIA_ICON = {
+  IMAGE: 'eye', VIDEO: 'play', AUDIO: 'phone', DOCUMENT: 'file',
+  STICKER: 'sparkl', LOCATION: 'globe', CONTACTS: 'user', UNSUPPORTED: 'alertt',
+};
+
+// Delivery state for an outbound message, mirrored from Meta's status webhook.
+// Nothing showed this before: statuses were applied only to campaign sends, so
+// an inbox reply never reported whether it had arrived.
+const DeliveryTick = ({ status, error }) => {
+  const spec = {
+    PENDING:   { glyph: '·',  color: 'var(--t3)',  label: 'Sending' },
+    SENT:      { glyph: '✓',  color: 'var(--t3)',  label: 'Sent' },
+    DELIVERED: { glyph: '✓✓', color: 'var(--t2)', label: 'Delivered' },
+    READ:      { glyph: '✓✓', color: 'var(--green)', label: 'Read' },
+    FAILED:    { glyph: '!',        color: '#f87171',    label: 'Failed' },
+  }[status];
+  if (!spec) return null;
+  return (
+    <span title={error || spec.label}
+      style={{ fontSize: 10, lineHeight: 1, color: spec.color, fontWeight: 700, letterSpacing: '-1px' }}>
+      {spec.glyph}
+    </span>
+  );
+};
+
 export default function InboxView() {
   const [convs, setConvs]       = useState([]);
   const [msgs, setMsgs]         = useState({});
+  // WhatsApp's 24-hour customer service window, per conversation, as reported
+  // by the server. Outside it only an approved template may be sent, so the
+  // composer has to say so instead of letting the send fail at Meta.
+  const [windowState, setWindowState] = useState({});
+  const fileInputRef = useRef(null);
+  const [attaching, setAttaching] = useState(false);
+  // Approved templates, for reopening a conversation whose free-form window has
+  // closed — the only message WhatsApp accepts at that point.
+  const [templates, setTemplates] = useState([]);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [sendingTemplate, setSendingTemplate] = useState(null);
   const [activeId, setActiveId] = useState(null);
   const [isBot, setIsBot]       = useState(false);
   const [input, setInput]       = useState('');
@@ -239,7 +280,15 @@ export default function InboxView() {
     const loadMsgs = () =>
       wFetch(`/conversations/${activeId}/messages`)
         .then(r => r.ok && r.json())
-        .then(d => { if (!stopped && Array.isArray(d)) setMsgs(p => ({ ...p, [activeId]: d })); })
+        .then(d => {
+          if (stopped || !d) return;
+          // The endpoint now returns { messages, window } so the composer knows
+          // whether WhatsApp still permits a free-form reply. The array form is
+          // still accepted so a stale cached bundle keeps working.
+          const list = Array.isArray(d) ? d : d.messages;
+          if (Array.isArray(list)) setMsgs(p => ({ ...p, [activeId]: list }));
+          if (!Array.isArray(d) && d.window) setWindowState(p => ({ ...p, [activeId]: d.window }));
+        })
         .catch(() => {});
     loadMsgs();
     const interval = setInterval(loadMsgs, 4000);
@@ -366,6 +415,65 @@ export default function InboxView() {
     }
   };
 
+  useEffect(() => {
+    wFetch('/templates?status=APPROVED')
+      .then(r => (r.ok ? r.json() : []))
+      .then(d => { if (Array.isArray(d)) setTemplates(d.filter(t => t.status === 'APPROVED')); })
+      .catch(() => {});
+  }, []);
+
+  const sendTemplate = async (template) => {
+    if (!activeId) return;
+    setSendError(null);
+    setSendingTemplate(template.id);
+    try {
+      const res = await wFetch(`/conversations/${activeId}/template`, {
+        method: 'POST', body: JSON.stringify({ templateId: template.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSendError(data.error || `Could not send that template (${res.status})`); return; }
+      setMsgs(p => ({ ...p, [activeId]: [...(p[activeId] || []), data] }));
+      setTemplatePickerOpen(false);
+    } catch (e) {
+      setSendError(e.message);
+    } finally {
+      setSendingTemplate(null);
+    }
+  };
+
+  // Attachments. The composer was text-only and no route accepted a file, so an
+  // agent could read a customer's photo and had no way to send one back.
+  const sendFile = async (file) => {
+    if (!file || !activeId) return;
+    setSendError(null);
+    setAttaching(true);
+    const temp = {
+      id: `tmpf${Date.now()}`, body: file.name, direction: 'OUTBOUND', type: 'DOCUMENT',
+      sentAt: new Date().toISOString(), senderUser: { name: 'You' }, _pending: true,
+    };
+    setMsgs(p => ({ ...p, [activeId]: [...(p[activeId] || []), temp] }));
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      if (input.trim()) form.append('caption', input.trim());
+      const res = await wFetch(`/conversations/${activeId}/media`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.error || `Could not send that file (${res.status})`);
+        setMsgs(p => ({ ...p, [activeId]: (p[activeId] || []).filter(m => m.id !== temp.id) }));
+        return;
+      }
+      setInput('');
+      setMsgs(p => ({ ...p, [activeId]: (p[activeId] || []).map(m => m.id === temp.id ? data : m) }));
+    } catch (e) {
+      setSendError(e.message);
+      setMsgs(p => ({ ...p, [activeId]: (p[activeId] || []).filter(m => m.id !== temp.id) }));
+    } finally {
+      setAttaching(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   // What "handled by AI" means here is the only thing the data actually
   // records: the last outbound message had no human sender.
   const lastOutbound = (c) => (c.messages || []).find(m => (m.direction || '').toUpperCase() === 'OUTBOUND');
@@ -386,6 +494,7 @@ export default function InboxView() {
   );
   const active = convs.find(c => c.id === activeId);
   const activeMsgs = msgs[activeId] || [];
+  const activeWindow = windowState[activeId] || null;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
@@ -511,7 +620,7 @@ export default function InboxView() {
                   <div style={{ display:'flex', alignItems:'center', gap:5, minWidth:0 }}>
                     {!mobile && <I n="phone" s={10} c="var(--t2)" />}
                     <p style={{ fontSize:11, color: mobile ? 'rgba(255,255,255,0.85)' : 'var(--t2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                      {mobile && isBot ? 'Spandan AI active' : active.contact.phoneNumber}
+                      {mobile && isBot ? 'ChatFlow Pro AI active' : active.contact.phoneNumber}
                     </p>
                   </div>
                 </div>
@@ -594,13 +703,31 @@ export default function InboxView() {
                                 <span style={{ fontSize:9, color:'var(--t2)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.07em' }}>{m.senderUser.name}</span>
                               ) : (
                                 <span style={{ fontFamily:'var(--mono)', fontSize:8.5, letterSpacing:'.08em', color:'var(--green)', fontWeight:700 }}>
-                                  ✓ SPANDAN AI{context?.aiSession?.campaign ? ' · CAMPAIGN-GROUNDED' : ''}
+                                  ✓ CHATFLOW PRO AI{context?.aiSession?.campaign ? ' · CAMPAIGN-GROUNDED' : ''}
                                 </span>
                               )}
                             </div>
                           )}
+                          {/* Media, location and contact cards arrive as their
+                              own message types. They used to be stored as an
+                              empty body, so the thread showed nothing at all. */}
+                          {m.type && m.type !== 'TEXT' && m.type !== 'BUTTON' && m.type !== 'INTERACTIVE' && (
+                            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4, padding:'5px 8px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)' }}>
+                              <I n={MEDIA_ICON[m.type] || 'file'} s={12} c="var(--t2)" />
+                              <span style={{ fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.08em', color:'var(--t2)', textTransform:'uppercase' }}>
+                                {m.type === 'LOCATION' && m.locationLat != null
+                                  ? `${m.locationLat.toFixed(4)}, ${m.locationLng.toFixed(4)}`
+                                  : (m.mediaFilename || m.type.toLowerCase())}
+                              </span>
+                            </div>
+                          )}
                           <p style={{ fontSize:13, color:'var(--t1)', lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.body}</p>
-                          <p style={{ fontSize:10, color:'var(--t2)', textAlign:'right', marginTop:4 }}>{fmtTime(m.sentAt)}</p>
+                          <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:5, marginTop:4 }}>
+                            <span style={{ fontSize:10, color:'var(--t2)' }}>{fmtTime(m.sentAt)}</span>
+                            {/* Delivery state, now recorded for every outbound
+                                message rather than campaign sends alone. */}
+                            {out && m.status && <DeliveryTick status={m.status} error={m.errorMessage} />}
+                          </div>
                         </div>
                       </div>
                     );
@@ -633,14 +760,76 @@ export default function InboxView() {
                   {suggestNote && <span style={{ fontSize:11, color:'var(--t3)' }}>{suggestNote}</span>}
                 </div>
 
+                {/* WhatsApp's 24-hour rule, stated before the agent types
+                    rather than discovered when Meta rejects the send. */}
+                {activeWindow && !activeWindow.open && (
+                  <div style={{ padding:'9px 16px', borderTop:'1px solid var(--bd)', background:'rgba(245,158,11,.07)' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                      <I n="alertt" s={13} c="#fbbf24" />
+                      <span style={{ fontSize:12, color:'#fbbf24', lineHeight:1.45 }}>{activeWindow.description}</span>
+                      {/* The way through the closed window. Telling someone to
+                          send a template while offering no way to send one is
+                          not a workable instruction. */}
+                      <button onClick={() => setTemplatePickerOpen(o => !o)}
+                        style={{ marginLeft:'auto', padding:'4px 10px', borderRadius:6, fontSize:11.5, fontWeight:600,
+                                 cursor:'pointer', background:'rgba(245,158,11,.12)', border:'1px solid rgba(245,158,11,.35)',
+                                 color:'#fbbf24', fontFamily:"'Manrope',sans-serif" }}>
+                        {templatePickerOpen ? 'Close' : 'Send a template'}
+                      </button>
+                    </div>
+                    {templatePickerOpen && (
+                      <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6, maxHeight:180, overflowY:'auto' }}>
+                        {templates.length === 0 && (
+                          <span style={{ fontSize:11.5, color:'var(--t3)' }}>
+                            No approved templates yet. Create one on the Templates page and wait for Meta to approve it.
+                          </span>
+                        )}
+                        {templates.map(t => (
+                          <button key={t.id} onClick={() => sendTemplate(t)} disabled={sendingTemplate === t.id}
+                            style={{ textAlign:'left', padding:'7px 10px', borderRadius:7, cursor:'pointer',
+                                     background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)',
+                                     color:'var(--t1)', fontSize:12, fontFamily:"'Manrope',sans-serif" }}>
+                            <span style={{ fontWeight:600 }}>{t.name}</span>
+                            <span style={{ color:'var(--t3)', marginLeft:8, fontSize:11 }}>{t.category} · {t.language}</span>
+                            {sendingTemplate === t.id && <span style={{ color:'var(--t3)', marginLeft:8 }}>sending…</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {activeWindow?.open && activeWindow.msRemaining < 2 * 3600_000 && (
+                  <div style={{ padding:'7px 16px', borderTop:'1px solid var(--bd)', background:'rgba(255,255,255,0.02)' }}>
+                    <span style={{ fontSize:11, color:'var(--t3)' }}>{activeWindow.description}</span>
+                  </div>
+                )}
+
                 <div style={{ padding:'12px 16px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, alignItems:'center', background:'var(--surf)', flexShrink:0 }}>
                   <Btn variant="outline" size="sm">Quick Reply</Btn>
+                  {/* WhatsApp treats an attachment as a free-form message, so
+                      it is bound by the same 24-hour window as a text reply. */}
+                  <input ref={fileInputRef} type="file" hidden
+                    accept="image/jpeg,image/png,video/mp4,audio/mpeg,audio/ogg,application/pdf"
+                    onChange={e => sendFile(e.target.files?.[0])} />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={attaching || sending || (activeWindow ? !activeWindow.open : false)}
+                    title={activeWindow && !activeWindow.open ? 'Reply window closed' : 'Attach a photo, video or PDF'}
+                    aria-label="Attach a file"
+                    style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+                             background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)',
+                             cursor: (attaching || (activeWindow && !activeWindow.open)) ? 'not-allowed' : 'pointer',
+                             opacity: (attaching || (activeWindow && !activeWindow.open)) ? 0.5 : 1,
+                             display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <I n={attaching ? 'rotate' : 'plus'} s={15} c="var(--t2)" />
+                  </button>
                   <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-                    placeholder="Type a message…" disabled={sending}
+                    placeholder={activeWindow && !activeWindow.open ? 'Reply window closed — send an approved template' : 'Type a message…'}
+                    disabled={sending || (activeWindow ? !activeWindow.open : false)}
                     style={{ flex:1, padding:'10px 14px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', transition:'border .15s', opacity: sending ? 0.6 : 1 }}
                     onFocus={e => e.target.style.borderColor='var(--gbd)'}
                     onBlur={e => e.target.style.borderColor='var(--bd)'} />
-                  <button onClick={send} disabled={!input.trim() || sending}
+                  <button onClick={send} disabled={!input.trim() || sending || (activeWindow ? !activeWindow.open : false)}
                     style={{ width:38, height:38, borderRadius:9, background:'var(--green)', border:'none', cursor: (!input.trim() || sending) ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'0 0 14px rgba(53,232,242,0.25)', opacity: (!input.trim() || sending) ? 0.5 : 1 }}>
                     <I n="send" s={15} c="#08090c" />
                   </button>

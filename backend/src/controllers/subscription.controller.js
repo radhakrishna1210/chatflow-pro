@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { getPlanLimits, listPlans, createCheckoutOrder, verifyCheckoutPayment } from '../services/subscription.service.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
+import * as addons from '../services/addons.service.js';
 
 export async function getSummary(req, res) {
   const workspaceId = req.params.workspaceId;
@@ -52,4 +53,24 @@ export async function createCheckout(req, res) {
 export async function verifyCheckout(req, res) {
   const result = await verifyCheckoutPayment(req.params.workspaceId, req.body);
   res.json(result);
+}
+
+// ─── Add-ons ─────────────────────────────────────────────────────────────────
+// Prices come from lib/addonCatalogue.js, so what the screen shows and what the
+// gateway charges are read from the same place.
+
+export async function listAddons(req, res) {
+  res.json(await addons.listAddons(req.params.workspaceId));
+}
+
+export async function createAddonCheckout(req, res) {
+  res.json(await addons.createAddonOrder(req.params.workspaceId, req.body?.addonKey));
+}
+
+export async function verifyAddonCheckout(req, res) {
+  res.json(await addons.verifyAddonPayment(req.params.workspaceId, req.body || {}));
+}
+
+export async function cancelAddon(req, res) {
+  res.json(await addons.cancelAddon(req.params.workspaceId, req.params.addonKey));
 }

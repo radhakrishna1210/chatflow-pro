@@ -1,9 +1,22 @@
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 
-const ROLE_HIERARCHY = { CLIENT: 0, ADMIN: 1 };
+// Ordered by capability. VIEWER and AGENT sit below CLIENT, so every existing
+// `authorize('CLIENT')` on a route automatically excludes them — which is
+// correct: writing a campaign or a template is member-level work.
+const ROLE_HIERARCHY = { VIEWER: 0, AGENT: 1, CLIENT: 2, ADMIN: 3 };
 
-// What the two workspace roles actually mean here:
+// What the four workspace roles actually mean here:
+//
+//   VIEWER sees the workspace and changes nothing. For a stakeholder who wants
+//   the numbers — analytics, campaign results, the inbox as a record — without
+//   any ability to send, spend or edit.
+//
+//   AGENT works the inbox: replying to conversations, assigning and resolving
+//   them, taking notes, keeping contact records straight, and blocking a number
+//   that asks to be left alone. Everything else is read-only. This is the role
+//   for someone answering customers who should not be able to launch a campaign
+//   or rewrite an automation.
 //
 //   CLIENT ("Member") runs the workspace day to day — numbers, templates,
 //   campaigns, contacts, segments, automations, the AI agent, forms,

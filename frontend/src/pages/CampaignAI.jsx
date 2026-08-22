@@ -393,7 +393,7 @@ const CTA = ({ onNav }) => (
 export default function CampaignAI({ onNav }) {
   useEffect(() => {
     const previous = document.title;
-    document.title = 'Campaign AI — Spandan';
+    document.title = 'Campaign AI — ChatFlow Pro';
     return () => { document.title = previous; };
   }, []);
 

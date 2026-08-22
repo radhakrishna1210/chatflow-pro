@@ -30,16 +30,23 @@ async function addReplacing(name, jobId, data, delayMs) {
   });
 }
 
+// BullMQ rejects a custom job id containing ':' — it is the delimiter in its own
+// Redis key scheme. Both ids below used colons, so every add() threw
+// "Custom Id cannot contain :" and was swallowed by the caller's catch: no
+// workflow ever resumed after a delay step, and the delayed-response auto-reply
+// never fired at all. '__' separates the parts instead.
+const jobKey = (...parts) => parts.join('__');
+
 // The cursor is part of the id because a workflow may park on several delay
 // steps; a run-only id would be silently rejected on the second delay and
 // strand the run in WAITING forever.
 export async function enqueueWorkflowResume(runId, cursor, delayMs) {
-  return addReplacing('resume', `resume:${runId}:${cursor}`, { runId }, delayMs);
+  return addReplacing('resume', jobKey('resume', runId, cursor), { runId }, delayMs);
 }
 
 // One pending check per conversation — a customer sending five messages in a
 // row should not queue five delayed-response replies, and re-arming restarts
 // the timer from their latest message.
 export async function enqueueDelayedResponseCheck(conversationId, delayMs) {
-  return addReplacing('delayed-response', `delayed:${conversationId}`, { conversationId }, delayMs);
+  return addReplacing('delayed-response', jobKey('delayed', conversationId), { conversationId }, delayMs);
 }

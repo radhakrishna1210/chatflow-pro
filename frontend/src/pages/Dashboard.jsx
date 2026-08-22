@@ -3501,13 +3501,13 @@ const ADMIN_TABS = [
 ];
 const SUPERADMIN_NAV = [...ADMIN_TABS, { id: 'settings', label: 'Settings', icon: 'cog' }, { id: 'legal', label: 'Legal', icon: 'file' }];
 
-// Sidebar grouping, from the Spandan dashboard design: the nav is banded into
+// Sidebar grouping, from the ChatFlow Pro dashboard design: the nav is banded into
 // labelled sections under mono eyebrows rather than presented as one flat run
 // of sixteen items. Purely presentational — the ids are the same section ids
 // ADMIN_NAV/ADMIN_TABS already define, so routing and VALID_SECTIONS are
 // untouched. Any id not listed here still renders, under a trailing "MORE"
 // band, so a new nav entry can never silently vanish from the sidebar.
-// Sidebar glyphs, lifted from the design set's own nav (Spandan Dashboard's
+// Sidebar glyphs, lifted from the design set's own nav (ChatFlow Pro Dashboard's
 // navData). The app keeps its SVG icon set everywhere else — these are only
 // the sidebar, which is what the design specifies.
 //
@@ -3695,11 +3695,16 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
         transform: open ? 'translateX(0)' : 'translateX(-100%)',
       } : null),
     }}>
-      <div style={{ padding: '16px 14px', display: 'flex', alignItems: 'center', gap: '9px', borderBottom: '1px solid var(--bd)', minHeight: '62px', flexShrink: 0 }}>
-        <div onClick={() => go(isSuperAdmin ? 'admin-overview' : 'home')} style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }} title="Dashboard">
+      {/* Collapsed, this header has 60px of width minus 2x8px padding to fit a
+          32px logo *and* the expand button. It did not fit, the panel clips
+          (overflow:hidden), and the button — the only way to reopen the
+          sidebar — was pushed outside it and became unclickable. Collapsed, the
+          logo is hidden and the button takes the row on its own. */}
+      <div style={{ padding: col ? '16px 8px' : '16px 14px', display: 'flex', alignItems: 'center', justifyContent: col ? 'center' : 'flex-start', gap: '9px', borderBottom: '1px solid var(--bd)', minHeight: '62px', flexShrink: 0 }}>
+        {!col && <div onClick={() => go(isSuperAdmin ? 'admin-overview' : 'home')} style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }} title="Dashboard">
           <span className="sp-pulse" style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 12px var(--accent)' }} />
-        </div>
-        {!col && <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>spandan</span>}
+        </div>}
+        {!col && <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>ChatFlow Pro</span>}
         {mobile && (
           <button onClick={onClose} aria-label="Close navigation" style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', padding: '4px', display: 'flex' }}>
             <I n="x" s={15} c="var(--t2)" />
@@ -3708,7 +3713,7 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
         {!mobile && !col && <button onClick={() => setCol(true)} aria-label="Collapse sidebar" style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', padding: '4px', display: 'flex' }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 19l-7-7 7-7M18 19l-7-7 7-7" /></svg>
         </button>}
-        {!mobile && col && <button onClick={() => setCol(false)} aria-label="Expand sidebar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', padding: '4px', display: 'flex', marginLeft: '-2px' }}>
+        {!mobile && col && <button onClick={() => setCol(false)} aria-label="Expand sidebar" title="Expand sidebar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', padding: '8px', display: 'flex', flexShrink: 0 }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 5l7 7-7 7M6 5l7 7-7 7" /></svg>
         </button>}
       </div>

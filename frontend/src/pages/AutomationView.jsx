@@ -4,6 +4,8 @@ import { Btn } from '../components/Btn.jsx';
 import { apiFetch } from '../lib/api.js';
 import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
+import MobileNavButton from '../components/MobileNavButton.jsx';
+import { useIsMobile } from '../lib/useMediaQuery.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Manrope',sans-serif", boxSizing:'border-box' };
@@ -690,7 +692,10 @@ const WorkflowsTab = () => {
   // which runs the first one it finds, so it replaces the existing trigger
   // rather than quietly doing nothing.
   const addFromPalette = (item) => {
-    const node = { id: `step_${Date.now()}`, type: item.type, subtype: item.subtype, value: item.value };
+    const node = {
+      id: `step_${Date.now()}`, type: item.type, subtype: item.subtype, value: item.value,
+      ...(item.type === 'condition' ? { skipIfFalse: item.skipIfFalse ?? 1 } : {}),
+    };
     setSteps(p => (item.type === 'trigger'
       ? [node, ...p.filter(x => x.type !== 'trigger')]
       : [...p, node]));
@@ -1056,7 +1061,21 @@ const WorkflowsTab = () => {
 };
 
 const TRIGGER_SUBTYPES = [['keyword', 'Keyword Match'], ['welcome', 'New Contact Welcome'], ['missed', 'Missed Inbound Call']];
-const ACTION_SUBTYPES = [['message', 'Send message'], ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent']];
+const ACTION_SUBTYPES = [['message', 'Send message'], ['buttons', 'Ask with buttons'], ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent']];
+
+// Mirrors CONDITION_SUBTYPES in backend/src/services/workflowConditions.js. A
+// condition asks something about the conversation and, when the answer is no,
+// skips the steps below it — which is how this linear builder expresses a
+// branch without becoming a graph editor.
+const CONDITION_SUBTYPES = [
+  ['contains', 'Message contains'],
+  ['equals', 'Message is exactly'],
+  ['is_new_contact', 'Is a new contact'],
+  ['has_tag', 'Contact has tag'],
+  ['field_equals', 'Contact field equals'],
+  ['field_set', 'Contact field is set'],
+];
+const CONDITION_NEEDS_VALUE = new Set(['contains', 'equals', 'has_tag', 'field_equals', 'field_set']);
 
 // ─── Workflow canvas ─────────────────────────────────────────────────────────
 //
@@ -1092,16 +1111,29 @@ const PALETTE = [
     items: ACTION_SUBTYPES.map(([subtype, label]) => ({
       type: 'action', subtype, label,
       value: subtype === 'message' ? 'Thanks for reaching out — how can we help?'
+        : subtype === 'buttons' ? 'How can we help? | Track my order | Talk to support'
         : subtype === 'delay' ? '1h'
         : subtype === 'tag' ? 'VIP'
         : '',
+    })),
+  },
+  {
+    name: 'CONDITIONS', color: '#9d6bff',
+    items: CONDITION_SUBTYPES.map(([subtype, label]) => ({
+      type: 'condition', subtype, label,
+      value: subtype === 'contains' ? 'yes'
+        : subtype === 'has_tag' ? 'VIP'
+        : subtype === 'field_equals' ? 'plan=premium'
+        : subtype === 'field_set' ? 'order_number'
+        : '',
+      skipIfFalse: 1,
     })),
   },
 ];
 
 const NODE_ICON = {
   keyword: 'key', welcome: 'user', missed: 'phone',
-  message: 'send', delay: 'clock', tag: 'file', agent: 'users',
+  message: 'send', buttons: 'check', delay: 'clock', tag: 'file', agent: 'users',
 };
 
 // Auto-layout: a single column, in execution order. A node that has been
@@ -1244,7 +1276,8 @@ const WorkflowCanvas = ({ steps, selectedId, onSelect, onChange, onAdd, onRemove
 
 const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange = false }) => {
   const isTrigger = step.type === 'trigger';
-  const options = isTrigger ? TRIGGER_SUBTYPES : ACTION_SUBTYPES;
+  const isCondition = step.type === 'condition';
+  const options = isTrigger ? TRIGGER_SUBTYPES : isCondition ? CONDITION_SUBTYPES : ACTION_SUBTYPES;
   const selectStyle = { padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' };
 
   return (
@@ -1271,13 +1304,35 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
         <select value={step.value} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, minWidth:130 }}>
           {['Immediate', '5 min', '1 hour', '1 day'].map(v => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{v}</option>)}
         </select>
-      ) : (step.subtype === 'welcome' || step.subtype === 'missed') ? (
+      ) : (step.subtype === 'welcome' || step.subtype === 'missed' || (isCondition && !CONDITION_NEEDS_VALUE.has(step.subtype))) ? (
         <span style={{ fontSize:12, color:'var(--t3)', flex:1 }}>No configuration needed</span>
       ) : (
         <input value={step.value || ''}
           onChange={e => onChange({ value: isTrigger && step.subtype === 'keyword' ? e.target.value.toUpperCase() : e.target.value })}
-          placeholder={isTrigger ? 'e.g. HELP' : step.subtype === 'tag' ? 'e.g. VIP' : step.subtype === 'agent' ? "Agent name or email" : 'Message text…'}
+          placeholder={
+            isTrigger ? 'e.g. HELP'
+            : step.subtype === 'field_equals' ? 'field=value, e.g. plan=premium'
+            : step.subtype === 'field_set' ? 'field name, e.g. order_number'
+            : isCondition ? 'text to look for'
+            : step.subtype === 'tag' ? 'e.g. VIP'
+            : step.subtype === 'buttons' ? 'Question | Option A | Option B'
+            : step.subtype === 'agent' ? 'Agent name or email'
+            : 'Message text — use {{name}} or {{custom.order_number}}'
+          }
           style={{ ...selectStyle, flex:1, minWidth:200, color: isTrigger && step.subtype === 'keyword' ? 'var(--green)' : 'var(--t1)', fontFamily: isTrigger && step.subtype === 'keyword' ? 'monospace' : 'inherit' }} />
+      )}
+
+      {/* What a condition guards. Steps below it are skipped when the answer is
+          no, which is how a branch is expressed without a graph editor. */}
+      {isCondition && (
+        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:11.5, color:'var(--t2)', whiteSpace:'nowrap' }}>
+          otherwise skip
+          <select value={step.skipIfFalse ?? 1} onChange={e => onChange({ skipIfFalse: Number(e.target.value) })}
+            style={{ ...selectStyle, padding:'5px 8px', minWidth:0 }}>
+            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n} style={{ background:'#0a0b0e' }}>{n}</option>)}
+          </select>
+          step{(step.skipIfFalse ?? 1) === 1 ? '' : 's'}
+        </label>
       )}
 
       {canRemove && (
@@ -2605,6 +2660,27 @@ const InstagramQuickflowsTab = () => {
             </p>
           </div>
           <Btn onClick={connect} disabled={!conn?.configured} style={{ boxShadow:'var(--glow)' }}>Connect Instagram Account</Btn>
+
+          {/* A disabled button with no explanation is the worst version of
+              this. The server says exactly which credentials are missing and
+              what they are, because the failure it prevents surfaces on
+              instagram.com as "incorrect password" — for a password that is
+              perfectly correct — and is otherwise impossible to place. */}
+          {conn && !conn.configured && (
+            <div style={{ maxWidth:520, textAlign:'left', padding:'12px 14px', borderRadius:10, background:'rgba(245,158,11,.07)', border:'1px solid rgba(245,158,11,.25)' }}>
+              <p style={{ fontSize:12.5, fontWeight:700, color:'#fbbf24', marginBottom:6 }}>
+                Instagram is not configured on this server
+              </p>
+              {conn.setup?.missing?.length > 0 && (
+                <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.6, marginBottom:8 }}>
+                  Missing: <code style={{ color:'var(--t1)' }}>{conn.setup.missing.join(', ')}</code>
+                </p>
+              )}
+              {(conn.setup?.setupNotes || []).map((note, i) => (
+                <p key={i} style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.6, marginBottom:6 }}>{note}</p>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -3058,7 +3134,7 @@ const WhatsAppFormsTab = () => {
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <IconBtn icon="arrow" onClick={() => setViewing(null)} />
+          <IconBtn icon="arrowLeft" onClick={() => setViewing(null)} />
           <div>
             <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:18, color:'var(--t1)' }}>{viewing.name}</h2>
             <p style={{ fontSize:13, color:'var(--t2)' }}>{submissions.length} submission{submissions.length === 1 ? '' : 's'}</p>
@@ -3404,7 +3480,7 @@ const SmartListsTab = () => {
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-            <IconBtn icon="arrow" onClick={() => setViewingSegmentId(null)} />
+            <IconBtn icon="arrowLeft" onClick={() => setViewingSegmentId(null)} />
             <div>
               <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:'18px', color:'var(--t1)' }}>{viewingSegment.name}</h2>
               <p style={{ fontSize:'13px', color:'var(--t2)' }}>{viewingSegment.description || viewingSegment.desc || 'No description'}</p>
@@ -3576,6 +3652,8 @@ export default function AutomationView({ initialTab }) {
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
+  const isMobile = useIsMobile();
+
   const renderContent = () => {
     switch (activeTab) {
       case 'basic':       return <BasicAutomationsTab />;
@@ -3593,6 +3671,15 @@ export default function AutomationView({ initialTab }) {
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#060B18' }}>
+      {/* This page builds its own header rather than using the shell's, so it
+          had no hamburger — on a phone the nav drawer was unreachable from
+          Automation, the AI Agent and Intent Matching, which are three separate
+          sidebar destinations. */}
+      {isMobile && (
+        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px 0', flexShrink:0, background:'var(--surf)' }}>
+          <MobileNavButton />
+        </div>
+      )}
       <div style={{ padding:'20px 32px 0 32px', borderBottom:'1px solid var(--bd)', display:'flex', gap:'4px', overflowX:'auto', flexShrink:0, background:'var(--surf)' }}>
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;

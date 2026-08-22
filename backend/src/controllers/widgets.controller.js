@@ -95,3 +95,8 @@ export async function reindex(req, res) {
 export async function knowledgeStatus(req, res) {
   res.json(await knowledge.knowledgeStatus(req.params.workspaceId));
 }
+
+// Live preview: answers with the real assistant rather than drawing a mock.
+export async function preview(req, res) {
+  res.json(await widgetService.previewWidgetAnswer(req.params.workspaceId, req.params.id, req.body || {}));
+}

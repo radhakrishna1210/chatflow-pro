@@ -32,11 +32,25 @@ export const systemClient = new Proxy({}, {
   },
 });
 
+// Meta addresses a recipient by bare digits in international format. A number
+// carrying a "+", spaces, dashes or brackets is not reliably accepted, and when
+// it is refused the answer is a bare "Request failed with status code 400" that
+// names nothing.
+//
+// This normalises at the one place every send passes through, rather than at
+// each call site. It was done per-call-site before, and three of them had been
+// missed — the inbox reply, the inbox attachment, and every automated reply
+// routed through outbound.service (forms, workflows, the campaign AI agent).
+// 136 of the 159 contacts in the live database are stored with a leading "+",
+// so those paths were handing Meta a format it does not promise to accept for
+// the overwhelming majority of contacts.
+const toRecipient = (value) => String(value ?? '').replace(/[^\d]/g, '');
+
 export async function sendWhatsAppMessage(phoneNumberId, accessToken, to, template) {
   const client = metaClient(accessToken);
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to,
+    to: toRecipient(to),
     type: 'template',
     template,
   });
@@ -47,7 +61,7 @@ export async function sendTextMessage(phoneNumberId, accessToken, to, body) {
   const client = metaClient(accessToken);
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to,
+    to: toRecipient(to),
     type: 'text',
     text: { body },
   });
@@ -230,8 +244,17 @@ export async function getWabaTemplates(wabaId, accessToken) {
   return results;
 }
 
-export async function requestOtp(phoneNumberId, method = 'SMS') {
-  const client = metaClient(env.META_SYSTEM_USER_TOKEN);
+// `accessToken` must be the token that owns the number.
+//
+// Both of these were hardcoded to META_SYSTEM_USER_TOKEN, which is the
+// platform's own system user. That works for numbers in the platform's WABA
+// (the super-admin number pool) and cannot work for a customer's own WABA
+// created by Embedded Signup — the platform token has no permission there, so
+// the request failed and the customer never received a code. Callers now pass
+// the number's own token; the system token stays the default so the pool flow
+// is unchanged.
+export async function requestOtp(phoneNumberId, method = 'SMS', accessToken = null) {
+  const client = metaClient(accessToken || env.META_SYSTEM_USER_TOKEN);
   const { data } = await client.post(`/${phoneNumberId}/request_code`, {
     code_method: method,
     language: 'en_US',
@@ -239,9 +262,23 @@ export async function requestOtp(phoneNumberId, method = 'SMS') {
   return data;
 }
 
-export async function verifyOtp(phoneNumberId, code) {
-  const client = metaClient(env.META_SYSTEM_USER_TOKEN);
+export async function verifyOtp(phoneNumberId, code, accessToken = null) {
+  const client = metaClient(accessToken || env.META_SYSTEM_USER_TOKEN);
   const { data } = await client.post(`/${phoneNumberId}/verify_code`, { code });
+  return data;
+}
+
+// Everything the app needs to know about a number's standing with Meta,
+// including `code_verification_status` — which the app never read, so a number
+// whose verification had EXPIRED looked perfectly healthy until every send
+// failed.
+export async function getPhoneNumberStatus(phoneNumberId, accessToken) {
+  const client = metaClient(accessToken);
+  const { data } = await client.get(`/${phoneNumberId}`, {
+    params: {
+      fields: 'id,display_phone_number,verified_name,status,quality_rating,code_verification_status,platform_type,throughput',
+    },
+  });
   return data;
 }
 
@@ -332,6 +369,287 @@ export async function getPhoneNumberById(phoneNumberId, accessToken) {
   const client = metaClient(accessToken);
   const { data } = await client.get(`/${phoneNumberId}`, {
     params: { fields: 'id,display_phone_number,verified_name,status,quality_rating' },
+  });
+  return data;
+}
+
+// ─── App-level webhook subscription ──────────────────────────────────────────
+//
+// Subscribing the app to a customer's WABA (subscribeAppToWaba, above) decides
+// *which accounts* send us events. This decides *which events* — and it is set
+// once, on the app itself.
+//
+// The live app was subscribed to `messages` only, so template approvals and
+// re-categorisations never arrived: handleTemplateStatusUpdate() and
+// handleTemplateCategoryUpdate() in webhook.service.js could not fire, and a
+// template's status went stale the moment it was submitted.
+
+// Everything the webhook handler knows how to process.
+export const REQUIRED_WEBHOOK_FIELDS = [
+  'messages',
+  'message_template_status_update',
+  'message_template_category_update',
+];
+
+const appAccessToken = () => `${env.META_APP_ID}|${env.META_APP_SECRET}`;
+
+export async function getAppWebhookSubscriptions() {
+  const { data } = await axios.get(`${BASE}/${env.META_APP_ID}/subscriptions`, {
+    params: { access_token: appAccessToken() },
+  });
+  return data.data || [];
+}
+
+// Reports which of the fields we depend on are actually subscribed, so the
+// difference between "no messages are arriving" and "template updates are not
+// arriving" is answerable without reading the Meta dashboard.
+export async function inspectWebhookSubscription() {
+  const subs = await getAppWebhookSubscriptions();
+  const waba = subs.find((s) => s.object === 'whatsapp_business_account');
+  const subscribed = (waba?.fields || []).map((f) => f.name);
+  const expectedCallback = `${env.API_PUBLIC_URL}/api/v1/webhook/meta`;
+  return {
+    subscribed: Boolean(waba),
+    active: waba?.active ?? false,
+    callbackUrl: waba?.callback_url ?? null,
+    expectedCallbackUrl: expectedCallback,
+    callbackMatches: waba?.callback_url === expectedCallback,
+    fields: subscribed,
+    missingFields: REQUIRED_WEBHOOK_FIELDS.filter((f) => !subscribed.includes(f)),
+  };
+}
+
+// Rewrites the app's WABA subscription so it carries every field we handle.
+// `callbackUrl` must be publicly reachable over HTTPS — Meta verifies it by
+// calling GET with hub.challenge before accepting the change.
+export async function setAppWebhookSubscription(callbackUrl) {
+  const url = callbackUrl || `${env.API_PUBLIC_URL}/api/v1/webhook/meta`;
+  if (!url.startsWith('https://')) {
+    const e = new Error(
+      `Meta only accepts an HTTPS webhook URL, and this server's API_PUBLIC_URL is "${env.API_PUBLIC_URL}". `
+      + 'Set API_PUBLIC_URL to the public HTTPS origin of this service (or pass a callbackUrl) before subscribing.',
+    );
+    e.status = 400; e.expose = true; throw e;
+  }
+  const { data } = await axios.post(`${BASE}/${env.META_APP_ID}/subscriptions`, null, {
+    params: {
+      object: 'whatsapp_business_account',
+      callback_url: url,
+      verify_token: env.META_WEBHOOK_VERIFY_TOKEN,
+      fields: REQUIRED_WEBHOOK_FIELDS.join(','),
+      access_token: appAccessToken(),
+    },
+  });
+  return { ...data, callbackUrl: url, fields: REQUIRED_WEBHOOK_FIELDS };
+}
+
+// Sends a media message (image, video, audio, document) on an open
+// conversation.
+//
+// Inbound media has been parsed and stored for a while; this is the other
+// direction, which did not exist — an agent could read a customer's photo and
+// had no way to send one back. `mediaId` comes from uploadPhoneMedia above and
+// is scoped to the same phone number id.
+export async function sendMediaMessage(phoneNumberId, accessToken, to, { mediaId, type, caption, filename }) {
+  const client = metaClient(accessToken);
+  const media = { id: mediaId };
+  // Only documents carry a filename, and only image/video/document accept a
+  // caption — Meta rejects the message outright if either is sent where it does
+  // not belong.
+  if (caption && type !== 'audio') media.caption = caption;
+  if (type === 'document' && filename) media.filename = filename;
+
+  const { data } = await client.post(`/${phoneNumberId}/messages`, {
+    messaging_product: 'whatsapp',
+    to: toRecipient(to),
+    type,
+    [type]: media,
+  });
+  return data;
+}
+
+// Meta's own limits for a *message* attachment, which differ from the template
+// header limits in TEMPLATE_MEDIA_FORMATS above.
+export const OUTBOUND_MEDIA_TYPES = {
+  'image/jpeg':      { type: 'image',    maxBytes: 5 * 1024 * 1024 },
+  'image/png':       { type: 'image',    maxBytes: 5 * 1024 * 1024 },
+  'video/mp4':       { type: 'video',    maxBytes: 16 * 1024 * 1024 },
+  'audio/mpeg':      { type: 'audio',    maxBytes: 16 * 1024 * 1024 },
+  'audio/ogg':       { type: 'audio',    maxBytes: 16 * 1024 * 1024 },
+  'application/pdf': { type: 'document', maxBytes: 100 * 1024 * 1024 },
+};
+
+// ─── Connection verification ─────────────────────────────────────────────────
+//
+// Embedded Signup hands the browser a waba_id and a phone_number_id over
+// postMessage, and the browser sends them here. They are client input: nothing
+// stops a caller posting somebody else's ids alongside their own valid code.
+// These confirm the token actually owns what it claims before anything is
+// stored against a workspace.
+
+// The WABAs a token can administer, as Meta reports them.
+export async function assertTokenOwnsWaba(wabaId, accessToken) {
+  const client = metaClient(accessToken);
+  try {
+    // Reading the WABA itself is the check: a token with no role on it is
+    // refused by Meta, which is exactly the answer we need.
+    const { data } = await client.get(`/${wabaId}`, {
+      params: { fields: 'id,name,currency,timezone_id,account_review_status' },
+    });
+    if (String(data?.id) !== String(wabaId)) {
+      const e = new Error('WhatsApp returned a different business account than the one requested.');
+      e.status = 400; e.expose = true; throw e;
+    }
+    return data;
+  } catch (err) {
+    if (err.status && !err.isAxiosError) throw err;
+    const meta = err.response?.data?.error;
+    const e = new Error(
+      `This account does not have access to WhatsApp Business Account ${wabaId}`
+      + `${meta ? ` — ${meta.message} (code ${meta.code})` : ''}. `
+      + 'Finish the sign-up in the Meta window and try again.',
+    );
+    e.status = 403; e.expose = true; throw e;
+  }
+}
+
+// Confirms the phone number is on that WABA, and returns Meta's own record of
+// it. Checking membership rather than trusting the id is what stops one
+// workspace attaching a number that belongs to another business.
+export async function assertNumberOnWaba(wabaId, phoneNumberId, accessToken) {
+  const numbers = await getWabaPhoneNumbers(wabaId, accessToken).catch(() => []);
+  const match = numbers.find((n) => String(n.id) === String(phoneNumberId));
+  if (!match) {
+    const e = new Error(
+      `That phone number is not on WhatsApp Business Account ${wabaId}. `
+      + (numbers.length
+        ? `The numbers on it are: ${numbers.map((n) => n.display_phone_number).join(', ')}.`
+        : 'It has no phone numbers yet — add one in the Meta window first.'),
+    );
+    e.status = 400; e.expose = true; throw e;
+  }
+  return match;
+}
+
+// Turns a Meta failure during connection into something the person clicking
+// "Connect" can act on. Their raw messages name Graph objects and error codes
+// and say nothing about what to do.
+export function describeConnectionError(err, stage) {
+  if (err.status && !err.isAxiosError) return err;
+  const meta = err.response?.data?.error;
+  const code = Number(meta?.code);
+  const raw = meta ? `${meta.message} (code ${meta.code}${meta.error_subcode ? `/${meta.error_subcode}` : ''})` : err.message;
+
+  const known = {
+    190: 'The Meta sign-in expired before we could finish. Start the connection again.',
+    100: 'Meta did not recognise one of the ids returned by sign-up. Start the connection again.',
+    200: 'This account is missing a permission the connection needs (whatsapp_business_management). '
+       + 'Re-run the sign-up and accept every permission it asks for.',
+    10:  'The app is not approved for this action yet. Check the app is Live and has WhatsApp permissions granted.',
+    368: 'Meta has temporarily blocked this action on the account. Try again later.',
+  }[code];
+
+  const e = new Error(known ? `${known} (${raw})` : `WhatsApp connection failed while ${stage}: ${raw}`);
+  e.status = err.response?.status === 403 ? 403 : 400;
+  e.expose = true;
+  return e;
+}
+
+// ─── Interactive messages (reply buttons and lists) ──────────────────────────
+//
+// Flows could only ever send plain text, so an automation that offered choices
+// had to write them out ("reply 1 for sales, 2 for support") and then parse
+// whatever the customer typed back. Meta's interactive messages give the
+// customer real tappable options, and the reply arrives as a button/list reply
+// which parseInboundMessage already turns into the option's own text — so the
+// existing keyword triggers and `contains` conditions match it unchanged.
+//
+// Meta's published limits, enforced here rather than discovered as an API error:
+export const INTERACTIVE_LIMITS = {
+  bodyChars: 1024,
+  buttonCount: 3,      // reply buttons per message
+  buttonTitleChars: 20,
+  rowCount: 10,        // list rows across all sections
+  rowTitleChars: 24,
+  listButtonChars: 20,
+};
+
+const clip = (value, max) => String(value ?? '').trim().slice(0, max);
+
+// Meta requires each option to carry an id that is unique within the message
+// and comes back on the reply. Authors write only a label, so derive one.
+const optionId = (label, index) => {
+  const slug = String(label ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return `${slug || 'option'}_${index}`.slice(0, 250);
+};
+
+/**
+ * Up to three tappable reply buttons under a line of text.
+ * @param {string[]} buttons option labels
+ */
+export async function sendButtonMessage(phoneNumberId, accessToken, to, { body, buttons, footer }) {
+  const labels = (Array.isArray(buttons) ? buttons : [])
+    .map((b) => clip(typeof b === 'string' ? b : b?.title, INTERACTIVE_LIMITS.buttonTitleChars))
+    .filter(Boolean)
+    .slice(0, INTERACTIVE_LIMITS.buttonCount);
+
+  if (labels.length === 0) throw new Error('An interactive message needs at least one button.');
+  const text = clip(body, INTERACTIVE_LIMITS.bodyChars);
+  if (!text) throw new Error('An interactive message needs body text.');
+
+  const client = metaClient(accessToken);
+  const { data } = await client.post(`/${phoneNumberId}/messages`, {
+    messaging_product: 'whatsapp',
+    to: toRecipient(to),
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text },
+      ...(footer ? { footer: { text: clip(footer, 60) } } : {}),
+      action: {
+        buttons: labels.map((title, i) => ({
+          type: 'reply',
+          reply: { id: optionId(title, i), title },
+        })),
+      },
+    },
+  });
+  return data;
+}
+
+/**
+ * A single-section list, for the four-to-ten options a button message cannot
+ * carry. Meta shows these behind a button rather than inline.
+ */
+export async function sendListMessage(phoneNumberId, accessToken, to, { body, rows, buttonText, header, footer }) {
+  const items = (Array.isArray(rows) ? rows : [])
+    .map((r) => (typeof r === 'string' ? { title: r } : r))
+    .map((r) => ({
+      title: clip(r?.title, INTERACTIVE_LIMITS.rowTitleChars),
+      description: r?.description ? clip(r.description, 72) : undefined,
+    }))
+    .filter((r) => r.title)
+    .slice(0, INTERACTIVE_LIMITS.rowCount);
+
+  if (items.length === 0) throw new Error('A list message needs at least one option.');
+  const text = clip(body, INTERACTIVE_LIMITS.bodyChars);
+  if (!text) throw new Error('A list message needs body text.');
+
+  const client = metaClient(accessToken);
+  const { data } = await client.post(`/${phoneNumberId}/messages`, {
+    messaging_product: 'whatsapp',
+    to: toRecipient(to),
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      ...(header ? { header: { type: 'text', text: clip(header, 60) } } : {}),
+      body: { text },
+      ...(footer ? { footer: { text: clip(footer, 60) } } : {}),
+      action: {
+        button: clip(buttonText, INTERACTIVE_LIMITS.listButtonChars) || 'Choose',
+        sections: [{ title: 'Options', rows: items.map((r, i) => ({ id: optionId(r.title, i), ...r })) }],
+      },
+    },
   });
   return data;
 }
