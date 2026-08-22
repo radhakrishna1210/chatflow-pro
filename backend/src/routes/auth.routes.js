@@ -115,6 +115,20 @@ router.get('/meta/start', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Only workspace admins can connect WhatsApp numbers' });
   }
 
+  // Meta refuses a non-HTTPS redirect_uri outright, and only accepts one that is
+  // registered on the app. Handing the browser a URL we know will be rejected is
+  // how "Connect to Meta" ended up opening an error page — say so here instead.
+  if (!/^https:\/\//i.test(env.META_REDIRECT_URI || '')) {
+    return res.status(503).json({
+      error: 'WhatsApp sign-in is not configured on this server: Meta requires an HTTPS redirect URI and '
+        + `this one is "${env.META_REDIRECT_URI}". Set API_PUBLIC_URL to the public HTTPS origin of this `
+        + 'service and register that exact callback under Meta App Dashboard → Facebook Login → '
+        + 'Valid OAuth Redirect URIs.',
+      code: 'META_REDIRECT_URI_INVALID',
+      redirectUri: env.META_REDIRECT_URI,
+    });
+  }
+
   const state = signState({ workspaceId, userId: req.user.id, n: randomBytes(8).toString('hex'), ts: Date.now() });
   const authUrl = new URL(`https://www.facebook.com/${env.META_API_VERSION}/dialog/oauth`);
   authUrl.searchParams.set('client_id', env.META_APP_ID);

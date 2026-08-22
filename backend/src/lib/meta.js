@@ -464,3 +464,79 @@ export const OUTBOUND_MEDIA_TYPES = {
   'audio/ogg':       { type: 'audio',    maxBytes: 16 * 1024 * 1024 },
   'application/pdf': { type: 'document', maxBytes: 100 * 1024 * 1024 },
 };
+
+// ─── Connection verification ─────────────────────────────────────────────────
+//
+// Embedded Signup hands the browser a waba_id and a phone_number_id over
+// postMessage, and the browser sends them here. They are client input: nothing
+// stops a caller posting somebody else's ids alongside their own valid code.
+// These confirm the token actually owns what it claims before anything is
+// stored against a workspace.
+
+// The WABAs a token can administer, as Meta reports them.
+export async function assertTokenOwnsWaba(wabaId, accessToken) {
+  const client = metaClient(accessToken);
+  try {
+    // Reading the WABA itself is the check: a token with no role on it is
+    // refused by Meta, which is exactly the answer we need.
+    const { data } = await client.get(`/${wabaId}`, {
+      params: { fields: 'id,name,currency,timezone_id,account_review_status' },
+    });
+    if (String(data?.id) !== String(wabaId)) {
+      const e = new Error('WhatsApp returned a different business account than the one requested.');
+      e.status = 400; e.expose = true; throw e;
+    }
+    return data;
+  } catch (err) {
+    if (err.status && !err.isAxiosError) throw err;
+    const meta = err.response?.data?.error;
+    const e = new Error(
+      `This account does not have access to WhatsApp Business Account ${wabaId}`
+      + `${meta ? ` — ${meta.message} (code ${meta.code})` : ''}. `
+      + 'Finish the sign-up in the Meta window and try again.',
+    );
+    e.status = 403; e.expose = true; throw e;
+  }
+}
+
+// Confirms the phone number is on that WABA, and returns Meta's own record of
+// it. Checking membership rather than trusting the id is what stops one
+// workspace attaching a number that belongs to another business.
+export async function assertNumberOnWaba(wabaId, phoneNumberId, accessToken) {
+  const numbers = await getWabaPhoneNumbers(wabaId, accessToken).catch(() => []);
+  const match = numbers.find((n) => String(n.id) === String(phoneNumberId));
+  if (!match) {
+    const e = new Error(
+      `That phone number is not on WhatsApp Business Account ${wabaId}. `
+      + (numbers.length
+        ? `The numbers on it are: ${numbers.map((n) => n.display_phone_number).join(', ')}.`
+        : 'It has no phone numbers yet — add one in the Meta window first.'),
+    );
+    e.status = 400; e.expose = true; throw e;
+  }
+  return match;
+}
+
+// Turns a Meta failure during connection into something the person clicking
+// "Connect" can act on. Their raw messages name Graph objects and error codes
+// and say nothing about what to do.
+export function describeConnectionError(err, stage) {
+  if (err.status && !err.isAxiosError) return err;
+  const meta = err.response?.data?.error;
+  const code = Number(meta?.code);
+  const raw = meta ? `${meta.message} (code ${meta.code}${meta.error_subcode ? `/${meta.error_subcode}` : ''})` : err.message;
+
+  const known = {
+    190: 'The Meta sign-in expired before we could finish. Start the connection again.',
+    100: 'Meta did not recognise one of the ids returned by sign-up. Start the connection again.',
+    200: 'This account is missing a permission the connection needs (whatsapp_business_management). '
+       + 'Re-run the sign-up and accept every permission it asks for.',
+    10:  'The app is not approved for this action yet. Check the app is Live and has WhatsApp permissions granted.',
+    368: 'Meta has temporarily blocked this action on the account. Try again later.',
+  }[code];
+
+  const e = new Error(known ? `${known} (${raw})` : `WhatsApp connection failed while ${stage}: ${raw}`);
+  e.status = err.response?.status === 403 ? 403 : 400;
+  e.expose = true;
+  return e;
+}

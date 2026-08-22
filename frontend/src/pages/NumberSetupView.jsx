@@ -463,7 +463,18 @@ export default function NumberSetupView() {
         if (cfgRes.ok) cfg = await cfgRes.json();
       } catch { /* fall through to redirect */ }
 
-      const FB = cfg?.appId && cfg?.configId ? await loadFacebookSdk(cfg.appId) : null;
+      // Neither route is usable — say which configuration is missing rather
+      // than opening a Meta page that will answer with an error.
+      if (cfg && !cfg.embeddedSignupAvailable && !cfg.oauthFallbackAvailable) {
+        setMetaMsg({
+          error: 'WhatsApp sign-in is not configured on this server.',
+          blockers: cfg.blockers || [],
+        });
+        setMetaConnecting(false);
+        return;
+      }
+
+      const FB = cfg?.embeddedSignupAvailable ? await loadFacebookSdk(cfg.appId) : null;
 
       if (FB && cfg?.configId) {
         esRef.current = { code: null, wabaId: null, phoneNumberId: null };
@@ -488,7 +499,13 @@ export default function NumberSetupView() {
               });
               const data = await res.json();
               if (!res.ok) { setMetaMsg({ error: data.error || 'Could not complete connection.' }); return; }
-              setMetaMsg({ ok: `Connected ${data.phoneNumber || 'your number'} via Meta.` });
+              // A connection can succeed and still need work — an unsubscribed
+              // WABA receives no messages, and an unverified number cannot
+              // send. Saying "Connected" alone hides both.
+              setMetaMsg({
+                ok: `Connected ${data.phoneNumber || 'your number'} via Meta.`,
+                blockers: data.warnings || [],
+              });
               await load();
             } catch (e) {
               setMetaMsg({ error: e.message });
@@ -505,12 +522,26 @@ export default function NumberSetupView() {
         return; // FB.login callback drives the rest
       }
 
-      // Fallback: server-side OAuth redirect flow.
+      // Fallback: server-side OAuth redirect flow. Only reached when Embedded
+      // Signup is unavailable and the server has confirmed its redirect URI is
+      // one Meta will accept.
+      if (cfg && !cfg.oauthFallbackAvailable) {
+        setMetaMsg({
+          error: 'The Meta sign-in window could not be opened, and this server cannot use the fallback.',
+          blockers: cfg.blockers || [],
+        });
+        setMetaConnecting(false);
+        return;
+      }
       const res = await fetch(`/api/v1/auth/meta/start?workspaceId=${encodeURIComponent(workspaceId || '')}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (!res.ok) { setMetaMsg({ error: data.error || `Could not start Meta connection (${res.status})` }); setMetaConnecting(false); return; }
+      if (!res.ok) {
+        setMetaMsg({ error: data.error || `Could not start Meta connection (${res.status})` });
+        setMetaConnecting(false);
+        return;
+      }
       window.location.href = data.url;
     } catch (e) {
       setMetaMsg({ error: e.message });
@@ -645,6 +676,16 @@ export default function NumberSetupView() {
             border: `1px solid ${metaMsg.error ? 'rgba(239,68,68,.25)' : 'var(--gbd)'}`,
             display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <p style={{ fontSize:12.5, color: metaMsg.error ? '#f87171' : 'var(--green)' }}>{metaMsg.error || metaMsg.ok}</p>
+            {/* What specifically is missing, or what still needs doing after a
+                connection that succeeded but is not yet usable. Each line names
+                an environment variable or a Meta dashboard setting. */}
+            {Array.isArray(metaMsg.blockers) && metaMsg.blockers.length > 0 && (
+              <ul style={{ margin:'8px 0 0', paddingLeft:18, display:'flex', flexDirection:'column', gap:6 }}>
+                {metaMsg.blockers.map((b, i) => (
+                  <li key={i} style={{ fontSize:11.5, color:'var(--t2)', lineHeight:1.55 }}>{b}</li>
+                ))}
+              </ul>
+            )}
             <button onClick={() => setMetaMsg(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', fontSize:14 }}>×</button>
           </div>
         )}

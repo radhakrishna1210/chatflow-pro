@@ -261,6 +261,13 @@ check('auth: unauthenticated request refused',
 
 // ── Number verification ──────────────────────────────────────────────────────
 {
+  // Verification requests are rate-limited (each one asks Meta to send an SMS),
+  // and waba-check.mjs exercises the same endpoints. Clear the buckets so this
+  // asserts routing rather than whichever suite ran first.
+  const { redis } = await import('../src/lib/redis.js');
+  const keys = await redis.keys('rl:wa-verify*');
+  if (keys.length) await redis.del(...keys);
+
   // The endpoints the Number Setup screen now calls must exist and be guarded
   // — the feature was unreachable from the product until the UI was wired.
   const r = await req('POST', `/workspaces/${WS}/whatsapp/numbers/does-not-exist/request-code`,

@@ -229,10 +229,15 @@ model WaNumber {
   widgets       Widget[]
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  // One workspace cannot hold the same Meta phone number twice. Without this,
-  // a double-clicked "connect" wrote six identical rows (observed in
-  // production data) and every list, count and send-from picker disagreed.
-  @@unique([workspaceId, metaPhoneNumberId])
+  // A WhatsApp number belongs to exactly one workspace, globally.
+  //
+  // This was scoped per workspace, which only stopped the same workspace
+  // connecting a number twice. Across workspaces it allowed two tenants to
+  // claim one phone number id — and inbound routing resolves a number with
+  // `findFirst({ metaPhoneNumberId })`, with no workspace to scope it by, so
+  // whichever row happened to be found first received the other tenant's
+  // customer messages. Global uniqueness is what makes that resolution correct.
+  @@unique([metaPhoneNumberId])
 }
 
 model NumberPool {

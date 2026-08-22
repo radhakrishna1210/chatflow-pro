@@ -16,6 +16,12 @@ router.post('/onboard', whatsappController.onboard);
 router.get('/embedded-signup/config', whatsappController.embeddedSignupConfig);
 router.post('/embedded-signup', whatsappController.completeEmbeddedSignup);
 router.get('/numbers/:id/subscription', whatsappController.checkSubscription);
+// Live diagnosis: token, number, verification and webhook subscription, each
+// with what to do when it fails.
+router.get('/numbers/:id/health', whatsappController.health);
+// Reconnecting replaces credentials in place. Connecting a *new* number stays
+// admin-only below; this repairs one the workspace already has.
+router.post('/numbers/:id/reconnect', whatsappController.reconnect);
 // Number verification. Meta rate-limits code requests hard, so this is
 // throttled here too rather than letting users burn the allowance.
 router.post('/numbers/:id/request-code',
