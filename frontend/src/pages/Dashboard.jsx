@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import CreateCampaign from './CreateCampaign.jsx';
@@ -54,6 +54,33 @@ const Avatar = ({ name = '?', size = 34, showRing = false }) => {
   );
 };
 
+// ─── Focus-trap helper for modals ─────────────────────────────
+const useFocusTrap = (containerRef, isActive) => {
+  useEffect(() => {
+    if (!isActive || !containerRef.current) return;
+    const container = containerRef.current;
+    const focusable = () => container.querySelectorAll(
+      'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])'
+    );
+    const first = () => { const els = focusable(); return els[0]; };
+    const last  = () => { const els = focusable(); return els[els.length - 1]; };
+    const onKeyDown = (e) => {
+      if (e.key !== 'Tab') return;
+      const els = focusable();
+      if (els.length === 0) { e.preventDefault(); return; }
+      if (e.shiftKey) {
+        if (document.activeElement === els[0]) { e.preventDefault(); els[els.length - 1].focus(); }
+      } else {
+        if (document.activeElement === els[els.length - 1]) { e.preventDefault(); els[0].focus(); }
+      }
+    };
+    container.addEventListener('keydown', onKeyDown);
+    // Auto-focus first focusable element when trap activates.
+    requestAnimationFrame(() => { const f = first(); if (f) f.focus(); });
+    return () => container.removeEventListener('keydown', onKeyDown);
+  }, [isActive, containerRef]);
+};
+
 // ─── Profile menu (top-right) ─────────────────────────────────
 const ProfileMenu = () => {
   const [open, setOpen] = useState(false);
@@ -61,11 +88,12 @@ const ProfileMenu = () => {
     try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
   });
   const wrapRef = useRef(null);
+  const btnRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
     const onClick = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
-    const onEsc   = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const onEsc   = (e) => { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); } };
     document.addEventListener('mousedown', onClick);
     document.addEventListener('keydown', onEsc);
     return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onEsc); };
@@ -92,8 +120,12 @@ const ProfileMenu = () => {
   return (
     <div ref={wrapRef} style={{ position:'relative' }}>
       <button
+        ref={btnRef}
         onClick={() => setOpen(o => !o)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o => !o); } }}
         aria-label="Open profile menu"
+        aria-expanded={open}
+        aria-haspopup="true"
         style={{ background:'none', border:'none', padding:0, cursor:'pointer', borderRadius:'50%' }}>
         <Avatar name={name} size={34} showRing />
       </button>
@@ -148,6 +180,8 @@ const ProfileMenu = () => {
 const MenuItem = ({ icon, label, onClick, danger = false }) => (
   <button
     onClick={onClick}
+    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }}
+    role="menuitem"
     style={{
       width:'100%', display:'flex', alignItems:'center', gap:11,
       padding:'9px 12px', borderRadius:8, cursor:'pointer',
@@ -158,7 +192,9 @@ const MenuItem = ({ icon, label, onClick, danger = false }) => (
       transition:'background .12s',
     }}
     onMouseEnter={e => { e.currentTarget.style.background = danger ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)'; }}
-    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+    onFocus={e => { e.currentTarget.style.background = danger ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)'; }}
+    onBlur={e => { e.currentTarget.style.background = 'transparent'; }}>
     <I n={icon} s={14} c={danger ? '#f87171' : 'var(--t2)'} />
     {label}
   </button>
@@ -306,6 +342,8 @@ const NotificationsBell = () => {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button onClick={() => setOpen(o => !o)} aria-label="Notifications"
+        aria-expanded={open} aria-haspopup="true"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o => !o); } }}
         style={{ position: 'relative', width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
         <I n="bell" s={15} c="var(--t2)" />
         {items.length > 0 && <div style={{ position: 'absolute', top: '7px', right: '7px', width: '6px', height: '6px', borderRadius: '50%', background: 'var(--green)', border: '1.5px solid var(--surf)' }} />}
@@ -624,9 +662,12 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged }) => {
 
   const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING'].includes(c.status);
 
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef, true);
+
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-      <div onClick={e => e.stopPropagation()} style={{ ...card, width:'100%', maxWidth:640, maxHeight:'86vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+    <div onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={c?.name || 'Campaign Detail'} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div ref={modalRef} onClick={e => e.stopPropagation()} style={{ ...card, width:'100%', maxWidth:640, maxHeight:'86vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 22px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div>
             <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{c?.name || 'Campaign'}</p>
@@ -833,6 +874,8 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
   const [examples, setExamples] = useState({});
   const [saving, setSaving]     = useState(false);
   const [err, setErr]           = useState(null);
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef, true);
   // Templates are private per WhatsApp number. When a workspace has more than
   // one number, the user must choose which number this template belongs to.
   const [numbers, setNumbers]   = useState([]);
@@ -922,8 +965,8 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
   };
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
-      <div style={{ ...card, width:620, maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+    <div onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Template' : 'New Message Template'} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
+      <div ref={modalRef} style={{ ...card, width:620, maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
             <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{isEdit ? 'Edit Template' : 'New Message Template'}</p>
@@ -964,10 +1007,14 @@ const TemplateModal = ({ onClose, onSaved, template = null }) => {
           {/* Category */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Category <span style={{ color:'#f87171' }}>*</span></label>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }} role="radiogroup" aria-label="Template category">
               {cats.map(c => (
                 <div key={c.id} onClick={() => setCategory(c.id)}
-                  style={{ padding:'10px 12px', borderRadius:8, border:`1.5px solid ${category === c.id ? 'var(--green)' : 'var(--bd)'}`, background: category === c.id ? 'var(--gbg)' : 'rgba(255,255,255,0.02)', cursor:'pointer' }}>
+                  tabIndex={0} role="radio" aria-checked={category === c.id}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCategory(c.id); } }}
+                  style={{ padding:'10px 12px', borderRadius:8, border:`1.5px solid ${category === c.id ? 'var(--green)' : 'var(--bd)'}`, background: category === c.id ? 'var(--gbg)' : 'rgba(255,255,255,0.02)', cursor:'pointer', outline:'none' }}
+                  onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--green)'; }}
+                  onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}>
                   <p style={{ fontSize:13, fontWeight:600, color: category === c.id ? 'var(--green)' : 'var(--t1)', marginBottom:3 }}>{c.label}</p>
                   <p style={{ fontSize:10.5, color:'var(--t3)', lineHeight:1.4 }}>{c.hint}</p>
                 </div>
@@ -1199,13 +1246,17 @@ const TemplatesView = () => {
             return (
               <div key={t.id}
                 onClick={() => setTab(t.id)}
+                tabIndex={0} role="tab" aria-selected={on}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(t.id); } }}
                 style={{
                   display:'flex', alignItems:'center', gap:7, padding:'10px 14px', cursor:'pointer',
                   fontSize:13, fontWeight: on ? 700 : 500,
                   color: on ? 'var(--t1)' : 'var(--t2)',
                   borderBottom: `2px solid ${on ? 'var(--green)' : 'transparent'}`,
-                  marginBottom: -1, transition: 'all .15s',
-                }}>
+                  marginBottom: -1, transition: 'all .15s', outline:'none',
+                }}
+                onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--green)'; }}
+                onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}>
                 <I n={t.icon} s={13} c={on ? 'var(--green)' : 'var(--t2)'} />
                 {t.label}
                 {t.id === 'library' && (
@@ -1299,6 +1350,14 @@ const TemplatesView = () => {
                     </div>
                     <StatusBadge s={statusLabel(t.status)} />
                   </div>
+                  {/* Meta rejection reason */}
+                  {t.status === 'REJECTED' && t.rejectedReason && (
+                    <div style={{ padding:'8px 11px', borderRadius:6, background:'rgba(239,68,68,.06)', border:'1px solid rgba(239,68,68,.18)', marginBottom:12 }}>
+                      <p style={{ fontSize:11, color:'#f87171', lineHeight:1.45 }}>
+                        <strong>Rejected:</strong> {t.rejectedReason}
+                      </p>
+                    </div>
+                  )}
                   <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '10px 12px', marginBottom: '14px', border: '1px solid var(--bd)', minHeight: '60px' }}>
                     <p style={{ fontSize: '12px', color: 'var(--t1)', lineHeight: 1.55 }}>
                       {bodyText || <span style={{ color:'var(--t3)', fontStyle:'italic' }}>No body text</span>}
@@ -1359,8 +1418,8 @@ const TemplatePreviewModal = ({ template, onClose }) => {
     ? (template.components.find(c => (c.type || '').toUpperCase() === 'FOOTER')?.text ?? '')
     : '';
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-      <div onClick={e => e.stopPropagation()} style={{ ...card, width:'100%', maxWidth:480, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+    <div onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={template.name} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e => e.stopPropagation()} tabIndex={-1} style={{ ...card, width:'100%', maxWidth:480, display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div>
             <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>{template.name}</p>
@@ -1433,7 +1492,11 @@ const LibraryPane = ({ hasNumber, loading, items, filter, setFilter, search, set
             const on = filter === f.id;
             return (
               <div key={f.id} onClick={() => setFilter(f.id)}
-                style={{ padding:'6px 12px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight: on ? 700 : 500, color: on ? '#060913' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent', transition:'all .12s', whiteSpace:'nowrap' }}>
+                tabIndex={0} role="tab" aria-selected={on}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilter(f.id); } }}
+                style={{ padding:'6px 12px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight: on ? 700 : 500, color: on ? '#060913' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent', transition:'all .12s', whiteSpace:'nowrap', outline:'none' }}
+                onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--green)'; }}
+                onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}>
                 {f.label}
               </div>
             );
@@ -1507,8 +1570,8 @@ const LibraryPane = ({ hasNumber, loading, items, filter, setFilter, search, set
 const LibraryPreviewModal = ({ item, onClose, onInstall, installing }) => {
   const installed = !!item.installedStatus;
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-      <div onClick={e => e.stopPropagation()} style={{ ...card, width:'100%', maxWidth:520, maxHeight:'85vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+    <div onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={item.title} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div onClick={e => e.stopPropagation()} tabIndex={-1} style={{ ...card, width:'100%', maxWidth:520, maxHeight:'85vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div>
             <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>{item.title}</p>
@@ -1613,7 +1676,7 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
   }, []);
 
   return (
-    <div style={{ width: col ? '60px' : '232px', background: '#060913', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', transition: 'width .22s ease', flexShrink: 0, overflow: 'hidden' }}>
+    <div style={{ width: col ? '60px' : '232px', background: '#060913', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', transition: 'width .22s ease', flexShrink: 0, overflow: 'hidden' }} role="navigation" aria-label="Main navigation">
       <div style={{ padding: '16px 14px', display: 'flex', alignItems: 'center', gap: '9px', borderBottom: '1px solid var(--bd)', minHeight: '62px' }}>
         <div onClick={() => onNav('landing')} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', boxShadow: '0 0 16px rgba(30,191,94,0.3)' }}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#060913" /></svg>
@@ -1632,9 +1695,13 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
           const on = page === item.id || (page === 'campaigns-create' && item.id === 'campaigns');
           return (
             <div key={item.id} onClick={() => setPage(item.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', background: on ? 'rgba(30,191,94,0.1)' : 'transparent', justifyContent: col ? 'center' : 'flex-start' }}
+              tabIndex={0} role="link" aria-current={on ? 'page' : undefined}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPage(item.id); } }}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', background: on ? 'rgba(30,191,94,0.1)' : 'transparent', justifyContent: col ? 'center' : 'flex-start', outline: 'none' }}
               onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
               onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}
+              onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--green)'; if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+              onBlur={e => { e.currentTarget.style.boxShadow = 'none'; if (!on) e.currentTarget.style.background = 'transparent'; }}
               title={col ? item.label : ''}>
               <I n={item.icon} s={16} c={on ? 'var(--green)' : 'var(--t2)'} w={on ? 2 : 1.75} />
               {!col && <span style={{ fontSize: '13px', fontWeight: on ? 600 : 500, color: on ? 'var(--t1)' : 'var(--t2)', whiteSpace: 'nowrap' }}>{item.label}</span>}
@@ -1663,9 +1730,13 @@ const Sidebar = ({ page, setPage, onNav, user }) => {
             <p style={{ fontSize: '10px', color: isAdmin ? 'var(--green)' : 'var(--t2)' }}>{planLabel}</p>
           </div>
         </div>}
-        <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', justifyContent: col ? 'center' : 'flex-start' }}
+        <div onClick={() => onNav('landing')} tabIndex={0} role="button"
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNav('landing'); } }}
+          style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', justifyContent: col ? 'center' : 'flex-start', outline: 'none' }}
           onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--green)'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+          onBlur={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = 'transparent'; }}
           title={col ? 'Sign out' : ''}>
           <I n="logout" s={16} c="var(--t2)" />
           {!col && <span style={{ fontSize: '13px', color: 'var(--t2)', fontWeight: 500 }}>Sign out</span>}

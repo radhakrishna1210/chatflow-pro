@@ -27,23 +27,52 @@ async function ensureWabaSubscribed(waNumberId, wabaId, accessToken) {
 }
 
 // Refresh quality/status of numbers already assigned to this workspace — never creates new records.
+// Groups by wabaId and uses each number's own token (critical for Embedded Signup WABAs).
 async function refreshExistingFromMeta(workspaceId) {
   try {
-    const metaNumbers = await getWabaPhoneNumbers(env.META_WABA_ID);
-    for (const num of metaNumbers) {
-      const exists = await prisma.waNumber.findFirst({
-        where: { workspaceId, metaPhoneNumberId: num.id },
-      });
-      if (!exists) continue;
-      await prisma.waNumber.update({
-        where: { id: exists.id },
-        data: {
-          phoneNumber: num.display_phone_number,
-          displayName: num.verified_name ?? exists.displayName,
-          quality:     num.quality_rating  ?? exists.quality,
-          status:      num.status          ?? exists.status,
-        },
-      });
+    const numbers = await prisma.waNumber.findMany({ where: { workspaceId } });
+    if (numbers.length === 0) return;
+
+    // Group numbers by wabaId so we make one API call per WABA.
+    const byWaba = new Map();
+    for (const n of numbers) {
+      if (!byWaba.has(n.wabaId)) byWaba.set(n.wabaId, []);
+      byWaba.get(n.wabaId).push(n);
+    }
+
+    for (const [wabaId, wabaNumbers] of byWaba) {
+      // Use the first number's token to query this WABA.
+      const accessToken = decrypt(wabaNumbers[0].encryptedAccessToken);
+      let metaNumbers;
+      try {
+        metaNumbers = await getWabaPhoneNumbers(wabaId, accessToken);
+      } catch (err) {
+        const errMsg = err.response?.data?.error?.message || err.message;
+        console.warn(`[whatsapp] Could not fetch phone numbers for WABA ${wabaId}: ${errMsg}`);
+        // Mark all numbers in this WABA with an unavailable quality indicator.
+        for (const n of wabaNumbers) {
+          await prisma.waNumber.update({
+            where: { id: n.id },
+            data: { quality: n.quality || 'Unavailable' },
+          }).catch(() => {});
+        }
+        continue;
+      }
+
+      const metaById = new Map(metaNumbers.map(m => [m.id, m]));
+      for (const exists of wabaNumbers) {
+        const num = metaById.get(exists.metaPhoneNumberId);
+        if (!num) continue;
+        await prisma.waNumber.update({
+          where: { id: exists.id },
+          data: {
+            phoneNumber: num.display_phone_number,
+            displayName: num.verified_name ?? exists.displayName,
+            quality:     num.quality_rating  ?? exists.quality,
+            status:      num.status          ?? exists.status,
+          },
+        });
+      }
     }
   } catch (err) {
     console.error('[whatsapp] Meta refresh failed:', err.message);

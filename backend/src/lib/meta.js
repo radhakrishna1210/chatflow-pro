@@ -82,7 +82,7 @@ export async function getWabaTemplates(wabaId, accessToken) {
 
   do {
     const params = {
-      fields: 'id,name,status,category,language,components',
+      fields: 'id,name,status,category,language,components,rejected_reason',
       limit: 200,
       ...(afterCursor ? { after: afterCursor } : {}),
     };

@@ -120,6 +120,7 @@ model Template {
   language       String
   components     Json
   status         TemplateStatus @default(PENDING)
+  rejectedReason String?
   aiGenerated    Boolean        @default(false)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @default(now()) @updatedAt

@@ -30,7 +30,7 @@ export async function listTemplates(workspaceId, waNumberId) {
   const where = { workspaceId, ...(waNumberId ? { waNumberId } : {}) };
   return prisma.template.findMany({
     where,
-    select: { id: true, name: true, category: true, language: true, status: true, components: true, waNumberId: true, metaTemplateId: true, aiGenerated: true, createdAt: true },
+    select: { id: true, name: true, category: true, language: true, status: true, rejectedReason: true, components: true, waNumberId: true, metaTemplateId: true, aiGenerated: true, createdAt: true },
     orderBy: { createdAt: 'desc' },
   });
 }
@@ -55,9 +55,11 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
     const existing = await prisma.template.findFirst({
       where: { workspaceId, waNumberId: waNumber.id, metaTemplateId: mt.id },
     });
+    const rejectedReason = mt.rejected_reason || null;
     const payload = {
       name: mt.name, category: mt.category, language: mt.language,
       components: mt.components ?? [], status: mapStatus(mt.status), metaTemplateId: mt.id,
+      rejectedReason: mapStatus(mt.status) === 'REJECTED' ? rejectedReason : null,
     };
     if (existing) {
       await prisma.template.update({ where: { id: existing.id }, data: payload });
