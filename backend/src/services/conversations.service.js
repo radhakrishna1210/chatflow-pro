@@ -167,6 +167,98 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
 }
 
 
+// Sends a file on an open conversation.
+//
+// The composer was text-only and no route accepted an attachment, so an agent
+// could receive a customer's photo or PDF and had no way to reply with one.
+// Everything the text path enforces applies here too — opt-out, the 24-hour
+// window, and a message credit that is handed back if Meta rejects the send.
+export async function sendMediaMessage(workspaceId, conversationId, userId, { buffer, mimeType, fileName, caption } = {}) {
+  const { OUTBOUND_MEDIA_TYPES, uploadPhoneMedia, sendMediaMessage: sendViaMeta } = await import('../lib/meta.js');
+
+  const spec = OUTBOUND_MEDIA_TYPES[mimeType];
+  if (!spec) {
+    const e = new Error(`WhatsApp does not accept ${mimeType} as an attachment. Send a JPG, PNG, MP4, PDF or audio file.`);
+    e.status = 400; e.expose = true; throw e;
+  }
+  if (!buffer?.length) { const e = new Error('That file is empty'); e.status = 400; throw e; }
+  if (buffer.length > spec.maxBytes) {
+    const e = new Error(
+      `That file is ${(buffer.length / 1024 / 1024).toFixed(1)} MB — WhatsApp's limit for a ${spec.type} is `
+      + `${spec.maxBytes / 1024 / 1024} MB.`,
+    );
+    e.status = 400; e.expose = true; throw e;
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    include: { contact: true, waNumber: true },
+  });
+  if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+  if (!conversation.waNumber) {
+    const e = new Error('The WhatsApp number for this conversation was disconnected — connect a number to reply.');
+    e.status = 409; throw e;
+  }
+
+  await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
+
+  // An attachment is a free-form message, so the same 24-hour rule applies.
+  const windowState = await getWindowState(conversationId);
+  if (!windowState.open) throw outsideWindowError(windowState);
+
+  const credit = await consumeMessageCredit(workspaceId, { reason: 'Media message' });
+  if (!credit.ok) {
+    const e = new Error('Message quota and wallet balance exhausted — recharge your wallet or upgrade your plan');
+    e.status = 403;
+    throw e;
+  }
+
+  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
+  let result;
+  let mediaId;
+  try {
+    // Two steps against Meta: upload the bytes to the phone number, then send
+    // the id. The id is scoped to that number and expires in about 30 days.
+    mediaId = await uploadPhoneMedia({
+      phoneNumberId: conversation.waNumber.metaPhoneNumberId,
+      accessToken, buffer, mimeType, fileName,
+    });
+    result = await sendViaMeta(
+      conversation.waNumber.metaPhoneNumberId, accessToken, conversation.contact.phoneNumber,
+      { mediaId, type: spec.type, caption, filename: fileName },
+    );
+  } catch (err) {
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    throw describeSendFailure(err);
+  }
+
+  const message = await prisma.message.create({
+    data: {
+      conversationId,
+      // The caption is the agent's words; without one the type stands in, the
+      // same way inbound media is rendered.
+      body: caption?.trim() || `[${spec.type}]`,
+      direction: 'OUTBOUND',
+      type: spec.type.toUpperCase(),
+      metaMessageId: result?.messages?.[0]?.id,
+      status: 'SENT',
+      statusAt: new Date(),
+      senderUserId: userId,
+      mediaId,
+      mediaMimeType: mimeType,
+      mediaFilename: fileName || null,
+    },
+    include: { senderUser: { select: { id: true, name: true } } },
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { lastMessageAt: new Date() },
+  });
+
+  return message;
+}
+
 // ─── Conversation context ────────────────────────────────────────────────────
 //
 // Everything the inbox's right-hand panel shows about a thread that is not the

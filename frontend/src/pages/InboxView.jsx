@@ -177,6 +177,8 @@ export default function InboxView() {
   // by the server. Outside it only an approved template may be sent, so the
   // composer has to say so instead of letting the send fail at Meta.
   const [windowState, setWindowState] = useState({});
+  const fileInputRef = useRef(null);
+  const [attaching, setAttaching] = useState(false);
   const [activeId, setActiveId] = useState(null);
   const [isBot, setIsBot]       = useState(false);
   const [input, setInput]       = useState('');
@@ -405,6 +407,39 @@ export default function InboxView() {
       setMsgs(p => ({ ...p, [activeId]: (p[activeId] || []).filter(m => m.id !== temp.id) }));
     } finally {
       setSending(false);
+    }
+  };
+
+  // Attachments. The composer was text-only and no route accepted a file, so an
+  // agent could read a customer's photo and had no way to send one back.
+  const sendFile = async (file) => {
+    if (!file || !activeId) return;
+    setSendError(null);
+    setAttaching(true);
+    const temp = {
+      id: `tmpf${Date.now()}`, body: file.name, direction: 'OUTBOUND', type: 'DOCUMENT',
+      sentAt: new Date().toISOString(), senderUser: { name: 'You' }, _pending: true,
+    };
+    setMsgs(p => ({ ...p, [activeId]: [...(p[activeId] || []), temp] }));
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      if (input.trim()) form.append('caption', input.trim());
+      const res = await wFetch(`/conversations/${activeId}/media`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.error || `Could not send that file (${res.status})`);
+        setMsgs(p => ({ ...p, [activeId]: (p[activeId] || []).filter(m => m.id !== temp.id) }));
+        return;
+      }
+      setInput('');
+      setMsgs(p => ({ ...p, [activeId]: (p[activeId] || []).map(m => m.id === temp.id ? data : m) }));
+    } catch (e) {
+      setSendError(e.message);
+      setMsgs(p => ({ ...p, [activeId]: (p[activeId] || []).filter(m => m.id !== temp.id) }));
+    } finally {
+      setAttaching(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -710,6 +745,23 @@ export default function InboxView() {
 
                 <div style={{ padding:'12px 16px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, alignItems:'center', background:'var(--surf)', flexShrink:0 }}>
                   <Btn variant="outline" size="sm">Quick Reply</Btn>
+                  {/* WhatsApp treats an attachment as a free-form message, so
+                      it is bound by the same 24-hour window as a text reply. */}
+                  <input ref={fileInputRef} type="file" hidden
+                    accept="image/jpeg,image/png,video/mp4,audio/mpeg,audio/ogg,application/pdf"
+                    onChange={e => sendFile(e.target.files?.[0])} />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={attaching || sending || (activeWindow ? !activeWindow.open : false)}
+                    title={activeWindow && !activeWindow.open ? 'Reply window closed' : 'Attach a photo, video or PDF'}
+                    aria-label="Attach a file"
+                    style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+                             background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)',
+                             cursor: (attaching || (activeWindow && !activeWindow.open)) ? 'not-allowed' : 'pointer',
+                             opacity: (attaching || (activeWindow && !activeWindow.open)) ? 0.5 : 1,
+                             display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <I n={attaching ? 'rotate' : 'plus'} s={15} c="var(--t2)" />
+                  </button>
                   <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
                     placeholder={activeWindow && !activeWindow.open ? 'Reply window closed — send an approved template' : 'Type a message…'}
                     disabled={sending || (activeWindow ? !activeWindow.open : false)}

@@ -11,6 +11,21 @@ export async function getMessages(req, res) {
   res.json(messages);
 }
 
+// An attachment on an open conversation. The file arrives as multipart, so the
+// body carries only the optional caption.
+export async function sendMedia(req, res) {
+  const message = await conversationsService.sendMediaMessage(
+    req.params.workspaceId, req.params.id, req.user.id,
+    {
+      buffer: req.file?.buffer,
+      mimeType: String(req.file?.mimetype || '').split(';')[0].trim(),
+      fileName: req.file?.originalname,
+      caption: req.body?.caption,
+    },
+  );
+  res.status(201).json(message);
+}
+
 export async function sendMessage(req, res) {
   const message = await conversationsService.sendMessage(
     req.params.workspaceId,

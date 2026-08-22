@@ -428,3 +428,39 @@ export async function setAppWebhookSubscription(callbackUrl) {
   });
   return { ...data, callbackUrl: url, fields: REQUIRED_WEBHOOK_FIELDS };
 }
+
+// Sends a media message (image, video, audio, document) on an open
+// conversation.
+//
+// Inbound media has been parsed and stored for a while; this is the other
+// direction, which did not exist — an agent could read a customer's photo and
+// had no way to send one back. `mediaId` comes from uploadPhoneMedia above and
+// is scoped to the same phone number id.
+export async function sendMediaMessage(phoneNumberId, accessToken, to, { mediaId, type, caption, filename }) {
+  const client = metaClient(accessToken);
+  const media = { id: mediaId };
+  // Only documents carry a filename, and only image/video/document accept a
+  // caption — Meta rejects the message outright if either is sent where it does
+  // not belong.
+  if (caption && type !== 'audio') media.caption = caption;
+  if (type === 'document' && filename) media.filename = filename;
+
+  const { data } = await client.post(`/${phoneNumberId}/messages`, {
+    messaging_product: 'whatsapp',
+    to,
+    type,
+    [type]: media,
+  });
+  return data;
+}
+
+// Meta's own limits for a *message* attachment, which differ from the template
+// header limits in TEMPLATE_MEDIA_FORMATS above.
+export const OUTBOUND_MEDIA_TYPES = {
+  'image/jpeg':      { type: 'image',    maxBytes: 5 * 1024 * 1024 },
+  'image/png':       { type: 'image',    maxBytes: 5 * 1024 * 1024 },
+  'video/mp4':       { type: 'video',    maxBytes: 16 * 1024 * 1024 },
+  'audio/mpeg':      { type: 'audio',    maxBytes: 16 * 1024 * 1024 },
+  'audio/ogg':       { type: 'audio',    maxBytes: 16 * 1024 * 1024 },
+  'application/pdf': { type: 'document', maxBytes: 100 * 1024 * 1024 },
+};

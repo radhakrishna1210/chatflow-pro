@@ -22,6 +22,9 @@ const SIGNATURES = [
   { mime: 'image/png', test: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 },
   { mime: 'image/webp', test: (b) => b.slice(0, 4).toString('ascii') === 'RIFF' && b.slice(8, 12).toString('ascii') === 'WEBP' },
   { mime: 'application/pdf', test: (b) => b.slice(0, 4).toString('ascii') === '%PDF' },
+  // ID3 tag, or a raw MPEG frame sync.
+  { mime: 'audio/mpeg', test: (b) => b.slice(0, 3).toString('ascii') === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) },
+  { mime: 'audio/ogg', test: (b) => b.slice(0, 4).toString('ascii') === 'OggS' },
   // MP4 and friends put a size field first, then 'ftyp' at offset 4.
   { mime: 'video/mp4', test: (b) => b.slice(4, 8).toString('ascii') === 'ftyp' },
   // Office formats are ZIP containers.
@@ -116,4 +119,7 @@ export const ACCEPTS = Object.freeze({
     'text/csv',
   ],
   image: ['image/jpeg', 'image/png', 'image/webp'],
+  // What WhatsApp accepts as a message attachment, which is a different (and
+  // wider) set than a template header — see OUTBOUND_MEDIA_TYPES in lib/meta.js.
+  outboundMedia: ['image/jpeg', 'image/png', 'video/mp4', 'audio/mpeg', 'audio/ogg', 'application/pdf'],
 });
