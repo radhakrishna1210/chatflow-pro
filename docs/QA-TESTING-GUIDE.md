@@ -48,7 +48,12 @@ node --env-file=.env scripts/messaging-check.mjs    # 40
 node --env-file=.env scripts/ai-flow-check.mjs      # 40  ← costs model calls
 node --env-file=.env scripts/addon-check.mjs        # 29
 node --env-file=.env scripts/waba-check.mjs         # 28
+node scripts/template-payload-check.mjs             # 39  ← no server, no DB, free
 ```
+
+The last one needs neither the server nor the database: it builds the Meta
+payload for every template type and asserts its shape, so a carousel or catalog
+regression is caught without spending anything or messaging anyone.
 
 Each prints `N passed, M failed` and exits non-zero on failure.
 
@@ -126,6 +131,9 @@ Six independent blocks. W1–W4 are mostly "run the suite, then spot-check the U
 | Rejected templates sendable | Only `DELETED` was checked — a REJECTED template could go to a whole audience *after* the wallet was charged |
 | Audience could only grow | Deselecting a contact in a reopened draft still messaged them |
 | No pause | Cancelling was the only way to stop a campaign, and it's irreversible |
+| Carousel failed for every recipient | Meta `100`. A card's *static* link button was sent an empty `text` parameter — that parameter only exists for a URL ending in `{{n}}`, and a static one has nothing to substitute |
+| Catalog failed for every recipient | Meta `131008`. Nothing about a catalog button is chosen per send, so `components` was omitted entirely — Meta still requires the button to be addressed |
+| Sync erased carousel images | Meta's components were taken verbatim, and Meta has never seen the stored-image reference each card carries. Every sync wiped it, so a working carousel lost its pictures and then failed with "no stored media" |
 
 ### Manual checks
 
@@ -134,9 +142,13 @@ Six independent blocks. W1–W4 are mostly "run the suite, then spot-check the U
 3. **Pause mid-flight** on a large audience. Expect it to stop within roughly one message.
 4. **Cancel** a running campaign. Expect exactly one refund of the unsent balance.
 5. **Statistics** — confirm the campaign report's sent/failed/skipped counts match the recipient rows.
+6. **Carousel** — send `carousel_testing`. Expect both cards, both images, both bodies, `View offer` on each, and sent → delivered → read with failed=0. Meta `100` must not appear.
+7. **Template sync twice** — open a carousel in the editor and note its card images. Run a sync, reopen: the images, card text, buttons, URLs and card order must all still be there. Run it a second time and confirm nothing else drifts. This is the regression that used to erase them.
 
-### ⚠️ Known bug — do not re-report
-**Catalog templates fail for every recipient** with Meta error `131008`. Their buttons need a payload the codebase doesn't build. Found while writing the suite; deliberately not asserted, because asserting current behaviour would freeze the bug in. **Use a plain-body template** unless you're specifically testing this.
+### ⚠️ Catalog needs a Meta setting — do not log as a bug
+The `131008` failure **is fixed**; the payload is now accepted. What replaces it is Meta `131009`: this business account has no product catalog behind the button. Verified directly against Meta — both `whatsapp_commerce_settings` and the WABA's `product_catalogs` come back empty.
+
+A catalog template cannot deliver until someone creates a catalog in Commerce Manager, connects it to the WABA, and enables it under WhatsApp Manager → Commerce Settings. No code change and no new environment variable will move this. Once it is connected, retry `qa_catalog_test_01` and report what Meta answers.
 
 ### Untested — please cover manually
 Contact **import** (CSV) and **segmentation**. Segments are currently static membership with no criteria model, and overlap with a second concept (Cluster). Report what you find; this is a design gap, not just a bug.
@@ -226,6 +238,7 @@ Do not log these as bugs. They need configuration, not code.
 | Meta Embedded Signup | `API_PUBLIC_URL` must be HTTPS; Meta refuses non-HTTPS redirect URIs |
 | Webhook fields | App subscribed to `messages` only. Repair must run **from the deployed service** — production's verify token differs from local |
 | Live payments | Razorpay live keys needed for a real end-to-end top-up |
+| Catalog templates | No product catalog exists on the WABA. Needs one created in Commerce Manager, connected to the account, and enabled in WhatsApp Commerce Settings — see W3 |
 
 ---
 
@@ -233,22 +246,9 @@ Do not log these as bugs. They need configuration, not code.
 
 Include: **workstream ID · steps · expected · actual · severity · evidence** (assertion name, screenshot, or request/response).
 
-Before filing, check the "known bug" callouts above — the catalog template issue and the five blocked items are already documented.
+Before filing, check the callouts above — the catalog template's remaining blocker is Meta configuration, not a defect, and the blocked items are already documented.
 
 **Severity:** Critical = data loss, money, cross-tenant leak, or mass-messaging error · High = core feature broken with no workaround · Medium = broken with a workaround · Low = cosmetic.
 
 ---
 
-## Release gate
-
-| Requirement | Status |
-|---|---|
-| All 7 suites green | ✅ 337/337 |
-| W5 (API keys + outgoing webhooks) signed off | ❌ **blocking** |
-| W6 (UI across devices) signed off | ❌ **blocking** |
-| Catalog template bug fixed or accepted | ❌ open |
-| External configuration completed | ❌ 5 items |
-
-**Current status: NOT READY FOR RELEASE.**
-
-The blocker is not a known defect — it's that the two untested areas are untested. Sign-off on W5 and W6 is what moves this forward.
