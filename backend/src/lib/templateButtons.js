@@ -118,8 +118,23 @@ export function normalizeButtons(raw, { context = 'template', where: whereLabel 
 
     // A catalog button carries no destination of its own — it opens the
     // catalog already connected to the WhatsApp Business account.
+    //
+    // The one thing that IS chosen per send is which product's picture heads
+    // the message (`thumbnail_product_retailer_id` — the item's Content ID in
+    // Commerce Manager). Meta does not accept it at template-creation time, so
+    // it is kept under an underscore, out of what toMetaComponents() posts,
+    // and read back by the send path. Optional: without it Meta uses the first
+    // item in the catalog.
     if (type === 'CATALOG') {
-      out.push({ type, text });
+      const entry = { type, text };
+      const sku = String(
+        btn?._thumbnailProductRetailerId ?? btn?.thumbnailProductRetailerId ?? '',
+      ).trim();
+      if (sku) {
+        if (sku.length > 100) fail(`${where} thumbnail product ID is longer than 100 characters.`);
+        entry._thumbnailProductRetailerId = sku;
+      }
+      out.push(entry);
       return;
     }
 

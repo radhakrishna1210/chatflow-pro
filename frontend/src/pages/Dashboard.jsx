@@ -1867,6 +1867,14 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
       .find(x => (x?.type || '').toUpperCase() === 'CATALOG');
     return b?.text || 'View catalog';
   });
+  // Which product's picture heads the message. Meta calls it the thumbnail
+  // product retailer id and it is the item's Content ID in Commerce Manager.
+  // Optional — left blank, Meta uses the first item in the catalog.
+  const [catalogThumbnailId, setCatalogThumbnailId] = useState(() => {
+    const b = (comps.find(c => (c.type || '').toUpperCase() === 'BUTTONS')?.buttons || [])
+      .find(x => (x?.type || '').toUpperCase() === 'CATALOG');
+    return b?._thumbnailProductRetailerId || '';
+  });
   const [cardUploading, setCardUploading] = useState(null);
   const [headerText, setHeaderText] = useState(initialHeader?.text ?? seed?.headerText ?? '');
   // Holds Meta's review handle once the image is uploaded, plus the assetId of
@@ -2152,7 +2160,9 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
     };
 
     if (isCatalog) {
-      components.push({ type:'BUTTONS', buttons: [{ type:'CATALOG', text: catalogLabel.trim() }] });
+      const catalogBtn = { type:'CATALOG', text: catalogLabel.trim() };
+      if (catalogThumbnailId.trim()) catalogBtn._thumbnailProductRetailerId = catalogThumbnailId.trim();
+      components.push({ type:'BUTTONS', buttons: [catalogBtn] });
     } else if (isCarousel) {
       components.push({
         type: 'CAROUSEL',
@@ -2418,7 +2428,16 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
               <input value={catalogLabel} maxLength={25} onChange={e => setCatalogLabel(e.target.value)}
                 placeholder="View catalog" style={inputBase} />
               <p style={{ fontSize:11, color:'var(--t3)', marginTop:4, lineHeight:1.5 }}>
-                Only the label is yours to choose — the button opens the product catalog connected to this WhatsApp Business account, so there is nothing to hardcode here.
+                The button opens the product catalog connected to this WhatsApp Business account.
+              </p>
+
+              <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', margin:'14px 0 6px' }}>
+                Thumbnail product ID <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional)</span>
+              </label>
+              <input value={catalogThumbnailId} maxLength={100} onChange={e => setCatalogThumbnailId(e.target.value)}
+                placeholder="e.g. 2lc20305pt" style={inputBase} />
+              <p style={{ fontSize:11, color:'var(--t3)', marginTop:4, lineHeight:1.5 }}>
+                The item whose picture heads the message — its Content ID in Commerce Manager. Leave blank to use the first product in the catalog.
               </p>
             </div>
           )}

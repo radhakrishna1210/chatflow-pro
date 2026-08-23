@@ -3,8 +3,8 @@ import { createBullConnection, logRedisError } from '../lib/redis.js';
 import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
-import { headerImageComponent, carouselComponent } from '../services/templateImage.service.js';
-import { templateHasVariables, contactVariableResolver, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
+import { buildTemplateSendPayload } from '../services/templatePayload.service.js';
+import { contactVariableResolver } from '../lib/templateParams.js';
 import { campaignCtaComponent, buildCampaignContext } from '../services/campaignAi.service.js';
 import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
@@ -62,45 +62,45 @@ const describeMetaError = (metaErr, fallback) => {
   if (code === 131026) return 'The recipient number is not a valid WhatsApp account. — ' + raw;
   if (code === 132000 || code === 132001) return 'The template is not usable as sent (wrong variable count, or not approved for this number). — ' + raw;
   if (code === 131042) return 'Meta rejected the send for a billing/rate reason on the business account. — ' + raw;
+  // The two formats whose payloads are assembled differently from a standard
+  // template. Naming the component keeps the root cause visible instead of it
+  // reading as a generic "invalid parameter".
+  if (code === 100 && /button/i.test(details || '') && /text/i.test(details || '')) {
+    return 'Meta Error 100: a carousel button parameter was empty. The template card buttons are missing a label or a URL example — re-save it in the template editor. — ' + raw;
+  }
+  // Reached only once the payload itself is right: the catalog button is being
+  // sent correctly, but the business account has no catalog behind it. That is
+  // a Commerce Manager setting, not something a send can fix.
+  if (code === 131009 && /catalog/i.test(`${metaErr.message} ${details || ''}`)) {
+    return 'Meta Error 131009: no product catalog is connected to this WhatsApp Business Account. Connect one in Commerce Manager and enable it under WhatsApp Manager → Commerce Settings, then relaunch. — ' + raw;
+  }
+  if (code === 131008 && /components/i.test(`${metaErr.message} ${details || ''}`)) {
+    return 'Meta Error 131008: the template was sent with no components. A catalog or carousel template needs its button/card components — re-save it in the template editor. — ' + raw;
+  }
   return raw;
 };
 
 // The full `template` object for one recipient's send.
 //
-// Neither an image header nor a parameterised button has {{n}} placeholders in
-// a `text` field, so the text-variable check above misses both — that is why an
-// approved image template used to go out with no picture (failing with 132000),
-// and why a link button failed with 131008. Each is resolved on its own and the
-// pieces assembled header → body → buttons, the order Meta expects.
+// The assembly itself lives in services/templatePayload.service.js, which is
+// also what the API Playground sends through — a template that works in one
+// and not the other is a class of bug that used to be possible.
 //
 // `campaign` is passed so a campaign with an AI agent can stamp its CTA
 // quick-reply with the recipient's id: that payload comes straight back on the
 // tap, which is what lets the agent open on the right campaign.
 const buildTemplatePayload = async (template, contact, { phoneNumberId, accessToken, campaign = null, recipientId = null }) => {
-  const payload = { name: template.name, language: { code: template.language } };
-
-  const resolve = contactVariableResolver(contact);
-  const header = await headerImageComponent(template, { phoneNumberId, accessToken });
-  const textComponents = templateHasVariables(template.components)
-    ? buildTextComponents(template.components, resolve)
-    : [];
-  const buttonComponents = buildButtonComponents(template.components);
-  // A carousel carries its media and buttons on the cards, so none of the
-  // above finds them — without this the send goes out as a bare body.
-  const carousel = await carouselComponent(template, { phoneNumberId, accessToken, resolve });
   const ctaComponent = campaign?.aiAgentEnabled
     ? campaignCtaComponent(template.components, { ctaLabel: campaign.aiAgentCtaLabel, recipientId })
     : null;
 
-  const components = [
-    ...(header ? [header] : []),
-    ...textComponents,
-    ...buttonComponents,
-    ...(carousel ? [carousel] : []),
-    ...(ctaComponent ? [ctaComponent] : []),
-  ];
-  if (components.length) payload.components = components;
-  return payload;
+  return buildTemplateSendPayload(template, {
+    phoneNumberId,
+    accessToken,
+    resolve: contactVariableResolver(contact),
+    extraComponents: ctaComponent ? [ctaComponent] : [],
+    campaignId: campaign?.id ?? null,
+  });
 };
 
 // Records what this contact was actually sent, so the campaign AI agent can

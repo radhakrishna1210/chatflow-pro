@@ -4,8 +4,8 @@ import { queueApiKeyCreatedEmail } from './email.service.js';
 import { assertWithinLimit } from './subscription.service.js';
 import { assertNotOptedOut, normalizePhone } from './optout.service.js';
 import { decrypt } from '../lib/encryption.js';
-import { countVariables, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
-import { headerImageComponent, carouselComponent } from './templateImage.service.js';
+import { countVariables } from '../lib/templateParams.js';
+import { buildTemplateSendPayload } from './templatePayload.service.js';
 import { normaliseScopes, API_SCOPES } from '../lib/apiScopes.js';
 
 function generateKey() {
@@ -117,31 +117,18 @@ export async function sendTestMessage(workspaceId, { to, templateId, message, va
         throw e;
       }
 
-      // Assembled exactly like a campaign send (lib/templateParams.js), because
-      // a playground test that skips the image header or a link button's
-      // parameter fails on Meta for a reason the template itself never shows —
+      // Assembled through the same builder a campaign send uses
+      // (services/templatePayload.service.js), because a playground test that
+      // skips the image header, a link button's parameter or a carousel's
+      // cards fails on Meta for a reason the template itself never shows —
       // and then "it worked in the playground" stops meaning anything.
-      const payload = { name: template.name, language: { code: template.language } };
-      const header = await headerImageComponent(template, {
+      const payload = await buildTemplateSendPayload(template, {
         phoneNumberId: waNumber.metaPhoneNumberId,
         accessToken,
+        // Button and card values come from the template's own examples, so the
+        // caller only ever supplies the body's {{n}}.
+        resolve: (i) => String(supplied[i] ?? '').trim() || ' ',
       });
-      const resolve = (i) => String(supplied[i] ?? '').trim() || ' ';
-      const carousel = await carouselComponent(template, {
-        phoneNumberId: waNumber.metaPhoneNumberId,
-        accessToken,
-        resolve,
-      });
-      const parts = [
-        ...(header ? [header] : []),
-        ...(required > 0 ? buildTextComponents(components, resolve) : []),
-        // Button values come from the template's own examples, so the caller
-        // never has to supply them.
-        ...buildButtonComponents(components),
-        // Carousel cards carry their own media and buttons.
-        ...(carousel ? [carousel] : []),
-      ];
-      if (parts.length) payload.components = parts;
 
       const result = await sendWhatsAppMessage(waNumber.metaPhoneNumberId, accessToken, recipient, payload);
       return { ok: true, messageId: result?.messages?.[0]?.id ?? null };

@@ -133,24 +133,81 @@ const cardComponent = (card, type) =>
   (Array.isArray(card?.components) ? card.components : [])
     .find((c) => String(c?.type || '').toUpperCase() === type);
 
-// Every button on a card must be addressed in the send, not just the ones with
-// variables: Meta requires a payload for a carousel quick reply, where the same
-// button in the message bubble needs nothing. The payload is the button's own
-// label, which is what the webhook then reports back when a recipient taps it.
-export const buildCardButtonComponents = (card) => {
-  const buttons = cardComponent(card, 'BUTTONS')?.buttons;
-  return (Array.isArray(buttons) ? buttons : []).map((button, index) => {
-    const type = String(button?.type || '').toUpperCase();
-    const base = { type: 'button', index: String(index) };
-    if (type === 'URL') {
-      const raw = Array.isArray(button?.example) ? button.example[0] : button?.example;
-      const value = String(raw ?? '').trim();
-      const prefix = String(button?.url || '').split('{{')[0];
-      const suffix = prefix && value.startsWith(prefix) ? value.slice(prefix.length) : value;
-      return { ...base, sub_type: 'url', parameters: [{ type: 'text', text: suffix || ' ' }] };
+// A card button's send-time component, or nothing when the button has no
+// value to carry.
+//
+// The rules are not the same as the message bubble's:
+//   - a quick reply on a card DOES need a component, with the button's own
+//     label as the payload — that is what the webhook reports back on a tap;
+//   - a URL button needs one only when its address ends in {{n}}, and then the
+//     parameter is the dynamic suffix, exactly as in the bubble.
+//
+// A *static* URL button therefore contributes nothing. Emitting one anyway is
+// what produced Meta error 100 — "Parameter 'text' is mandatory for component
+// parameter type 'text' and cannot be empty" — because the only value
+// available for it was the empty string (padded to a single space, which Meta
+// trims back to empty). The card still shows the button and its label; neither
+// is something the send supplies, they were fixed at approval time.
+const cardButtonComponent = (button, index, { where }) => {
+  const type = String(button?.type || '').toUpperCase();
+  const base = { type: 'button', index: String(index) };
+
+  if (type === 'URL') {
+    if (!/\{\{\s*\d+\s*\}\}/.test(String(button?.url || ''))) return null;
+    const value = urlButtonValue(button);
+    if (!value) {
+      const e = new Error(`${where} has a dynamic URL but no example value to fill it with — re-save the template with a sample for the URL variable.`);
+      e.status = 422;
+      throw e;
     }
-    return { ...base, sub_type: 'quick_reply', parameters: [{ type: 'payload', payload: String(button?.text || '').trim() }] };
-  });
+    return { ...base, sub_type: 'url', parameters: [{ type: 'text', text: value }] };
+  }
+
+  const payload = String(button?.text || '').trim();
+  if (!payload) {
+    const e = new Error(`${where} has no label, so there is nothing to send as its payload. Re-save the template with a label on every card button.`);
+    e.status = 422;
+    throw e;
+  }
+  return { ...base, sub_type: 'quick_reply', parameters: [{ type: 'payload', payload }] };
+};
+
+export const buildCardButtonComponents = (card, { cardNumber = 1 } = {}) => {
+  const buttons = cardComponent(card, 'BUTTONS')?.buttons;
+  return (Array.isArray(buttons) ? buttons : [])
+    .map((button, index) => cardButtonComponent(button, index, { where: `Card ${cardNumber} button ${index + 1}` }))
+    .filter(Boolean);
+};
+
+// ── Catalog ────────────────────────────────────────────────────────────────
+//
+// A catalog template's only button opens the WABA's connected catalog, so
+// nothing about it is chosen per send — which is exactly why the send used to
+// carry no components at all and Meta answered 131008 ("components cannot be
+// empty"). Meta still requires the button to be addressed; the optional
+// `thumbnail_product_retailer_id` names which product's picture heads the
+// message, and when it is absent Meta uses the first item in the catalog.
+//
+// The SKU is stored on the button itself as `_thumbnailProductRetailerId`.
+// The underscore keeps it out of what is posted to Meta at creation time (see
+// lib/templateStructure.js → toMetaComponents), where the button carries only
+// a type and a label.
+export const catalogButton = (components) => {
+  const buttons = (components || []).find(
+    (c) => String(c?.type || '').toUpperCase() === 'BUTTONS',
+  )?.buttons;
+  const index = (Array.isArray(buttons) ? buttons : [])
+    .findIndex((b) => String(b?.type || '').toUpperCase() === 'CATALOG');
+  return index === -1 ? null : { button: buttons[index], index };
+};
+
+export const buildCatalogButtonComponent = (components) => {
+  const found = catalogButton(components);
+  if (!found) return null;
+  const sku = String(found.button?._thumbnailProductRetailerId ?? '').trim();
+  const component = { type: 'button', sub_type: 'catalog', index: String(found.index) };
+  if (sku) component.parameters = [{ type: 'action', action: { thumbnail_product_retailer_id: sku } }];
+  return component;
 };
 
 // The card's body parameters, on the same rules as the message body: one entry

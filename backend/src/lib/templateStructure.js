@@ -241,3 +241,54 @@ export function toMetaComponents(components) {
   };
   return clean(Array.isArray(components) ? components : []);
 }
+
+// Carries the internal `_`-prefixed bookkeeping from a template already stored
+// here onto the version Meta just reported.
+//
+// Meta is authoritative about a template's *approved* shape, but it has never
+// seen the fields this product keeps alongside it — a carousel card's
+// `_assetId` (the stored bytes every send re-uploads, since Meta's review
+// handle cannot be sent) and a catalog button's
+// `_thumbnailProductRetailerId`. Overwriting the stored components wholesale
+// with Meta's copy dropped both: that is why re-syncing made a carousel's
+// images vanish from the editor, and why the next send of it failed with "no
+// stored media".
+//
+// Nodes are matched by `type` where the list has one (a components array), by
+// position otherwise (a cards array, a buttons array), so a template whose
+// shape changed on Meta simply keeps whatever still lines up. Applying it
+// twice changes nothing the first application did not — sync stays idempotent.
+export function preserveInternalFields(existing, incoming) {
+  const merge = (was, now) => {
+    if (Array.isArray(now)) {
+      if (!Array.isArray(was)) return now;
+      const usedByType = new Map();
+      return now.map((entry, i) => {
+        if (entry && typeof entry === 'object' && entry.type !== undefined) {
+          const key = String(entry.type).toUpperCase();
+          const skip = usedByType.get(key) || 0;
+          usedByType.set(key, skip + 1);
+          const candidates = was.filter((w) => String(w?.type ?? '').toUpperCase() === key);
+          return merge(candidates[skip], entry);
+        }
+        return merge(was[i], entry);
+      });
+    }
+    if (!now || typeof now !== 'object') return now;
+    if (!was || typeof was !== 'object' || Array.isArray(was)) return now;
+
+    const out = {};
+    // The stored internals first, so anything Meta genuinely reports wins.
+    for (const [k, v] of Object.entries(was)) if (k.startsWith('_')) out[k] = v;
+    for (const [k, v] of Object.entries(now)) {
+      out[k] = k in was ? merge(was[k], v) : v;
+    }
+    return out;
+  };
+
+  const list = Array.isArray(incoming) ? incoming : [];
+  // Meta answering with nothing is not evidence the template lost its
+  // components — never let it empty a stored template.
+  if (list.length === 0) return Array.isArray(existing) ? existing : list;
+  return merge(Array.isArray(existing) ? existing : [], list);
+}
