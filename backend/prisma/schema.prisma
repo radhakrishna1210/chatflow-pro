@@ -265,6 +265,9 @@ model Template {
   language          String
   components        Json
   status            TemplateStatus @default(PENDING)
+  // Meta's stated reason when a template is rejected, so the builder can show
+  // it instead of a bare REJECTED badge.
+  rejectedReason    String?
   // Meta re-reviews templates and can move them between categories after
   // approval — most often UTILITY → MARKETING, which is a ~7x price rise per
   // message. These record that it happened so the app can flag it and offer a

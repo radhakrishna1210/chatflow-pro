@@ -151,14 +151,17 @@ export const TEMPLATE_LIBRARY = [
     ],
   },
 
-  // ── AUTHENTICATION ────────────────────────────────────────────────────
+  // ── SECURITY / OTP (UTILITY) ────────────────────────────────────────
+  // NOTE: Meta's AUTHENTICATION category enforces a rigid OTP-button component
+  // structure and rejects free-form text bodies. These templates use standard
+  // body text with {{variables}}, so they must be submitted as UTILITY.
   {
     id: 'otp_verification',
     title: 'OTP Verification Code',
     description: 'Send a one-time code for login or signup.',
     useCase: 'Security',
     name: 'otp_verification',
-    category: 'AUTHENTICATION',
+    category: 'UTILITY',
     language: 'en_US',
     components: [
       { type: 'BODY', text: '{{1}} is your verification code. For your security, do not share this code.', example: { body_text: [['123456']] } },
@@ -170,7 +173,7 @@ export const TEMPLATE_LIBRARY = [
     description: 'Send a password-reset code on request.',
     useCase: 'Security',
     name: 'password_reset_code',
-    category: 'AUTHENTICATION',
+    category: 'UTILITY',
     language: 'en_US',
     components: [
       { type: 'BODY', text: 'Your password reset code is {{1}}. This code expires in 10 minutes. If you didn\'t request this, ignore this message.', example: { body_text: [['438217']] } },
@@ -182,7 +185,7 @@ export const TEMPLATE_LIBRARY = [
     description: 'Send a 2FA code during a sensitive action.',
     useCase: 'Security',
     name: 'two_factor_auth_code',
-    category: 'AUTHENTICATION',
+    category: 'UTILITY',
     language: 'en_US',
     components: [
       { type: 'BODY', text: '{{1}} is your two-factor authentication code for {{2}}. Never share this code with anyone, including {{2}} support.', example: { body_text: [['927310', 'Acme Co']] } },
@@ -194,7 +197,7 @@ export const TEMPLATE_LIBRARY = [
     description: 'Warn the user when a new device signs into their account.',
     useCase: 'Security',
     name: 'login_alert',
-    category: 'AUTHENTICATION',
+    category: 'UTILITY',
     language: 'en_US',
     components: [
       { type: 'BODY', text: 'Hi {{1}}, a new sign-in to your account was detected from {{2}} on {{3}}. If this wasn\'t you, reset your password immediately.', example: { body_text: [['Alex', 'Chrome on Windows · Mumbai', 'May 14, 9:42 AM']] } },

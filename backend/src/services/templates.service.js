@@ -42,6 +42,8 @@ export async function listTemplates(workspaceId, waNumberId, { status = null } =
     where,
     select: {
       id: true, name: true, category: true, language: true, status: true, components: true,
+      // Meta's rejection reason, so a REJECTED template can say why.
+      rejectedReason: true,
       waNumberId: true, metaTemplateId: true, aiGenerated: true, createdAt: true,
       previousCategory: true, categoryUpdatedAt: true,
       // For a tombstone this is when it was deleted — the status change is the
@@ -81,9 +83,11 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
     const existing = await prisma.template.findFirst({
       where: { workspaceId, waNumberId: waNumber.id, metaTemplateId: mt.id },
     });
+    const rejectedReason = mt.rejected_reason || null;
     const payload = {
       name: mt.name, category: mt.category, language: mt.language,
       components: mt.components ?? [], status: mapStatus(mt.status), metaTemplateId: mt.id,
+      rejectedReason: mapStatus(mt.status) === 'REJECTED' ? rejectedReason : null,
     };
     if (existing) {
       // A template deleted here stays deleted, even though Meta still lists it.
