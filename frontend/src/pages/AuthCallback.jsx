@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { navigate } from '../App.jsx';
 
 // Google OAuth lands here with a one-time ?code=… (never raw tokens — those
@@ -6,11 +6,19 @@ import { navigate } from '../App.jsx';
 // POST for the real session.
 export default function AuthCallback() {
   const [error, setError] = useState(null);
+  const exchangedRef = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     if (!code) { setError('Missing sign-in code.'); return; }
+
+    // The code is server-side single-use (deleted on first exchange) — guard
+    // against firing this twice for the same mount (React StrictMode's dev
+    // double-invoke, or a rapid remount), which would otherwise turn a
+    // successful sign-in into a false "code expired or already used" error.
+    if (exchangedRef.current) return;
+    exchangedRef.current = true;
 
     (async () => {
       try {
@@ -30,10 +38,20 @@ export default function AuthCallback() {
           email:         data.user.email,
           role:          data.user.role,
           superAdmin:    data.user.superAdmin === true,
-          workspaceId:   data.workspace.id,
-          workspaceName: data.workspace.name,
+          workspaceId:   data.workspace?.id ?? null,
+          workspaceName: data.workspace?.name ?? null,
         }));
-        navigate('/dashboard', { replace: true });
+        if (data.pendingInviteToken) {
+          // Signed in via Google from an invite link, but joining an existing
+          // account to a workspace still needs an explicit accept (same rule
+          // as the password-login path) — hand off to the accept-invite page
+          // instead of silently dropping the invite.
+          navigate(`/invite/accept?token=${encodeURIComponent(data.pendingInviteToken)}`, { replace: true });
+        } else {
+          // Users without a workspace go to setup to create or join one, unless super admin.
+          const canAccess = !!data.workspace || data.user?.superAdmin === true;
+          navigate(canAccess ? '/dashboard' : '/setup', { replace: true });
+        }
       } catch (err) {
         setError(err.message);
       }
@@ -46,7 +64,7 @@ export default function AuthCallback() {
         <>
           <p style={{ color: '#f87171', fontSize: 14 }}>{error}</p>
           <button onClick={() => navigate('/login', { replace: true })}
-            style={{ padding: '9px 18px', borderRadius: 8, background: '#1EBF5E', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 700 }}>
+            style={{ padding: '9px 18px', borderRadius: 8, background: 'var(--grad-cta)', color: 'var(--ink)', border: 'none', cursor: 'pointer', fontWeight: 700 }}>
             Back to sign in
           </button>
         </>

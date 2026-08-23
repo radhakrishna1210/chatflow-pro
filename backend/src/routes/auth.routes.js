@@ -1,70 +1,98 @@
 import { Router } from 'express';
 import passport from 'passport';
-import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { randomBytes } from 'crypto';
 import * as authController from '../controllers/auth.controller.js';
-import { authenticate } from '../middleware/authenticate.js';
+import * as instagramController from '../controllers/instagram.controller.js';
+import { authenticate, authenticateOptional } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
-import { rateLimit } from '../middleware/rateLimit.js';
+import { rateLimit, emailSubject } from '../middleware/rateLimit.js';
 import { validate, authSchemas } from '../validators/index.js';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
+import { signState, verifyState } from '../lib/oauthState.js';
 
 const router = Router();
 
 // Brute-force protection on credential + token endpoints.
-const loginLimiter   = rateLimit({ windowMs: 15 * 60_000, max: 20,  keyPrefix: 'login' });
-const refreshLimiter = rateLimit({ windowMs: 60_000,      max: 60,  keyPrefix: 'refresh' });
+//
+// `countFailuresOnly` is what makes the allowance a guessing budget rather than
+// a usage budget: signing in correctly costs nothing, so an office sharing one
+// public IP is never locked out by its own successful logins.
+//
+// The `subject` bucket is the account being targeted. Per-IP alone does nothing
+// against a spray from many addresses — that bucket is what actually protects a
+// single account, and it is deliberately tighter than the per-IP one.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 20,
+  keyPrefix: 'login',
+  countFailuresOnly: true,
+  subject: emailSubject,
+  subjectMax: 10,
+});
+// Requesting an emailed code is expensive (it sends mail) and is not a
+// credential guess, so this one counts every call.
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  keyPrefix: 'otp',
+  subject: emailSubject,
+  subjectMax: 5,
+});
+const refreshLimiter = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'refresh' });
 
-router.post('/register', loginLimiter, validate({ body: authSchemas.register }), authController.register);
+// POST /register is deliberately gone.
+//
+// It created a fully usable account straight from the request body with no
+// email verification at all, which made the whole OTP flow optional: anyone who
+// skipped the UI and posted here got an account on an address they had never
+// proved they owned. Account creation is /register/start + /register/verify, or
+// Google OAuth (where Google has already verified the address).
 // OTP-verified email signup (account is created only after the code is verified)
-router.post('/register/start',  loginLimiter, validate({ body: authSchemas.signupStart }), authController.startSignup);
+router.post('/register/start',  otpLimiter, validate({ body: authSchemas.signupStart }), authController.startSignup);
 router.post('/register/verify', loginLimiter, validate({ body: authSchemas.signupVerify }), authController.verifySignup);
-router.post('/register/resend', loginLimiter, validate({ body: authSchemas.signupResend }), authController.resendSignupOtp);
+router.post('/register/resend', otpLimiter, validate({ body: authSchemas.signupResend }), authController.resendSignupOtp);
+// OTP-verified password reset (same shape as signup: a code is emailed, the
+// new password only takes effect once it's verified).
+router.post('/forgot-password', otpLimiter, validate({ body: authSchemas.forgotPassword }), authController.forgotPassword);
+router.post('/reset-password',  loginLimiter, validate({ body: authSchemas.resetPassword }),  authController.resetPassword);
 router.post('/login',    loginLimiter, validate({ body: authSchemas.login }),    authController.login);
 router.post('/refresh',  refreshLimiter, validate({ body: authSchemas.refresh }), authController.refresh);
-router.post('/logout',   authController.logout);
+// `authenticateOptional` so a sign-out still works with an already-expired
+// token (the user just wants the session gone), while a live token is
+// identified so its jti can be revoked.
+router.post('/logout',   authenticateOptional, authController.logout);
 // Exchanges the one-time code issued by the Google callback for real tokens
 // (keeps access/refresh tokens out of browser history and server logs).
 router.post('/exchange', refreshLimiter, authController.exchangeOneTimeCode);
 
 // ─── Google OAuth ────────────────────────────────────────────────────────────
 // A signed `state` value binds the callback to the browser that initiated the
-// flow (CSRF protection) without requiring server-side sessions.
-function signState(payload) {
-  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = createHmac('sha256', env.JWT_ACCESS_SECRET).update(data).digest('base64url');
-  return `${data}.${sig}`;
-}
-
-function verifyState(state, maxAgeMs = 10 * 60_000) {
-  try {
-    const [data, sig] = String(state || '').split('.');
-    if (!data || !sig) return null;
-    const expected = createHmac('sha256', env.JWT_ACCESS_SECRET).update(data).digest('base64url');
-    const a = Buffer.from(sig), b = Buffer.from(expected);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-    const payload = JSON.parse(Buffer.from(data, 'base64url').toString());
-    if (!payload.ts || Date.now() - payload.ts > maxAgeMs) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
+// flow (CSRF protection) without requiring server-side sessions. It also
+// carries an in-flight invite token (see ?invite= below) through the round
+// trip to Google and back, so "Continue with Google" from an invite link
+// doesn't silently drop the invite.
 router.get('/google', (req, res, next) => {
-  const state = signState({ n: randomBytes(8).toString('hex'), ts: Date.now() });
-  passport.authenticate('google', { scope: ['profile', 'email'], prompt: 'select_account', state })(req, res, next);
+  const inviteToken = typeof req.query.invite === 'string' ? req.query.invite : null;
+  const state = signState({ n: randomBytes(8).toString('hex'), ts: Date.now(), inviteToken });
+  passport.authenticate('google', { scope: ['profile', 'email'], prompt: 'select_account', state, session: false })(req, res, next);
 });
 
 router.get('/google/callback', (req, res, next) => {
-  if (!verifyState(req.query.state)) {
+  const statePayload = verifyState(req.query.state);
+  if (!statePayload) {
     console.warn('[Google OAuth] Rejected callback with missing/invalid state (possible CSRF)');
     return res.redirect(`${env.CLIENT_URL}/login?oauth_error=invalid_state`);
   }
+  // Read by the passport strategy (passReqToCallback: true) so a pending
+  // invite survives the round trip to Google and back.
+  req.inviteToken = statePayload.inviteToken || null;
   passport.authenticate('google', { session: false }, (err, user) => {
     if (err) {
       const reason = err.code || err.message || 'oauth_error';
+      const detail = err.oauthError?.data || err.oauthError?.message || err.oauthError;
       console.error(`[Google OAuth] ${reason} — expected redirect_uri="${env.GOOGLE_CALLBACK_URL}". Check that this exact URL is in Google Cloud Console → Credentials → Authorized redirect URIs.`);
+      console.error('[Google OAuth] underlying error:', detail);
       return res.redirect(`${env.CLIENT_URL}/login?oauth_error=${encodeURIComponent(reason)}`);
     }
     if (!user) return res.redirect(`${env.CLIENT_URL}/login?oauth_error=denied`);
@@ -87,6 +115,20 @@ router.get('/meta/start', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Only workspace admins can connect WhatsApp numbers' });
   }
 
+  // Meta refuses a non-HTTPS redirect_uri outright, and only accepts one that is
+  // registered on the app. Handing the browser a URL we know will be rejected is
+  // how "Connect to Meta" ended up opening an error page — say so here instead.
+  if (!/^https:\/\//i.test(env.META_REDIRECT_URI || '')) {
+    return res.status(503).json({
+      error: 'WhatsApp sign-in is not configured on this server: Meta requires an HTTPS redirect URI and '
+        + `this one is "${env.META_REDIRECT_URI}". Set API_PUBLIC_URL to the public HTTPS origin of this `
+        + 'service and register that exact callback under Meta App Dashboard → Facebook Login → '
+        + 'Valid OAuth Redirect URIs.',
+      code: 'META_REDIRECT_URI_INVALID',
+      redirectUri: env.META_REDIRECT_URI,
+    });
+  }
+
   const state = signState({ workspaceId, userId: req.user.id, n: randomBytes(8).toString('hex'), ts: Date.now() });
   const authUrl = new URL(`https://www.facebook.com/${env.META_API_VERSION}/dialog/oauth`);
   authUrl.searchParams.set('client_id', env.META_APP_ID);
@@ -101,7 +143,15 @@ router.get('/meta/start', authenticate, async (req, res) => {
 router.get('/meta/callback', async (req, res) => {
   const { code, state } = req.query;
   const { env } = await import('../config/env.js');
-  const fail = (reason) => res.redirect(`${env.CLIENT_URL}/dashboard/setup?meta_error=${encodeURIComponent(reason)}`);
+  // `detail` carries a short, safe excerpt of the real Meta error (when
+  // available) so the user sees the actual reason instead of only ever
+  // getting the generic `exchange_failed` code.
+  const fail = (reason, detail) => {
+    const url = new URL(`${env.CLIENT_URL}/dashboard/setup`);
+    url.searchParams.set('meta_error', reason);
+    if (detail) url.searchParams.set('meta_detail', String(detail).slice(0, 200));
+    return res.redirect(url.toString());
+  };
 
   if (!code) return fail('missing_code');
   const payload = verifyState(state, 30 * 60_000);
@@ -164,15 +214,14 @@ router.get('/meta/callback', async (req, res) => {
   } catch (err) {
     console.error('[Meta OAuth]', err.response?.data || err.message);
     // Always redirect on error — a JSON 500 leaves the OAuth popup hanging.
-    return fail('exchange_failed');
+    const metaMessage = err.response?.data?.error?.message || err.response?.data?.error_message;
+    return fail('exchange_failed', metaMessage);
   }
 });
 
-router.get('/instagram/callback', async (req, res) => {
-  const { code } = req.query;
-  if (!code) return res.redirect(`${env.CLIENT_URL}/dashboard/integrations?instagram_error=missing_code`);
-  // NOTE: real implementation would exchange the code via Instagram Basic Display API.
-  return res.redirect(`${env.CLIENT_URL}/dashboard/integrations?instagram_code=${encodeURIComponent(code)}`);
-});
+// Exchanges the code for a long-lived token and stores the connection. The
+// workspace is recovered from the signed OAuth `state` minted by
+// POST /workspaces/:id/instagram/auth-url.
+router.get('/instagram/callback', instagramController.oauthCallback);
 
 export default router;

@@ -1,6 +1,6 @@
-# ChatFlow Pro — Backend
+# Spandan — Backend
 
-Node.js + Express 5 + Prisma + BullMQ backend for the ChatFlow Pro WhatsApp Business SaaS platform.
+Node.js + Express 5 + Prisma + BullMQ backend for the Spandan WhatsApp Business SaaS platform.
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ npm run dev
 
 - Node.js 20+
 - PostgreSQL 14+
-- Redis 6+
+- Redis 6+ (see [docs/local-redis-setup.md](docs/local-redis-setup.md) for running Redis locally via WSL)
 
 ## Environment Variables
 
@@ -40,6 +40,8 @@ See `.env.example` for all required variables. Key ones:
 | `META_APP_SECRET` | Facebook app secret for webhook HMAC verification |
 | `META_SYSTEM_USER_TOKEN` | Long-lived Meta system user token for admin operations |
 | `GEMINI_API_KEY` | Optional Gemini API key for AI workflow generation |
+| `OPENAI_API_KEY` | Optional OpenAI API key — generates template header images (Gemini has no free image tier) |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Optional Cloudflare Workers AI credentials — the free fallback for header image generation |
 
 AI workflow generation is available from the Automation > Workflows tab. Add this to your backend `.env` when you are ready to use Gemini:
 

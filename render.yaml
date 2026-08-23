@@ -1,0 +1,142 @@
+##
+# ChatFlow Pro — Render Blueprint (single-service deploy)
+#
+# One Node web service runs the Express API *and* serves the built Vite SPA
+# from frontend/dist, so the frontend's relative `/api/...` calls are
+# same-origin — no CORS, no rewrite rules, no VITE_API_URL.
+#
+# Secrets are marked `sync: false`: Render prompts for them on first apply and
+# never stores them in this file. See DEPLOY.md for the full checklist.
+##
+
+# Postgres is hosted externally (Supabase), so there is no `databases:` block —
+# its connection string is supplied as a secret. Redis is a Render Key Value
+# instance: BullMQ workers poll continuously, which makes a per-request-billed
+# store (Upstash) structurally the wrong fit — its 500K/month cap was exhausted
+# and stopped every queue.
+
+services:
+  - type: keyvalue
+    name: chatflow-redis
+    plan: starter # 25 MB, no persistence, expires after 30 days -> `starter` to keep it
+    # BullMQ loses jobs if Redis evicts keys under memory pressure.
+    maxmemoryPolicy: noeviction
+    ipAllowList: [] # private network only
+
+  - type: web
+    name: chatflow-pro
+    runtime: node
+    plan: starter # free tier spins down after 15 min idle and stalls the queue workers
+    rootDir: backend
+    region: singapore
+    healthCheckPath: /api/v1/health
+    # `npm ci` is enough: backend/scripts/render-build.js runs as a postinstall
+    # hook and handles `prisma generate` plus the frontend/dist build, so a
+    # service created by hand in the dashboard (default build command) works too.
+    buildCommand: npm ci
+    # Migrations run at boot, not at build — the database isn't reachable from
+    # the build step on every plan.
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000" # Render's default injected port
+
+      # Supabase pooler, session mode (port 5432 — NOT 6543/transaction mode,
+      # which breaks prepared statements and `prisma migrate deploy`).
+      # DIRECT_URL is optional: scripts/prisma-cli.js defaults it to
+      # DATABASE_URL, which is correct while the pooler is in session mode.
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: chatflow-redis
+          property: connectionString
+
+      # Same-origin single service: the SPA and the API share this URL.
+      # Set both to https://<your-service>.onrender.com after the first deploy.
+      - key: CLIENT_URL
+        sync: false
+      - key: APP_URL
+        sync: false
+
+      # --- Generated secrets ---
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      # --- Required, must be supplied ---
+      - key: ENCRYPTION_KEY # exactly 32 ASCII chars or 64 hex chars
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_BUSINESS_ID
+        sync: false
+      - key: META_WABA_ID
+        sync: false
+      - key: META_SYSTEM_USER_ID
+        sync: false
+      - key: META_SYSTEM_USER_TOKEN
+        sync: false
+      - key: META_DISPLAY_NAME
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      # --- Optional integrations (leave unset to disable) ---
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+
+      # Voice AI (Automation > Voice AI). Point the Twilio number's voice
+      # webhook at /api/v1/voice/incoming and its status callback at
+      # /api/v1/voice/status. Signature validation resolves the callback URL
+      # from APP_URL, so no extra origin config is needed here.
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+
+      # Instagram Quickflows. Falls back to the META_* app credentials above
+      # when unset, so only supply these for a dedicated Instagram app.
+      # Webhook: /api/v1/webhook/instagram (verify token = META_WEBHOOK_VERIFY_TOKEN).
+      - key: INSTAGRAM_APP_ID
+        sync: false
+      - key: INSTAGRAM_APP_SECRET
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

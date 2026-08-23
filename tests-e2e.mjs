@@ -1,4 +1,13 @@
-// ChatFlow Pro — end-to-end API test suite (runs against the live local stack)
+// Spandan — end-to-end API test suite (runs against the live local stack)
+import app from "./backend/src/app.js";
+import http from "http";
+import Redis from "./backend/node_modules/ioredis/built/index.js";
+const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+const _server = http.createServer(app);
+await new Promise((res) => _server.listen(4000, res));
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+process.env.PRISMA_PG_ADAPTER = '1';
 const BASE = 'http://localhost:4000/api/v1';
 let pass = 0, fail = 0;
 const failures = [];
@@ -21,16 +30,49 @@ async function req(method, path, { body, token, headers = {}, raw = false } = {}
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+const { prisma } = await import('./backend/src/lib/prisma.js');
+
+// Clean up existing test data to ensure test idempotency
+try {
+  const emails = ['alice@test.dev', 'bob@test.dev'];
+  const users = await prisma.user.findMany({ where: { email: { in: emails } } });
+  const userIds = users.map(u => u.id);
+  if (userIds.length > 0) {
+    await prisma.workspaceMember.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  }
+  await prisma.workspace.deleteMany({
+    where: {
+      name: {
+        in: ["Alice's Workspace", "Bob's Workspace"]
+      }
+    }
+  });
+} catch (e) {
+  console.log('Setup Cleanup warning:', e.message);
+}
+
 // ─── 1. AUTH & SESSION ────────────────────────────────────────────────────────
 console.log('\n■ Auth & session');
 let admin, adminWs, client;
 
 {
   let r = await req('POST', '/auth/register', { body: { name: 'Alice Admin', email: 'alice@test.dev', password: 'password123' } });
-  check('register creates account + workspace', r.status === 201 && r.data.accessToken && r.data.workspace?.id, JSON.stringify(r.data).slice(0,120));
+  check('register creates account without a workspace', r.status === 201 && r.data.accessToken && r.data.workspace === null && r.data.user.role === null, JSON.stringify(r.data).slice(0,120));
+  admin = r.data;
+
+  r = await req('POST', '/workspaces', { token: admin.accessToken, body: { name: "Alice's Workspace" } });
+  check('creating a workspace grants ADMIN', r.status === 201 && r.data.user.role === 'ADMIN' && r.data.workspace?.id, JSON.stringify(r.data).slice(0,120));
   admin = r.data; adminWs = r.data.workspace.id;
 
-  r = await req('POST', '/auth/register', { body: { name: 'Alice Admin', email: 'alice@test.dev', password: 'password123' } });
+  // Upgrade the workspace to PRO plan and seed wallet balance so all v2/v3 campaigns/AI features succeed
+  const proPlan = await prisma.plan.findUnique({ where: { key: 'PRO' } });
+  if (proPlan) {
+    await prisma.subscription.update({ where: { workspaceId: adminWs }, data: { planId: proPlan.id } });
+  }
+  await prisma.workspace.update({ where: { id: adminWs }, data: { walletBalance: 100 } });
+
+  r = await req('POST', '/auth/register', { body: { name: 'Alice Admin', email: 'alice@test.dev', password: 'password123', role: 'ADMIN' } });
   check('duplicate register rejected (409)', r.status === 409);
 
   r = await req('POST', '/auth/register', { body: { name: 'X', email: 'not-an-email', password: 'short' } });
@@ -68,7 +110,7 @@ let admin, adminWs, client;
   admin = r.data;
 
   // second user (CLIENT in Alice's workspace)
-  r = await req('POST', '/auth/register', { body: { name: 'Bob Client', email: 'bob@test.dev', password: 'password123' } });
+  r = await req('POST', '/auth/register', { body: { name: 'Bob Client', email: 'bob@test.dev', password: 'password123', role: 'CLIENT' } });
   client = r.data;
 }
 
@@ -280,9 +322,8 @@ console.log('\n■ Campaign lifecycle — scheduling & cancel');
   check('cancelled campaign stays CANCELLED (no COMPLETED overwrite)', r.data.status === 'CANCELLED', `status=${r.data.status}`);
 
   // Verify the delayed job was actually removed from Redis
-  const { execSync } = await import('child_process');
-  const delayed = execSync('redis-cli zcard bull:campaigns:delayed').toString().trim();
-  check('delayed BullMQ job removed on cancel', delayed === '0', `delayed=${delayed} (jobId=${jobId})`);
+  const delayed = await redis.zcard('bull:campaigns:delayed');
+  check('delayed BullMQ job removed on cancel', String(delayed) === '0', `delayed=${delayed} (jobId=${jobId})`);
 }
 
 // ─── 9. SCHEDULED RECOVERY (restart survival) ────────────────────────────────
@@ -294,15 +335,17 @@ console.log('\n■ Scheduled campaign recovery after job loss');
   await req('POST', `/workspaces/${adminWs}/campaigns/${cid}/launch`, { token: admin.accessToken, body: { scheduledAt: new Date(Date.now() + 7200_000).toISOString() } });
 
   // Simulate ephemeral Redis losing the delayed job
-  const { execSync } = await import('child_process');
-  execSync("redis-cli --scan --pattern 'bull:campaigns:*' | xargs -r redis-cli del");
-  const before = execSync('redis-cli zcard bull:campaigns:delayed').toString().trim();
+  const keys = await redis.keys('bull:campaigns:*');
+  if (keys.length > 0) {
+    await redis.del(keys);
+  }
+  const before = await redis.zcard('bull:campaigns:delayed');
 
   // Import the service in-process against the same DB/Redis and run recovery
   process.env.PRISMA_PG_ADAPTER = '1';
-  const { recoverScheduledCampaigns } = await import('/home/claude/work/chatflow-pro/backend/src/services/campaigns.service.js');
+  const { recoverScheduledCampaigns } = await import('./backend/src/services/campaigns.service.js');
   const recovered = await recoverScheduledCampaigns();
-  const after = execSync('redis-cli zcard bull:campaigns:delayed').toString().trim();
+  const after = await redis.zcard('bull:campaigns:delayed');
   check('recovery re-queues orphaned SCHEDULED campaigns', recovered >= 1 && before === '0' && after === '1', `recovered=${recovered} before=${before} after=${after}`);
 
   await req('PATCH', `/workspaces/${adminWs}/campaigns/${cid}/cancel`, { token: admin.accessToken });
@@ -313,7 +356,7 @@ console.log('\n■ Webhook — delivery/read tracking + signature');
 {
   // Craft a real linked message: reuse a recipient of the completed campaign… they FAILED,
   // so build a fresh SENT recipient + message directly via Prisma for the tracking test.
-  const { prisma } = await import('/home/claude/work/chatflow-pro/backend/src/lib/prisma.js');
+  const { prisma } = await import('./backend/src/lib/prisma.js');
   const camp = await prisma.campaign.create({ data: { workspaceId: adminWs, name: 'Webhook Test', templateId, waNumberId, status: 'RUNNING', totalContacts: 1, sent: 1 } });
   const rec = await prisma.campaignRecipient.create({ data: { campaignId: camp.id, contactId: contactIds[0], status: 'SENT', sentAt: new Date() } });
   const convo = await prisma.conversation.create({ data: { workspaceId: adminWs, contactId: contactIds[0], waNumberId } });
@@ -371,6 +414,39 @@ console.log('\n■ Webhook — delivery/read tracking + signature');
   check('inbound message matches existing contact despite formatting (no duplicate created)', contacts.length === 1, `contacts=${contacts.length}`);
   const msg = await prisma.message.findFirst({ where: { metaMessageId: 'wamid.IN1' } });
   check('inbound message persisted to conversation', !!msg && msg.direction === 'INBOUND');
+
+  // inbound message with button click
+  const inboundButton = { entry: [{ id: 'WABA123', changes: [{ field: 'messages', value: {
+    metadata: { phone_number_id: 'PN123' },
+    contacts: [{ profile: { name: 'Priya' } }],
+    messages: [{ from: '919876543210', id: 'wamid.IN_BTN', timestamp: String(Math.floor(Date.now()/1000)), button: { text: 'Yes, sign me up!' } }],
+  } }] }] };
+  res = await sendWebhook(inboundButton);
+  await sleep(800);
+  const msgBtn = await prisma.message.findFirst({ where: { metaMessageId: 'wamid.IN_BTN' } });
+  check('inbound button message body extracted and persisted', !!msgBtn && msgBtn.body === 'Yes, sign me up!');
+
+  // inbound message with interactive button reply
+  const inboundIntBtn = { entry: [{ id: 'WABA123', changes: [{ field: 'messages', value: {
+    metadata: { phone_number_id: 'PN123' },
+    contacts: [{ profile: { name: 'Priya' } }],
+    messages: [{ from: '919876543210', id: 'wamid.IN_INT_BTN', timestamp: String(Math.floor(Date.now()/1000)), interactive: { type: 'button_reply', button_reply: { id: 'btn_1', title: 'Confirm' } } }],
+  } }] }] };
+  res = await sendWebhook(inboundIntBtn);
+  await sleep(800);
+  const msgIntBtn = await prisma.message.findFirst({ where: { metaMessageId: 'wamid.IN_INT_BTN' } });
+  check('inbound interactive button reply body extracted and persisted', !!msgIntBtn && msgIntBtn.body === 'Confirm');
+
+  // inbound message with interactive list reply
+  const inboundIntList = { entry: [{ id: 'WABA123', changes: [{ field: 'messages', value: {
+    metadata: { phone_number_id: 'PN123' },
+    contacts: [{ profile: { name: 'Priya' } }],
+    messages: [{ from: '919876543210', id: 'wamid.IN_INT_LIST', timestamp: String(Math.floor(Date.now()/1000)), interactive: { type: 'list_reply', list_reply: { id: 'row_1', title: 'Plan details' } } }],
+  } }] }] };
+  res = await sendWebhook(inboundIntList);
+  await sleep(800);
+  const msgIntList = await prisma.message.findFirst({ where: { metaMessageId: 'wamid.IN_INT_LIST' } });
+  check('inbound interactive list reply body extracted and persisted', !!msgIntList && msgIntList.body === 'Plan details');
 
   await prisma.campaign.delete({ where: { id: decoy.id } });
 }
@@ -440,4 +516,6 @@ console.log('\n■ CORS');
 
 console.log(`\n════════════════════════════════════\n  PASSED: ${pass}   FAILED: ${fail}`);
 if (failures.length) { console.log('  Failures:'); failures.forEach(f => console.log('   -', f)); }
+redis.disconnect();
+_server.close();
 process.exit(fail ? 1 : 0);

@@ -9,13 +9,15 @@ backend/node_modules/
 .env.*.local
 backend/.env
 backend/.env.production
+backend/.env.vps
 
 # Build output
 frontend/dist/
 frontend/build/
 
 # Prisma
-backend/prisma/migrations/
+# NOTE: migrations/ is intentionally committed — it's the reproducible source
+# of truth for the DB schema (needed to recreate tables on a fresh/restored DB).
 *.db
 *.db-journal
 
@@ -23,6 +25,13 @@ backend/prisma/migrations/
 logs/
 *.log
 npm-debug.log*
+
+# Scratch output from local script runs (migrations, startup, error dumps).
+# Machine-specific and regenerated on every run — nothing here belongs in the
+# repo. Matched at any depth so the root and backend/ copies are both covered.
+migration_status.txt
+init_status.txt
+server_errors.txt
 
 # OS files
 .DS_Store
@@ -40,3 +49,11 @@ frontend/node_modules/.vite/
 
 # Local notes
 INTERAKT_COMPARISON.md
+
+# Vite writes these while resolving the config; never source
+vite.config.js.timestamp-*
+vite.config.*.timestamp-*
+git_output.txt
+
+# Ad-hoc probe scripts written while debugging; never part of the app.
+backend/*_tmp.mjs

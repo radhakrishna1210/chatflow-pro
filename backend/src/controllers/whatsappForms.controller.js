@@ -1,5 +1,13 @@
 // WhatsApp Forms controller
 import * as whatsappFormsService from '../services/whatsappForms.service.js';
+import { listFormTemplates } from '../data/formTemplates.js';
+
+// Starter question sets + the category vocabulary the builder offers. Static
+// data, but served from the API so the presets and the field types the
+// runtime accepts cannot drift apart.
+export async function listTemplates(req, res) {
+  res.json(listFormTemplates());
+}
 
 export async function listForms(req, res) {
   try {
@@ -15,12 +23,21 @@ export async function listForms(req, res) {
 export async function createForm(req, res) {
   try {
     const workspaceId = req.params.workspaceId;
-    const { name, fields } = req.body; // fields could be a number or array config; keep simple
-    const form = await whatsappFormsService.createForm(workspaceId, { name, fields });
+    const form = await whatsappFormsService.createForm(workspaceId, req.body);
     res.status(201).json(form);
   } catch (err) {
     console.error('[WhatsAppForms] create error:', err);
     res.status(err.status || 500).json({ error: err.message || 'Failed to create form' });
+  }
+}
+
+export async function listSubmissions(req, res) {
+  try {
+    const submissions = await whatsappFormsService.listSubmissions(req.params.workspaceId, req.params.id);
+    res.json(submissions);
+  } catch (err) {
+    console.error('[WhatsAppForms] submissions error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to list submissions' });
   }
 }
 

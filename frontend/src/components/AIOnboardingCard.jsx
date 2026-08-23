@@ -85,7 +85,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
   return (
     <div style={{
       width: '100%',
-      fontFamily: "'Plus Jakarta Sans', sans-serif",
+      fontFamily: "'Manrope', sans-serif",
     }}>
       {/* Keyframe Animations */}
       <style>{`
@@ -109,27 +109,27 @@ export default function AIOnboardingCard({ page = 'landing' }) {
 
       {showLoginModal && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
-          <div style={{ background:'#070B14', border:'1px solid rgba(255,255,255,0.08)', width: 400, borderRadius: 12, padding: 24, display:'flex', flexDirection:'column', alignItems:'center', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
+          <div className="modal-card" style={{ background:'#070B14', border:'1px solid rgba(255,255,255,0.08)', width: 400, borderRadius: 12, padding: 24, display:'flex', flexDirection:'column', alignItems:'center', boxShadow:'0 24px 64px rgba(0,0,0,0.5)' }}>
             <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: '24px' }}>🔒</div>
             </div>
-            <h3 style={{ fontFamily:"'Syne',sans-serif", fontWeight: 700, fontSize: 18, color:'#F0F2F8', marginBottom: 8, margin: 0 }}>Login Required</h3>
+            <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 18, color:'#eef0f3', marginBottom: 8, margin: 0 }}>Login Required</h3>
             <p style={{ fontSize: 14, color:'rgba(255,255,255,0.6)', textAlign:'center', marginBottom: 24, lineHeight: 1.5 }}>
               You need to be logged in to use the AI Agent. Please sign in to your account to continue.
             </p>
             <div style={{ display: 'flex', gap: 12, width: '100%' }}>
               <button onClick={() => setShowLoginModal(false)} style={{ flex: 1, padding: '10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => { window.dispatchEvent(new CustomEvent('app:nav', { detail: 'login' })); }} style={{ flex: 1, padding: '10px', borderRadius: 8, background: '#1EBF5E', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Log in</button>
+              <button onClick={() => { window.dispatchEvent(new CustomEvent('app:nav', { detail: 'login' })); }} style={{ flex: 1, padding: '10px', borderRadius: 8, background: 'var(--grad-cta)', color: 'var(--ink)', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Log in</button>
             </div>
           </div>
         </div>
       )}
 
       <div style={{
-        background: 'linear-gradient(180deg, #0D1121 0%, #080B12 100%)',
+        background: 'linear-gradient(180deg, #0c0d11 0%, #080B12 100%)',
         border: '1px solid rgba(255,255,255,0.08)',
         borderRadius: '20px',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 40px rgba(30,191,94,0.06), inset 0 1px 0 rgba(255,255,255,0.06)',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 40px rgba(53,232,242,0.06), inset 0 1px 0 rgba(255,255,255,0.06)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -140,23 +140,23 @@ export default function AIOnboardingCard({ page = 'landing' }) {
         {/* ─── Header ─── */}
         <div style={{
           padding: '14px 18px',
-          background: 'linear-gradient(135deg, rgba(30,191,94,0.12), rgba(14,165,233,0.05))',
+          background: 'linear-gradient(135deg, rgba(53,232,242,0.12), rgba(14,165,233,0.05))',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           display: 'flex', alignItems: 'center', gap: '10px',
           flexShrink: 0,
         }}>
           <div style={{
             width: '36px', height: '36px', borderRadius: '10px',
-            background: 'linear-gradient(135deg, rgba(30,191,94,0.2), rgba(30,191,94,0.05))',
+            background: 'linear-gradient(135deg, rgba(53,232,242,0.2), rgba(53,232,242,0.05))',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            border: '1px solid rgba(30,191,94,0.25)', fontSize: '17px',
+            border: '1px solid rgba(53,232,242,0.25)', fontSize: '17px',
             flexShrink: 0,
           }}>🤖</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: '#F0F2F8', letterSpacing: '-0.01em' }}>AI Onboarding Agent</div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#eef0f3', letterSpacing: '-0.01em' }}>AI Onboarding Agent</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '1px' }}>
-              <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#1EBF5E', animation: 'agent-pulse 2s ease infinite' }} />
-              <span style={{ fontSize: '10px', color: '#1EBF5E', fontWeight: 600 }}>Local Model Active</span>
+              <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#35e8f2', animation: 'agent-pulse 2s ease infinite' }} />
+              <span style={{ fontSize: '10px', color: '#35e8f2', fontWeight: 600 }}>Local Model Active</span>
             </div>
           </div>
         </div>
@@ -172,18 +172,18 @@ export default function AIOnboardingCard({ page = 'landing' }) {
               maxWidth: '88%', animation: 'agent-fadeUp 0.2s ease-out',
             }}>
               {m.role === 'assistant' && (
-                <div style={{ fontSize: '9px', color: '#56688A', fontWeight: 600, marginBottom: '3px', paddingLeft: '2px' }}>AI Agent</div>
+                <div style={{ fontSize: '9px', color: 'var(--t2)', fontWeight: 600, marginBottom: '3px', paddingLeft: '2px' }}>AI Agent</div>
               )}
               <div style={{
                 background: m.role === 'user'
-                  ? 'linear-gradient(135deg, rgba(30,191,94,0.15), rgba(30,191,94,0.08))'
+                  ? 'linear-gradient(135deg, rgba(53,232,242,0.15), rgba(53,232,242,0.08))'
                   : 'rgba(255,255,255,0.03)',
                 border: m.role === 'user'
-                  ? '1px solid rgba(30,191,94,0.2)'
+                  ? '1px solid rgba(53,232,242,0.2)'
                   : '1px solid rgba(255,255,255,0.06)',
                 padding: '9px 13px',
                 borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : '12px 12px 12px 3px',
-                fontSize: '12.5px', color: '#F0F2F8', lineHeight: 1.55,
+                fontSize: '12.5px', color: '#eef0f3', lineHeight: 1.55,
                 whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
               }}>
@@ -192,21 +192,21 @@ export default function AIOnboardingCard({ page = 'landing' }) {
                   <div style={{
                     marginTop: m.content ? '10px' : '0',
                     background: 'rgba(0,0,0,0.2)',
-                    border: '1px solid rgba(30,191,94,0.3)',
+                    border: '1px solid rgba(53,232,242,0.3)',
                     borderRadius: '8px',
                     padding: '12px',
                   }}>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', color: '#1EBF5E', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', color: '#35e8f2', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {m.card.icon || '✅'} {m.card.title}
                     </div>
                     {m.card.details && Object.entries(m.card.details).map(([k, v]) => (
                       <div key={k} style={{ fontSize: '11px', marginBottom: '4px' }}>
-                        <span style={{ color: '#56688A', textTransform: 'capitalize' }}>{k}:</span>{' '}
-                        <span style={{ color: '#F0F2F8' }}>{typeof v === 'object' ? JSON.stringify(v) : v}</span>
+                        <span style={{ color: 'var(--t2)', textTransform: 'capitalize' }}>{k}:</span>{' '}
+                        <span style={{ color: '#eef0f3' }}>{typeof v === 'object' ? JSON.stringify(v) : v}</span>
                       </div>
                     ))}
                     {m.card.preview && (
-                       <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', fontSize: '11px', fontStyle: 'italic', borderLeft: '2px solid #1EBF5E' }}>
+                       <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', fontSize: '11px', fontStyle: 'italic', borderLeft: '2px solid #35e8f2' }}>
                          {m.card.preview}
                        </div>
                     )}
@@ -219,7 +219,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
           {/* Typing indicator */}
           {loading && (
             <div style={{ alignSelf: 'flex-start', maxWidth: '88%' }}>
-              <div style={{ fontSize: '9px', color: '#56688A', fontWeight: 600, marginBottom: '3px', paddingLeft: '2px' }}>AI Agent</div>
+              <div style={{ fontSize: '9px', color: 'var(--t2)', fontWeight: 600, marginBottom: '3px', paddingLeft: '2px' }}>AI Agent</div>
               <div style={{
                 background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
                 padding: '11px 15px', borderRadius: '12px 12px 12px 3px',
@@ -227,7 +227,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
               }}>
                 {[0, 1, 2].map(i => (
                   <div key={i} style={{
-                    width: '6px', height: '6px', borderRadius: '50%', background: '#1EBF5E',
+                    width: '6px', height: '6px', borderRadius: '50%', background: '#35e8f2',
                     animation: `agent-dot-bounce 1.4s ${i * 0.16}s ease-in-out infinite`,
                   }} />
                 ))}
@@ -254,9 +254,9 @@ export default function AIOnboardingCard({ page = 'landing' }) {
                   fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '4px',
                 }}
                 onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = 'rgba(30,191,94,0.3)';
-                  e.currentTarget.style.color = '#1EBF5E';
-                  e.currentTarget.style.background = 'rgba(30,191,94,0.06)';
+                  e.currentTarget.style.borderColor = 'rgba(53,232,242,0.3)';
+                  e.currentTarget.style.color = '#35e8f2';
+                  e.currentTarget.style.background = 'rgba(53,232,242,0.06)';
                 }}
                 onMouseLeave={e => {
                   e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
@@ -286,23 +286,23 @@ export default function AIOnboardingCard({ page = 'landing' }) {
             style={{
               flex: 1, padding: '9px 12px', borderRadius: '10px',
               border: '1px solid rgba(255,255,255,0.06)',
-              background: 'rgba(255,255,255,0.04)', color: '#F0F2F8',
+              background: 'rgba(255,255,255,0.04)', color: '#eef0f3',
               outline: 'none', fontFamily: 'inherit', fontSize: '12.5px',
               transition: 'border-color 0.15s',
             }}
-            onFocus={e => e.currentTarget.style.borderColor = 'rgba(30,191,94,0.3)'}
+            onFocus={e => e.currentTarget.style.borderColor = 'rgba(53,232,242,0.3)'}
             onBlur={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
           />
           <button
             onClick={handleSend}
             disabled={loading || !input.trim()}
             style={{
-              background: (loading || !input.trim()) ? 'rgba(30,191,94,0.3)' : '#1EBF5E',
-              color: '#060A10', border: 'none', borderRadius: '10px',
+              background: (loading || !input.trim()) ? 'rgba(53,232,242,0.3)' : '#35e8f2',
+              color: '#08090c', border: 'none', borderRadius: '10px',
               padding: '0 14px', fontWeight: 700,
               cursor: (loading || !input.trim()) ? 'not-allowed' : 'pointer',
               fontFamily: 'inherit', fontSize: '13px',
-              boxShadow: (loading || !input.trim()) ? 'none' : '0 0 16px rgba(30,191,94,0.25)',
+              boxShadow: (loading || !input.trim()) ? 'none' : '0 0 16px rgba(53,232,242,0.25)',
               transition: 'all 0.15s', display: 'flex', alignItems: 'center',
             }}
           >
@@ -315,7 +315,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
         {/* ─── Footer Badge ─── */}
         <div style={{
           padding: '5px 14px 7px', textAlign: 'center',
-          fontSize: '9.5px', color: '#2A3550', fontWeight: 500,
+          fontSize: '9.5px', color: 'var(--t3)', fontWeight: 500,
           flexShrink: 0, background: 'rgba(0,0,0,0.08)',
         }}>
           🔒 Running locally · No data leaves your system

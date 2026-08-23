@@ -1,9 +1,29 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { canBill } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch } from '../lib/api.js';
+import { wFetch, wDownload } from '../lib/api.js';
+import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
+import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
+
+// Loads the Razorpay Checkout widget once, same pattern as the Facebook JS SDK
+// loader in NumberSetupView.jsx.
+const loadRazorpayScript = () => new Promise((resolve) => {
+  if (window.Razorpay) return resolve(true);
+  if (document.getElementById('razorpay-checkout-js')) {
+    const check = setInterval(() => { if (window.Razorpay) { clearInterval(check); resolve(true); } }, 100);
+    setTimeout(() => { clearInterval(check); resolve(!!window.Razorpay); }, 5000);
+    return;
+  }
+  const js = document.createElement('script');
+  js.id = 'razorpay-checkout-js';
+  js.src = 'https://checkout.razorpay.com/v1/checkout.js';
+  js.onload = () => resolve(true);
+  js.onerror = () => resolve(false);
+  document.body.appendChild(js);
+});
 
 const SUB_TABS = [
   { id: 'wallet',       label: 'Wallet',                 icon: 'credit'  },
@@ -14,8 +34,57 @@ const SUB_TABS = [
   { id: 'invoices',     label: 'Invoices',               icon: 'note'    },
 ];
 
-export default function PaymentsView() {
-  const [activeSubTab, setActiveSubTab] = useState('wallet');
+// The three WhatsApp conversation categories, in the order Meta lists them.
+// Only the *labels* live here — every rate comes from the API, which reads
+// backend/src/lib/messagePricing.js. Hardcoding a number in the frontend is
+// what lets the displayed price drift from the price actually billed.
+const PRICING_CATEGORIES = [
+  ['MARKETING',      'Marketing'],
+  ['UTILITY',        'Utility'],
+  ['AUTHENTICATION', 'Authentication'],
+];
+
+const inrRate = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v).toFixed(2));
+
+// Per-message pricing for one plan. `rates` is the plan's messagePricing (or
+// the workspace's resolved overageRates); a plan whose rates haven't loaded
+// yet renders nothing rather than a wrong number.
+function MessagePricing({ rates, compact = false }) {
+  const rows = PRICING_CATEGORIES
+    .map(([key, label]) => [label, inrRate(rates?.[key])])
+    .filter(([, rate]) => rate !== null);
+  if (!rows.length) return null;
+
+  return (
+    <div style={{ marginTop: compact ? 8 : 12, paddingTop: compact ? 8 : 12, borderTop: '1px solid var(--bd)' }}>
+      <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 6 }}>
+        WhatsApp message pricing
+      </p>
+      {rows.map(([label, rate]) => (
+        <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, color: 'var(--t2)', marginBottom: 3 }}>
+          <span>{label}</span>
+          <span style={{ color: 'var(--t1)', fontWeight: 600 }}>₹{rate}<span style={{ color: 'var(--t3)', fontWeight: 400 }}> / msg</span></span>
+        </div>
+      ))}
+      <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 5, lineHeight: 1.45 }}>
+        Charged per message beyond the plan quota. Meta prices by template category.
+      </p>
+    </div>
+  );
+}
+
+export default function PaymentsView({ initialTab } = {}) {
+  // Paying is the one thing members do not do.
+  const isAdmin = canBill();
+  const [activeSubTab, setActiveSubTab] = useState(() => SUB_TABS.some(t => t.id === initialTab) ? initialTab : 'wallet');
+  // Same reconciliation trap as AutomationView: the route can change while
+  // React keeps this instance mounted, so a lazy useState initialiser only ever
+  // runs for the first route that rendered it. Following the prop is what
+  // actually moves the panel.
+  useEffect(() => {
+    if (SUB_TABS.some(t => t.id === initialTab)) setActiveSubTab(initialTab);
+  }, [initialTab]);
+
   
   // Wallet state — server-authoritative. Balance and transactions come from the
   // backend wallet ledger, never localStorage.
@@ -32,18 +101,43 @@ export default function PaymentsView() {
   const [gstNum, setGstNum] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
 
-  // Subscriptions & Add-ons
-  const [isSubscribed, setIsSubscribed] = useState(true);
-  const [addons, setAddons] = useState({
-    crm: false,
-    events: false,
-    tags: false,
-    fields: false
-  });
+  // Add-ons. The catalogue, the prices and which ones are active all come from
+  // the server — they used to be four hardcoded price strings in this file
+  // with a boolean in localStorage standing in for a purchase, which is why the
+  // price shown could never match what a gateway charged.
+  const [addonState, setAddonState] = useState({ addons: [], currency: 'INR' });
+  const [addonBusy, setAddonBusy] = useState(null);
+  const rechargeInputRef = useRef(null);
+  const [addonError, setAddonError] = useState('');
+  const [addonMessage, setAddonMessage] = useState('');
+
+  // Subscription plan — server-authoritative (README §12). `subscription` is
+  // the GET /subscription summary (current plan, usage, status, pending plan);
+  // `plans` is the purchasable catalog.
+  const [subscription, setSubscription] = useState(null);
+  const [plans, setPlans] = useState([]);
+  const [checkoutPlanId, setCheckoutPlanId] = useState(null);
+  const [checkoutError, setCheckoutError] = useState('');
+  const [checkoutMessage, setCheckoutMessage] = useState('');
+
+  const loadSubscription = () => wFetch('/subscription')
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (d) setSubscription(d); })
+    .catch(() => {});
 
   // Invoices list
   const [invoices, setInvoices] = useState([]);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
+  const [downloadingInvoice, setDownloadingInvoice] = useState(null);
+  const [invoiceError, setInvoiceError] = useState('');
+
+  // Billing cycle the plan catalog is priced in ('monthly' | 'quarterly')
+  const [billingCycle, setBillingCycle] = useState('monthly');
+
+  // Insights state
+  const [insights, setInsights] = useState(null);
+  const [loadingInsights, setLoadingInsights] = useState(false);
+  const [insightsError, setInsightsError] = useState('');
 
   // Load state from backend
   useEffect(() => {
@@ -62,7 +156,7 @@ export default function PaymentsView() {
     window._reloadWallet = loadWallet;
 
     // 2. Billing details (still local until a billing backend exists)
-    const savedBilling = localStorage.getItem('chatflow_billing_details');
+    const savedBilling = localStorage.getItem('ChatFlow Pro_billing_details');
     if (savedBilling) {
       try {
         const parsed = JSON.parse(savedBilling);
@@ -73,10 +167,7 @@ export default function PaymentsView() {
       } catch {}
     }
 
-    const savedAddons = localStorage.getItem('chatflow_subscribed_addons');
-    if (savedAddons) {
-      try { setAddons(JSON.parse(savedAddons)); } catch {}
-    }
+    loadAddons();
 
     // 4. Load invoices from backend
     wFetch('/settings/invoices')
@@ -86,97 +177,340 @@ export default function PaymentsView() {
         setLoadingInvoices(false);
       })
       .catch(() => setLoadingInvoices(false));
+
+    // 5. Subscription plan + purchasable catalog
+    loadSubscription();
+    wFetch('/subscription/plans')
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setPlans(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, []);
 
+  // The Paid Messages Insights tab had state and a renderer but no loader, so
+  // every card read 0 and the chart stayed empty regardless of real sends.
+  // Fetched lazily: only the insights tab needs it, and it is the one call
+  // here that scans campaign recipients.
+  useEffect(() => {
+    if (activeSubTab !== 'insights' || insights || loadingInsights) return;
+    setLoadingInsights(true);
+    setInsightsError('');
+    wFetch('/analytics/paid-messages?days=7')
+      .then(async r => {
+        if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `Request failed (${r.status})`);
+        return r.json();
+      })
+      .then(data => setInsights(data))
+      .catch(err => setInsightsError(err.message || 'Could not load insights'))
+      .finally(() => setLoadingInsights(false));
+  }, [activeSubTab]);
+
+  // Real Razorpay top-up (test mode) — order created server-side (amount
+  // validated + capped there too), credited only after signature verification.
   const handleRecharge = async () => {
     const amt = parseFloat(rechargeAmt);
     if (isNaN(amt) || amt <= 0) { setRechargeError('Enter a valid amount.'); return; }
     setRechargeError('');
     setRechargeStatus('processing');
     try {
-      // Server-authoritative demo recharge — creates a real ledger entry. In
-      // production this is replaced by a payment-gateway checkout + webhook.
-      const res = await wFetch('/wallet/recharge', { method: 'POST', body: JSON.stringify({ amount: amt }) });
-      const data = await res.json();
-      if (!res.ok) { setRechargeError(data.error || 'Recharge failed'); setRechargeStatus(''); return; }
-      setBalance(Number(data.balance) || 0);
-      window.dispatchEvent(new CustomEvent('wallet:balance-updated', { detail: Number(data.balance) || 0 }));
-      if (window._reloadWallet) window._reloadWallet();
-      setRechargeStatus('success');
-      setTimeout(() => setRechargeStatus(''), 2000);
+      const orderRes = await wFetch('/wallet/checkout', { method: 'POST', body: JSON.stringify({ amount: amt }) });
+      const order = await orderRes.json();
+      if (!orderRes.ok) { setRechargeError(order.error || 'Could not start checkout'); setRechargeStatus(''); return; }
+
+      const loaded = await loadRazorpayScript();
+      if (!loaded) { setRechargeError('Could not load the payment widget. Check your connection and try again.'); setRechargeStatus(''); return; }
+
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const rzp = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        order_id: order.orderId,
+        name: 'ChatFlow Pro',
+        description: 'Wallet recharge',
+        prefill: { email: user.email, name: user.name },
+        theme: { color: '#35e8f2' },
+        handler: async (response) => {
+          try {
+            const verifyRes = await wFetch('/wallet/checkout/verify', {
+              method: 'POST',
+              body: JSON.stringify({
+                orderId: response.razorpay_order_id,
+                paymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+              }),
+            });
+            const data = await verifyRes.json();
+            if (!verifyRes.ok) { setRechargeError(data.error || 'Payment verification failed'); setRechargeStatus(''); return; }
+            // Refresh everything the recharge touches — balance, ledger,
+            // invoices, the sidebar figure and the notification bell — so no
+            // part of the app needs a manual reload to catch up.
+            setBalance(Number(data.balance) || 0);
+            window.dispatchEvent(new CustomEvent('wallet:balance-updated', { detail: Number(data.balance) || 0 }));
+            window.dispatchEvent(new CustomEvent('notifications:refresh'));
+            if (window._reloadWallet) window._reloadWallet();
+            wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch(() => {});
+            setRechargeStatus('success');
+            setTimeout(() => setRechargeStatus(''), 2000);
+          } catch {
+            setRechargeError(`Payment succeeded but we could not confirm it automatically. Contact support with payment ID ${response.razorpay_payment_id}.`);
+            setRechargeStatus('');
+          }
+        },
+        modal: { ondismiss: () => setRechargeStatus('') },
+      });
+      rzp.on('payment.failed', (resp) => {
+        setRechargeError(resp.error?.description || 'Payment failed');
+        setRechargeStatus('');
+      });
+      rzp.open();
     } catch (e) {
       setRechargeError(e.message);
       setRechargeStatus('');
     }
   };
 
+  // Buy/upgrade a plan via Razorpay Checkout (test mode). The order is created
+  // server-side (amount comes from the Plan row, never the client) and
+  // verified server-side via HMAC signature. The new plan takes effect
+  // immediately — a fresh billing cycle starts now, giving the buyer the
+  // full new quota right away instead of waiting for the next renewal.
+  const handleBuyPlan = async (plan) => {
+    setCheckoutError(''); setCheckoutMessage(''); setCheckoutPlanId(plan.id);
+    // A plan with no quarterly price is monthly-only; the server rejects a
+    // quarterly order for it, so send the cycle it actually supports.
+    const cycle = billingCycle === 'quarterly' && plan.priceQuarterly != null ? 'quarterly' : 'monthly';
+    try {
+      const orderRes = await wFetch('/subscription/checkout', { method: 'POST', body: JSON.stringify({ planId: plan.id, cycle }) });
+      const order = await orderRes.json();
+      if (!orderRes.ok) { setCheckoutError(order.error || 'Could not start checkout'); setCheckoutPlanId(null); return; }
+
+      const loaded = await loadRazorpayScript();
+      if (!loaded) { setCheckoutError('Could not load the payment widget. Check your connection and try again.'); setCheckoutPlanId(null); return; }
+
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const rzp = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        order_id: order.orderId,
+        name: 'ChatFlow Pro',
+        description: `${plan.name} plan`,
+        prefill: { email: user.email, name: user.name },
+        theme: { color: '#35e8f2' },
+        handler: async (response) => {
+          try {
+            const verifyRes = await wFetch('/subscription/checkout/verify', {
+              method: 'POST',
+              body: JSON.stringify({
+                orderId: response.razorpay_order_id,
+                paymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+              }),
+            });
+            const result = await verifyRes.json();
+            if (!verifyRes.ok) { setCheckoutError(result.error || 'Payment verification failed'); return; }
+            setCheckoutMessage(`You're now on the ${result.plan.name} plan.`);
+            loadSubscription();
+          } catch {
+            setCheckoutError(`Payment succeeded but we could not confirm it automatically. Contact support with payment ID ${response.razorpay_payment_id}.`);
+          } finally {
+            setCheckoutPlanId(null);
+          }
+        },
+        modal: { ondismiss: () => setCheckoutPlanId(null) },
+      });
+      rzp.on('payment.failed', (resp) => {
+        setCheckoutError(resp.error?.description || 'Payment failed');
+        setCheckoutPlanId(null);
+      });
+      rzp.open();
+    } catch (e) {
+      setCheckoutError(e.message || 'Checkout failed');
+      setCheckoutPlanId(null);
+    }
+  };
+
+  const downloadInvoice = async (invoiceId) => {
+    if (downloadingInvoice) return; // one at a time — blocks double-clicks
+    setInvoiceError('');
+    setDownloadingInvoice(invoiceId);
+    try {
+      await wDownload(`/settings/invoices/${invoiceId}/download`, `invoice-${invoiceId}.html`);
+    } catch (e) {
+      setInvoiceError(e.message || 'Could not download this invoice');
+    } finally {
+      setDownloadingInvoice(null);
+    }
+  };
+
   const handleSaveBilling = () => {
     const data = { bizName, bizEmail, bizAddress, gstNum };
-    localStorage.setItem('chatflow_billing_details', JSON.stringify(data));
+    localStorage.setItem('ChatFlow Pro_billing_details', JSON.stringify(data));
     setSaveStatus('success');
     setTimeout(() => setSaveStatus(''), 2000);
   };
 
-  const toggleAddon = (key) => {
-    const updated = { ...addons, [key]: !addons[key] };
-    setAddons(updated);
-    localStorage.setItem('chatflow_subscribed_addons', JSON.stringify(updated));
+  // The "Add Money" buttons on the wallet banners jump here. Switching to the
+  // wallet tab and focusing the amount is what makes the button do something
+  // visible even when the user is already on this screen.
+  useEffect(() => {
+    const onFocusRecharge = () => {
+      setActiveSubTab('wallet');
+      setTimeout(() => {
+        rechargeInputRef.current?.focus();
+        rechargeInputRef.current?.select();
+        rechargeInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 40);
+    };
+    window.addEventListener('wallet:focus-recharge', onFocusRecharge);
+    return () => window.removeEventListener('wallet:focus-recharge', onFocusRecharge);
+  }, []);
+
+  const loadAddons = () => wFetch('/subscription/addons')
+    .then(r => (r.ok ? r.json() : null))
+    .then(d => { if (d) setAddonState(d); })
+    .catch(() => {});
+
+  // A real purchase: the order is created server-side from the catalogue price,
+  // and the add-on is only activated once the signature has been verified
+  // server-side against the amount Razorpay reports for that order.
+  const buyAddon = async (addon) => {
+    setAddonError(''); setAddonMessage(''); setAddonBusy(addon.key);
+    try {
+      const orderRes = await wFetch('/subscription/addons/checkout', {
+        method: 'POST', body: JSON.stringify({ addonKey: addon.key }),
+      });
+      const order = await orderRes.json();
+      if (!orderRes.ok) { setAddonError(order.error || 'Could not start checkout'); setAddonBusy(null); return; }
+
+      if (!await loadRazorpayScript()) {
+        setAddonError('Could not load the payment widget. Check your connection and try again.');
+        setAddonBusy(null); return;
+      }
+
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const rzp = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        order_id: order.orderId,
+        name: 'ChatFlow Pro',
+        description: order.addon.title,
+        prefill: { email: user.email, name: user.name },
+        theme: { color: '#35e8f2' },
+        handler: async (response) => {
+          try {
+            const verifyRes = await wFetch('/subscription/addons/checkout/verify', {
+              method: 'POST',
+              body: JSON.stringify({
+                orderId: response.razorpay_order_id,
+                paymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+              }),
+            });
+            const data = await verifyRes.json();
+            if (!verifyRes.ok) { setAddonError(data.error || 'Payment verification failed'); return; }
+            setAddonMessage(`${data.addon.title} is active.`);
+            await loadAddons();
+            wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch(() => {});
+          } catch {
+            setAddonError(`Payment succeeded but we could not confirm it automatically. Contact support with payment ID ${response.razorpay_payment_id}.`);
+          } finally {
+            setAddonBusy(null);
+          }
+        },
+        modal: { ondismiss: () => setAddonBusy(null) },
+      });
+      rzp.on('payment.failed', (resp) => {
+        setAddonError(resp.error?.description || 'Payment failed');
+        setAddonBusy(null);
+      });
+      rzp.open();
+    } catch (e) {
+      setAddonError(e.message);
+      setAddonBusy(null);
+    }
+  };
+
+  const cancelAddon = async (addon) => {
+    setAddonError(''); setAddonMessage(''); setAddonBusy(addon.key);
+    try {
+      const res = await wFetch(`/subscription/addons/${addon.key}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) setAddonError(data.error || 'Could not cancel the add-on');
+      else { setAddonMessage(data.message); await loadAddons(); }
+    } catch (e) {
+      setAddonError(e.message);
+    } finally {
+      setAddonBusy(null);
+    }
   };
 
   // Render Inner Tabs
   const renderWallet = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* This is the page the status is about, so the healthy state shows here
+          too rather than only the warnings. */}
+      <WalletStatusBanner />
       {/* Balance Card */}
       <div style={{ ...card, padding: 24, background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 6 }}>Total Wallet Balance</p>
-          <h2 style={{ fontFamily: "'Syne',sans-serif", fontSize: 36, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-.02em' }}>
+          <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 36, fontWeight: 800, color: 'var(--t1)', letterSpacing: '-.02em' }}>
             ₹ {balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </h2>
         </div>
-        <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(30,191,94,0.1)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(53,232,242,0.1)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <I n="credit" s={24} c="var(--green)" />
         </div>
       </div>
 
       {/* Quick Recharge Box */}
-      <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Recharge Wallet</h3>
-        
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
-            <span style={{ position: 'absolute', left: 14, top: 11, fontSize: 14, fontWeight: 600, color: 'var(--t2)' }}>₹</span>
-            <input type="number" value={rechargeAmt} onChange={e => setRechargeAmt(e.target.value)}
-              style={{ width: '100%', padding: '10px 14px 10px 28px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
-          </div>
-          
-          <Btn onClick={handleRecharge} disabled={rechargeStatus === 'processing'} style={{ padding: '11px 24px', boxShadow: 'var(--glow)' }}>
-            {rechargeStatus === 'processing' ? 'Processing...' : rechargeStatus === 'success' ? 'Recharge Successful!' : 'Recharge Now'}
-          </Btn>
-        </div>
+      {isAdmin ? (
+        <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Recharge Wallet</h3>
 
-        {/* Quick Select Buttons */}
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[1000, 2000, 5000].map(val => (
-            <button key={val} onClick={() => setRechargeAmt(val.toString())}
-              style={{ padding: '8px 16px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--t1)'; e.currentTarget.style.borderColor = 'var(--t3)'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--t2)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
-              + ₹{val.toLocaleString()}
-            </button>
-          ))}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
+              <span style={{ position: 'absolute', left: 14, top: 11, fontSize: 14, fontWeight: 600, color: 'var(--t2)' }}>₹</span>
+              <input ref={rechargeInputRef} type="number" value={rechargeAmt} onChange={e => setRechargeAmt(e.target.value)}
+                style={{ width: '100%', padding: '10px 14px 10px 28px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+
+            <Btn onClick={handleRecharge} disabled={rechargeStatus === 'processing'} style={{ padding: '11px 24px', boxShadow: 'var(--glow)' }}>
+              {rechargeStatus === 'processing' ? 'Processing...' : rechargeStatus === 'success' ? 'Recharge Successful!' : 'Recharge Now'}
+            </Btn>
+          </div>
+
+          {/* Quick Select Buttons */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[1000, 2000, 5000].map(val => (
+              <button key={val} onClick={() => setRechargeAmt(val.toString())}
+                style={{ padding: '8px 16px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--t1)'; e.currentTarget.style.borderColor = 'var(--t3)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--t2)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
+                + ₹{val.toLocaleString()}
+              </button>
+            ))}
+          </div>
+          {rechargeError && <p style={{ fontSize: 12, color: '#f87171', marginTop: 4 }}>{rechargeError}</p>}
+          <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
+            Payments run through Razorpay. Your balance is credited only after the payment signature is verified server-side,
+            and the wallet updates everywhere immediately — no reload needed.
+          </p>
         </div>
-        {rechargeError && <p style={{ fontSize: 12, color: '#f87171', marginTop: 4 }}>{rechargeError}</p>}
-        <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
-          Demo mode: recharges credit your wallet through the server ledger without a live payment gateway. Connect a payment provider to enable real charges.
-        </p>
-      </div>
+      ) : (
+        <div style={{ ...card, padding: '16px 20px', display: 'flex', gap: 10, alignItems: 'center' }}>
+          <I n="alertt" s={16} c="var(--t3)" />
+          <p style={{ fontSize: 12.5, color: 'var(--t2)' }}>Recharging the wallet requires a workspace admin.</p>
+        </div>
+      )}
     </div>
   );
 
   const renderExpenses = () => (
     <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Transaction History</h3>
+      <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Transaction History</h3>
       <p style={{ fontSize: 13, color: 'var(--t2)' }}>Real wallet credits and usage deductions from your account ledger.</p>
 
       {walletTxns.length === 0 ? (
@@ -187,15 +521,29 @@ export default function PaymentsView() {
         <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--bd)', borderRadius: 8, overflow: 'hidden' }}>
           {walletTxns.map((item, idx, arr) => (
             <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: idx < arr.length - 1 ? '1px solid var(--bd)' : 'none', background: 'rgba(255,255,255,0.01)' }}>
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', marginBottom: 2 }}>{item.reason}</p>
-                <p style={{ fontSize: 11, color: 'var(--t3)' }}>{new Date(item.createdAt).toLocaleString('en-IN')}</p>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{item.reason}</p>
+                  {item.category && (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 6px', borderRadius: 5, letterSpacing: '.04em', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', color: 'var(--t3)' }}>
+                      {item.category}
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--t3)' }}>
+                  {new Date(item.createdAt).toLocaleString('en-IN')}
+                  {item.gateway ? ` · ${item.gateway}` : ''}
+                </p>
               </div>
-              <div style={{ textAlign: 'right' }}>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: item.type === 'CREDIT' ? 'var(--green)' : '#f87171' }}>
                   {item.type === 'CREDIT' ? '+' : '-'} ₹ {Number(item.amount).toFixed(2)}
                 </span>
-                <p style={{ fontSize: 10, color: 'var(--t3)' }}>Bal: ₹ {Number(item.balanceAfter).toFixed(2)}</p>
+                {/* Previous → new balance, so the ledger reads as a running total. */}
+                <p style={{ fontSize: 10, color: 'var(--t3)' }}>
+                  {item.balanceBefore != null ? `₹${Number(item.balanceBefore).toFixed(2)} → ` : 'Bal: '}
+                  ₹{Number(item.balanceAfter).toFixed(2)}
+                </p>
               </div>
             </div>
           ))}
@@ -204,147 +552,347 @@ export default function PaymentsView() {
     </div>
   );
 
-  const renderInsights = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Metric Cards Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-        {[
-          { label: 'Total Paid Messages', val: 707, color: 'var(--green)' },
-          { label: 'Utility', val: 0, color: '#a78bfa' },
-          { label: 'Marketing', val: 0, color: '#f59e0b' },
-          { label: 'Marketing Lite', val: 707, color: '#0ea5e9' },
-          { label: 'Auth Messages', val: 0, color: '#f43f5e' }
-        ].map((m, idx) => (
-          <div key={idx} style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600 }}>{m.label}</span>
-            <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 24, fontWeight: 800, color: m.val > 0 ? m.color : 'var(--t1)' }}>{m.val}</span>
-          </div>
-        ))}
-      </div>
+  const renderInsights = () => {
+    if (loadingInsights) {
+      return <div style={{ color: 'var(--t2)', padding: 24, display: 'flex', justifyContent: 'center' }}>Loading insights...</div>;
+    }
+    if (insightsError) {
+      return <div style={{ color: '#f87171', padding: 24, display: 'flex', justifyContent: 'center' }}>Error loading insights: {insightsError}</div>;
+    }
 
-      {/* Chart Card */}
-      <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>Paid Message Analytics</h3>
-        
-        {/* Custom SVG Bar Chart */}
-        <div style={{ width: '100%', height: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', paddingBottom: 20, borderBottom: '1px solid var(--bd)' }}>
+    const { totals = {}, chartData = [] } = insights || {};
+    
+    // Find the max value for the chart to scale properly
+    const maxChartVal = chartData.reduce((max, bar) => Math.max(max, bar.val), 10) || 100;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Metric Cards Row */}
+        <div className="rgrid-5" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
           {[
-            { date: 'Jun 19', val: 210 },
-            { date: 'Jun 20', val: 170 },
-            { date: 'Jun 21', val: 90 },
-            { date: 'Jun 22', val: 85 },
-            { date: 'Jun 23', val: 100 },
-            { date: 'Jun 24', val: 92 },
-            { date: 'Jun 25', val: 0 }
-          ].map((bar, idx) => {
-            const pctHeight = (bar.val / 220) * 100;
-            return (
-              <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: 10 }}>
-                {bar.val > 0 && <span style={{ fontSize: 10, color: 'var(--t2)', fontWeight: 600 }}>{bar.val}</span>}
-                <div style={{ width: 36, height: `${pctHeight || 4}px`, background: bar.val > 0 ? 'var(--green)' : 'rgba(255,255,255,0.03)', borderRadius: '4px 4px 0 0', transition: 'height 0.3s ease' }} />
-                <span style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>{bar.date}</span>
-              </div>
-            );
-          })}
+            { label: 'Total Paid Messages', val: totals.totalPaidMessages || 0, color: 'var(--green)' },
+            { label: 'Utility', val: totals.utility || 0, color: '#c4ff46' },
+            { label: 'Marketing', val: totals.marketing || 0, color: '#f59e0b' },
+            { label: 'Marketing Lite', val: totals.marketingLite || 0, color: '#9d6bff' },
+            { label: 'Auth Messages', val: totals.authMessages || 0, color: '#f43f5e' }
+          ].map((m, idx) => (
+            <div key={idx} style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600 }}>{m.label}</span>
+              <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 24, fontWeight: 800, color: m.val > 0 ? m.color : 'var(--t1)' }}>{m.val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Chart Card */}
+        <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>Paid Message Analytics</h3>
+          
+          {/* Custom SVG Bar Chart */}
+          <div style={{ width: '100%', height: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', paddingBottom: 20, borderBottom: '1px solid var(--bd)' }}>
+            {(chartData.length ? chartData : [{ date: '-', val: 0 }]).map((bar, idx) => {
+              const pctHeight = (bar.val / maxChartVal) * 100;
+              return (
+                <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: 10 }}>
+                  {bar.val > 0 && <span style={{ fontSize: 10, color: 'var(--t2)', fontWeight: 600 }}>{bar.val}</span>}
+                  <div style={{ width: 36, height: `${pctHeight || 4}px`, background: bar.val > 0 ? 'var(--green)' : 'rgba(255,255,255,0.03)', borderRadius: '4px 4px 0 0', transition: 'height 0.3s ease' }} />
+                  <span style={{ fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>{bar.date}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderBilling = () => (
-    <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Billing details</h3>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <WalletStatusBanner hideWhenHealthy />
+      <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>Billing details</h3>
       
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+      <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Legal Business Name</label>
-          <input value={bizName} onChange={e => setBizName(e.target.value)} placeholder="e.g. Acme Corp"
-            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none' }} />
+          <input value={bizName} onChange={e => setBizName(e.target.value)} placeholder="e.g. Acme Corp" disabled={!isAdmin}
+            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Business Email</label>
-          <input value={bizEmail} onChange={e => setBizEmail(e.target.value)} placeholder="e.g. billing@acme.com"
-            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none' }} />
+          <input value={bizEmail} onChange={e => setBizEmail(e.target.value)} placeholder="e.g. billing@acme.com" disabled={!isAdmin}
+            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
         </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Business Address</label>
-        <textarea value={bizAddress} onChange={e => setBizAddress(e.target.value)} placeholder="Full business address..." rows={3}
-          style={{ width: '100%', padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', resize: 'vertical' }} />
+        <textarea value={bizAddress} onChange={e => setBizAddress(e.target.value)} placeholder="Full business address..." rows={3} disabled={!isAdmin}
+          style={{ width: '100%', padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', resize: 'vertical', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+      <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>GST / Tax Details</label>
-          <input value={gstNum} onChange={e => setGstNum(e.target.value)} placeholder="e.g. 29AAAAA0000A1Z5"
-            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none' }} />
+          <input value={gstNum} onChange={e => setGstNum(e.target.value)} placeholder="e.g. 29AAAAA0000A1Z5" disabled={!isAdmin}
+            style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--bd)', paddingTop: 16 }}>
+      {isAdmin && <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--bd)', paddingTop: 16 }}>
         <Btn onClick={handleSaveBilling} style={{ boxShadow: 'var(--glow)' }}>
           {saveStatus === 'success' ? 'Details Saved!' : 'Save Details'}
         </Btn>
+      </div>}
       </div>
     </div>
   );
 
-  const renderSubscription = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Current Subscription */}
-      <div style={{ ...card, padding: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-            <span style={{ fontSize: 13, color: 'var(--t2)' }}>Current Subscription Plan</span>
-            <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: isSubscribed ? 'var(--gbg)' : 'rgba(239,68,68,0.1)', border: `1px solid ${isSubscribed ? 'var(--gbd)' : 'rgba(239,68,68,0.2)'}`, color: isSubscribed ? 'var(--green)' : '#f87171' }}>
-              {isSubscribed ? 'Active' : 'Cancelled'}
-            </span>
-          </div>
-          <h3 style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 800, color: 'var(--t1)' }}>
-            Starter Plan (₹ 3,499 / quarter)
-          </h3>
-        </div>
-        <Btn variant="outline" style={{ borderColor: isSubscribed ? '#f8717133' : 'var(--gbd)', color: isSubscribed ? '#f87171' : 'var(--green)' }} onClick={() => setIsSubscribed(!isSubscribed)}>
-          {isSubscribed ? 'Cancel Subscription' : 'Reactivate Plan'}
-        </Btn>
-      </div>
+  const renderSubscription = () => {
+    const currentKey = subscription?.plan?.key;
+    const messagesUsed = subscription?.usage?.messagesUsed ?? 0;
+    const messageQuota = subscription?.plan?.messageQuota ?? 0;
+    const unlimited = messageQuota === -1;
+    const usagePct = unlimited || messageQuota <= 0 ? 0 : Math.min(100, (messagesUsed / messageQuota) * 100);
+    const isActive = subscription?.status === 'ACTIVE';
 
-      {/* Add-ons Section */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <h4 style={{ fontFamily: "'Syne',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Add-ons</h4>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-          {[
-            { id: 'crm', title: 'Sales CRM Add-on', price: '₹1499/month', desc: 'Native lead owners, auto-assignments, pipeline management' },
-            { id: 'events', title: 'Pack of 3 Custom Events', price: '₹499/month', desc: 'Track external triggers and coordinate custom actions via Webhook' },
-            { id: 'tags', title: 'Pack of 10 Custom Tags', price: '₹499/month', desc: 'Expand categorizations to organize contacts effectively' },
-            { id: 'fields', title: 'Pack of 5 Custom Fields', price: '₹499/month', desc: 'Add user traits and extra attributes to contact profiles' }
-          ].map(addon => {
-            const hasAddon = addons[addon.id];
-            return (
-              <div key={addon.id} style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14 }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                    <h5 style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)' }}>{addon.title}</h5>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--green)' }}>{addon.price}</span>
-                  </div>
-                  <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.desc}</p>
-                </div>
-                <Btn variant={hasAddon ? 'outline' : 'primary'} onClick={() => toggleAddon(addon.id)} style={{ width: '100%', borderColor: hasAddon ? '#f8717144' : 'var(--bd)', color: hasAddon ? '#f87171' : '#07090F' }}>
-                  {hasAddon ? 'Remove Add-on' : 'Add to Plan'}
-                </Btn>
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {/* Overage beyond the plan quota is billed to the wallet, so an empty
+            one stops sending even on an active subscription. */}
+        <WalletStatusBanner hideWhenHealthy />
+        {/* Current plan */}
+        <div style={{ ...card, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <span style={{ fontSize: 13, color: 'var(--t2)' }}>Current Plan</span>
+                <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: isActive ? 'var(--gbg)' : 'rgba(239,68,68,0.1)', border: `1px solid ${isActive ? 'var(--gbd)' : 'rgba(239,68,68,0.2)'}`, color: isActive ? 'var(--green)' : '#f87171' }}>
+                  {subscription?.status || '—'}
+                </span>
               </div>
-            );
-          })}
+              <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 22, fontWeight: 800, color: 'var(--t1)' }}>
+                {subscription?.plan?.name || 'Loading…'}
+              </h3>
+            </div>
+            {subscription?.currentPeriodEnd && (
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ fontSize: 11, color: 'var(--t3)' }}>{subscription.cancelAtPeriodEnd ? 'Cancels on' : 'Renews on'}</p>
+                <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>
+                  {new Date(subscription.currentPeriodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {subscription?.pendingPlan && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+              <I n="alertc" s={14} c="#fbbf24" />
+              <span style={{ fontSize: 12, color: '#fbbf24' }}>
+                Switching to <strong>{subscription.pendingPlan.name}</strong> at the start of your next billing cycle.
+              </span>
+            </div>
+          )}
+
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', rowGap: 10 }}>
+              <span style={{ fontSize: 12, color: 'var(--t2)' }}>Messages used this cycle</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--t1)' }}>
+                {messagesUsed.toLocaleString()} / {unlimited ? 'Unlimited' : messageQuota.toLocaleString()}
+              </span>
+            </div>
+            <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${unlimited ? 4 : usagePct}%`, borderRadius: 6, background: usagePct > 90 ? '#f87171' : usagePct > 70 ? '#fbbf24' : 'var(--green)', transition: 'width .4s' }} />
+            </div>
+            {!unlimited && usagePct >= 100 && (
+              <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
+                Quota exhausted — further messages bill from your wallet by category:
+                {' '}{PRICING_CATEGORIES
+                  .map(([key, label]) => [label, inrRate(subscription?.plan?.overageRates?.[key])])
+                  .filter(([, rate]) => rate !== null)
+                  .map(([label, rate]) => `${label} ₹${rate}`)
+                  .join(', ')}.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {checkoutMessage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 13 }}>
+            <I n="checkc" s={14} c="var(--green)" /> {checkoutMessage}
+          </div>
+        )}
+        {checkoutError && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', fontSize: 13 }}>
+            <I n="alertt" s={14} c="#f87171" /> {checkoutError}
+          </div>
+        )}
+
+        {/* Plan catalog */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <h4 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Plans</h4>
+            <div style={{ display: 'flex', padding: 3, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
+              {[['monthly', 'Monthly'], ['quarterly', 'Quarterly']].map(([id, label]) => (
+                <button key={id} onClick={() => setBillingCycle(id)}
+                  style={{ padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                           fontFamily: "'Manrope',sans-serif",
+                           background: billingCycle === id ? 'var(--green)' : 'transparent',
+                           color: billingCycle === id ? '#08090c' : 'var(--t2)' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            {plans.map(plan => {
+              const isCurrent = plan.key === currentKey;
+              const isPending = subscription?.pendingPlan?.key === plan.key;
+              const isFree = Number(plan.priceMonthly) === 0;
+              const busy = checkoutPlanId === plan.id;
+              // Quarterly pricing is optional per plan — fall back to monthly
+              // rather than showing a blank price.
+              const quarterly = billingCycle === 'quarterly' && plan.priceQuarterly != null;
+              const shownPrice = quarterly ? plan.priceQuarterly : plan.priceMonthly;
+              const perMonth = quarterly ? Number(plan.priceQuarterly) / 3 : null;
+              const quarterlySaving = quarterly ? Number(plan.priceMonthly) * 3 - Number(plan.priceQuarterly) : 0;
+              return (
+                <div key={plan.id} style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 12, border: isCurrent ? '1px solid var(--gbd)' : '1px solid var(--bd)' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', rowGap: 10 }}>
+                      <h5 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 16, fontWeight: 800, color: 'var(--t1)' }}>{plan.name}</h5>
+                      {isCurrent && (
+                        <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 600, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)' }}>Current</span>
+                      )}
+                    </div>
+                    <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)' }}>
+                      {isFree ? 'Free' : `₹${Number(shownPrice).toLocaleString('en-IN')}`}
+                      {!isFree && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--t3)' }}>{quarterly ? '/quarter' : '/month'}</span>}
+                    </p>
+                    {!isFree && quarterly && (
+                      <p style={{ fontSize: 11, color: quarterlySaving > 0 ? 'var(--green)' : 'var(--t3)', marginTop: 2 }}>
+                        ₹{perMonth.toLocaleString('en-IN', { maximumFractionDigits: 0 })}/mo effective
+                        {/* Only claim a saving when the quarterly price is
+                            actually below 3× monthly — it is not on every plan. */}
+                        {quarterlySaving > 0 && ` · save ₹${quarterlySaving.toLocaleString('en-IN')}`}
+                      </p>
+                    )}
+                    {!isFree && !quarterly && billingCycle === 'quarterly' && (
+                      <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Monthly billing only</p>
+                    )}
+                  </div>
+                  <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'var(--t2)', padding: 0, margin: 0 }}>
+                    <li>{plan.messageQuota === -1 ? 'Unlimited' : plan.messageQuota.toLocaleString()} messages/cycle</li>
+                    <li>{plan.contactLimit == null ? 'Unlimited' : plan.contactLimit.toLocaleString()} contacts</li>
+                    {/* The workspace owner doesn't use a seat, so this is how
+                        many *extra* people can be invited. */}
+                    <li>{plan.memberLimit == null ? 'Unlimited' : plan.memberLimit} team members + owner</li>
+                    <li>{plan.apiKeyLimit == null ? 'Unlimited' : plan.apiKeyLimit} API keys</li>
+                  </ul>
+                  {/* Rates come from the plan payload, which the API resolves
+                      from lib/messagePricing.js — so what is quoted here is
+                      the same number the billing code charges. */}
+                  <MessagePricing rates={plan.messagePricing} compact />
+                  {isAdmin ? (
+                    <Btn
+                      variant={isCurrent ? 'outline' : 'primary'}
+                      disabled={isCurrent || isPending || busy || (isFree && !isCurrent)}
+                      onClick={() => handleBuyPlan(plan)}
+                      style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}
+                    >
+                      {isCurrent ? 'Current Plan' : isPending ? 'Scheduled' : busy ? 'Processing…' : isFree ? 'Contact support to downgrade' : 'Buy Now'}
+                    </Btn>
+                  ) : isCurrent ? (
+                    <div style={{ width: '100%', textAlign: 'center', marginTop: 4, padding: '9px 0', borderRadius: 8, border: '1px solid var(--gbd)', background: 'var(--gbg)', color: 'var(--green)', fontSize: 13, fontWeight: 600 }}>
+                      Current Plan
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: 11, color: 'var(--t3)', textAlign: 'center', marginTop: 4 }}>Ask a workspace admin to change plans</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--t3)' }}>
+            Test mode: payments are processed via Razorpay's test environment — no real charges occur. Plan changes take effect immediately and start a fresh billing cycle.
+          </p>
+        </div>
+
+        {/* Add-ons Section */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <h4 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Add-ons</h4>
+
+          {addonMessage && (
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 12px', borderRadius:8, background:'var(--gbg)', border:'1px solid var(--gbd)' }}>
+              <I n="checkc" s={14} c="var(--green)" />
+              <span style={{ fontSize:12.5, color:'var(--green)' }}>{addonMessage}</span>
+            </div>
+          )}
+          {addonError && (
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,0.06)', border:'1px solid rgba(239,68,68,0.2)' }}>
+              <I n="alertt" s={14} c="#f87171" />
+              <span style={{ fontSize:12.5, color:'#f87171' }}>{addonError}</span>
+            </div>
+          )}
+
+          {addonState.addons.length === 0 && (
+            <p style={{ fontSize: 12.5, color: 'var(--t3)' }}>Loading add-ons…</p>
+          )}
+
+          <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+            {addonState.addons.map(addon => {
+              const busy = addonBusy === addon.key;
+              return (
+                <div key={addon.key} style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 14 }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, flexWrap: 'wrap', rowGap: 10 }}>
+                      <h5 style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)' }}>{addon.title}</h5>
+                      {/* Straight from the server's catalogue — the same figure
+                          the checkout order is created for. */}
+                      <span style={{ fontSize: 12, fontWeight: 600, color: addon.available === false ? 'var(--t3)' : 'var(--green)' }}>
+                        {addon.available === false ? 'Not available' : addon.priceLabel}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.description}</p>
+                    {addon.active && addon.currentPeriodEnd && (
+                      <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
+                        {addon.status === 'CANCELLED' ? 'Ends' : 'Renews'} {new Date(addon.currentPeriodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    )}
+                  </div>
+                  {/* An add-on that grants nothing must not be sellable. Two
+                      of the four cannot be delivered by a flag, so they say so
+                      instead of taking money — see lib/addonCatalogue.js. */}
+                  {addon.available === false ? (
+                    <div style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px dashed var(--bd)', color: 'var(--t3)', fontSize: 11.5, lineHeight: 1.5 }}>
+                      {addon.unavailableReason}
+                    </div>
+                  ) : isAdmin ? (
+                    <Btn variant={addon.active ? 'outline' : 'primary'} disabled={busy}
+                      onClick={() => (addon.active ? cancelAddon(addon) : buyAddon(addon))}
+                      style={{ width: '100%', borderColor: addon.active ? '#f8717144' : 'var(--bd)', color: addon.active ? '#f87171' : '#0a0b0e' }}>
+                      {busy ? 'Working…' : addon.active ? (addon.status === 'CANCELLED' ? 'Cancelled' : 'Cancel Add-on') : 'Add to Plan'}
+                    </Btn>
+                  ) : (
+                    <div style={{ width: '100%', textAlign: 'center', padding: '9px 0', borderRadius: 8, border: '1px solid var(--bd)', color: 'var(--t3)', fontSize: 12 }}>
+                      {addon.active ? 'Included' : 'Not included'}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderInvoices = () => (
-    <div style={{ ...card, overflow: 'hidden' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+    <div style={{ ...card, overflowX: 'auto' }}>
+      {invoiceError && (
+        <p style={{ margin: 0, padding: '10px 20px', fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.06)' }}>{invoiceError}</p>
+      )}
+      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 575 }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--bd)', background: 'rgba(255,255,255,0.01)' }}>
             {['Date', 'Description', 'Amount', 'Status', 'Invoice'].map(h => (
@@ -386,9 +934,12 @@ export default function PaymentsView() {
                 </span>
               </td>
               <td style={{ padding: '14px 20px' }}>
-                <a href="#" onClick={e => e.preventDefault()} style={{ fontSize: 13, color: 'var(--green)', fontWeight: 600, textDecoration: 'none' }}>
-                  Download Invoice
-                </a>
+                {/* Was an <a href="#"> with preventDefault — it looked like a
+                    link and did nothing. It downloads the real invoice now. */}
+                <button onClick={() => downloadInvoice(inv.id)} disabled={downloadingInvoice === inv.id}
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 13, color: 'var(--green)', fontWeight: 600, cursor: downloadingInvoice === inv.id ? 'wait' : 'pointer', fontFamily: "'Manrope',sans-serif", opacity: downloadingInvoice === inv.id ? 0.6 : 1 }}>
+                  {downloadingInvoice === inv.id ? 'Preparing…' : 'Download Invoice'}
+                </button>
               </td>
             </tr>
           ))}
@@ -398,12 +949,13 @@ export default function PaymentsView() {
   );
 
   return (
-    <div style={{ flex: 1, display: 'flex', height: '100%', overflow: 'hidden', background: '#060B18' }}>
+    <div className="subnav-shell" style={{ flex: 1, display: 'flex', height: '100%', overflow: 'hidden', background: '#060B18' }}>
       
       {/* Subtab Left Sidebar */}
-      <div style={{ width: 232, background: 'rgba(255, 255, 255, 0.01)', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-        <div style={{ padding: '24px 20px 14px 20px' }}>
-          <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 17, color: 'var(--t1)', letterSpacing: '-.02em' }}>Payments</h2>
+      <div className="subnav-rail" style={{ width: 232, background: 'rgba(255, 255, 255, 0.01)', borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <MobileNavButton />
+        <div className="subnav-rail-title" style={{ padding: '24px 20px 14px 20px' }}>
+          <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 17, color: 'var(--t1)', letterSpacing: '-.02em' }}>Payments</h2>
           <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Manage funds, plans, and invoices</p>
         </div>
 
@@ -412,7 +964,7 @@ export default function PaymentsView() {
             const on = activeSubTab === tab.id;
             return (
               <div key={tab.id} onClick={() => setActiveSubTab(tab.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', background: on ? 'rgba(30,191,94,0.1)' : 'transparent' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', background: on ? 'rgba(53,232,242,0.1)' : 'transparent' }}
                 onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
                 onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}>
                 <I n={tab.icon} s={16} c={on ? 'var(--green)' : 'var(--t2)'} />
@@ -424,11 +976,11 @@ export default function PaymentsView() {
       </div>
 
       {/* Main Content Area */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }}>
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '32px' }}>
         <div style={{ maxWidth: 840, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--bd)', paddingBottom: 16 }}>
-            <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 800, color: 'var(--t1)' }}>
+            <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 20, fontWeight: 800, color: 'var(--t1)' }}>
               {SUB_TABS.find(t => t.id === activeSubTab)?.label}
             </h1>
           </div>

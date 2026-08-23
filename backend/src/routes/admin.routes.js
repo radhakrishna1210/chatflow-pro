@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as adminController from '../controllers/admin.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireSuperAdmin } from '../middleware/authorize.js';
+import { validate, invitationSchemas } from '../validators/index.js';
 
 const router = Router();
 
@@ -14,6 +15,15 @@ router.post('/numbers/assign',          adminController.assignToWorkspace);
 router.post('/numbers/reset-all',       adminController.resetAllAssignments);
 router.patch('/numbers/pool/:id/reset', adminController.resetPoolEntry);
 router.patch('/numbers/pool/:id/ban',   adminController.banPoolEntry);
+router.patch('/numbers/pool/:id/unban', adminController.unbanPoolEntry);
+
+// Platform credentials (API Management). Super-admin only, via the
+// router.use(authenticate, requireSuperAdmin) above.
+router.get('/platform/settings',  adminController.getSystemSettings);
+router.post('/platform/settings', adminController.updateSystemSettings);
+router.get('/platform/credential-check', adminController.checkSystemCredentials);
+router.get('/platform/webhooks',        adminController.inspectWebhooks);
+router.post('/platform/webhooks/repair', adminController.repairWebhooks);
 
 // Workspaces (for admin assignment picker)
 router.get('/workspaces',               adminController.listWorkspaces);
@@ -40,5 +50,34 @@ router.get('/platform/workspaces',               adminController.listWorkspacesD
 router.patch('/platform/workspaces/:id/suspend', adminController.suspendWorkspace);
 router.get('/platform/tickets',                  adminController.listTickets);
 router.patch('/platform/tickets/:id',            adminController.updateTicket);
+
+// Cross-workspace transaction analysis, campaign usage and revenue overview
+router.get('/platform/transactions',             adminController.transactionAnalysis);
+router.get('/platform/campaigns',                adminController.listAllCampaigns);
+router.get('/platform/revenue',                  adminController.revenueOverview);
+router.get('/platform/workspaces/analytics',     adminController.workspaceAnalytics);
+router.get('/platform/workspaces/:id/members',   adminController.workspaceMembers);
+// Invite into any workspace from the platform console — by email, or by a
+// shareable link for people whose address the admin doesn't have.
+router.post('/platform/workspaces/:id/invitations',      validate({ body: invitationSchemas.create }),     adminController.workspaceInvite);
+router.post('/platform/workspaces/:id/invitations/link', validate({ body: invitationSchemas.createLink }), adminController.workspaceInviteLink);
+router.delete('/platform/workspaces/:id/invitations/:invitationId',                                        adminController.workspaceRevokeInvite);
+router.get('/platform/payments',                 adminController.paymentsAnalysis);
+
+// User management — search across every workspace, plus impersonation
+router.get('/platform/users',                    adminController.listUsers);
+router.post('/platform/users/:id/impersonate',   adminController.impersonateUser);
+
+// Plan / billing configuration (prices, quotas, rate limits, features)
+// ── Audit & security ──
+// Read-only by construction: there is no write endpoint for the log.
+router.get('/platform/audit',         adminController.auditLog);
+router.get('/platform/audit/actions', adminController.auditActions);
+router.get('/platform/audit/summary', adminController.auditSummary);
+
+router.get('/platform/plans',                    adminController.listPlans);
+router.post('/platform/plans',                   adminController.createPlan);
+router.patch('/platform/plans/:id',              adminController.updatePlan);
+router.delete('/platform/plans/:id',             adminController.deletePlan);
 
 export default router;

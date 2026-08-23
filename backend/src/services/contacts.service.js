@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { parse } from 'csv-parse/sync';
+import { assertWithinLimit } from './subscription.service.js';
 
 // Normalize to E.164-ish: strip everything but digits, keep a leading '+'.
 export function normalizePhone(raw) {
@@ -15,10 +16,63 @@ export function isValidPhone(raw) {
   return digits.length >= 7 && digits.length <= 15;
 }
 
-export async function listContacts(workspaceId, { search = '', page = 1, limit = 20 } = {}) {
-  const skip = (page - 1) * limit;
-  const where = {
+// Sort options the contact list offers, mapped to the order Prisma needs.
+// A whitelist rather than passing the client's string through, so a query
+// parameter can never name an arbitrary column.
+export const CONTACT_SORTS = {
+  newest:       { createdAt: 'desc' },
+  oldest:       { createdAt: 'asc' },
+  name_asc:     { name: 'asc' },
+  name_desc:    { name: 'desc' },
+  recently_updated: { updatedAt: 'desc' },
+  phone:        { phoneNumber: 'asc' },
+};
+export const DEFAULT_CONTACT_SORT = 'newest';
+
+// Parses a YYYY-MM-DD (or full ISO) bound into a Date, or null when absent or
+// unparseable — a bad date narrows nothing rather than erroring the whole list.
+function dateBound(value, { endOfDay = false } = {}) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  // A bare date means the whole of that day when used as an upper bound,
+  // otherwise "created up to today" excludes everything created today.
+  if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(String(value).trim())) d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+// Builds the `where` for a contact list. Every filter is a database term
+// rather than a post-fetch array filter, so it composes correctly with
+// pagination — filtering a single page in the client would silently drop
+// matches that live on other pages.
+export function buildContactWhere(workspaceId, {
+  search = '', clusterId = '', segmentId = '', tags = [], status = '',
+  createdFrom = '', createdTo = '', updatedFrom = '', updatedTo = '',
+} = {}) {
+  const tagList = (Array.isArray(tags) ? tags : String(tags || '').split(','))
+    .map((t) => String(t).trim())
+    .filter(Boolean);
+
+  const createdGte = dateBound(createdFrom);
+  const createdLte = dateBound(createdTo, { endOfDay: true });
+  const updatedGte = dateBound(updatedFrom);
+  const updatedLte = dateBound(updatedTo, { endOfDay: true });
+
+  return {
     workspaceId,
+    ...(clusterId ? { clusterContacts: { some: { clusterId } } } : {}),
+    ...(segmentId ? { segments: { some: { id: segmentId } } } : {}),
+    // hasSome, not hasEvery: picking two tags asks for contacts in either,
+    // which is what a multi-select filter is understood to mean.
+    ...(tagList.length ? { tags: { hasSome: tagList } } : {}),
+    ...(status === 'active' ? { optedOut: false } : {}),
+    ...(status === 'opted_out' ? { optedOut: true } : {}),
+    ...(createdGte || createdLte ? {
+      createdAt: { ...(createdGte ? { gte: createdGte } : {}), ...(createdLte ? { lte: createdLte } : {}) },
+    } : {}),
+    ...(updatedGte || updatedLte ? {
+      updatedAt: { ...(updatedGte ? { gte: updatedGte } : {}), ...(updatedLte ? { lte: updatedLte } : {}) },
+    } : {}),
     ...(search ? {
       OR: [
         { name: { contains: search, mode: 'insensitive' } },
@@ -27,21 +81,101 @@ export async function listContacts(workspaceId, { search = '', page = 1, limit =
       ],
     } : {}),
   };
-  const [data, total] = await Promise.all([
-    prisma.contact.findMany({ where, skip, take: limit, orderBy: { createdAt: 'desc' } }),
-    prisma.contact.count({ where }),
-  ]);
-  return { data, total };
 }
 
-export async function createContact(workspaceId, { name, phoneNumber, email, tags = [] }) {
+export async function listContacts(workspaceId, { page = 1, limit = 20, sort = DEFAULT_CONTACT_SORT, ...filters } = {}) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const skip = (safePage - 1) * limit;
+  const where = buildContactWhere(workspaceId, filters);
+  // `id` breaks ties so a contact can't appear on two pages (or on none) when
+  // many rows share a timestamp — which is exactly what a CSV import produces.
+  // The tiebreak follows the primary direction, so flipping Newest/Oldest (or
+  // A-Z/Z-A) really does reverse the list instead of leaving tied rows in the
+  // same order in both.
+  const primary = CONTACT_SORTS[sort] || CONTACT_SORTS[DEFAULT_CONTACT_SORT];
+  const orderBy = [primary, { id: Object.values(primary)[0] === 'desc' ? 'desc' : 'asc' }];
+
+  const [data, total] = await Promise.all([
+    prisma.contact.findMany({
+      where, skip, take: limit, orderBy,
+      include: { segments: { select: { id: true, name: true, color: true } } },
+    }),
+    prisma.contact.count({ where }),
+  ]);
+  return { data, total, page: safePage, limit, sort: CONTACT_SORTS[sort] ? sort : DEFAULT_CONTACT_SORT };
+}
+
+// The distinct tags in use across a workspace, for the filter panel's tag
+// picker. Tags live in a String[] on Contact rather than their own table, so
+// this is the only way to enumerate them.
+export async function listContactTags(workspaceId) {
+  const rows = await prisma.contact.findMany({
+    where: { workspaceId, tags: { isEmpty: false } },
+    select: { tags: true },
+  });
+  const seen = new Map();
+  for (const row of rows) {
+    for (const tag of row.tags) {
+      const key = tag.trim();
+      if (key) seen.set(key, (seen.get(key) || 0) + 1);
+    }
+  }
+  return [...seen.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, count]) => ({ name, count }));
+}
+
+// One contact with everything the details panel shows. The inbox reads this
+// rather than carrying its own copy of contact data, so an edit made there and
+// an edit made in Contacts are the same record.
+export async function getContact(workspaceId, id) {
+  const contact = await prisma.contact.findFirst({
+    where: { id, workspaceId },
+    include: {
+      segments: { select: { id: true, name: true, color: true } },
+      clusterContacts: { select: { cluster: { select: { id: true, name: true } } } },
+    },
+  });
+  if (!contact) { const e = new Error('Contact not found'); e.status = 404; throw e; }
+
+  // "Last interaction" is the most recent message either way on any of this
+  // contact's threads — the conversation's own lastMessageAt is the same fact
+  // and cheaper to read than scanning messages.
+  const lastConversation = await prisma.conversation.findFirst({
+    where: { workspaceId, contactId: id },
+    orderBy: { lastMessageAt: 'desc' },
+    select: { id: true, lastMessageAt: true, status: true },
+  });
+
+  const { clusterContacts, ...rest } = contact;
+  return {
+    ...rest,
+    clusters: clusterContacts.map((cc) => cc.cluster),
+    lastInteractionAt: lastConversation?.lastMessageAt ?? null,
+    conversationId: lastConversation?.id ?? null,
+    conversationStatus: lastConversation?.status ?? null,
+  };
+}
+
+export async function createContact(workspaceId, { name, phoneNumber, email, tags = [], customFields }) {
   if (!isValidPhone(phoneNumber)) {
     const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e;
   }
   const normalized = normalizePhone(phoneNumber);
   const existing = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber: normalized } });
   if (existing) { const e = new Error('A contact with this phone number already exists'); e.status = 409; throw e; }
-  return prisma.contact.create({ data: { workspaceId, name: name || normalized, phoneNumber: normalized, email: email || null, tags } });
+  await assertWithinLimit(workspaceId, 'contact');
+  // Values are checked against the workspace's own field definitions, so an
+  // unknown key is refused rather than quietly stored and never displayed.
+  const { validateCustomFields } = await import('./customFields.service.js');
+  const custom = await validateCustomFields(workspaceId, customFields);
+  return prisma.contact.create({
+    data: {
+      workspaceId, name: name || normalized, phoneNumber: normalized,
+      email: email || null, tags,
+      ...(custom === undefined ? {} : { customFields: custom }),
+    },
+  });
 }
 
 export async function importContacts(workspaceId, csvBuffer) {
@@ -71,14 +205,37 @@ export async function importContacts(workspaceId, csvBuffer) {
   }
 
   if (data.length === 0) {
-    return { imported: 0, duplicates: 0, invalid, totalRows: records.length };
+    return { imported: 0, duplicates: 0, invalid, totalRows: records.length, contacts: [] };
+  }
+
+  // Plan limit check (README §12.4): reject the whole import rather than
+  // partially importing up to the limit, so the user gets one clear,
+  // predictable outcome instead of having to figure out which rows landed.
+  // Only phone numbers not already in this workspace actually count against
+  // the limit — re-importing existing contacts (skipDuplicates below) is a
+  // no-op either way.
+  const existingPhones = await prisma.contact.findMany({
+    where: { workspaceId, phoneNumber: { in: data.map((d) => d.phoneNumber) } },
+    select: { phoneNumber: true },
+  });
+  const existingSet = new Set(existingPhones.map((c) => c.phoneNumber));
+  const newCount = data.filter((d) => !existingSet.has(d.phoneNumber)).length;
+  if (newCount > 0) {
+    await assertWithinLimit(workspaceId, 'contact', {
+      additional: newCount,
+      message: `This import would add ${newCount} new contact(s), which exceeds your plan's contact limit. Upgrade your plan or reduce the import size.`,
+    });
   }
 
   // createMany reports rows actually inserted; skipDuplicates relies on the
   // (workspaceId, phoneNumber) unique constraint to drop existing contacts.
   const { count: imported } = await prisma.contact.createMany({ data, skipDuplicates: true });
   const duplicates = data.length - imported;
-  return { imported, duplicates, invalid, totalRows: records.length };
+  const matchedContacts = await prisma.contact.findMany({
+    where: { workspaceId, phoneNumber: { in: data.map((d) => d.phoneNumber) } },
+    select: { id: true, name: true, phoneNumber: true },
+  });
+  return { imported, duplicates, invalid, totalRows: records.length, contacts: matchedContacts };
 }
 
 export async function deleteContact(workspaceId, id) {
@@ -97,5 +254,82 @@ export async function updateContact(workspaceId, id, updates) {
     if (!isValidPhone(data.phoneNumber)) { const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e; }
     data.phoneNumber = normalizePhone(data.phoneNumber);
   }
+  if (data.customFields !== undefined) {
+    const { validateCustomFields } = await import('./customFields.service.js');
+    // Merged, not replaced: a form that edits one field must not wipe the rest.
+    const patch = await validateCustomFields(workspaceId, data.customFields);
+    data.customFields = { ...(contact.customFields || {}), ...(patch || {}) };
+  }
   return prisma.contact.update({ where: { id }, data });
+}
+
+// ─── Export ──────────────────────────────────────────────────────────────────
+//
+// There was no export at all — contacts could be imported from CSV and never
+// got back out, which makes the data feel like a one-way door. This deliberately
+// reuses buildContactWhere, so whatever the Contacts screen is currently showing
+// (search, tags, segment, cluster, status, date ranges) is exactly what comes
+// out. An export that silently ignored the filters would be worse than none.
+
+const CSV_COLUMNS = [
+  ['name', (c) => c.name],
+  ['phoneNumber', (c) => c.phoneNumber],
+  ['email', (c) => c.email],
+  ['tags', (c) => (c.tags || []).join('; ')],
+  ['segments', (c) => (c.segments || []).map((s) => s.name).join('; ')],
+  ['optedOut', (c) => (c.optedOut ? 'yes' : 'no')],
+  ['createdAt', (c) => c.createdAt?.toISOString() ?? ''],
+  ['updatedAt', (c) => c.updatedAt?.toISOString() ?? ''],
+];
+
+// A leading =, +, -, @, tab or CR makes a spreadsheet treat the cell as a
+// formula, and contact names are attacker-supplied — so the export is a way to
+// get a payload in front of whoever opens it. An apostrophe keeps it text.
+//
+// An international phone number legitimately starts with '+' and is not a
+// formula, so it is exempted: guarding it would put an apostrophe in front of
+// every number in the file and break re-importing what was just exported.
+const PHONE_LIKE = /^\+[\d\s()-]+$/;
+
+function csvCell(value) {
+  const raw = String(value ?? '');
+  const risky = /^[=+\-@\t\r]/.test(raw) && !PHONE_LIKE.test(raw);
+  return `"${(risky ? `'${raw}` : raw).replace(/"/g, '""')}"`;
+}
+
+// Capped so one request cannot try to hold an unbounded workspace in memory.
+const EXPORT_LIMIT = 50_000;
+
+export async function exportContactsCsv(workspaceId, filters = {}) {
+  const where = buildContactWhere(workspaceId, filters);
+  const [contacts, customDefs] = await Promise.all([
+    prisma.contact.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: EXPORT_LIMIT,
+      include: { segments: { select: { name: true } } },
+    }),
+    prisma.workspaceCustomField.findMany({
+      where: { workspaceId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    }),
+  ]);
+
+  // Custom fields become their own columns. An export that silently dropped
+  // them would not be the customer's data.
+  const columns = [
+    ...CSV_COLUMNS,
+    ...customDefs.map((d) => [d.label, (c) => (c.customFields || {})[d.key] ?? '']),
+  ];
+
+  const lines = [columns.map(([header]) => csvCell(header)).join(',')];
+  for (const c of contacts) {
+    lines.push(columns.map(([, read]) => csvCell(read(c))).join(','));
+  }
+
+  return {
+    csv: lines.join('\r\n'),
+    count: contacts.length,
+    truncated: contacts.length === EXPORT_LIMIT,
+    filename: `contacts-${new Date().toISOString().slice(0, 10)}.csv`,
+  };
 }

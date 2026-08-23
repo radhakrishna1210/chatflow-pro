@@ -1,23 +1,59 @@
 import { useState, useEffect, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
+import { validateMeaningfulText } from '../lib/validation.js';
+import { navigate } from '../App.jsx';
+import { ROLE_LABELS } from '../lib/permissions.js';
 
 // Two-step, OTP-verified email signup. Step 1 collects name/email/password and
 // asks the backend to email a 6-digit code (no account is created yet). Step 2
-// verifies the code; only then does the backend create the User + Workspace and
-// return a session.
+// verifies the code; only then does the backend create the User and return a
+// session. The user then creates a workspace (becoming its admin) or waits to
+// be invited to one.
 export default function Register({ onNav }) {
   const [step, setStep] = useState('details'); // 'details' | 'otp'
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' });
   const [code, setCode] = useState('');
   const [status, setStatus] = useState('idle');
   const [errMsg, setErrMsg] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [focus, setFocus] = useState('');
   const [resendIn, setResendIn] = useState(0);
+  const [inviteToken] = useState(() => new URLSearchParams(window.location.search).get('invite') || null);
+  const [inviteInfo, setInviteInfo] = useState(null);
+  const [inviteWarning, setInviteWarning] = useState('');
 
   const timerRef = useRef(null);
   useEffect(() => () => clearInterval(timerRef.current), []);
+
+  const INVITE_STATUS_MESSAGES = {
+    EXPIRED: 'This invite link has expired — you can still create an account, but you\'ll need a new invite to join that workspace.',
+    ACCEPTED: 'This invite has already been used — you can still create an account, but you\'ll need a new invite to join that workspace.',
+    REVOKED: 'This invite has been revoked — you can still create an account, but you\'ll need a new invite to join that workspace.',
+  };
+
+  // Signing up via an invite link: prefill + lock the email to the invited
+  // address so the account created here actually matches the invite. If the
+  // link is no longer valid, say so up front instead of silently falling
+  // back to a plain signup with no explanation for why no workspace shows up.
+  useEffect(() => {
+    if (!inviteToken) return;
+    fetch(`/api/v1/invitations/${encodeURIComponent(inviteToken)}`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) { setInviteWarning('This invite link could not be found — you can still create an account.'); return; }
+        if (data.status === 'PENDING') {
+          setInviteInfo(data);
+          // A shared LINK invite names no address, so there is nothing to
+          // prefill or lock — the visitor signs up with whatever email they
+          // want and still joins the workspace.
+          if (data.email) setForm((f) => ({ ...f, email: data.email }));
+        } else {
+          setInviteWarning(INVITE_STATUS_MESSAGES[data.status] || 'This invite link is no longer valid.');
+        }
+      })
+      .catch(() => { setInviteWarning('Could not verify this invite link — you can still create an account.'); });
+  }, [inviteToken]);
 
   const startResendTimer = () => {
     setResendIn(60);
@@ -31,19 +67,23 @@ export default function Register({ onNav }) {
 
   const inp = (name) => ({
     width: '100%', padding: '11px 14px', borderRadius: '9px', outline: 'none',
-    background: 'rgba(255,255,255,0.035)', fontFamily: "'Plus Jakarta Sans',sans-serif",
+    background: 'rgba(255,255,255,0.035)', fontFamily: "'Manrope',sans-serif",
     fontSize: '14px', color: 'var(--t1)', transition: 'border .18s',
     border: focus === name ? '1px solid var(--gbd)' : '1px solid var(--bd)',
   });
 
   const submitDetails = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.email || !form.password) { setErrMsg('Please fill in all fields.'); setStatus('error'); return; }
+    if (!form.name || !form.email || !form.password || !form.confirmPassword) { setErrMsg('Please fill in all fields.'); setStatus('error'); return; }
+    const nameError = validateMeaningfulText(form.name, 'Full name');
+    if (nameError) { setErrMsg(nameError); setStatus('error'); return; }
     if (form.password.length < 8) { setErrMsg('Password must be at least 8 characters.'); setStatus('error'); return; }
+    if (form.password !== form.confirmPassword) { setErrMsg('Passwords do not match.'); setStatus('error'); return; }
     setStatus('loading'); setErrMsg('');
     try {
+      const { confirmPassword, ...payload } = form;
       const res = await fetch('/api/v1/auth/register/start', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not start signup');
@@ -57,7 +97,8 @@ export default function Register({ onNav }) {
     setStatus('loading'); setErrMsg('');
     try {
       const res = await fetch('/api/v1/auth/register/verify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: form.email, code }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, code, ...(inviteToken ? { inviteToken } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Verification failed');
@@ -65,10 +106,12 @@ export default function Register({ onNav }) {
       localStorage.setItem('refreshToken', data.refreshToken);
       localStorage.setItem('user', JSON.stringify({
         id: data.user.id, name: data.user.name, email: data.user.email, role: data.user.role,
-        superAdmin: data.user.superAdmin === true, workspaceId: data.workspace.id, workspaceName: data.workspace.name,
+        superAdmin: data.user.superAdmin === true, workspaceId: data.workspace?.id ?? null, workspaceName: data.workspace?.name ?? null,
       }));
       setStatus('success');
-      setTimeout(() => onNav('dashboard'), 700);
+      // Fresh accounts have no workspace yet — they create one (becoming its
+      // admin) or get invited to an existing one.
+      setTimeout(() => onNav(data.workspace ? 'dashboard' : 'setup'), 700);
     } catch (err) { setErrMsg(err.message); setStatus('error'); }
   };
 
@@ -86,23 +129,32 @@ export default function Register({ onNav }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)', position: 'relative', overflow: 'hidden' }}>
+      <style>{`
+        @media (max-width: 860px) {
+          .auth-brand-panel { display: none !important; }
+          .auth-form-panel { padding: 28px 20px !important; }
+          .auth-card { padding: 26px 22px !important; }
+        }
+      `}</style>
       {/* Left brand panel */}
-      <div style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#07090F 0%,#0a0f1e 60%,#07090F 100%)', borderRight: '1px solid var(--bd)' }}>
-        <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '380px', height: '380px', background: 'radial-gradient(circle,rgba(32,201,103,0.07) 0%,transparent 65%)', pointerEvents: 'none' }} />
+      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#0a0b0e 0%,#0a0f1e 60%,#0a0b0e 100%)', borderRight: '1px solid var(--bd)' }}>
+        {/* Matches the landing page and the sign-in screen. */}
+        <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(53,232,242,0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
+        <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(14,165,233,0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', position: 'relative', zIndex: 1 }}>
           <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#07090F" />
-              <path d="M5.5 7.5h5M5.5 10h3" stroke="#20C967" strokeWidth="1.3" strokeLinecap="round" />
+              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#0a0b0e" />
+              <path d="M5.5 7.5h5M5.5 10h3" stroke="#35e8f2" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </div>
-          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
-            ChatFlow<span style={{ color: 'var(--green)' }}>Pro</span>
+          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
+            ChatFlow Pro
           </span>
         </div>
         <div style={{ position: 'relative', zIndex: 1 }}>
-          <h2 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '30px', color: 'var(--t1)', lineHeight: 1.2, marginBottom: '14px' }}>
+          <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '30px', color: 'var(--t1)', lineHeight: 1.2, marginBottom: '14px' }}>
             Start automating<br />WhatsApp in minutes.
           </h2>
           <p style={{ fontSize: '14px', color: 'var(--t2)', lineHeight: 1.6, maxWidth: '340px' }}>
@@ -113,16 +165,27 @@ export default function Register({ onNav }) {
       </div>
 
       {/* Right form panel */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
-        <div style={{ width: '100%', maxWidth: '380px' }}>
+      <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', position: 'relative' }}>
+        <div className="aurora-b" style={{ position: 'absolute', top: '10%', right: '-10%', width: '420px', height: '420px', background: 'radial-gradient(circle,rgba(53,232,242,0.07) 0%,transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+        <div className="glass auth-card" style={{ width: '100%', maxWidth: '420px', padding: '34px 32px', borderRadius: 'var(--rxl)', position: 'relative' }}>
           {step === 'details' ? (
             <>
-              <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Create your account</h1>
+              <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Create your account</h1>
               <p style={{ fontSize: '14px', color: 'var(--t2)', marginBottom: '28px' }}>
                 Already have an account?{' '}
                 <span onClick={() => onNav('login')} style={{ color: 'var(--green)', fontWeight: 600, cursor: 'pointer' }}>Sign in</span>
               </p>
 
+              {inviteInfo && (
+                <div style={{ padding: '10px 13px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 13, marginBottom: 16 }}>
+                  You're joining <strong>{inviteInfo.workspaceName}</strong> as {ROLE_LABELS[inviteInfo.role] || inviteInfo.role}.
+                </div>
+              )}
+              {inviteWarning && (
+                <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.25)', color: '#fbbf24', fontSize: 13, marginBottom: 16 }}>
+                  {inviteWarning}
+                </div>
+              )}
               {errMsg && <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 13, marginBottom: 16 }}>{errMsg}</div>}
 
               <form onSubmit={submitDetails} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -132,7 +195,9 @@ export default function Register({ onNav }) {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--t1)', marginBottom: '7px' }}>Email address</label>
-                  <input type="email" name="email" placeholder="you@company.com" value={form.email} onChange={change} style={inp('email')} onFocus={() => setFocus('email')} onBlur={() => setFocus('')} required />
+                  {/* Locked only when the invite names an address. A shared
+                      link doesn't, so the field stays editable. */}
+                  <input type="email" name="email" placeholder="you@company.com" value={form.email} onChange={change} style={{ ...inp('email'), ...(inviteInfo?.email ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }} onFocus={() => setFocus('email')} onBlur={() => setFocus('')} readOnly={!!inviteInfo?.email} required />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--t1)', marginBottom: '7px' }}>Password</label>
@@ -143,14 +208,27 @@ export default function Register({ onNav }) {
                     </span>
                   </div>
                 </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--t1)', marginBottom: '7px' }}>Confirm password</label>
+                  <input type={showPass ? 'text' : 'password'} name="confirmPassword" placeholder="Re-enter your password" value={form.confirmPassword} onChange={change} style={inp('confirmPassword')} onFocus={() => setFocus('confirmPassword')} onBlur={() => setFocus('')} required />
+                </div>
                 <Btn type="submit" disabled={status === 'loading'} style={{ justifyContent: 'center', boxShadow: status === 'loading' ? 'none' : 'var(--glow)' }}>
-                  {status === 'loading' ? 'Sending code…' : <>Continue <I n="arrow" s={14} c="#07090F" /></>}
+                  {status === 'loading' ? 'Sending code…' : <>Continue <I n="arrow" s={14} c="#0a0b0e" /></>}
                 </Btn>
+                {/* Signup had no consent line at all. The policies it points at
+                    are public, so this is readable before committing to an
+                    account rather than only after signing in. */}
+                <p style={{ fontSize: 11.5, color: 'var(--t3)', textAlign: 'center', lineHeight: 1.6, marginTop: -2 }}>
+                  By continuing you agree to our{' '}
+                  <a href="/legal" onClick={e => { e.preventDefault(); navigate('/legal'); }} style={{ color: 'var(--accent)' }}>Terms</a>
+                  {' '}and{' '}
+                  <a href="/legal/privacy" onClick={e => { e.preventDefault(); navigate('/legal/privacy'); }} style={{ color: 'var(--accent)' }}>Privacy Policy</a>.
+                </p>
               </form>
             </>
           ) : (
             <>
-              <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Check your email</h1>
+              <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: '26px', color: 'var(--t1)', marginBottom: '6px' }}>Check your email</h1>
               <p style={{ fontSize: '14px', color: 'var(--t2)', marginBottom: '28px' }}>
                 We sent a 6-digit code to <strong style={{ color: 'var(--t1)' }}>{form.email}</strong>.
               </p>

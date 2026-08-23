@@ -14,3 +14,15 @@ export async function getInvoices(req, res) {
   const invoices = await settingsService.getInvoices(req.params.workspaceId);
   res.json(invoices);
 }
+
+export async function downloadInvoice(req, res) {
+  const doc = await settingsService.getInvoiceDocument(req.params.workspaceId, req.params.invoiceId);
+  res.setHeader('Content-Type', doc.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${doc.filename}"`);
+  res.send(doc.html);
+}
+
+export async function testWebhook(req, res) {
+  const result = await settingsService.testWebhook(req.params.workspaceId);
+  res.json(result);
+}

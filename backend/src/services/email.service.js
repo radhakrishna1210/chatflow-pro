@@ -47,6 +47,16 @@ function layout(content) {
 </html>`;
 }
 
+// Names (user display name, workspace name, inviter name, …) are all
+// user-controlled and end up interpolated straight into these HTML email
+// bodies — without escaping, a name like `<img src=x onerror=...>` becomes a
+// stored XSS payload delivered to every recipient's inbox.
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 function btn(text, url) {
   return `<div style="text-align:center;margin-top:32px;">
     <a href="${url}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:13px 30px;border-radius:8px;font-size:14px;font-weight:600;">${text}</a>
@@ -71,7 +81,7 @@ function statRow(label, value) {
 function welcomeHtml({ name }) {
   const appUrl = env.APP_URL || '#';
   return layout(`
-    <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Welcome, ${name}!</h2>
+    <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Welcome, ${esc(name)}!</h2>
     <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">Your ChatFlow Pro account is ready. Here's how to get started:</p>
 
     <table width="100%" cellpadding="0" cellspacing="0">
@@ -120,8 +130,12 @@ function welcomeHtml({ name }) {
   `);
 }
 
-function campaignCompletedHtml({ recipientName, campaignName, sent, delivered, read, failed, totalContacts }) {
-  const appUrl = env.APP_URL || '#';
+function campaignCompletedHtml({ recipientName, campaignName, sent, delivered, read, failed, totalContacts, campaignId }) {
+  // /dashboard/campaigns is a frontend SPA route, not a backend one —
+  // env.APP_URL is documented as the backend base URL (used for OAuth
+  // callback derivation), so this must use CLIENT_URL instead, same as
+  // inviteWithLinkHtml below.
+  const appUrl = campaignId ? `${env.CLIENT_URL}/dashboard/campaigns?campaignId=${encodeURIComponent(campaignId)}` : `${env.CLIENT_URL}/dashboard/campaigns`;
   const deliveryRate = sent > 0 ? Math.round((delivered / sent) * 100) : 0;
   const readRate = delivered > 0 ? Math.round((read / delivered) * 100) : 0;
 
@@ -142,8 +156,8 @@ function campaignCompletedHtml({ recipientName, campaignName, sent, delivered, r
   `);
 }
 
-function campaignFailedHtml({ recipientName, campaignName }) {
-  const appUrl = env.APP_URL || '#';
+function campaignFailedHtml({ recipientName, campaignName, campaignId }) {
+  const appUrl = campaignId ? `${env.CLIENT_URL}/dashboard/campaigns?campaignId=${encodeURIComponent(campaignId)}` : `${env.CLIENT_URL}/dashboard/campaigns`;
   return layout(`
     <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 28px;">
       <p style="margin:0;color:#991b1b;font-size:13px;font-weight:600;">Campaign Failed</p>
@@ -190,23 +204,51 @@ function memberInvitedHtml({ inviteeName, inviterName, workspaceName }) {
   const appUrl = env.APP_URL || '#';
   return layout(`
     <h2 style="margin:0 0 12px;color:#0f172a;font-size:22px;font-weight:700;">You've been invited!</h2>
-    <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">Hi ${inviteeName}, <strong>${inviterName}</strong> has invited you to join the <strong>${workspaceName}</strong> workspace on ChatFlow Pro.</p>
+    <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(inviteeName)}, <strong>${esc(inviterName)}</strong> has invited you to join the <strong>${esc(workspaceName)}</strong> workspace on ChatFlow Pro.</p>
 
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:20px 24px;margin:0 0 28px;">
       <table width="100%" cellpadding="0" cellspacing="0">
         <tr>
           <td style="color:#64748b;font-size:13px;padding-bottom:8px;">Invited by</td>
-          <td style="color:#0f172a;font-size:13px;font-weight:600;text-align:right;padding-bottom:8px;">${inviterName}</td>
+          <td style="color:#0f172a;font-size:13px;font-weight:600;text-align:right;padding-bottom:8px;">${esc(inviterName)}</td>
         </tr>
         <tr>
           <td style="color:#64748b;font-size:13px;">Workspace</td>
-          <td style="color:#0f172a;font-size:13px;font-weight:600;text-align:right;">${workspaceName}</td>
+          <td style="color:#0f172a;font-size:13px;font-weight:600;text-align:right;">${esc(workspaceName)}</td>
         </tr>
       </table>
     </div>
 
     <p style="margin:0 0 28px;color:#64748b;font-size:13px;">Log in to your ChatFlow Pro account to access the workspace.</p>
     ${btn('Go to ChatFlow Pro &rarr;', appUrl)}
+  `);
+}
+
+function inviteWithLinkHtml({ inviterName, workspaceName, token }) {
+  // /invite/accept is a frontend SPA route, not a backend one — APP_URL is
+  // documented as the backend base URL (used for OAuth callback derivation),
+  // so this must use CLIENT_URL instead, same as e.g. the OAuth callback
+  // redirects in integrations.controller.js.
+  const acceptUrl = `${env.CLIENT_URL}/invite/accept?token=${encodeURIComponent(token)}`;
+  return layout(`
+    <h2 style="margin:0 0 12px;color:#0f172a;font-size:22px;font-weight:700;">You've been invited!</h2>
+    <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;"><strong>${esc(inviterName)}</strong> has invited you to join the <strong>${esc(workspaceName)}</strong> workspace on ChatFlow Pro.</p>
+
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:20px 24px;margin:0 0 28px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="color:#64748b;font-size:13px;padding-bottom:8px;">Invited by</td>
+          <td style="color:#0f172a;font-size:13px;font-weight:600;text-align:right;padding-bottom:8px;">${esc(inviterName)}</td>
+        </tr>
+        <tr>
+          <td style="color:#64748b;font-size:13px;">Workspace</td>
+          <td style="color:#0f172a;font-size:13px;font-weight:600;text-align:right;">${esc(workspaceName)}</td>
+        </tr>
+      </table>
+    </div>
+
+    <p style="margin:0 0 28px;color:#64748b;font-size:13px;">If you don't have a ChatFlow Pro account yet, this link will let you create one and join directly. This link expires in 7 days.</p>
+    ${btn('Accept Invitation &rarr;', acceptUrl)}
   `);
 }
 
@@ -252,8 +294,11 @@ const SUBJECTS = {
   'template-approved': 'Template Approved by Meta',
   'template-rejected': 'Template Rejected by Meta',
   'member-invited':    "You've been invited to a workspace",
+  'workspace-invite':  "You've been invited to a workspace",
   'api-key-created':   'Security Alert: New API Key Created',
   'signup-otp':        'Your ChatFlow Pro verification code',
+  'signup-exists':     'About your ChatFlow Pro account',
+  'password-reset-otp': 'Your ChatFlow Pro password reset code',
 };
 
 const BUILDERS = {
@@ -263,8 +308,11 @@ const BUILDERS = {
   'template-approved': templateApprovedHtml,
   'template-rejected': templateRejectedHtml,
   'member-invited':    memberInvitedHtml,
+  'workspace-invite':  inviteWithLinkHtml,
   'api-key-created':   apiKeyCreatedHtml,
   'signup-otp':        signupOtpHtml,
+  'signup-exists':     signupExistsHtml,
+  'password-reset-otp': passwordResetOtpHtml,
 };
 
 export function buildEmailHtml(type, payload) {
@@ -308,6 +356,7 @@ export async function queueCampaignCompletedEmail(campaign) {
       payload: {
         recipientName: m.name,
         campaignName: campaign.name,
+        campaignId: campaign.id,
         sent: campaign.sent,
         delivered: campaign.delivered,
         read: campaign.read,
@@ -330,7 +379,7 @@ export async function queueCampaignFailedEmail(campaign) {
     await emailQueue.add('campaign-failed', {
       type: 'campaign-failed',
       to: m.email,
-      payload: { recipientName: m.name, campaignName: campaign.name },
+      payload: { recipientName: m.name, campaignName: campaign.name, campaignId: campaign.id },
     });
   }
 }
@@ -386,6 +435,30 @@ export async function queueMemberInvitedEmail({ inviteeEmail, inviteeName, invit
   });
 }
 
+// Token-based invite (works whether or not the invitee has an account yet)
+// — reuses the same workspace-level toggle as queueMemberInvitedEmail.
+// Returns whether an email was actually queued, so the caller can tell the
+// admin the truth. `false` here is not an error — the workspace may simply
+// have invite emails switched off — but it does mean the invitee will never
+// receive a link unless one is shared with them another way.
+export async function queueWorkspaceInviteEmail({ inviteeEmail, inviterName, workspaceId, workspaceName, token }) {
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { emailNotifyMemberInvite: true },
+  });
+  if (ws && !ws.emailNotifyMemberInvite) {
+    console.warn(`[Email] Invite email to ${inviteeEmail} skipped — emailNotifyMemberInvite is off for workspace ${workspaceId}`);
+    return false;
+  }
+
+  await emailQueue.add('workspace-invite', {
+    type: 'workspace-invite',
+    to: inviteeEmail,
+    payload: { inviterName, workspaceName, token },
+  });
+  return true;
+}
+
 export async function queueApiKeyCreatedEmail({ userEmail, userName, keyName, environment, keyPrefix }) {
   await emailQueue.add('api-key-created', {
     type: 'api-key-created',
@@ -397,12 +470,60 @@ export async function queueApiKeyCreatedEmail({ userEmail, userName, keyName, en
 function signupOtpHtml({ code, name }) {
   return layout(`
     <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Verify your email</h2>
-    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${name || 'there'}, use this code to finish creating your ChatFlow Pro account:</p>
-    <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#0f172a;background:#f1f5f9;border-radius:10px;padding:18px;text-align:center;margin:18px 0;">${code}</div>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, use this code to finish creating your ChatFlow Pro account:</p>
+    <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#0f172a;background:#f1f5f9;border-radius:10px;padding:18px;text-align:center;margin:18px 0;">${esc(code)}</div>
     <p style="margin:0;color:#94a3b8;font-size:13px;">This code expires in 10 minutes. If you didn't request it, you can safely ignore this email.</p>
+  `);
+}
+
+function signupExistsHtml({ name }) {
+  const appUrl = env.APP_URL || '#';
+  return layout(`
+    <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">You already have an account</h2>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, someone just tried to sign up for ChatFlow Pro with this email address. You already have an account, so we did not create a second one.</p>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">If that was you, sign in instead — or reset your password if you have forgotten it.</p>
+    ${btn('Sign in', `${appUrl}/login`)}
+    <p style="margin:24px 0 0;color:#94a3b8;font-size:13px;">If it was not you, you can ignore this email. Nothing has changed on your account and no one was told whether it exists.</p>
   `);
 }
 
 export async function queueSignupOtpEmail({ email, name, code }) {
   await emailQueue.add('signup-otp', { type: 'signup-otp', to: email, payload: { code, name } });
+}
+
+// Sends an OTP synchronously and reports whether it actually left the building.
+//
+// Every other email here is queued, which is right for them: nobody is waiting
+// on a campaign summary, and a retry minutes later is fine. A verification code
+// is the opposite — a person is staring at a "we sent you a code" screen right
+// now. Queueing it meant an SMTP rejection surfaced only in a worker log while
+// the API had already answered 200 "Verification code sent", so a signup with
+// broken mail credentials looked like a code that never arrived rather than a
+// configuration error anyone could act on.
+//
+// Returns { ok } or { ok: false, reason } — never throws, so the caller decides
+// what to tell the user.
+export async function sendOtpEmailNow(type, { email, name, code }) {
+  const { sendMail } = await import('../lib/mailer.js');
+  try {
+    const { subject, html } = buildEmailHtml(type, { code, name });
+    await sendMail({ to: email, subject, html, mustDeliver: true });
+    return { ok: true };
+  } catch (err) {
+    console.error(`[Email] OTP delivery to ${email} failed:`, err.message);
+    return { ok: false, reason: err.message };
+  }
+}
+
+function passwordResetOtpHtml({ code, name }) {
+  return layout(`
+    <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Reset your password</h2>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, use this code to reset your ChatFlow Pro password:</p>
+    <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#0f172a;background:#f1f5f9;border-radius:10px;padding:18px;text-align:center;margin:18px 0;">${esc(code)}</div>
+    <p style="margin:0;color:#94a3b8;font-size:13px;">This code expires in 10 minutes. If you didn't request a password reset, you can safely ignore this email — your password will not be changed.</p>
+  `);
+}
+
+export async function queuePasswordResetOtpEmail({ email, name, code }) {
+  await emailQueue.add('password-reset-otp', { type: 'password-reset-otp', to: email, payload: { code, name } });
 }
