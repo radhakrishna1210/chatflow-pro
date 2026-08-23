@@ -76,10 +76,9 @@ try {
 
   // The simplest approved template wins: a plain BODY with no variables needs
   // no components, so a send that fails is a fault in the send path rather
-  // than in payload assembly for a header, a button or a catalog. (A catalog
-  // template genuinely does fail here with Meta 131008 — its buttons need a
-  // payload this codebase does not build. That is recorded as a known gap
-  // rather than tested for, because asserting it would freeze the bug in.)
+  // than in payload assembly for a header, a button or a catalog. Per-type
+  // payload assembly — carousel and catalog included — is covered without
+  // spending anything by scripts/template-payload-check.mjs.
   const approved = await prisma.template.findMany({
     where: {
       workspaceId: WS, status: 'APPROVED',

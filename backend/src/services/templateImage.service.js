@@ -443,15 +443,26 @@ export async function headerImageComponent(template, { phoneNumberId, accessToke
     .find((c) => String(c?.type || '').toUpperCase() === 'HEADER');
   if (!header || String(header.format || '').toUpperCase() !== 'IMAGE') return null;
 
-  if (!template.headerAssetId) {
-    // An image-header template synced from Meta, or created before assets
-    // existed, has no bytes on our side to re-send.
-    const e = new Error(`Template "${template.name}" has an image header but no stored image to send. Re-upload its header image.`);
+  // An image-header template synced from Meta, or created before assets
+  // existed, has no bytes on our side to re-send — but Meta is still holding
+  // the approved sample, and those are the same bytes.
+  let assetId = template.headerAssetId;
+  if (!assetId) {
+    assetId = await adoptMediaFromHandle(template.workspaceId, header, {
+      label: `the header of template "${template.name}"`,
+    });
+    if (assetId) {
+      await prisma.template.update({ where: { id: template.id }, data: { headerAssetId: assetId } })
+        .catch((err) => console.warn(`[TemplateImage] Could not record the recovered header image: ${err.message}`));
+    }
+  }
+  if (!assetId) {
+    const e = new Error(`Template "${template.name}" has an image header but no stored image to send, and its approved sample could not be re-fetched from Meta. Re-upload its header image.`);
     e.status = 422;
     throw e;
   }
 
-  const asset = await prisma.templateAsset.findUnique({ where: { id: template.headerAssetId } });
+  const asset = await prisma.templateAsset.findUnique({ where: { id: assetId } });
   if (!asset) {
     const e = new Error(`The header image for template "${template.name}" is missing. Re-upload it.`);
     e.status = 422;
@@ -488,6 +499,73 @@ export async function resolveSendableMediaId(asset, { phoneNumberId, accessToken
   return mediaId;
 }
 
+// Re-adopts a template's picture from the sample Meta itself is holding.
+//
+// A template synced down from Meta arrives with its media as a `header_handle`
+// — and for an already-approved template that handle is a plain CDN URL of the
+// very bytes that were uploaded at creation time. It cannot be *sent* (Meta
+// only accepts a phone-scoped media id or a link on a send), but it can be
+// fetched, and what comes back is byte-identical to the original upload.
+//
+// That is the only way back for a template whose local bytes were never stored
+// or were lost: a carousel synced before sync learned to preserve `_assetId`
+// (see lib/templateStructure.js → preserveInternalFields), or any template
+// created directly in Meta's own manager. Without this, such a template is
+// permanently unsendable until someone re-uploads the same picture by hand.
+//
+// Runs once: the recovered bytes are stored as a TemplateAsset and written
+// back into the template, so the next send takes the normal path.
+const HANDLE_FETCH_TIMEOUT_MS = 20000;
+
+const handleUrl = (header) => {
+  const raw = header?.example?.header_handle;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return /^https?:\/\//i.test(String(value || '')) ? String(value) : null;
+};
+
+async function adoptMediaFromHandle(workspaceId, header, { label }) {
+  const url = handleUrl(header);
+  if (!url) return null;
+
+  let res;
+  try {
+    res = await axios.get(url, { responseType: 'arraybuffer', timeout: HANDLE_FETCH_TIMEOUT_MS });
+  } catch (err) {
+    console.warn(`[TemplateImage] Could not re-fetch ${label} from its approved sample: ${err.message}`);
+    return null;
+  }
+
+  const buffer = Buffer.from(res.data);
+  const mimeType = sniffImageType(buffer);
+  // Only a real, sendable image is adopted — never whatever an expired signed
+  // URL happens to answer with.
+  if (!mimeType || !SENDABLE_IMAGE_TYPES.has(mimeType) || buffer.length > MAX_IMAGE_BYTES) {
+    console.warn(`[TemplateImage] The approved sample for ${label} is not a sendable image — not adopting it.`);
+    return null;
+  }
+
+  const asset = await storeAsset(workspaceId, { buffer, mimeType, source: 'meta-sample' });
+  console.log(`[TemplateImage] Recovered ${label} from its approved sample (${buffer.length} bytes, asset ${asset.id})`);
+  return asset.id;
+}
+
+// Persists a recovered asset id back onto the stored template, so the fetch
+// above happens once rather than on every send. Best-effort by design: a
+// failure here costs a repeat fetch, never a failed message.
+async function rememberCardAsset(template, cardIndex, assetId) {
+  try {
+    const components = JSON.parse(JSON.stringify(template.components));
+    const carousel = components.find((c) => String(c?.type || '').toUpperCase() === 'CAROUSEL');
+    const header = carousel?.cards?.[cardIndex]?.components
+      ?.find((c) => String(c?.type || '').toUpperCase() === 'HEADER');
+    if (!header) return;
+    header._assetId = assetId;
+    await prisma.template.update({ where: { id: template.id }, data: { components } });
+  } catch (err) {
+    console.warn(`[TemplateImage] Could not record the recovered image for card ${cardIndex + 1}: ${err.message}`);
+  }
+}
+
 // Builds the `carousel` component a carousel template needs on every send.
 //
 // Each card repeats the header/body/button work the message bubble does, and
@@ -496,34 +574,52 @@ export async function resolveSendableMediaId(asset, { phoneNumberId, accessToken
 // re-minted into a phone-scoped media id here. The asset id rides along on the
 // stored card header as `_assetId` (see lib/templateStructure.js) because a
 // carousel has up to ten pictures and Template.headerAssetId holds only one.
-export async function carouselComponent(template, { phoneNumberId, accessToken, resolve }) {
+// `resolveMediaId` is injectable so payload assembly can be exercised without a
+// database or a Meta upload — everything else about a carousel send is pure
+// shape work, and it was untestable only because of this one call.
+export async function carouselComponent(
+  template,
+  { phoneNumberId, accessToken, resolve, resolveMediaId = null },
+) {
   const cards = carouselCards(template?.components);
   if (cards.length === 0) return null;
+
+  const mintMediaId = resolveMediaId
+    ? (asset) => resolveMediaId(asset)
+    : (asset) => resolveSendableMediaId(asset, { phoneNumberId, accessToken });
 
   const built = [];
   for (const [index, card] of cards.entries()) {
     const header = (Array.isArray(card?.components) ? card.components : [])
       .find((c) => String(c?.type || '').toUpperCase() === 'HEADER');
-    const assetId = header?._assetId;
+    let assetId = header?._assetId;
+    if (!assetId && !resolveMediaId) {
+      assetId = await adoptMediaFromHandle(template.workspaceId, header, {
+        label: `card ${index + 1} of template "${template.name}"`,
+      });
+      if (assetId) await rememberCardAsset(template, index, assetId);
+    }
     if (!assetId) {
-      const e = new Error(`Card ${index + 1} of template "${template.name}" has no stored media to send. Re-upload the card's image.`);
+      const e = new Error(`Card ${index + 1} of template "${template.name}" has no stored media to send, and its approved sample could not be re-fetched from Meta. Re-upload the card's image in the template editor.`);
       e.status = 422;
       throw e;
     }
-    const asset = await prisma.templateAsset.findUnique({ where: { id: assetId } });
+    const asset = resolveMediaId
+      ? { id: assetId }
+      : await prisma.templateAsset.findUnique({ where: { id: assetId } });
     if (!asset) {
       const e = new Error(`The media for card ${index + 1} of template "${template.name}" is missing. Re-upload it.`);
       e.status = 422;
       throw e;
     }
 
-    const mediaId = await resolveSendableMediaId(asset, { phoneNumberId, accessToken });
+    const mediaId = await mintMediaId(asset);
     const kind = String(header.format || 'IMAGE').toLowerCase();
     const components = [{ type: 'header', parameters: [{ type: kind, [kind]: { id: mediaId } }] }];
 
     const body = buildCardBodyComponent(card, resolve);
     if (body) components.push(body);
-    components.push(...buildCardButtonComponents(card));
+    components.push(...buildCardButtonComponents(card, { cardNumber: index + 1 }));
 
     built.push({ card_index: index, components });
   }

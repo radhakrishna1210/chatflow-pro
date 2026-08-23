@@ -2,7 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { createMetaTemplate, deleteMetaTemplate, getWabaTemplates, uploadTemplateMedia } from '../lib/meta.js';
 import { decrypt } from '../lib/encryption.js';
 import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.js';
-import { normalizeTemplateComponents, detectTemplateType, toMetaComponents } from '../lib/templateStructure.js';
+import { normalizeTemplateComponents, detectTemplateType, toMetaComponents, preserveInternalFields } from '../lib/templateStructure.js';
 import { storeAsset } from './templateImage.service.js';
 
 // Resolve which WhatsApp number a template operation targets. Templates are
@@ -84,9 +84,15 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
       where: { workspaceId, waNumberId: waNumber.id, metaTemplateId: mt.id },
     });
     const rejectedReason = mt.rejected_reason || null;
+    // Meta's copy is authoritative about the approved shape, but it has never
+    // seen this product's own bookkeeping — a carousel card's `_assetId`, a
+    // catalog button's SKU. Taking mt.components verbatim dropped those, which
+    // is what made a previously synced carousel lose its images in the editor
+    // and fail its next send. Merged instead, so sync is idempotent.
     const payload = {
       name: mt.name, category: mt.category, language: mt.language,
-      components: mt.components ?? [], status: mapStatus(mt.status), metaTemplateId: mt.id,
+      components: preserveInternalFields(existing?.components, mt.components ?? []),
+      status: mapStatus(mt.status), metaTemplateId: mt.id,
       rejectedReason: mapStatus(mt.status) === 'REJECTED' ? rejectedReason : null,
     };
     if (existing) {
@@ -315,7 +321,7 @@ export async function restoreTemplate(workspaceId, id) {
       where: { id },
       data: {
         name: live.name, category: live.category, language: live.language,
-        components: live.components ?? template.components,
+        components: preserveInternalFields(template.components, live.components ?? template.components),
         status: mapStatus(live.status), metaTemplateId: live.id,
       },
     });
