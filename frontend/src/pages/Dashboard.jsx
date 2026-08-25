@@ -3582,13 +3582,13 @@ const ADMIN_TABS = [
 ];
 const SUPERADMIN_NAV = [...ADMIN_TABS, { id: 'settings', label: 'Settings', icon: 'cog' }, { id: 'legal', label: 'Legal', icon: 'file' }];
 
-// Sidebar grouping, from the ChatFlow Pro dashboard design: the nav is banded into
+// Sidebar grouping, from the Spandan dashboard design: the nav is banded into
 // labelled sections under mono eyebrows rather than presented as one flat run
 // of sixteen items. Purely presentational — the ids are the same section ids
 // ADMIN_NAV/ADMIN_TABS already define, so routing and VALID_SECTIONS are
 // untouched. Any id not listed here still renders, under a trailing "MORE"
 // band, so a new nav entry can never silently vanish from the sidebar.
-// Sidebar glyphs, lifted from the design set's own nav (ChatFlow Pro Dashboard's
+// Sidebar glyphs, lifted from the design set's own nav (Spandan Dashboard's
 // navData). The app keeps its SVG icon set everywhere else — these are only
 // the sidebar, which is what the design specifies.
 //
@@ -3785,7 +3785,7 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
         {!col && <div onClick={() => go(isSuperAdmin ? 'admin-overview' : 'home')} style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }} title="Dashboard">
           <span className="sp-pulse" style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 12px var(--accent)' }} />
         </div>}
-        {!col && <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>ChatFlow Pro</span>}
+        {!col && <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>Spandan</span>}
         {mobile && (
           <button onClick={onClose} aria-label="Close navigation" style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', padding: '4px', display: 'flex' }}>
             <I n="x" s={15} c="var(--t2)" />

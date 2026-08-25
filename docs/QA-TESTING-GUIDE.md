@@ -1,4 +1,4 @@
-# ChatFlow Pro — QA Testing Guide
+# Spandan — QA Testing Guide
 
 What was fixed, how to verify it, and who should take which part.
 

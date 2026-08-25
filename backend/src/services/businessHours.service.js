@@ -3,8 +3,13 @@
 // fired on reopened conversations. This is that concept.
 //
 // Shape stored on Workspace.businessHours:
-//   { tz: "Asia/Kolkata", days: [{ day: 0, enabled: true, start: "09:00", end: "18:00" }, ...] }
+//   { tz: "Asia/Kolkata", enabled: true, days: [{ day: 0, enabled: true, start: "09:00", end: "18:00" }, ...] }
 // day is 0=Sunday … 6=Saturday, matching Date#getDay.
+//
+// `enabled` is the feature switch and is deliberately stored *inside* the same
+// blob as the schedule so that switching working hours off no longer erases the
+// configured days (QA BUG-01). A legacy row that has no `enabled` key was saved
+// back when non-null meant "on", so it reads back as enabled.
 
 export const DEFAULT_BUSINESS_HOURS = {
   tz: 'Asia/Kolkata',
@@ -34,6 +39,7 @@ export function normalizeBusinessHours(raw) {
     throw e;
   }
 
+  const featureEnabled = raw.enabled === undefined ? true : !!raw.enabled;
   const tz = String(raw.tz || DEFAULT_BUSINESS_HOURS.tz).trim();
   // Reject an unknown zone here rather than letting every later OOO check
   // throw inside the webhook handler.
@@ -71,8 +77,35 @@ export function normalizeBusinessHours(raw) {
 
   return {
     tz,
+    enabled: featureEnabled,
     days: DEFAULT_BUSINESS_HOURS.days.map((d) => byDay.get(d.day) || { ...d, enabled: false }),
   };
+}
+
+// Reads the feature switch off a stored blob. Legacy rows: null === off,
+// a blob without an `enabled` key === on.
+export function isBusinessHoursEnabled(stored) {
+  if (!stored || typeof stored !== 'object') return false;
+  return stored.enabled === undefined ? true : !!stored.enabled;
+}
+
+// Merges a schedule edit and/or a feature-switch edit onto what is already
+// stored, so neither operation can clobber the other.
+export function mergeBusinessHours(stored, { schedule, enabled } = {}) {
+  const base = stored && typeof stored === 'object' && Array.isArray(stored.days)
+    ? { ...stored, enabled: isBusinessHoursEnabled(stored) }
+    : { ...DEFAULT_BUSINESS_HOURS, enabled: false };
+
+  let next = base;
+  if (schedule !== undefined) {
+    // A null schedule now only resets the days to the defaults; it no longer
+    // doubles as "turn the feature off".
+    next = schedule === null
+      ? { ...DEFAULT_BUSINESS_HOURS, enabled: base.enabled }
+      : { ...normalizeBusinessHours({ ...schedule, enabled: base.enabled }) };
+  }
+  if (enabled !== undefined) next = { ...next, enabled: !!enabled };
+  return next;
 }
 
 // Day-of-week + minutes-since-midnight in the workspace's timezone. Uses
@@ -97,6 +130,8 @@ function localParts(tz, at) {
 // reopened-conversation behaviour instead of sending OOO around the clock.
 export function isWithinBusinessHours(businessHours, at = new Date()) {
   if (!businessHours || !Array.isArray(businessHours.days)) return true;
+  // Feature switched off → always open, schedule stays on disk untouched.
+  if (!isBusinessHoursEnabled(businessHours)) return true;
 
   const tz = businessHours.tz || DEFAULT_BUSINESS_HOURS.tz;
   let now;
@@ -115,4 +150,37 @@ export function isWithinBusinessHours(businessHours, at = new Date()) {
   if (start === null || end === null) return true;
 
   return now.minutes >= start && now.minutes < end;
+}
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// A human-readable summary of the schedule, for answering "what are your
+// working hours?" from the configuration the workspace already filled in
+// instead of sending the question to the model (QA BUG-03).
+// Returns null when there is nothing meaningful to say.
+export function describeBusinessHours(businessHours) {
+  if (!businessHours || !Array.isArray(businessHours.days)) return null;
+  if (!isBusinessHoursEnabled(businessHours)) return null;
+
+  const open = businessHours.days.filter((d) => d.enabled && d.start && d.end);
+  if (open.length === 0) return null;
+
+  // Collapse consecutive days that share the same window: "Monday-Friday,
+  // 09:00-18:00" rather than five identical lines.
+  const ordered = [...open].sort((a, b) => Number(a.day) - Number(b.day));
+  const groups = [];
+  for (const day of ordered) {
+    const last = groups[groups.length - 1];
+    if (last && last.start === day.start && last.end === day.end && Number(day.day) === last.to + 1) {
+      last.to = Number(day.day);
+    } else {
+      groups.push({ from: Number(day.day), to: Number(day.day), start: day.start, end: day.end });
+    }
+  }
+
+  const lines = groups.map((g) => {
+    const label = g.from === g.to ? DAY_NAMES[g.from] : `${DAY_NAMES[g.from]}–${DAY_NAMES[g.to]}`;
+    return `${label}: ${g.start}–${g.end}`;
+  });
+  return `Our working hours are:\n${lines.join('\n')}\n(${businessHours.tz || DEFAULT_BUSINESS_HOURS.tz})`;
 }

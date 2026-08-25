@@ -19,7 +19,7 @@ function layout(content) {
           <!-- Header -->
           <tr>
             <td style="background:#0f172a;border-radius:12px 12px 0 0;padding:28px 40px;text-align:center;">
-              <p style="margin:0;color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.3px;">ChatFlow Pro</p>
+              <p style="margin:0;color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.3px;">Spandan</p>
               <p style="margin:4px 0 0;color:#94a3b8;font-size:12px;">WhatsApp Business Platform</p>
             </td>
           </tr>
@@ -34,8 +34,8 @@ function layout(content) {
           <!-- Footer -->
           <tr>
             <td style="background:#f8fafc;border-radius:0 0 12px 12px;padding:20px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="margin:0;color:#94a3b8;font-size:12px;">© ${new Date().getFullYear()} ChatFlow Pro. All rights reserved.</p>
-              <p style="margin:6px 0 0;color:#cbd5e1;font-size:11px;">You received this because you have an account on ChatFlow Pro.</p>
+              <p style="margin:0;color:#94a3b8;font-size:12px;">© ${new Date().getFullYear()} Spandan. All rights reserved.</p>
+              <p style="margin:6px 0 0;color:#cbd5e1;font-size:11px;">You received this because you have an account on Spandan.</p>
             </td>
           </tr>
 
@@ -82,7 +82,7 @@ function welcomeHtml({ name }) {
   const appUrl = env.APP_URL || '#';
   return layout(`
     <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Welcome, ${esc(name)}!</h2>
-    <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">Your ChatFlow Pro account is ready. Here's how to get started:</p>
+    <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">Your Spandan account is ready. Here's how to get started:</p>
 
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
@@ -204,7 +204,7 @@ function memberInvitedHtml({ inviteeName, inviterName, workspaceName }) {
   const appUrl = env.APP_URL || '#';
   return layout(`
     <h2 style="margin:0 0 12px;color:#0f172a;font-size:22px;font-weight:700;">You've been invited!</h2>
-    <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(inviteeName)}, <strong>${esc(inviterName)}</strong> has invited you to join the <strong>${esc(workspaceName)}</strong> workspace on ChatFlow Pro.</p>
+    <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(inviteeName)}, <strong>${esc(inviterName)}</strong> has invited you to join the <strong>${esc(workspaceName)}</strong> workspace on Spandan.</p>
 
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:20px 24px;margin:0 0 28px;">
       <table width="100%" cellpadding="0" cellspacing="0">
@@ -219,8 +219,8 @@ function memberInvitedHtml({ inviteeName, inviterName, workspaceName }) {
       </table>
     </div>
 
-    <p style="margin:0 0 28px;color:#64748b;font-size:13px;">Log in to your ChatFlow Pro account to access the workspace.</p>
-    ${btn('Go to ChatFlow Pro &rarr;', appUrl)}
+    <p style="margin:0 0 28px;color:#64748b;font-size:13px;">Log in to your Spandan account to access the workspace.</p>
+    ${btn('Go to Spandan &rarr;', appUrl)}
   `);
 }
 
@@ -232,7 +232,7 @@ function inviteWithLinkHtml({ inviterName, workspaceName, token }) {
   const acceptUrl = `${env.CLIENT_URL}/invite/accept?token=${encodeURIComponent(token)}`;
   return layout(`
     <h2 style="margin:0 0 12px;color:#0f172a;font-size:22px;font-weight:700;">You've been invited!</h2>
-    <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;"><strong>${esc(inviterName)}</strong> has invited you to join the <strong>${esc(workspaceName)}</strong> workspace on ChatFlow Pro.</p>
+    <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;"><strong>${esc(inviterName)}</strong> has invited you to join the <strong>${esc(workspaceName)}</strong> workspace on Spandan.</p>
 
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:20px 24px;margin:0 0 28px;">
       <table width="100%" cellpadding="0" cellspacing="0">
@@ -247,7 +247,7 @@ function inviteWithLinkHtml({ inviterName, workspaceName, token }) {
       </table>
     </div>
 
-    <p style="margin:0 0 28px;color:#64748b;font-size:13px;">If you don't have a ChatFlow Pro account yet, this link will let you create one and join directly. This link expires in 7 days.</p>
+    <p style="margin:0 0 28px;color:#64748b;font-size:13px;">If you don't have a Spandan account yet, this link will let you create one and join directly. This link expires in 7 days.</p>
     ${btn('Accept Invitation &rarr;', acceptUrl)}
   `);
 }
@@ -288,7 +288,7 @@ function apiKeyCreatedHtml({ userName, keyName, environment, keyPrefix }) {
 // ---------------------------------------------------------------------------
 
 const SUBJECTS = {
-  welcome:             'Welcome to ChatFlow Pro',
+  welcome:             'Welcome to Spandan',
   'campaign-completed': 'Campaign Completed',
   'campaign-failed':   'Campaign Failed — Action Required',
   'template-approved': 'Template Approved by Meta',
@@ -296,9 +296,9 @@ const SUBJECTS = {
   'member-invited':    "You've been invited to a workspace",
   'workspace-invite':  "You've been invited to a workspace",
   'api-key-created':   'Security Alert: New API Key Created',
-  'signup-otp':        'Your ChatFlow Pro verification code',
-  'signup-exists':     'About your ChatFlow Pro account',
-  'password-reset-otp': 'Your ChatFlow Pro password reset code',
+  'signup-otp':        'Your Spandan verification code',
+  'signup-exists':     'About your Spandan account',
+  'password-reset-otp': 'Your Spandan password reset code',
 };
 
 const BUILDERS = {
@@ -470,7 +470,7 @@ export async function queueApiKeyCreatedEmail({ userEmail, userName, keyName, en
 function signupOtpHtml({ code, name }) {
   return layout(`
     <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Verify your email</h2>
-    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, use this code to finish creating your ChatFlow Pro account:</p>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, use this code to finish creating your Spandan account:</p>
     <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#0f172a;background:#f1f5f9;border-radius:10px;padding:18px;text-align:center;margin:18px 0;">${esc(code)}</div>
     <p style="margin:0;color:#94a3b8;font-size:13px;">This code expires in 10 minutes. If you didn't request it, you can safely ignore this email.</p>
   `);
@@ -480,7 +480,7 @@ function signupExistsHtml({ name }) {
   const appUrl = env.APP_URL || '#';
   return layout(`
     <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">You already have an account</h2>
-    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, someone just tried to sign up for ChatFlow Pro with this email address. You already have an account, so we did not create a second one.</p>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, someone just tried to sign up for Spandan with this email address. You already have an account, so we did not create a second one.</p>
     <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">If that was you, sign in instead — or reset your password if you have forgotten it.</p>
     ${btn('Sign in', `${appUrl}/login`)}
     <p style="margin:24px 0 0;color:#94a3b8;font-size:13px;">If it was not you, you can ignore this email. Nothing has changed on your account and no one was told whether it exists.</p>
@@ -518,7 +518,7 @@ export async function sendOtpEmailNow(type, { email, name, code }) {
 function passwordResetOtpHtml({ code, name }) {
   return layout(`
     <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Reset your password</h2>
-    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, use this code to reset your ChatFlow Pro password:</p>
+    <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, use this code to reset your Spandan password:</p>
     <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#0f172a;background:#f1f5f9;border-radius:10px;padding:18px;text-align:center;margin:18px 0;">${esc(code)}</div>
     <p style="margin:0;color:#94a3b8;font-size:13px;">This code expires in 10 minutes. If you didn't request a password reset, you can safely ignore this email — your password will not be changed.</p>
   `);

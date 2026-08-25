@@ -1,4 +1,4 @@
-# ChatFlow Pro — AI Features Add-on
+# Spandan — AI Features Add-on
 
 This package contains **only** the files changed/added to build the four features that were previously marked "Coming Soon":
 

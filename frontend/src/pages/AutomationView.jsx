@@ -271,8 +271,9 @@ const WorkingHours = ({ cfg, patch, saving }) => {
           onToggle={async () => {
             const next = !enabled;
             setEnabled(next);
-            // null clears working hours server-side → "always open".
-            const ok = await patch({ businessHours: next ? hours : null }, { optimistic:false });
+            // Toggling only flips the switch — the saved schedule stays on the
+            // server, so turning working hours back on restores the same days.
+            const ok = await patch({ businessHoursEnabled: next }, { optimistic:false });
             if (!ok) setEnabled(!next);
           }} />
       </div>
@@ -3459,8 +3460,8 @@ const SmartListsTab = () => {
     if (!contactPhone.trim()) { setContactError('Phone number is required'); return; }
     setContactError('');
     const r = editingContact
-      ? await wJson(`/segments/${viewingSegmentId}/contacts/${editingContact.id}`, { method:'PATCH', body: JSON.stringify({ name: contactName, phone: contactPhone }) })
-      : await wJson(`/segments/${viewingSegmentId}/contacts`, { method:'POST', body: JSON.stringify({ name: contactName, phone: contactPhone }) });
+      ? await wJson(`/segments/${viewingSegmentId}/contacts/${editingContact.id}`, { method:'PATCH', body: JSON.stringify({ name: contactName.trim(), phoneNumber: contactPhone.trim() }) })
+      : await wJson(`/segments/${viewingSegmentId}/contacts`, { method:'POST', body: JSON.stringify({ name: contactName.trim(), phoneNumber: contactPhone.trim() }) });
     if (!r.ok) { setContactError(r.error); return; }
     await fetchSegments();
     cancelContactForm();

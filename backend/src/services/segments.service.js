@@ -53,15 +53,36 @@ export async function deleteSegment(workspaceId, segmentId) {
   await prisma.segment.delete({ where: { id: segmentId } });
 }
 
+// Normalize an inbound phone value: trim, drop formatting, keep a leading +.
+function normalizePhone(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const digits = raw.replace(/[^\d]/g, '');
+  if (!digits) return null;
+  return raw.startsWith('+') ? `+${digits}` : digits;
+}
+
 // Add a contact to a segment. If contactId provided, link existing contact; otherwise, create new contact.
 export async function addContactToSegment(workspaceId, segmentId, contactData) {
   const segment = await prisma.segment.findFirst({ where: { id: segmentId, workspaceId } });
   if (!segment) { const e = new Error('Segment not found'); e.status = 404; throw e; }
   let contactId = contactData.contactId;
   if (!contactId) {
-    // Create new contact
-    const newContact = await prisma.contact.create({ data: { workspaceId, name: contactData.name, phoneNumber: contactData.phoneNumber, email: contactData.email, tags: contactData.tags || [] } });
-    contactId = newContact.id;
+    // Accept phoneNumber (canonical) or the legacy `phone` alias the UI used to send.
+    const phoneNumber = normalizePhone(contactData.phoneNumber ?? contactData.phone);
+    if (!phoneNumber) { const e = new Error('Phone number is required'); e.status = 400; throw e; }
+    // Re-use an existing contact with the same number instead of creating a duplicate.
+    const existing = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
+    if (existing) {
+      contactId = existing.id;
+      if (contactData.name && !existing.name) {
+        await prisma.contact.update({ where: { id: existing.id }, data: { name: contactData.name } });
+      }
+    } else {
+      const newContact = await prisma.contact.create({ data: { workspaceId, name: contactData.name || null, phoneNumber, email: contactData.email || null, tags: contactData.tags || [] } });
+      contactId = newContact.id;
+    }
   } else {
     // Ensure contact belongs to workspace
     const existing = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } });
@@ -81,6 +102,13 @@ export async function updateContactInSegment(workspaceId, segmentId, contactId, 
   const data = {};
   for (const key of ['name', 'phoneNumber', 'email', 'tags', 'optedOut']) {
     if (updates[key] !== undefined) data[key] = updates[key];
+  }
+  // Legacy alias: older clients send `phone` instead of `phoneNumber`.
+  if (data.phoneNumber === undefined && updates.phone !== undefined) data.phoneNumber = updates.phone;
+  if (data.phoneNumber !== undefined) {
+    const phoneNumber = normalizePhone(data.phoneNumber);
+    if (!phoneNumber) { const e = new Error('Phone number is required'); e.status = 400; throw e; }
+    data.phoneNumber = phoneNumber;
   }
   return prisma.contact.update({ where: { id: contactId }, data });
 }

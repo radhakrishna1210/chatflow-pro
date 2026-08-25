@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
-import { normalizeBusinessHours, DEFAULT_BUSINESS_HOURS } from './businessHours.service.js';
+import { normalizeBusinessHours, mergeBusinessHours, isBusinessHoursEnabled, DEFAULT_BUSINESS_HOURS } from './businessHours.service.js';
 import { detectUrl, analyseWebsite } from './websiteAnalysis.service.js';
 
 // Lazily initialised: constructing the client at import time crashes startup
@@ -224,7 +224,18 @@ export async function getBasicAutomations(workspaceId) {
     select: BASIC_AUTOMATION_FIELDS,
   });
   if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
-  return { ...ws, businessHours: ws.businessHours ?? DEFAULT_BUSINESS_HOURS, businessHoursEnabled: ws.businessHours !== null };
+  return shapeBasicAutomations(ws);
+}
+
+// The stored blob carries both the schedule and the on/off switch; the API
+// keeps exposing them as two fields.
+function shapeBasicAutomations(ws) {
+  const stored = ws.businessHours;
+  return {
+    ...ws,
+    businessHours: stored && Array.isArray(stored.days) ? stored : DEFAULT_BUSINESS_HOURS,
+    businessHoursEnabled: isBusinessHoursEnabled(stored),
+  };
 }
 
 export async function updateBasicAutomations(workspaceId, updates) {
@@ -236,16 +247,28 @@ export async function updateBasicAutomations(workspaceId, updates) {
   if (updates.oooMessage !== undefined) data.oooMessage = updates.oooMessage;
   if (updates.delayedMessage !== undefined) data.delayedMessage = updates.delayedMessage;
   if (updates.delayedAfterMinutes !== undefined) data.delayedAfterMinutes = updates.delayedAfterMinutes;
-  // Explicit null clears working hours → "always open", so OOO falls back to
-  // firing only on reopened conversations.
-  if (updates.businessHours !== undefined) data.businessHours = normalizeBusinessHours(updates.businessHours);
+  // Schedule and on/off switch are edited independently — turning working hours
+  // off must never discard the saved days (QA BUG-01).
+  if (updates.businessHours !== undefined || updates.businessHoursEnabled !== undefined) {
+    const current = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { businessHours: true },
+    });
+    if (!current) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
+    // Validate an incoming schedule before merging so bad input still 400s.
+    if (updates.businessHours) normalizeBusinessHours(updates.businessHours);
+    data.businessHours = mergeBusinessHours(current.businessHours, {
+      schedule: updates.businessHours,
+      enabled: updates.businessHoursEnabled,
+    });
+  }
 
   const ws = await prisma.workspace.update({
     where: { id: workspaceId },
     data,
     select: BASIC_AUTOMATION_FIELDS,
   });
-  return { ...ws, businessHours: ws.businessHours ?? DEFAULT_BUSINESS_HOURS, businessHoursEnabled: ws.businessHours !== null };
+  return shapeBasicAutomations(ws);
 }
 
 // Voice AI Settings

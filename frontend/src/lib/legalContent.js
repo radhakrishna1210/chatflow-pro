@@ -5,7 +5,7 @@
 // in this repo — Legal.jsx renders `html` with dangerouslySetInnerHTML, which
 // is only safe because nothing on this path is user- or API-supplied.
 //
-// Adapted from the ChatFlow Pro "Legal" design's four documents, with the operator
+// Adapted from the Spandan "Legal" design's four documents, with the operator
 // details changed to this product. The commercial specifics below (refund
 // windows, retention periods, contact addresses) came from the design copy and
 // are placeholders — they need a legal review before this goes public.
@@ -24,11 +24,11 @@ export const LEGAL_DOCS = {
       '7. Suspension & termination', '8. Liability', '9. Governing law',
     ],
     html: `
-<p>These Terms &amp; Conditions ("Terms") govern your access to and use of the ChatFlow Pro platform, websites, APIs and related services (collectively, the "Service"). By creating an account or using the Service, you agree to these Terms.</p>
+<p>These Terms &amp; Conditions ("Terms") govern your access to and use of the Spandan platform, websites, APIs and related services (collectively, the "Service"). By creating an account or using the Service, you agree to these Terms.</p>
 <h3>1. Acceptance of terms</h3>
 <p>By accessing the Service you confirm that you are authorised to bind the business you represent and that you accept these Terms and our Privacy Policy. If you do not agree, do not use the Service.</p>
 <h3>2. The service</h3>
-<p>ChatFlow Pro provides WhatsApp-first customer communication tooling — campaigns, templates, a shared inbox, automation, an AI assistant and analytics — delivered over the WhatsApp Business Platform and other connected channels. Features depend on your subscription plan and may change over time.</p>
+<p>Spandan provides WhatsApp-first customer communication tooling — campaigns, templates, a shared inbox, automation, an AI assistant and analytics — delivered over the WhatsApp Business Platform and other connected channels. Features depend on your subscription plan and may change over time.</p>
 <h3>3. Accounts &amp; eligibility</h3>
 <ul><li>You must provide accurate business and contact information and keep it current.</li><li>You are responsible for all activity under your workspace, including that of invited team members and API keys.</li><li>You must safeguard your credentials and notify us promptly of any unauthorised access.</li></ul>
 <h3>4. Acceptable use</h3>

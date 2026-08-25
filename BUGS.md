@@ -1,4 +1,4 @@
-# ChatFlow Pro — Complete Bugs Sheet
+# Spandan — Complete Bugs Sheet
 
 > Every issue found across all 80+ files. From critical security holes to minor cosmetic problems.
 > Total: **60 issues** (55 code-level + 5 functional/UX bugs).

@@ -931,7 +931,7 @@ const Playground = () => {
                 <span style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: 12 }}>B</span>
                 <div style={{ lineHeight: 1.25 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5, color: '#fff' }}>Your Brand</div>
-                  <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.85)' }}>online · ChatFlow Pro AI active</div>
+                  <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.85)' }}>online · Spandan AI active</div>
                 </div>
               </div>
 

@@ -1,6 +1,6 @@
-# ChatFlow Pro — Complete Issue Sheet & Task Submission Registry
+# Spandan — Complete Issue Sheet & Task Submission Registry
 
-This registry serves as the official issue sheet documenting the technical audit, bug tracking, and stabilization sprint results for **ChatFlow Pro**. It consolidates all **75 issues** identified across the codebase: **60 core issues** from Sprint 1, **11 deep architectural features/security defects** from Sprint 2, and **4 final advanced AI & integration features** from Sprint 3 (V3).
+This registry serves as the official issue sheet documenting the technical audit, bug tracking, and stabilization sprint results for **Spandan**. It consolidates all **75 issues** identified across the codebase: **60 core issues** from Sprint 1, **11 deep architectural features/security defects** from Sprint 2, and **4 final advanced AI & integration features** from Sprint 3 (V3).
 
 All code-level issues have been successfully addressed, verified with automated end-to-end regression suites, and stabilized.
 

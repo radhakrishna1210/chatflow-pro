@@ -150,7 +150,7 @@ export default function Register({ onNav }) {
             </svg>
           </div>
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
-            ChatFlow Pro
+            Spandan
           </span>
         </div>
         <div style={{ position: 'relative', zIndex: 1 }}>
@@ -161,7 +161,7 @@ export default function Register({ onNav }) {
             Create your free account, connect a number, and launch your first campaign today.
           </p>
         </div>
-        <div style={{ position: 'relative', zIndex: 1, fontSize: '12px', color: 'var(--t3)' }}>© {new Date().getFullYear()} ChatFlow Pro</div>
+        <div style={{ position: 'relative', zIndex: 1, fontSize: '12px', color: 'var(--t3)' }}>© {new Date().getFullYear()} Spandan</div>
       </div>
 
       {/* Right form panel */}

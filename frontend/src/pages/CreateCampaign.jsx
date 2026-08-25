@@ -1271,7 +1271,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
 
 // ─── Phone Preview ─────────────────────────────────────────────
 const PhonePreview = ({ template, templateBody, ctaLabel = '' }) => {
-  const [businessName, setBusinessName] = useState('ChatFlow Pro');
+  const [businessName, setBusinessName] = useState('Spandan');
   const [headerPreview, setHeaderPreview] = useState(null);
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 

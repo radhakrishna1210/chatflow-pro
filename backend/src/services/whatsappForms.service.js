@@ -1,6 +1,7 @@
 // WhatsApp Forms service
 import { prisma } from '../lib/prisma.js';
 import { keywordMatches } from './automation.service.js';
+import { matchOption, detectControlCommand, interruptsFlow, CONTROL_REPLIES } from './conversationControl.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
 
 const FIELD_TYPES = new Set(['text', 'email', 'phone', 'number', 'choice']);
@@ -159,11 +160,10 @@ function validateAnswer(field, answer) {
   return null;
 }
 
-const isChoiceAnswer = (field, value) => {
-  const index = parseInt(value, 10);
-  if (Number.isInteger(index) && index >= 1 && index <= field.options.length) return true;
-  return field.options.some((o) => o.toLowerCase() === value.toLowerCase());
-};
+// Customers answer choice questions in prose. Exact-match-only rejected
+// "urgently", "very urgent" and the typo "Urrget" (QA BUG-04), so the answer is
+// resolved through the same tolerant matcher the rest of the inbound path uses.
+const isChoiceAnswer = (field, value) => matchOption(value, field.options) !== null;
 
 function promptFor(field) {
   if (field.type === 'choice' && field.options.length) {
@@ -176,12 +176,37 @@ function promptFor(field) {
 function resolveChoice(field, answer) {
   const value = String(answer || '').trim();
   if (field.type !== 'choice') return value;
-  const index = parseInt(value, 10);
-  if (Number.isInteger(index) && index >= 1 && index <= field.options.length) return field.options[index - 1];
-  return field.options.find((o) => o.toLowerCase() === value.toLowerCase()) || value;
+  // Store the configured option, not what the customer typed, so reports and
+  // later automations see "Urgent" whether they wrote "urgently" or "2".
+  return matchOption(value, field.options)?.option ?? value;
 }
 
 const schemaOf = (form) => (Array.isArray(form.schema) ? form.schema : []);
+
+// Closes any in-flight submission on a conversation. Used when a control word
+// or an escalation ends the flow from outside this module.
+export async function cancelOpenSubmission(conversationId) {
+  if (!conversationId) return false;
+  const open = await prisma.whatsappFormSubmission.findFirst({
+    where: { conversationId, completed: false },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!open) return false;
+  await prisma.whatsappFormSubmission.update({
+    where: { id: open.id },
+    data: { completed: true, completedAt: new Date() },
+  });
+  return true;
+}
+
+// Is the customer part-way through a form right now?
+export async function hasOpenSubmission(conversationId) {
+  if (!conversationId) return false;
+  const count = await prisma.whatsappFormSubmission.count({
+    where: { conversationId, completed: false },
+  });
+  return count > 0;
+}
 
 // Called by the inbound handler before any other automation. Returns true when
 // the message was consumed by a form (either continuing one or starting one),
@@ -217,12 +242,26 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
       return false;
     }
 
-    if (/^(cancel|stop|quit)$/i.test(body)) {
+    // Global control words beat the question on screen (QA BUG-02). Without
+    // this, "bye" and "done" were filed as answers and the form kept asking.
+    const control = detectControlCommand(body);
+    if (control && interruptsFlow(control.command)) {
+      if (control.command === 'restart') {
+        await prisma.whatsappFormSubmission.update({
+          where: { id: open.id },
+          data: { answers: {}, cursor: 0 },
+        });
+        await reply(`Starting over.\n\n${promptFor(fields[0])}`);
+        return true;
+      }
+      // 'human' is left to the inbound handler, which closes the form and then
+      // hands the thread to a person; everything else ends here.
       await prisma.whatsappFormSubmission.update({
         where: { id: open.id },
         data: { completed: true, completedAt: new Date() },
       });
-      await reply('No problem — cancelled.');
+      if (control.command === 'human') return false;
+      await reply(CONTROL_REPLIES[control.command] || CONTROL_REPLIES.cancel);
       return true;
     }
 
