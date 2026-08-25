@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { looksLike } from './conversationControl.service.js';
 
 // ─── Intent routing ──────────────────────────────────────────────────────────
 //
@@ -39,12 +40,25 @@ function phraseScore(message, phrase) {
 
   const pw = tokens(p);
   if (pw.length === 0) return 0;
-  const mw = new Set(tokens(m));
-  const hits = pw.filter((w) => mw.has(w)).length;
-  if (hits === 0) return 0;
+  const mw = tokens(m);
+  const mwSet = new Set(mw);
+
+  // Word overlap, with a typo allowance: "order stauts" and "trackign" used to
+  // score zero against the phrases written for them (QA BUG-04). A misspelt hit
+  // counts for slightly less than an exact one so a clean match still wins.
+  let hits = 0;
+  let fuzzyHits = 0;
+  for (const word of pw) {
+    if (mwSet.has(word)) { hits += 1; continue; }
+    if (mw.some((candidate) => looksLike(candidate, word))) fuzzyHits += 1;
+  }
+  const matched = hits + fuzzyHits;
+  if (matched === 0) return 0;
+
+  const weight = (hits + fuzzyHits * 0.85) / pw.length;
   // A single shared word out of many is weak evidence; scale it down so a
   // one-word overlap never clears a mid-range threshold on its own.
-  return clamp01((hits / pw.length) * (hits === 1 && pw.length > 1 ? 0.6 : 1));
+  return clamp01(weight * (matched === 1 && pw.length > 1 ? 0.6 : 1));
 }
 
 // Best-matching active rule for a message, with the phrase that won and the

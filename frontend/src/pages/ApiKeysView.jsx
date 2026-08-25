@@ -290,7 +290,7 @@ export default function ApiKeysView() {
               <p style={{ fontSize:13, color:'var(--t2)', marginBottom:4 }}>No API keys yet.</p>
               <p style={{ fontSize:12, color:'var(--t3)' }}>
                 {isAdmin
-                  ? 'Generate one below to start calling the ChatFlow Pro API.'
+                  ? 'Generate one below to start calling the Spandan API.'
                   : 'Ask a workspace admin to generate an API key for you.'}
               </p>
             </div>

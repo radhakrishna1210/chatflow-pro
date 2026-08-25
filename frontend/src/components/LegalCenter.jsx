@@ -76,7 +76,7 @@ export default function LegalCenter({ active, onSelect, compact = false }) {
           <div className="legal-body" dangerouslySetInnerHTML={{ __html: doc.html }} />
 
           <div style={{ marginTop: 36, paddingTop: 22, borderTop: '1px solid var(--bd)', display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>© {new Date().getFullYear()} ChatFlow Pro · India</span>
+            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>© {new Date().getFullYear()} Spandan · India</span>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {crossLinks.map(c => (
                 <button key={c.key} onClick={() => onSelect(c.key)}

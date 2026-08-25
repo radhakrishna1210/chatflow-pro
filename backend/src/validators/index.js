@@ -234,7 +234,8 @@ export const automationSchemas = {
   }).strict(),
 
   // Basic Automations now carry the reply text and working hours, not just the
-  // three on/off flags. businessHours: null means "always open".
+  // three on/off flags. The schedule (businessHours) and the on/off switch
+  // (businessHoursEnabled) are independent so disabling never wipes the days.
   updateBasic: z.object({
     autoOooEnabled: z.boolean().optional(),
     autoWelcomeEnabled: z.boolean().optional(),
@@ -243,8 +244,10 @@ export const automationSchemas = {
     oooMessage: meaningfulText(z.string().trim().min(1).max(1000), 'Out-of-office message').optional(),
     delayedMessage: meaningfulText(z.string().trim().min(1).max(1000), 'Delayed response message').optional(),
     delayedAfterMinutes: z.coerce.number().int().min(1).max(1440).optional(),
+    businessHoursEnabled: z.boolean().optional(),
     businessHours: z.object({
       tz: z.string().trim().min(1).max(64).optional(),
+      enabled: z.boolean().optional(),
       days: z.array(z.object({
         day: z.coerce.number().int().min(0).max(6),
         enabled: z.boolean(),

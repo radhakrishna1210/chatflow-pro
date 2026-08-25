@@ -10,7 +10,7 @@ const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractio
 const STATES = {
   HEALTHY: {
     title: 'Wallet Status: Healthy',
-    message: 'Your wallet balance is sufficient to continue using ChatFlow Pro.',
+    message: 'Your wallet balance is sufficient to continue using Spandan.',
     icon: 'check',
     accent: 'var(--green)',
     bg: 'var(--gbg)',
@@ -28,7 +28,7 @@ const STATES = {
   },
   EMPTY: {
     title: 'Wallet Status: Empty',
-    message: 'Your wallet is empty. Please add funds to continue using ChatFlow Pro.',
+    message: 'Your wallet is empty. Please add funds to continue using Spandan.',
     icon: 'alertt',
     accent: '#f87171',
     bg: 'rgba(239,68,68,.08)',

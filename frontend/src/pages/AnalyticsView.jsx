@@ -148,7 +148,7 @@ export default function AnalyticsView() {
     const win = window.open('', '_blank');
     if (!win) return; // popup blocked — nothing we can do from here
     win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-<title>ChatFlow Pro — Analytics ${esc(today())}</title>
+<title>Spandan — Analytics ${esc(today())}</title>
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color:#111827; margin:0; padding:32px; }
   h1 { font-size:20px; margin:0 0 4px; letter-spacing:-.02em; }
@@ -165,7 +165,7 @@ export default function AnalyticsView() {
   .foot { margin-top:28px; font-size:12px; color:#6b7280; }
   @media print { body { padding:0; } }
 </style></head><body>
-  <h1>ChatFlow Pro — Analytics</h1>
+  <h1>Spandan — Analytics</h1>
   <p class="muted">Generated ${esc(new Date().toLocaleString('en-IN'))}</p>
   <div class="kpis">
     <div class="kpi"><span>Messages Sent</span><strong>${esc((kpi?.messagesSent ?? 0).toLocaleString())}</strong></div>

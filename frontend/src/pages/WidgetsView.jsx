@@ -182,7 +182,7 @@ const Preview = ({ form, widgetId }) => {
               </div>
             </div>
           )}
-          <p style={{ textAlign: 'center', fontSize: 9.5, color: '#9aa0a6', padding: 5 }}>Powered by ChatFlow Pro</p>
+          <p style={{ textAlign: 'center', fontSize: 9.5, color: '#9aa0a6', padding: 5 }}>Powered by Spandan</p>
         </div>
 
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 16px', borderRadius: 999, background: accent, color: '#fff', fontSize: 13, fontWeight: 600, boxShadow: '0 5px 18px rgba(0,0,0,.2)' }}>

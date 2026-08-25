@@ -168,7 +168,7 @@ export const MarketingNav = ({ onNav, links = [['Product', '#story'], ['Live dem
       <div style={{ maxWidth: 1240, width: '100%', margin: '0 auto', padding: '0 clamp(18px,4vw,32px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <button onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
           <BrandMark />
-          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>ChatFlow Pro</span>
+          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>Spandan</span>
         </button>
 
         <div className="nav-links" style={{ display: 'flex', gap: 30 }}>
@@ -204,7 +204,7 @@ export const MarketingFooter = ({ onNav }) => (
         <div>
           <button onClick={() => onNav('landing')} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, cursor: 'pointer', marginBottom: 14, background: 'none', border: 'none', padding: 0 }}>
             <BrandMark size={28} radius={8} glow={false} />
-            <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>ChatFlow Pro</span>
+            <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Spandan</span>
           </button>
           <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.65, maxWidth: 240 }}>
             {FOOTER_BLURB}

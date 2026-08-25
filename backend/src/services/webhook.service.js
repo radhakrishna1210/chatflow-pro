@@ -5,15 +5,16 @@ import { handleCampaignAiInbound } from './campaignAi.service.js';
 import { queueTemplateApprovedEmail, queueTemplateRejectedEmail } from './email.service.js';
 import { handleRecipientFailure } from './retry.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
-import { runWorkflowsForInbound, runWillSendMessage } from './workflowEngine.service.js';
-import { handleFormInbound } from './whatsappForms.service.js';
+import { runWorkflowsForInbound, runWillSendMessage, cancelActiveRuns, hasActiveRun } from './workflowEngine.service.js';
+import { handleFormInbound, cancelOpenSubmission, hasOpenSubmission } from './whatsappForms.service.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
-import { isWithinBusinessHours } from './businessHours.service.js';
-import { matchOptOutKeyword, recordOptOut } from './optout.service.js';
+import { isWithinBusinessHours, describeBusinessHours } from './businessHours.service.js';
+import { matchOptOutKeyword, recordOptOut, isFlowControlKeyword } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { parseInboundMessage, carriesCustomerText } from './inboundMessage.js';
 import { emitWebhook } from './outgoingWebhook.service.js';
 import { routeByIntent, escalateToHuman, escalationReason } from './intentRouting.service.js';
+import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPLIES } from './conversationControl.service.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
 
@@ -196,6 +197,33 @@ async function handleTemplateCategoryUpdate(wabaId, value) {
   }
 }
 
+// Routing order for an inbound customer message.
+//
+// Several subsystems can each claim to own the same message — a keyword
+// trigger, a workflow, an intent rule and the AI agent will all happily answer
+// "hi" — and when the order between them was implicit, a generic message got
+// answered by whichever one happened to run first (QA BUG-05). The order below
+// is the contract; anything added later has to be given a place in it.
+//
+//   1. Opt-out              — "stop"/"unsubscribe" always win. "cancel", "quit"
+//                             and "end" defer to the flow when one is open.
+//   2. Human handoff        — a person has the thread; automation stays out.
+//   3. Global commands      — cancel / bye / done / exit / restart / human,
+//                             which outrank whatever flow is mid-question.
+//   4. Campaign AI session  — a live conversation about a specific campaign.
+//   5. Form in flight       — the customer is answering a question we asked.
+//   6. Workflows            — a workflow trigger matched.
+//   7. Escalation rules     — the workspace's own "hand this to a person" rules.
+//   8. Exact keyword trigger
+//   9. Intent rules         — the Intent Matching screen's rules.
+//  10. Fuzzy keyword trigger
+//  11. Welcome / out-of-office
+//  12. General conversation — greeting, goodbye, thanks, working hours.
+//  13. AI agent
+//  14. Fallback             — hand to a person rather than say nothing.
+//
+// Earlier layers are more deterministic and more specific; the model only sees
+// what nothing above it claimed.
 async function handleInboundMessage(value, msg) {
   const phoneNumberId = value.metadata?.phone_number_id;
   const fromPhone = msg.from;
@@ -378,7 +406,25 @@ async function handleInboundMessage(value, msg) {
   // we generated for a photo or a location, and matching our own text against
   // the opt-out keywords would let a picture opt someone out.
   const customerText = carriesCustomerText(parsed);
-  const optOutKeyword = customerText ? matchOptOutKeyword(messageBody) : null;
+  let optOutKeyword = customerText ? matchOptOutKeyword(messageBody) : null;
+
+  // "cancel", "quit" and "end" are opt-out keywords *and* the words a customer
+  // uses to back out of a form. Answering a form question with "cancel"
+  // unsubscribed the contact from the workspace entirely (QA BUG-02/BUG-05),
+  // which is not what anyone meant by it. While a flow is mid-question those
+  // three mean "leave the flow" and are handled further down; "stop" and
+  // "unsubscribe" always opt out, flow or no flow.
+  if (optOutKeyword && isFlowControlKeyword(optOutKeyword)) {
+    const [formOpen, runOpen] = await Promise.all([
+      hasOpenSubmission(conversation.id),
+      hasActiveRun(workspaceId, conversation.id),
+    ]);
+    if (formOpen || runOpen) {
+      console.log(`[Inbound] "${optOutKeyword}" read as leaving the active flow, not as an opt-out.`);
+      optOutKeyword = null;
+    }
+  }
+
   if (optOutKeyword) {
     try {
       await recordOptOut({
@@ -418,6 +464,9 @@ async function handleInboundMessage(value, msg) {
       oooMessage: true,
       delayedAfterMinutes: true,
       businessHours: true,
+      // Whether an agent is actually deployed — the fallback below has to tell
+      // "the agent tried and failed" apart from "there is no agent at all".
+      aiAgentEnabled: true,
       // Read at last: the AI Agent screen has offered these for a long time
       // and nothing consulted them, so the agent answered every message itself
       // and there was no route from automation to a person.
@@ -444,6 +493,65 @@ async function handleInboundMessage(value, msg) {
     console.log(`[Inbound] Conversation ${conversation.id} is with a human since `
       + `${conversation.humanHandoffAt.toISOString()} — automation suppressed.`);
     return;
+  }
+
+  // 0. Global control commands. "cancel", "bye", "done", "exit", "restart" and
+  //    "human" belong to the customer, not to whichever flow happens to be
+  //    holding the conversation — before this, a form or workflow filed them as
+  //    answers and kept asking its question (QA BUG-02).
+  //
+  //    "stop" is not in this list on purpose: it is handled above as an
+  //    opt-out, which WhatsApp expects a business to honour and which stops the
+  //    flow anyway by suppressing every outbound message.
+  //
+  //    Only intercepts when something is actually running. With no flow in
+  //    flight, "bye" is an ordinary message and carries on down the chain so a
+  //    workspace's own goodbye automation still gets its turn.
+  if (customerText) {
+    const control = detectControlCommand(messageBody);
+    if (control && interruptsFlow(control.command)) {
+      const [formOpen, runOpen] = await Promise.all([
+        hasOpenSubmission(conversation.id),
+        hasActiveRun(workspaceId, conversation.id),
+      ]);
+
+      if (control.command === 'human') {
+        // Asking for a person ends the flow whether or not one is running.
+        if (formOpen) await cancelOpenSubmission(conversation.id).catch(() => {});
+        if (runOpen) await cancelActiveRuns(workspaceId, conversation.id, 'Customer asked for a person').catch(() => {});
+        await escalateToHuman({
+          workspaceId, conversationId: conversation.id, contact,
+          reason: 'The customer asked to speak to a person',
+        });
+        await scheduleDelayedResponse(workspace, conversation.id);
+        return;
+      }
+
+      if (formOpen || runOpen) {
+        // Any workflow parked on a delay is torn down either way, so it cannot
+        // wake up hours later and carry on messaging someone who has left.
+        if (runOpen) {
+          await cancelActiveRuns(workspaceId, conversation.id, `Customer sent "${control.matched}"`).catch(() => {});
+        }
+
+        // When a form is open it owns the acknowledgement: it is the only layer
+        // that knows how to re-ask question one for "restart", and it replies
+        // for the other commands too. Cancelling the submission here as well
+        // would leave the customer with no answer at all.
+        if (formOpen) {
+          console.log(`[Inbound] "${control.matched}" interrupting the open form.`);
+        } else {
+          await sendAutomatedReply({
+            conversationId: conversation.id,
+            waNumberId: waNumber.id,
+            toPhone: fromPhone,
+            body: CONTROL_REPLIES[control.command] || CONTROL_REPLIES.cancel,
+          });
+          await scheduleDelayedResponse(workspace, conversation.id);
+          return;
+        }
+      }
+    }
   }
 
   const consumedByCampaignAi = await handleCampaignAiInbound({
@@ -559,10 +667,39 @@ async function handleInboundMessage(value, msg) {
       && (Date.now() - new Date(previousLastMessageAt).getTime()) > WELCOME_MESSAGE_GAP_MS;
     const closedNow = !isWithinBusinessHours(workspace?.businessHours);
 
-    if (workspace?.autoWelcomeEnabled && (isNewContact || isReturningAfterGap)) {
+    // `isNewContact` is only true for the very first message ever received from
+    // a number, and a burst of messages or a workflow that answered the first
+    // one meant the greeting was sometimes sent twice and sometimes never
+    // (QA BUG-07). The rule is now stated once: greet a first-time contact, or
+    // one coming back after a day away, and only if we have not already greeted
+    // them inside that same window.
+    const shouldWelcome = workspace?.autoWelcomeEnabled
+      && workspace.welcomeMessage
+      && (isNewContact || isReturningAfterGap);
+
+    if (shouldWelcome && !(await alreadyWelcomed(conversation.id, workspace.welcomeMessage))) {
       autoReplyText = workspace.welcomeMessage;
     } else if (workspace?.autoOooEnabled && (wasClosed || closedNow)) {
       autoReplyText = workspace.oooMessage;
+    }
+  }
+
+  // 4.5 Everyday conversational messages. "hi", "bye", "thanks" and "working
+  //     hours" are the messages every business receives and the ones the
+  //     workspace is least likely to have written a rule for. They used to fall
+  //     all the way through to the model, so the same greeting was answered
+  //     differently from one day to the next, or not at all (QA BUG-03).
+  //
+  //     Deliberately below the workspace's own automations: a business that has
+  //     built a greeting trigger or a "Greeting" intent keeps using it, and this
+  //     only catches what nothing else claimed.
+  if (!autoReplyText && !workflowWillReply && customerText) {
+    const general = detectGeneralIntent(messageBody);
+    if (general) {
+      autoReplyText = generalIntentReply(general.intent, { workspace, contact });
+      if (autoReplyText) {
+        console.log(`[Inbound] "${messageBody}" answered as a ${general.intent} message.`);
+      }
     }
   }
 
@@ -582,16 +719,33 @@ async function handleInboundMessage(value, msg) {
       intentHint,
     }).catch(() => null);
 
-    // The agent had nothing to say — no LLM configured, the provider failed, or
-    // it declined. Silence is the worst answer available, so the thread goes to
-    // a person instead of the customer simply never hearing back.
+    // The agent had nothing to say. Handing the thread to a person is right
+    // when an agent was *supposed* to answer and could not — the provider
+    // failed, or it declined.
+    //
+    // It is wrong when the workspace has no agent deployed at all. Escalating
+    // there sets humanHandoffAt, which suppresses automation on the
+    // conversation from then on — so on a workspace with no AI agent (the
+    // default), the first message that matched nothing silently switched off
+    // every keyword trigger, workflow and form for that contact, permanently.
+    // That is the "sometimes received no appropriate workflow response"
+    // behaviour in the QA report (BUG-03).
+    //
+    // With no agent deployed the message is simply left unanswered: it is in
+    // the inbox, unread, and the delayed-response automation exists precisely
+    // to chase a thread nobody has replied to.
     if (!autoReplyText) {
-      await escalateToHuman({
-        workspaceId,
-        conversationId: conversation.id,
-        contact,
-        reason: 'The AI agent could not answer this message',
-      });
+      if (workspace?.aiAgentEnabled) {
+        await escalateToHuman({
+          workspaceId,
+          conversationId: conversation.id,
+          contact,
+          reason: 'The AI agent could not answer this message',
+        });
+      } else {
+        console.log(`[Inbound] Nothing matched "${messageBody}" and no AI agent is deployed — `
+          + 'left for the inbox rather than seizing the conversation.');
+      }
       await scheduleDelayedResponse(workspace, conversation.id);
       return;
     }
@@ -607,6 +761,62 @@ async function handleInboundMessage(value, msg) {
   }
 
   await scheduleDelayedResponse(workspace, conversation.id);
+}
+
+// Have we already sent this workspace's welcome message on this conversation
+// within the last day? Derived from the message history rather than a new
+// column so the fix needs no schema migration to deploy.
+async function alreadyWelcomed(conversationId, welcomeMessage) {
+  try {
+    const since = new Date(Date.now() - WELCOME_MESSAGE_GAP_MS);
+    const count = await prisma.message.count({
+      where: {
+        conversationId,
+        direction: 'OUTBOUND',
+        body: welcomeMessage,
+        sentAt: { gte: since },
+      },
+    });
+    return count > 0;
+  } catch (err) {
+    // A failed lookup must not cost the customer their greeting.
+    console.error('[Inbound] Could not check welcome history:', err.message);
+    return false;
+  }
+}
+
+// Canned answers for the everyday intents. Business hours are read back from
+// the workspace's own Working Hours configuration rather than invented, and any
+// intent with nothing useful to say returns null so the AI agent still gets its
+// turn.
+function generalIntentReply(intent, { workspace, contact }) {
+  const name = contact?.name ? ` ${String(contact.name).split(' ')[0]}` : '';
+  switch (intent) {
+    case 'greeting':
+      // Deliberately not the workspace's welcome message: that one belongs to a
+      // first contact, and reusing it here meant a returning customer saying
+      // "hello" was welcomed to the business all over again (QA BUG-07).
+      return `Hello${name}! How can we help you today?`;
+    case 'goodbye':
+      return CONTROL_REPLIES.goodbye;
+    case 'thanks':
+      return "You're very welcome! Let us know if there's anything else.";
+    case 'business_hours': {
+      const summary = describeBusinessHours(workspace?.businessHours);
+      if (summary) return summary;
+      // Working hours are switched off or unset. Returning null here sent the
+      // question to the AI agent, which had nothing to say either, which
+      // escalated the thread to a person — so one "working hours" message
+      // silenced every automation on the conversation from then on. Saying we
+      // are always reachable is both true and recoverable.
+      return "We don't publish set working hours — send us a message any time and we'll get back to you as soon as we can.";
+    }
+    // 'help' and 'human' are intentionally not answered here: help depends on
+    // what this workspace actually offers, and asking for a person is handled
+    // by the escalation step above.
+    default:
+      return null;
+  }
 }
 
 // Arms the "Delayed Response Message" automation. The worker re-checks at fire

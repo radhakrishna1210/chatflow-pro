@@ -25,7 +25,7 @@
 // per-message rates from lib/messagePricing.js, both fetched at render time —
 // see PLAN_CARDS below.
 
-export const SITE_NAME = 'ChatFlow Pro';
+export const SITE_NAME = 'Spandan';
 
 // `headlineLines` carries the h1's deliberate two-line break — the heading is
 // set in a 76px display face and the break is a typographic decision, not
@@ -177,22 +177,22 @@ export const FOOTER_COLS = [
 
 export const FOOTER_BLURB = 'WhatsApp Business API for teams that would rather their campaigns answered for themselves.';
 
-export const FOOTER_LEGAL = '© 2026 ChatFlow Pro · Meta WhatsApp Business API partner';
+export const FOOTER_LEGAL = '© 2026 Spandan · Meta WhatsApp Business API partner';
 
 // Prose the page does not render as its own section but that a visitor asks
 // about constantly. Kept here rather than in the help corpus because it is
 // positioning, not instructions.
 //
 // CONTACT deliberately lists no email address or phone number: the codebase
-// has neither, and an assistant that invents "support@chatflowpro.example" sends
+// has neither, and an assistant that invents "support@spandan.example" sends
 // customers into a void. The routes named here are the ones that exist.
-export const ABOUT = `ChatFlow Pro is a WhatsApp Business API platform for teams that send campaigns and then have to answer for them. It is an official Meta WhatsApp Business API partner, so numbers, templates and message delivery run on Meta's own infrastructure rather than an unofficial bridge.
+export const ABOUT = `Spandan is a WhatsApp Business API platform for teams that send campaigns and then have to answer for them. It is an official Meta WhatsApp Business API partner, so numbers, templates and message delivery run on Meta's own infrastructure rather than an unofficial bridge.
 
 The product covers the whole loop: connect a WhatsApp number, build and submit message templates, import contacts, send a campaign, and let AI agents, workflows and a shared team inbox handle the conversations the campaign starts. Per-message cost is Meta's rate passed through without markup, and money for messages that were never sent is refunded to the workspace wallet.
 
 Work is organised into workspaces. A workspace owns its own numbers, contacts, campaigns, conversations, wallet and team, and members reach data only through their membership in it — which is what lets an agency run a separate workspace per client.`;
 
-export const CONTACT = `To reach the ChatFlow Pro team, open the dashboard and go to Support, where you can raise a ticket with a subject, a category and a message. Tickets are tied to your workspace and the team replies to the account's email address.
+export const CONTACT = `To reach the Spandan team, open the dashboard and go to Support, where you can raise a ticket with a subject, a category and a message. Tickets are tied to your workspace and the team replies to the account's email address.
 
 For Enterprise enquiries — custom message volume, SSO and audit logs, custom integrations or an SLA — use the "Talk to sales" button on the Enterprise card in the pricing section of the website.
 
@@ -211,7 +211,7 @@ Account-level questions such as billing, plan changes and wallet top-ups are han
 export const CAMPAIGN_AI = {
   eyebrow: 'Campaign-aware AI',
   headline: 'Campaign AI that knows the exact offer your customer received',
-  definition: 'Campaign AI is ChatFlow Pro’s context-grounded assistant. When a customer taps a WhatsApp campaign and asks a question, the AI answers using that specific campaign’s offer, product and rules — not a generic knowledge base. It never invents a discount or a date it wasn’t given.',
+  definition: 'Campaign AI is Spandan’s context-grounded assistant. When a customer taps a WhatsApp campaign and asks a question, the AI answers using that specific campaign’s offer, product and rules — not a generic knowledge base. It never invents a discount or a date it wasn’t given.',
   chips: ['No hallucinated offers', 'Answers in seconds', 'Handoff to human built in'],
 
   // The demo thread rendered beside the hero. Deliberately a different brand
@@ -219,7 +219,7 @@ export const CAMPAIGN_AI = {
   // rather than one script repeated.
   demo: {
     brand: 'Vastra Studio',
-    brandNote: 'ChatFlow Pro AI · knows this campaign',
+    brandNote: 'Spandan AI · knows this campaign',
     campaign: '🎉 Republic Day Drop — flat 30% off the Linen Kurta set.',
     cta: 'Shop the drop',
     question: 'Does 30% work on the linen set in size L?',
@@ -251,7 +251,7 @@ export const CAMPAIGN_AI = {
   ],
 
   compare: {
-    columns: ['Capability', 'ChatFlow Pro Campaign AI', 'Generic WhatsApp bot'],
+    columns: ['Capability', 'Spandan Campaign AI', 'Generic WhatsApp bot'],
     rows: [
       ['Knows the specific campaign received', 'Yes, per message', 'No — one shared bot'],
       ['Invents offers or dates when unsure', 'Never — guardrailed', 'Common risk'],
@@ -262,7 +262,7 @@ export const CAMPAIGN_AI = {
   },
 
   limits: [
-    'Campaigns still use Meta-approved templates; template approval times are controlled by WhatsApp, not ChatFlow Pro.',
+    'Campaigns still use Meta-approved templates; template approval times are controlled by WhatsApp, not Spandan.',
     'The AI answers only from campaign context and your knowledge base — it will not reach data you have not connected.',
     'Messaging is subject to WhatsApp Business Platform policy and the per-conversation pricing Meta sets.',
     'Conversion tracking requires connecting your store or payment provider; without it, revenue is estimated.',
@@ -315,10 +315,10 @@ export const REACTOR = {
   ],
   // The pipeline diagram beside the chapters. Index-aligned with `chapters`.
   pipeline: [
-    { key: 'C',  label: 'Campaign',   sub: 'created in ChatFlow Pro' },
+    { key: 'C',  label: 'Campaign',   sub: 'created in Spandan' },
     { key: 'W',  label: 'WhatsApp',   sub: 'delivered to the customer' },
     { key: 'U',  label: 'Customer',   sub: 'taps the CTA, in context' },
-    { key: 'AI', label: 'ChatFlow Pro AI', sub: 'answers from the campaign' },
+    { key: 'AI', label: 'Spandan AI', sub: 'answers from the campaign' },
     { key: 'H',  label: 'Human',      sub: 'shared inbox handoff' },
     { key: 'A',  label: 'Analytics',  sub: 'the signal returns' },
   ],

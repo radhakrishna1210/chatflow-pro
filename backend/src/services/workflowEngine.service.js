@@ -251,6 +251,8 @@ export async function startRun(workflow, { workspaceId, conversationId, contactI
 export async function advanceRun(runId) {
   const run = await prisma.workflowRun.findUnique({ where: { id: runId } });
   if (!run) return null;
+  // COMPLETED also covers a run cancelled mid-flight, so a delayed resume that
+  // fires after the customer said "stop" finds the run closed and does nothing.
   if (run.status === 'COMPLETED' || run.status === 'FAILED') return run;
 
   const actions = actionsOf(run.nodes);
@@ -374,6 +376,46 @@ export function runWillSendMessage(run) {
   if (runSentMessage(run)) return true;
   if (run.status !== 'WAITING') return false;
   return actionsOf(run.nodes).slice(run.cursor).some((n) => REPLY_SUBTYPES.has(n.subtype));
+}
+
+// Stops every in-flight run on a conversation.
+//
+// A customer who types "cancel" or "bye" mid-flow must actually leave it
+// (QA BUG-02). Runs parked on a delay would otherwise wake up later and carry
+// on messaging someone who has already said they are done.
+//
+// Recorded as COMPLETED with a `cancelled` trace entry rather than a new status
+// value: WorkflowRunStatus has no CANCELLED member, and adding one would need a
+// schema migration to deploy before this fix could ship.
+export async function cancelActiveRuns(workspaceId, conversationId, reason = 'Cancelled by the customer') {
+  if (!conversationId) return 0;
+
+  const runs = await prisma.workflowRun.findMany({
+    where: { workspaceId, conversationId, status: { in: ['RUNNING', 'WAITING'] } },
+  });
+  if (runs.length === 0) return 0;
+
+  await Promise.all(runs.map((run) => {
+    const trace = Array.isArray(run.trace) ? [...run.trace] : [];
+    trace.push({ step: run.cursor, subtype: 'cancelled', detail: reason, result: 'cancelled', at: new Date().toISOString() });
+    return prisma.workflowRun.update({
+      where: { id: run.id },
+      data: { status: 'COMPLETED', trace, finishedAt: new Date() },
+    }).catch((err) => console.error(`[WorkflowEngine] Could not cancel run ${run.id}:`, err.message));
+  }));
+
+  console.log(`[WorkflowEngine] Cancelled ${runs.length} run(s) on conversation ${conversationId} — ${reason}`);
+  return runs.length;
+}
+
+// True if a run parked on a delay is still due to send something. Used to decide
+// whether a control word actually interrupted anything worth acknowledging.
+export async function hasActiveRun(workspaceId, conversationId) {
+  if (!conversationId) return false;
+  const count = await prisma.workflowRun.count({
+    where: { workspaceId, conversationId, status: { in: ['RUNNING', 'WAITING'] } },
+  });
+  return count > 0;
 }
 
 export async function listRuns(workspaceId, { workflowId, limit = 20 } = {}) {

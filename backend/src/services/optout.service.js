@@ -28,6 +28,23 @@ const OPT_OUT_KEYWORDS = [
 // keyword matched.
 const KEYWORDS_BY_LENGTH = [...OPT_OUT_KEYWORDS].sort((a, b) => b.length - a.length);
 
+// Some of these words mean two different things depending on where the
+// customer is in the conversation. Typed on their own, "cancel", "quit" and
+// "end" almost always mean "get me out of this form", not "never message me
+// again" — and QA found that answering a form question with "cancel"
+// unsubscribed the contact from the workspace outright.
+//
+// "stop", "unsubscribe" and friends are deliberately NOT in this set: they are
+// the phrases WhatsApp expects a business to honour as an opt-out, and a flow
+// being open is not a good enough reason to ignore one.
+const FLOW_CONTROL_KEYWORDS = new Set(['cancel', 'quit', 'end']);
+
+// True when this opt-out keyword should be read as "leave the current flow"
+// while a form or workflow is mid-question.
+export function isFlowControlKeyword(keyword) {
+  return FLOW_CONTROL_KEYWORDS.has(String(keyword || '').toLowerCase());
+}
+
 export function listOptOutKeywords() {
   return [...OPT_OUT_KEYWORDS];
 }

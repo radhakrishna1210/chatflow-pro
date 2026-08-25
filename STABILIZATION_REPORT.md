@@ -1,4 +1,4 @@
-# ChatFlow Pro — Stabilization Sprint Report
+# Spandan — Stabilization Sprint Report
 
 All 60 issues from BUGS.md were addressed, plus additional defects found during independent audit and live end-to-end testing (86/86 automated E2E checks passing against a real Postgres + Redis + BullMQ stack).
 

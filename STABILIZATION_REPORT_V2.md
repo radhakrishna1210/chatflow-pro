@@ -1,4 +1,4 @@
-# ChatFlow Pro — Stabilization Sprint v2 Report
+# Spandan — Stabilization Sprint v2 Report
 
 This round addressed all 11 issues in the second BUGS.md, which were deeper, feature-level defects (not the surface bugs of round 1). Every issue was either **built properly end-to-end** or, where a real backend genuinely doesn't exist yet, made **honest** ("Coming Soon") instead of faking success.
 
