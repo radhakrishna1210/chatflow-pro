@@ -26,7 +26,7 @@ import IntegrationsView from './IntegrationsView.jsx';
 import PaymentsView from './PaymentsView.jsx';
 import LegalCenter from '../components/LegalCenter.jsx';
 import { LEGAL_DOCS } from '../lib/legalContent.js';
-
+import AuthenticationDashboard from './AuthenticationDashboard.jsx';
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
 const StatusBadge = ({ s }) => {
@@ -3540,6 +3540,7 @@ const PlaceholderView = ({ title, icon }) => (
 const ADMIN_NAV = [
   { id: 'home',           label: 'Home',           icon: 'home'  },
   { id: 'templates',      label: 'Templates',      icon: 'file'  },
+   { id: 'authentication',label: 'Authentication',        icon: 'shield' },
   { id: 'campaigns',      label: 'Campaigns',      icon: 'send'  },
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
@@ -3602,7 +3603,7 @@ const SUPERADMIN_NAV = [...ADMIN_TABS, { id: 'settings', label: 'Settings', icon
 // rather than colour emoji, so those two do follow the text colour.
 const NAV_EMOJI = {
   // straight from the design set
-  home: '\u{1F3E0}', inbox: '\u{1F4AC}', campaigns: '\u{1F4E3}', templates: '\u{1F4C4}',
+  home: '\u{1F3E0}', inbox: '\u{1F4AC}', campaigns: '\u{1F4E3}', templates: '\u{1F4C4}',authentication: '\u{1F510}',
   contacts: '\u{1F465}', 'ai-agent': '\u2726', automation: '\u26A1', 'intent-matching': '\u{1F3AF}',
   analytics: '\u{1F4CA}', 'chat-analysis': '\u{1F50E}', 'user-analytics': '\u{1F4C8}',
   integrations: '\u{1F50C}', setup: '\u{1F4F1}', api: '\u{1F511}', payments: '\u{1F4B3}',
@@ -3621,7 +3622,7 @@ const TEXT_GLYPHS = new Set(['\u2726', '\u26A1']);
 
 const NAV_GROUPS = [
   { name: 'COMMAND',    ids: ['home', 'inbox'] },
-  { name: 'GROW',       ids: ['campaigns', 'templates', 'contacts'] },
+  { name: 'GROW',       ids: ['campaigns', 'templates', 'authentication', 'contacts'] },
   { name: 'AUTOMATE',   ids: ['ai-agent', 'automation', 'intent-matching'] },
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
   { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'settings'] },
@@ -4032,6 +4033,7 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
       />
     );
     if (page === 'templates')  return <TemplatesView />;
+    if (page === 'authentication') return <AuthenticationDashboard />;
     if (page === 'widget')     return <WidgetsView />;
     if (page === 'contacts')   return <ContactsView />;
     if (page === 'automation')     return <AutomationView initialTab={initialSubTab || 'basic'} />;
