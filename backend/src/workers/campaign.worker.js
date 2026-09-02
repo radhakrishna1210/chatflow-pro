@@ -15,12 +15,15 @@ import { settleCampaignRefund } from '../services/campaigns.service.js';
 import { claimRecipientCharge, markRecipientNotCharged, recordAttempt } from '../services/campaignBilling.service.js';
 import { isOptedOut } from '../services/optout.service.js';
 import { notifyWorkspace } from '../services/notification.service.js';
-
+import { sendAuthenticationOtp } from '../authentication/authentication.service.js';
 // Meta Cloud API Tier-1 numbers are limited to ~250 msgs/min. The old 60ms
 // delay (~1000/min) triggered rate-limit errors (code 131042). 250ms ≈ 240/min.
 const RATE_DELAY_MS = Math.max(env.CAMPAIGN_RATE_DELAY_MS, 250);
 
 const normalizePhone = (raw) => String(raw || '').replace(/[^\d]/g, '');
+const isAuthenticationCampaign = (campaign) =>
+  String(campaign?.template?.category || '').toUpperCase() ===
+  'AUTHENTICATION';
 
 // Marks a recipient as skipped because the number is opted out. Skips are
 // tracked separately from failures: they cost nothing, are never retried, and
@@ -202,19 +205,68 @@ async function processRetryJob(job) {
       return;
     }
 
-    const templatePayload = await buildTemplatePayload(
-      campaign.template,
-      recipient.contact,
-      { phoneNumberId, accessToken, campaign, recipientId: recipient.id },
-    );
+    // const templatePayload = await buildTemplatePayload(
+    //   campaign.template,
+    //   recipient.contact,
+    //   { phoneNumberId, accessToken, campaign, recipientId: recipient.id },
+    // );
 
-    const result = await sendWhatsAppMessage(
+    // const result = await sendWhatsAppMessage(
+    //   phoneNumberId,
+    //   accessToken,
+    //   normalizePhone(recipient.contact.phoneNumber),
+    //   templatePayload
+    // );
+    // const metaMessageId = result?.messages?.[0]?.id ?? null;
+    let metaMessageId = null;
+
+if (isAuthenticationCampaign(campaign)) {
+  /*
+   * AUTHENTICATION campaign:
+   *
+   * Do not use the normal campaign template payload builder.
+   * sendAuthenticationOtp() generates a unique OTP for this
+   * recipient and creates the workspace/phone-isolated transaction.
+   *
+   * Campaigns currently do not have a per-recipient client OTP
+   * source, so they use CHATFLOW_GENERATED mode.
+   */
+  const authenticationResult = await sendAuthenticationOtp(
+    workspaceId,
+    {
+      templateId: campaign.template.id,
+      to: recipient.contact.phoneNumber,
+      waNumberId: campaign.waNumber.id,
+    }
+  );
+
+  metaMessageId =
+    authenticationResult?.metaMessageId ?? null;
+} else {
+  /*
+   * NORMAL campaign:
+   * Keep the existing template payload behavior unchanged.
+   */
+  const templatePayload = await buildTemplatePayload(
+    campaign.template,
+    recipient.contact,
+    {
       phoneNumberId,
       accessToken,
-      normalizePhone(recipient.contact.phoneNumber),
-      templatePayload
-    );
-    const metaMessageId = result?.messages?.[0]?.id ?? null;
+      campaign,
+      recipientId: recipient.id,
+    },
+  );
+
+  const result = await sendWhatsAppMessage(
+    phoneNumberId,
+    accessToken,
+    normalizePhone(recipient.contact.phoneNumber),
+    templatePayload
+  );
+
+  metaMessageId = result?.messages?.[0]?.id ?? null;
+}
     console.log(`[CampaignRetry] Retry succeeded for recipient ${recipient.id} on attempt #${attempt}:`, metaMessageId);
 
     await snapshotRecipientContext(campaign, recipient);
@@ -425,21 +477,77 @@ async function processCampaign(job) {
 
       // Only carries `components` when there is something to substitute — the
       // template's own definition (type:BODY/text:...) causes Meta to reject.
-      const templatePayload = await buildTemplatePayload(
-        campaign.template,
-        recipient.contact,
-        { phoneNumberId, accessToken, campaign, recipientId: recipient.id },
-      );
+      // const templatePayload = await buildTemplatePayload(
+      //   campaign.template,
+      //   recipient.contact,
+      //   { phoneNumberId, accessToken, campaign, recipientId: recipient.id },
+      // );
 
-      const result = await sendWhatsAppMessage(
-        phoneNumberId,
-        accessToken,
-        normalizePhone(recipient.contact.phoneNumber),
-        templatePayload
-      );
-      const metaMessageId = result?.messages?.[0]?.id ?? null;
-      console.log(`[CampaignWorker] sent to ${recipient.contact.phoneNumber}:`, metaMessageId);
+      // const result = await sendWhatsAppMessage(
+      //   phoneNumberId,
+      //   accessToken,
+      //   normalizePhone(recipient.contact.phoneNumber),
+      //   templatePayload
+      // );
+      // const metaMessageId = result?.messages?.[0]?.id ?? null;
+      
+      // console.log(`[CampaignWorker] sent to ${recipient.contact.phoneNumber}:`, metaMessageId);
+let metaMessageId = null;
 
+if (isAuthenticationCampaign(campaign)) {
+  /*
+   * AUTHENTICATION campaign:
+   *
+   * Reuse the existing Authentication OTP service.
+   * Each recipient gets a newly generated OTP and a
+   * separate AuthenticationTransaction.
+   */
+  const authenticationResult = await sendAuthenticationOtp(
+    campaign.workspaceId,
+    {
+      templateId: campaign.template.id,
+      to: recipient.contact.phoneNumber,
+      waNumberId: campaign.waNumber.id,
+    }
+  );
+
+  metaMessageId =
+    authenticationResult?.metaMessageId ?? null;
+
+  console.log(
+    `[CampaignWorker] authentication OTP sent to ${recipient.contact.phoneNumber}:`,
+    metaMessageId
+  );
+} else {
+  /*
+   * NORMAL campaign:
+   * Existing behavior remains unchanged.
+   */
+  const templatePayload = await buildTemplatePayload(
+    campaign.template,
+    recipient.contact,
+    {
+      phoneNumberId,
+      accessToken,
+      campaign,
+      recipientId: recipient.id,
+    },
+  );
+
+  const result = await sendWhatsAppMessage(
+    phoneNumberId,
+    accessToken,
+    normalizePhone(recipient.contact.phoneNumber),
+    templatePayload
+  );
+
+  metaMessageId = result?.messages?.[0]?.id ?? null;
+
+  console.log(
+    `[CampaignWorker] sent to ${recipient.contact.phoneNumber}:`,
+    metaMessageId
+  );
+}
       await prisma.campaignRecipient.update({
         where: { id: recipient.id },
         data: { status: 'SENT', sentAt: new Date(), initialStatus: 'SENT' },

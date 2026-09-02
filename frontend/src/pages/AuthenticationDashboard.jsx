@@ -208,6 +208,8 @@ export default function AuthenticationDashboard({
   const [sendResult, setSendResult] =
     useState(null);
 
+  const [expiresInSeconds, setExpiresInSeconds] = useState(null);
+  
   const [verifyResult, setVerifyResult] =
     useState(null);
 
@@ -219,6 +221,45 @@ export default function AuthenticationDashboard({
     useState('');
 
   const [showRaw, setShowRaw] = useState(false);
+  
+
+useEffect(() => {
+  if (!sendResult?.expiresAt) {
+    setExpiresInSeconds(null);
+    return undefined;
+  }
+
+  const updateCountdown = () => {
+    const expiresAt = new Date(
+      sendResult.expiresAt
+    ).getTime();
+
+    if (!Number.isFinite(expiresAt)) {
+      setExpiresInSeconds(null);
+      return;
+    }
+
+    const remaining = Math.max(
+      0,
+      Math.ceil(
+        (expiresAt - Date.now()) / 1000
+      )
+    );
+
+    setExpiresInSeconds(remaining);
+  };
+
+  updateCountdown();
+
+  const intervalId = window.setInterval(
+    updateCountdown,
+    1000
+  );
+
+  return () => {
+    window.clearInterval(intervalId);
+  };
+}, [sendResult?.expiresAt]);
 
   /*
    * Load Authentication templates from the current workspace.
@@ -356,11 +397,17 @@ export default function AuthenticationDashboard({
   async function sendOtp(e) {
     e?.preventDefault();
 
-    setError('');
-    setVerifyError('');
+    // setError('');
+    // setVerifyError('');
+    // setSendResult(null);
+    // setVerifyResult(null);
+    // setVerifyCode('');
     setSendResult(null);
-    setVerifyResult(null);
-    setVerifyCode('');
+setExpiresInSeconds(null);
+setVerifyResult(null);
+setError('');
+setVerifyError('');
+setVerifyCode('');
 
     const phone = to.trim();
     const selectedTemplate =
@@ -510,6 +557,7 @@ export default function AuthenticationDashboard({
 
   function resetTest() {
     setSendResult(null);
+    setExpiresInSeconds(null);
     setVerifyResult(null);
     setError('');
     setVerifyError('');
@@ -1159,13 +1207,13 @@ export default function AuthenticationDashboard({
                   />
 
                   <ResultRow
-                    label="Expires In"
-                    value={
-                      sendResult.expiresIn != null
-                        ? `${sendResult.expiresIn} seconds`
-                        : ''
-                    }
-                  />
+  label="Expires In"
+  value={
+    expiresInSeconds != null
+      ? `${expiresInSeconds} seconds`
+      : ''
+  }
+/>
 
                   <ResultRow
                     label="Meta Message ID"
@@ -1413,35 +1461,41 @@ export default function AuthenticationDashboard({
           )}
 
           {verifyResult && (
-            <div
-              style={{
-                marginTop: 16,
-              }}
-            >
-              <StatusBox type="success">
-                OTP verification succeeded.
-              </StatusBox>
+  <div
+    style={{
+      marginTop: 16,
+    }}
+  >
+    {verifyResult.verified === true ? (
+      <StatusBox type="success">
+        OTP verification succeeded.
+      </StatusBox>
+    ) : (
+      <StatusBox type="error">
+        OTP verification failed.
+      </StatusBox>
+    )}
 
-              <pre
-                style={{
-                  marginTop: 12,
-                  padding: 14,
-                  background:
-                    'rgba(0,0,0,.25)',
-                  borderRadius: 10,
-                  overflow: 'auto',
-                  fontSize: 11,
-                  lineHeight: 1.5,
-                }}
-              >
-                {JSON.stringify(
-                  verifyResult,
-                  null,
-                  2
-                )}
-              </pre>
-            </div>
-          )}
+    <pre
+      style={{
+        marginTop: 12,
+        padding: 14,
+        background:
+          'rgba(0,0,0,.25)',
+        borderRadius: 10,
+        overflow: 'auto',
+        fontSize: 11,
+        lineHeight: 1.5,
+      }}
+    >
+      {JSON.stringify(
+        verifyResult,
+        null,
+        2
+      )}
+    </pre>
+  </div>
+)}
         </div>
 
         {/* ───────────────── IMPLEMENTATION CHECK ───────────────── */}
