@@ -2,7 +2,7 @@ import { createHash, randomInt } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 
 const OTP_LENGTH = 6;
-const DEFAULT_EXPIRY_MINUTES = 5;
+const DEFAULT_EXPIRY_MINUTES = 10;
 const MAX_ATTEMPTS = 5;
 
 function generateOtp() {
@@ -95,15 +95,23 @@ export async function attachMetaMessageId(
  * Verify a ChatFlow-generated authentication transaction.
  */
 export async function verifyAuthenticationTransaction(
+  workspaceId,
   phone,
   code
 ) {
+  if (!workspaceId) {
+    const error = new Error('Workspace is required.');
+    error.status = 400;
+    throw error;
+  }
+
   const normalizedPhone = String(phone || '').trim();
   const normalizedCode = String(code || '').trim();
 
   const transaction =
     await prisma.authenticationTransaction.findFirst({
       where: {
+        workspaceId,
         phone: normalizedPhone,
         source: 'CHATFLOW',
         status: 'PENDING',

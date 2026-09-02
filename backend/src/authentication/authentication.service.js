@@ -13,29 +13,17 @@ import {
   normalizePhone,
 } from '../services/optout.service.js';
 
-const DEFAULT_EXPIRATION_MINUTES = 5;
+const AUTHENTICATION_OTP_EXPIRATION_MINUTES = 10;
 
 /**
- * Get the OTP expiration configured on the approved
- * Meta Authentication template.
+ * Authentication OTPs always remain valid for ten minutes.
+ *
+ * The template's expiry component controls Meta's rendered
+ * expiry line, while this value controls the transaction that
+ * ChatFlow verifies.
  */
-function getExpirationMinutes(template) {
-  const components = Array.isArray(template?.components)
-    ? template.components
-    : [];
-
-  const footer = components.find(
-    component =>
-      String(component?.type || '').toUpperCase() === 'FOOTER'
-  );
-
-  const value = Number(footer?.code_expiration_minutes);
-
-  return Number.isInteger(value) &&
-    value >= 1 &&
-    value <= 90
-    ? value
-    : DEFAULT_EXPIRATION_MINUTES;
+function getExpirationMinutes() {
+  return AUTHENTICATION_OTP_EXPIRATION_MINUTES;
 }
 
 /**
@@ -292,7 +280,7 @@ export async function sendAuthenticationOtp(
 
     expiresAt = new Date(
       Date.now() +
-        getExpirationMinutes(template) *
+        getExpirationMinutes() *
           60 *
           1000
     );
@@ -304,7 +292,7 @@ export async function sendAuthenticationOtp(
         waNumberId: waNumber.id,
         phone: recipient,
         expiresInMinutes:
-          getExpirationMinutes(template),
+          getExpirationMinutes(),
       });
 
     code = generated.code;
@@ -367,9 +355,16 @@ export async function sendAuthenticationOtp(
  * Verify a ChatFlow-generated Authentication OTP.
  */
 export async function verifyAuthenticationOtp(
+  workspaceId,
   phone,
   code
 ) {
+  if (!workspaceId) {
+    const error = new Error('Workspace is required.');
+    error.status = 400;
+    throw error;
+  }
+
   if (!phone || typeof phone !== 'string') {
     const error = new Error(
       'Phone number is required.'
@@ -402,6 +397,7 @@ export async function verifyAuthenticationOtp(
   }
 
   return verifyAuthenticationTransaction(
+    workspaceId,
     recipient,
     normalizedCode
   );

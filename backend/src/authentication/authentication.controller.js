@@ -27,6 +27,7 @@ export async function verifyOtp(req, res) {
 
   const result =
     await authenticationService.verifyAuthenticationOtp(
+      req.workspaceId,
       phone,
       code
     );
