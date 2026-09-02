@@ -123,9 +123,10 @@ export default function App() {
 
   // Route guards
   useEffect(() => {
-    if (path.startsWith('/dashboard') && !isAuthed()) {
+    const isResources = path === '/resources' || path.startsWith('/resources/');
+    if ((path.startsWith('/dashboard') || isResources) && !isAuthed()) {
       navigate('/login', { replace: true });
-    } else if (path.startsWith('/dashboard') && !canAccessDashboard()) {
+    } else if ((path.startsWith('/dashboard') || isResources) && !canAccessDashboard()) {
       navigate('/setup', { replace: true });
     } else if (path === '/setup' && !isAuthed()) {
       navigate('/login', { replace: true });
@@ -174,6 +175,12 @@ function renderPage(path, nav, search) {
     return <WorkspaceSetup onNav={nav} />;
   }
   if (path.startsWith('/dashboard')) {
+    if (!isAuthed() || !canAccessDashboard()) return null; // guard effect redirects
+    return <Dashboard onNav={nav} routePath={path} routeSearch={search} />;
+  }
+  // Resource Center — a logged-in area rendered inside the Dashboard shell so
+  // the app sidebar stays put. Same guards as /dashboard.
+  if (path === '/resources' || path.startsWith('/resources/')) {
     if (!isAuthed() || !canAccessDashboard()) return null; // guard effect redirects
     return <Dashboard onNav={nav} routePath={path} routeSearch={search} />;
   }
