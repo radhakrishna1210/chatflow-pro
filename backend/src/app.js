@@ -56,6 +56,21 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/widget/v1')) return next();
 
   const origin = req.headers.origin;
+
+  // The public API is designed to be called from external websites, so we accept any origin
+  // but require the x-api-key header for authentication.
+  if (req.path.startsWith('/api/v1/public')) {
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-api-key');
+      res.setHeader('Access-Control-Max-Age', '600');
+    }
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    return next();
+  }
+
   if (origin && env.CORS_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
