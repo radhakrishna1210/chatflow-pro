@@ -30,6 +30,18 @@ model User {
   assignedConversations Conversation[]     @relation("ConversationAssignee")
   conversationNotes     ConversationNote[]
   notifications         Notification[]
+  leadsOwned            Lead[]             @relation("LeadOwner")
+  dealsOwned            Deal[]             @relation("DealOwner")
+  dealStageChanges      DealStageHistory[] @relation("DealStageChangedBy")
+  savedViews            SavedView[]        @relation("SavedViewAuthor")
+  quotesAuthored        Quote[]            @relation("QuoteAuthor")
+  tasksAssigned         Task[]             @relation("TaskAssignee")
+  crmActivitiesAuthored CrmActivity[]      @relation("CrmActivityAuthor")
+  teamMemberships       TeamMember[]
+  leadFormsOwned        LeadForm[]         @relation("LeadFormOwner")
+  ticketsOwned          CrmTicket[]        @relation("TicketOwner")
+  xpEvents              XpEvent[]
+  achievements          Achievement[]
 }
 
 model Workspace {
@@ -57,12 +69,12 @@ model Workspace {
   // real editable fields now.
   welcomeMessage               String                   @default("Thanks for reaching out! We've received your message and will get back to you shortly.")
   oooMessage                   String                   @default("We're currently unavailable. We'll respond to your message as soon as possible.")
-  delayedMessage               String                   @default("Sorry for the wait — we're still looking into this and will reply as soon as we can.")
+  delayedMessage               String                   @default("Sorry for the wait ΓÇö we're still looking into this and will reply as soon as we can.")
   // How long an inbound message may sit without a human reply before the
   // delayed-response auto-reply fires.
   delayedAfterMinutes          Int                      @default(15)
   // { tz: "Asia/Kolkata", days: [{ day: 0-6, enabled: bool, start: "09:00", end: "18:00" }] }
-  // Null means "always open" — OOO then only fires on reopened conversations.
+  // Null means "always open" ΓÇö OOO then only fires on reopened conversations.
   businessHours                Json?
   voiceAiEnabled               Boolean                  @default(false)
   voiceAiName                  String                   @default("MyCallGenie")
@@ -88,11 +100,11 @@ model Workspace {
   // The agent's configuration beyond name/prompt/knowledge. Split into named
   // columns rather than one JSON blob because each is edited by its own
   // section of the AI Agent page and read independently when composing a
-  // reply — a blob would make "did escalation change?" unanswerable.
+  // reply ΓÇö a blob would make "did escalation change?" unanswerable.
   aiAgentPurpose               String                   @default("")
   aiAgentInstructions          String                   @default("")
   aiAgentSafetyNote            String                   @default("")
-  // ["English", "Hindi", ...] — null means "no preference stated".
+  // ["English", "Hindi", ...] ΓÇö null means "no preference stated".
   aiAgentLanguages             Json?
   // Below this confidence the agent hands the conversation to a human.
   escalationThreshold          Float                    @default(0.65)
@@ -108,7 +120,7 @@ model Workspace {
   suspendedReason              String?
   walletBalance                Decimal                  @default(0) @db.Decimal(12, 2)
   // What one campaign message costs this workspace, in the wallet's currency
-  // (INR). Campaign cost = valid recipients × this, charged once at launch.
+  // (INR). Campaign cost = valid recipients ├ù this, charged once at launch.
   // Workspace-level so a reseller can price per account without a plan change.
   costPerMessage               Decimal                  @default(0.92) @db.Decimal(10, 4)
   createdAt                    DateTime                 @default(now())
@@ -148,6 +160,32 @@ model Workspace {
   addons                       WorkspaceAddon[]
   customFields                 WorkspaceCustomField[]
   customEvents                 WorkspaceCustomEvent[]
+  recordVisibility             String                   @default("ALL")
+  autoLeadFromReply            Boolean                  @default(false)
+  leads                        Lead[]
+  deals                        Deal[]
+  dealStageHistories           DealStageHistory[]
+  savedViews                   SavedView[]
+  pipelineStages               PipelineStage[]
+  customFieldDefinitions       CustomFieldDefinition[]
+  sequences                    Sequence[]
+  sequenceEnrollments          SequenceEnrollment[]
+  sequenceStepRuns             SequenceStepRun[]
+  teams                        Team[]
+  leadForms                    LeadForm[]
+  leadFormSubmissions          LeadFormSubmission[]
+  crmTickets                   CrmTicket[]
+  xpEvents                     XpEvent[]
+  achievements                 Achievement[]
+  products                     Product[]
+  dealLineItems                DealLineItem[]
+  quotes                       Quote[]
+  quoteLineItems               QuoteLineItem[]
+  tasks                        Task[]
+  crmActivities                CrmActivity[]
+  agentTasks    AgentTask[]
+  agentRuns     AgentRun[]
+  agentFacts    AgentFact[]
 }
 
 model WorkspaceMember {
@@ -169,7 +207,7 @@ model Invitation {
   email           String?
   role            Role             @default(CLIENT)
   kind            InviteKind       @default(EMAIL)
-  // LINK invites are reusable — that is the point of sharing one. Null means
+  // LINK invites are reusable ΓÇö that is the point of sharing one. Null means
   // unlimited until the invite expires or is revoked. EMAIL invites are
   // always single-use and leave this null.
   maxUses         Int?
@@ -233,7 +271,7 @@ model WaNumber {
   //
   // This was scoped per workspace, which only stopped the same workspace
   // connecting a number twice. Across workspaces it allowed two tenants to
-  // claim one phone number id — and inbound routing resolves a number with
+  // claim one phone number id ΓÇö and inbound routing resolves a number with
   // `findFirst({ metaPhoneNumberId })`, with no workspace to scope it by, so
   // whichever row happened to be found first received the other tenant's
   // customer messages. Global uniqueness is what makes that resolution correct.
@@ -269,14 +307,14 @@ model Template {
   // it instead of a bare REJECTED badge.
   rejectedReason    String?
   // Meta re-reviews templates and can move them between categories after
-  // approval — most often UTILITY → MARKETING, which is a ~7x price rise per
+  // approval ΓÇö most often UTILITY ΓåÆ MARKETING, which is a ~7x price rise per
   // message. These record that it happened so the app can flag it and offer a
   // utility-compliant rewrite instead of silently costing more.
   previousCategory  String?
   categoryUpdatedAt DateTime?
   aiGenerated       Boolean        @default(false)
   // The image sent as this template's media header. Meta's `header_handle` is
-  // only a *sample* for review — it cannot be sent — so every send has to
+  // only a *sample* for review ΓÇö it cannot be sent ΓÇö so every send has to
   // supply the real media again. Keeping the bytes here is what lets a
   // campaign re-send the same picture months after approval.
   headerAssetId     String?
@@ -306,7 +344,7 @@ model TemplateAsset {
   source            String     @default("upload") // 'upload' | 'openai' | 'gemini'
   // A WhatsApp media id is scoped to the phone number that uploaded it and
   // expires after ~30 days, so it is treated as a cache, not the source of
-  // truth — re-minted from `bytes` whenever it is missing, stale, or belongs
+  // truth ΓÇö re-minted from `bytes` whenever it is missing, stale, or belongs
   // to a different number.
   metaMediaId       String?
   metaMediaNumberId String?
@@ -344,6 +382,13 @@ model Contact {
 
   @@unique([workspaceId, phoneNumber])
   @@index([workspaceId, updatedAt])
+  lead                Lead?
+  quotes              Quote[]
+  sequenceEnrollments SequenceEnrollment[]
+  deals               Deal[]
+  tasks               Task[]
+  crmActivities       CrmActivity[]
+  CrmTicket           CrmTicket[]
 }
 
 model Campaign {
@@ -359,7 +404,7 @@ model Campaign {
   read            Int                 @default(0)
   failed          Int                 @default(0)
   // Recipients never sent to because the number opted out. Counted separately
-  // from `failed` — a blocked number is a skip, not a delivery error, and it
+  // from `failed` ΓÇö a blocked number is a skip, not a delivery error, and it
   // must never stop the rest of the campaign.
   skipped         Int                 @default(0)
   // Wallet accounting, written once when the launch charge succeeds.
@@ -377,7 +422,7 @@ model Campaign {
   launchedAt      DateTime?
   completedAt     DateTime?
   aiGenerated     Boolean             @default(false)
-  // ─── Campaign AI Agent ─────────────────────────────────────────────────
+  // ΓöÇΓöÇΓöÇ Campaign AI Agent ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   // When on, the campaign's template CTA ("Ask Anything") hands the customer
   // to the workspace's deployed WhatsApp AI Agent, primed with what this
   // campaign actually said. `aiAgentId` names the agent (the workspace's own,
@@ -434,10 +479,10 @@ model CampaignRecipient {
   // the last 10 so a 24-hour hourly retry pattern cannot grow the row without
   // limit.
   retryHistory      Json?
-  // ─── Billing ledger ────────────────────────────────────────────────────
+  // ΓöÇΓöÇΓöÇ Billing ledger ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   // The recipient is the unit of billing, not the send attempt. A message
   // that took four attempts to deliver is charged once; one that never
-  // delivered is charged nothing. `billedAt` is the idempotency guard —
+  // delivered is charged nothing. `billedAt` is the idempotency guard ΓÇö
   // written in the same conditional update that claims the charge, so a
   // duplicate retry job, a replayed webhook or a worker restart cannot
   // double-charge. Nothing here is ever rewritten once set.
@@ -452,7 +497,7 @@ model CampaignRecipient {
   messageCategory   String?
   // What this contact was actually sent, written at send time when the
   // campaign has an AI agent attached: the resolved body/header/footer text
-  // plus the buttons. This — not the template as it reads today — is the
+  // plus the buttons. This ΓÇö not the template as it reads today ΓÇö is the
   // context the agent answers from, which is what makes "the offer was 50%"
   // stay true after the admin edits the campaign down to 30%.
   aiContext         Json?
@@ -465,7 +510,7 @@ model CampaignRecipient {
   // Drives the restart-recovery sweep, which looks for RETRYING rows whose
   // nextRetryAt has passed because their delayed job died with Redis.
   @@index([status, nextRetryAt])
-  // "Which campaign did this customer most recently receive?" — asked on the
+  // "Which campaign did this customer most recently receive?" ΓÇö asked on the
   // inbound path when a typed CTA label has to be matched to a campaign.
   @@index([contactId, sentAt])
 }
@@ -484,8 +529,8 @@ model Conversation {
   // When a person took this conversation over from the automation.
   //
   // Handing off used to flag the thread and notify the workspace and then let
-  // the next inbound message run the whole automation chain again — keyword
-  // triggers, intent routing, the AI agent — so the bot talked straight over
+  // the next inbound message run the whole automation chain again ΓÇö keyword
+  // triggers, intent routing, the AI agent ΓÇö so the bot talked straight over
   // the human who had just picked it up. While this is set, automation stays
   // out of the thread; resolving the conversation, or switching the bot back
   // on from the inbox, clears it.
@@ -510,12 +555,13 @@ model Conversation {
   // NULL), which Prisma cannot express here. Declared as an index so the
   // client still plans lookups against it.
   @@index([workspaceId, contactId, waNumberId])
+  tickets CrmTicket[]
 }
 
 // One customer's "Ask Anything" conversation with the AI agent attached to a
 // campaign. Created when the customer taps the campaign's CTA, and it owns the
 // conversation's replies until it expires (see EXPIRY_MINUTES in
-// services/campaignAi.service.js) or the customer exits — after which inbound
+// services/campaignAi.service.js) or the customer exits ΓÇö after which inbound
 // messages fall back to the normal automation order.
 //
 // `campaignContext` is a copy, not a pointer: the campaign row can be edited,
@@ -532,7 +578,7 @@ model CampaignAiSession {
   agentId             String?
   ctaLabel            String?
   campaignContext     Json
-  // ACTIVE | EXPIRED | ENDED — ENDED is an explicit exit by the customer.
+  // ACTIVE | EXPIRED | ENDED ΓÇö ENDED is an explicit exit by the customer.
   status              String             @default("ACTIVE")
   turns               Int                @default(0)
   activatedAt         DateTime           @default(now())
@@ -555,7 +601,7 @@ model Message {
   body                String
   direction           MessageDirection
   // Unique, not merely indexed. Meta retries a webhook until it gets a 200, and
-  // nothing de-duplicated on this id — so a retried delivery wrote the message
+  // nothing de-duplicated on this id ΓÇö so a retried delivery wrote the message
   // again *and* re-ran the automation behind it. Production data carried inbound
   // messages stored four times over. This constraint is what makes the webhook
   // handler's upsert idempotent.
@@ -655,7 +701,7 @@ model WorkflowRun {
   conversationId String?
   contactId      String?
   status         WorkflowRunStatus @default(RUNNING)
-  // Index into the workflow's action nodes — where to resume after a delay.
+  // Index into the workflow's action nodes ΓÇö where to resume after a delay.
   cursor         Int               @default(0)
   // Snapshot of the nodes at trigger time, so editing a workflow mid-run
   // doesn't make an in-flight run jump to a different set of steps.
@@ -675,6 +721,13 @@ model WorkflowRun {
 
   @@index([workspaceId, startedAt])
   @@index([workflowId, startedAt])
+
+  leadId       String?
+  dealId       String?
+  ticketId     String?
+  lead         Lead?         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  deal         Deal?         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  ticket       CrmTicket?    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 }
 
 enum WorkflowRunStatus {
@@ -693,7 +746,7 @@ model ApiKey {
   environment String    @default("production")
   // What this key is allowed to do, e.g. ["messages:send", "contacts:read"].
   // There were no scopes at all: every key could do everything the dashboard
-  // could, and authenticateApiKey handed each caller role ADMIN outright — so
+  // could, and authenticateApiKey handed each caller role ADMIN outright ΓÇö so
   // a key minted for a read-only reporting script could launch campaigns and
   // spend the wallet. Null means the legacy full-access behaviour, preserved
   // for keys issued before scopes existed.
@@ -754,7 +807,7 @@ enum CampaignStatus {
   SCHEDULED
   RUNNING
   // Stopped mid-flight but resumable. Cancelling was the only way to halt a
-  // running campaign, and it is irreversible — so "wait, that's the wrong
+  // running campaign, and it is irreversible ΓÇö so "wait, that's the wrong
   // audience" meant destroying the campaign and rebuilding it.
   PAUSED
   COMPLETED
@@ -909,7 +962,7 @@ model WalletTransaction {
   id             String    @id @default(cuid())
   workspaceId    String
   amount         Decimal   @db.Decimal(12, 2)
-  // CREDIT | DEBIT — the direction. `category` is what it was for:
+  // CREDIT | DEBIT ΓÇö the direction. `category` is what it was for:
   // RECHARGE | CAMPAIGN | REFUND | USAGE | ADJUSTMENT.
   type           String
   category       String    @default("USAGE")
@@ -1051,7 +1104,7 @@ model Plan {
   overageRatePerMsg Decimal        @db.Decimal(10, 4)
   // Optional per-plan override of the per-category message rates, e.g.
   // { "MARKETING": 2.18, "UTILITY": 0.32, "AUTHENTICATION": 0.26 }.
-  // Null means "charge cost" — the shared rates in lib/messagePricing.js,
+  // Null means "charge cost" ΓÇö the shared rates in lib/messagePricing.js,
   // which is also what campaign launches are billed at.
   overageRates      Json?
   features          Json           @default("{}")
@@ -1065,7 +1118,7 @@ model Subscription {
   id                 String    @id @default(cuid())
   workspaceId        String    @unique
   planId             String
-  pendingPlanId      String? // scheduled upgrade/downgrade — applied at the next cycle rollover (§12.6/§12.8: no proration)
+  pendingPlanId      String? // scheduled upgrade/downgrade ΓÇö applied at the next cycle rollover (┬º12.6/┬º12.8: no proration)
   status             String    @default("ACTIVE") // ACTIVE | PAST_DUE | CANCELLED | EXPIRED
   currentPeriodStart DateTime  @default(now())
   currentPeriodEnd   DateTime
@@ -1143,7 +1196,7 @@ model WorkspaceCustomEvent {
 model WorkspaceAddon {
   id               String    @id @default(cuid())
   workspaceId      String
-  // Catalogue key, e.g. "crm" — see lib/addonCatalogue.js, which is the only
+  // Catalogue key, e.g. "crm" ΓÇö see lib/addonCatalogue.js, which is the only
   // place a price is defined.
   addonKey         String
   status           String    @default("ACTIVE") // ACTIVE | CANCELLED
@@ -1206,7 +1259,7 @@ model ClusterContact {
 //
 // `value` is encrypted at rest with the same AES key as WhatsApp access tokens
 // (lib/encryption.js). Only the keys named in config/settingsStore.js may be
-// overridden — a row is a *substitute* for an environment variable, never a
+// overridden ΓÇö a row is a *substitute* for an environment variable, never a
 // way to introduce a new one, so nothing here can reach DATABASE_URL, the JWT
 // secrets or ENCRYPTION_KEY itself.
 model SystemSetting {
@@ -1216,15 +1269,15 @@ model SystemSetting {
   updatedAt DateTime @updatedAt
 }
 
-// ─── Website assistant knowledge index ───────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Website assistant knowledge index ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 //
 // The vector store behind the website chatbot: one row per chunk of indexed
 // site content, with the embedding that chunk was indexed under.
 //
 // It is persisted rather than rebuilt in memory on boot for two reasons.
-// Embedding calls cost provider quota — on a free Gemini key, re-embedding the
+// Embedding calls cost provider quota ΓÇö on a free Gemini key, re-embedding the
 // whole corpus every restart would spend the day's budget before a single
-// visitor asked anything — and `contentHash` lets a sync re-embed only the
+// visitor asked anything ΓÇö and `contentHash` lets a sync re-embed only the
 // chunks whose text actually moved. It is also shared: two app instances index
 // once between them instead of once each.
 //
@@ -1232,7 +1285,7 @@ model SystemSetting {
 // on the order of a hundred chunks, so an exhaustive cosine scan in JS is
 // sub-millisecond and costs nothing to operate; pgvector would buy an index
 // this will not need until the corpus is orders of magnitude larger. It is
-// null when the provider was unavailable at sync time — those chunks are still
+// null when the provider was unavailable at sync time ΓÇö those chunks are still
 // searchable, lexically, which is what keeps the assistant working on a key
 // that has run out of quota.
 model SiteKnowledgeChunk {
@@ -1241,12 +1294,12 @@ model SiteKnowledgeChunk {
   // docs, which the landing-page assistant answers from). Set for a customer's
   // own website content, which their Smart Website Widget answers from. One
   // table because retrieval, embedding and the incremental sync are identical
-  // either way — only the scope of a search differs.
+  // either way ΓÇö only the scope of a search differs.
   workspaceId String?
   // Stable identity for the chunk across syncs: "<docId>#<ordinal>". A chunk
   // whose text is unchanged keeps its row, and therefore its embedding.
   ref         String    @unique
-  source      String // "site" | "help" | "db" — where the text was collected from
+  source      String // "site" | "help" | "db" ΓÇö where the text was collected from
   docId       String
   title       String
   topic       String?
@@ -1263,13 +1316,13 @@ model SiteKnowledgeChunk {
   @@index([workspaceId])
 }
 
-// ─── Smart Website Widget ─────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Smart Website Widget ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 //
 // An embeddable widget a customer installs on their own site. It answers
 // visitor questions from that customer's indexed website content (the same
 // retrieval stack the platform assistant uses, scoped by workspaceId), can
 // capture a lead into the existing Contacts system, and can hand the visitor
-// off to WhatsApp — where the thread continues in the existing Inbox.
+// off to WhatsApp ΓÇö where the thread continues in the existing Inbox.
 
 enum WidgetType {
   WHATSAPP // click-to-WhatsApp only
@@ -1290,7 +1343,7 @@ model Widget {
   // Which number a WhatsApp handoff opens. Null falls back to the workspace's
   // only number, matching how templates and campaigns resolve theirs.
   waNumberId     String?
-  // Branding and behaviour — logo, colours, copy, position, size, suggested
+  // Branding and behaviour ΓÇö logo, colours, copy, position, size, suggested
   // questions. One JSON column because the embed script reads it whole and
   // nothing queries it by field; adding a customization option must not mean
   // a migration.
@@ -1324,7 +1377,7 @@ model WidgetSession {
   widgetId    String
   workspaceId String
   visitorKey  String    @unique
-  // [{ role: 'user' | 'assistant', content }] — the same shape the assistant's
+  // [{ role: 'user' | 'assistant', content }] ΓÇö the same shape the assistant's
   // history parameter takes, so it can be replayed straight back into it.
   transcript  Json      @default("[]")
   // Set once the visitor leaves details and becomes a real Contact.
@@ -1351,7 +1404,7 @@ enum WidgetEventType {
   HANDOFF
 }
 
-// Append-only analytics. One row per thing that happened, aggregated on read —
+// Append-only analytics. One row per thing that happened, aggregated on read ΓÇö
 // counters on Widget would be cheaper but could not answer "how many opens
 // last week", which is the question the dashboard actually asks.
 model WidgetEvent {
@@ -1372,7 +1425,7 @@ model WidgetEvent {
 
 // A piece of the customer's own website knowledge, before it is chunked and
 // embedded into SiteKnowledgeChunk. Kept as its own row so the dashboard can
-// show what was indexed, when it was last fetched, and why a URL failed —
+// show what was indexed, when it was last fetched, and why a URL failed ΓÇö
 // none of which survives chunking.
 model KnowledgeSource {
   id          String    @id @default(cuid())
@@ -1484,4 +1537,729 @@ model ConversationNote {
   author         User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
+}
+
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  UNQUALIFIED
+  CONVERTED
+  LOST
+}
+
+enum DealStage {
+  QUALIFICATION
+  NEEDS_ANALYSIS
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum SequenceStatus {
+  DRAFT
+  PUBLISHED
+  PAUSED
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  // Parked until the next business-hours window or an explicit delay elapses.
+  WAITING
+  COMPLETED
+  // Left early: the contact replied, opted out, or someone unenrolled them.
+  EXITED
+  FAILED
+}
+
+enum CustomFieldType {
+  TEXT
+  TEXTAREA
+  NUMBER
+  CURRENCY
+  DATE
+  BOOLEAN
+  DROPDOWN
+  MULTISELECT
+  URL
+  EMAIL
+  PHONE
+  USER
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum TicketStatus {
+  NEW
+  OPEN
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  PENDING
+  COMPLETED
+}
+
+enum CrmActivityType {
+  NOTE
+  CALL
+  EMAIL
+  MEETING
+}
+
+enum AgentTaskStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  // Deliberately distinct from DONE: the agent looked and decided there was
+  // nothing worth doing. "It ran and did nothing" and "it never ran" are
+  // different answers to "why has this deal not been touched".
+  SKIPPED
+}
+
+enum FactBand {
+  // Written to the record without asking.
+  STRONG
+  // Kept as a suggestion for a human to settle.
+  WEAK
+}
+
+model Sequence {
+  id                   String         @id @default(cuid())
+  workspaceId          String
+  name                 String
+  description          String?
+  status               SequenceStatus @default(DRAFT)
+  steps                Json
+  // Sending is confined to the workspace's business hours unless this is off.
+  // Defaults to on: a cadence that fires at 3am is how a brand gets blocked.
+  respectBusinessHours Boolean        @default(true)
+  // Leaving the sequence the moment a contact replies is the difference
+  // between a cadence and a spam cannon.
+  exitOnReply          Boolean        @default(true)
+  createdByUserId      String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @default(now()) @updatedAt
+
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  enrollments SequenceEnrollment[]
+
+  @@index([workspaceId, status])
+}
+
+model SequenceEnrollment {
+  id          String           @id @default(cuid())
+  workspaceId String
+  sequenceId  String
+  contactId   String
+  leadId      String?
+  status      EnrollmentStatus @default(ACTIVE)
+  cursor      Int              @default(0)
+  // When the next step becomes due. Null while running or once finished.
+  nextRunAt   DateTime?
+  // Snapshot of the steps at enrolment: editing a published sequence must not
+  // make a contact mid-cadence jump into a different set of messages.
+  steps       Json
+  exitReason  String?
+  lastError   String?
+  enrolledAt  DateTime         @default(now())
+  completedAt DateTime?
+  updatedAt   DateTime         @default(now()) @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sequence  Sequence          @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  contact   Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  lead      Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  stepRuns  SequenceStepRun[]
+
+  // A contact is in a given sequence once. Re-enrolling the same person is
+  // almost always a mistake, and duplicate cadences are what get numbers
+  // reported.
+  @@unique([sequenceId, contactId])
+  @@index([workspaceId, status, nextRunAt])
+}
+
+model SequenceStepRun {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  enrollmentId String
+  stepIndex    Int
+  kind         String
+  // SENT | SKIPPED | FAILED
+  outcome      String
+  detail       String?
+  ranAt        DateTime @default(now())
+
+  workspace  Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  enrollment SequenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, enrollmentId, ranAt])
+}
+
+model CustomFieldDefinition {
+  id          String          @id @default(cuid())
+  workspaceId String
+  // Which record type this field belongs to: 'lead' | 'deal'.
+  entity      String
+  // Stable machine key used in the JSON payload. Never changes once created,
+  // so renaming a label cannot orphan existing values.
+  key         String
+  label       String
+  type        CustomFieldType @default(TEXT)
+  // For DROPDOWN and MULTISELECT: the permitted choices.
+  options     Json?
+  helpText    String?
+  required    Boolean         @default(false)
+  sortOrder   Int             @default(0)
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @default(now()) @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, entity, key])
+  @@index([workspaceId, entity, sortOrder])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  sku         String?
+  category    String?
+  description String?
+  // The list price. Individual line items may override it, which is why the
+  // price is copied onto the line rather than joined at read time ΓÇö editing
+  // the catalogue must never silently restate a quote already sent.
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  currency    String   @default("INR")
+  unit        String?
+  taxRate     Decimal  @default(0) @db.Decimal(5, 2)
+  isService   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dealLineItems  DealLineItem[]
+  quoteLineItems QuoteLineItem[]
+
+  @@unique([workspaceId, sku])
+  @@index([workspaceId, isActive])
+  @@index([workspaceId, category])
+}
+
+model DealLineItem {
+  id          String   @id @default(cuid())
+  workspaceId String
+  dealId      String
+  productId   String?
+  // Snapshot of the product name at the time it was added, so deleting or
+  // renaming a catalogue entry does not rewrite history.
+  name        String
+  quantity    Decimal  @default(1) @db.Decimal(12, 3)
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  discountPct Decimal  @default(0) @db.Decimal(5, 2)
+  taxRate     Decimal  @default(0) @db.Decimal(5, 2)
+  subtotal    Decimal  @db.Decimal(14, 2)
+  taxAmount   Decimal  @db.Decimal(14, 2)
+  total       Decimal  @db.Decimal(14, 2)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deal      Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, dealId])
+}
+
+model Quote {
+  id              String      @id @default(cuid())
+  workspaceId     String
+  quoteNumber     String
+  dealId          String?
+  contactId       String?
+  status          QuoteStatus @default(DRAFT)
+  currency        String      @default("INR")
+  // Discount applied to the whole quote, after line-level discounts.
+  discountPct     Decimal     @default(0) @db.Decimal(5, 2)
+  subtotal        Decimal     @default(0) @db.Decimal(14, 2)
+  taxAmount       Decimal     @default(0) @db.Decimal(14, 2)
+  total           Decimal     @default(0) @db.Decimal(14, 2)
+  validUntil      DateTime?
+  terms           String?
+  notes           String?
+  sentAt          DateTime?
+  acceptedAt      DateTime?
+  rejectedAt      DateTime?
+  createdByUserId String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @default(now()) @updatedAt
+
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deal          Deal?           @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  contact       Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  createdByUser User?           @relation("QuoteAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  lineItems     QuoteLineItem[]
+
+  @@unique([workspaceId, quoteNumber])
+  @@index([workspaceId, status])
+  @@index([workspaceId, dealId])
+}
+
+model QuoteLineItem {
+  id          String   @id @default(cuid())
+  workspaceId String
+  quoteId     String
+  productId   String?
+  name        String
+  quantity    Decimal  @default(1) @db.Decimal(12, 3)
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  discountPct Decimal  @default(0) @db.Decimal(5, 2)
+  taxRate     Decimal  @default(0) @db.Decimal(5, 2)
+  subtotal    Decimal  @db.Decimal(14, 2)
+  taxAmount   Decimal  @db.Decimal(14, 2)
+  total       Decimal  @db.Decimal(14, 2)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  quote     Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, quoteId])
+}
+
+model PipelineStage {
+  id          String   @id @default(cuid())
+  workspaceId String
+  key         String
+  label       String
+  // 0ΓÇô100. Drives the weighted forecast; a stage's own probability is the
+  // only place that number is defined.
+  probability Int      @default(0)
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId, sortOrder])
+}
+
+model SavedView {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  createdByUserId String?
+  // Which list this belongs to: 'leads' | 'deals' | 'tasks'.
+  entity          String
+  name            String
+  filters         Json
+  isShared        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdByUser User?     @relation("SavedViewAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  // One name per entity per author ΓÇö re-saving a view updates it in place
+  // instead of silently accumulating duplicates in the picker.
+  @@unique([workspaceId, entity, createdByUserId, name])
+  @@index([workspaceId, entity])
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   TeamMember[]
+  tickets   CrmTicket[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+}
+
+model TeamMember {
+  teamId   String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+}
+
+model LeadForm {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  // URL slug. Unique per workspace; the public route resolves
+  // workspace + slug together so slugs cannot collide across tenants.
+  slug           String
+  name           String
+  description    String?
+  // [{ key, label, type, required, options? }] ΓÇö type is one of
+  // text | email | phone | textarea | select. Validated server-side on submit.
+  fields         Json
+  // Shown after a successful submission.
+  successMessage String   @default("Thanks ΓÇö we'll be in touch shortly.")
+  // Text the visitor must agree to. When set, submission requires consent and
+  // the agreed wording is stored with the submission as evidence.
+  consentText    String?
+  // Leads created by this form get this source, and optionally an owner.
+  source         String?
+  ownerUserId    String?
+  isActive       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner       User?                @relation("LeadFormOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  submissions LeadFormSubmission[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, isActive])
+}
+
+model LeadFormSubmission {
+  id          String    @id @default(cuid())
+  workspaceId String
+  formId      String
+  leadId      String?
+  contactId   String?
+  // What the visitor actually submitted, after validation.
+  answers     Json
+  // CREATED | DUPLICATE | OPTED_OUT | REJECTED
+  outcome     String
+  reason      String?
+  // The exact consent wording agreed to, copied at submission time ΓÇö editing
+  // the form later must not rewrite what someone agreed to.
+  consentText String?
+  consentAt   DateTime?
+  // Hidden attribution fields (utm_source and friends) plus referrer.
+  attribution Json?
+  ipHash      String?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  form      LeadForm  @relation(fields: [formId], references: [id], onDelete: Cascade)
+  lead      Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, formId, createdAt])
+}
+
+model CrmTicket {
+  id               String         @id @default(cuid())
+  workspaceId      String
+  // Human-facing reference, sequential per workspace: T-0001.
+  ticketNumber     String
+  subject          String
+  description      String?
+  status           TicketStatus   @default(NEW)
+  priority         TicketPriority @default(NORMAL)
+  category         String?
+  contactId        String?
+  ownerUserId      String?
+  teamId           String?
+  // Linking a ticket to the thread it came from is what makes "what did we
+  // actually say to them" answerable without leaving the ticket.
+  conversationId   String?
+  // Response deadline, derived from priority at creation. Stored rather than
+  // computed on read so changing the SLA policy later cannot retroactively
+  // make historical tickets look breached.
+  dueAt            DateTime?
+  firstRespondedAt DateTime?
+  resolvedAt       DateTime?
+  closedAt         DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @default(now()) @updatedAt
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  owner        User?         @relation("TicketOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  team         Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, ticketNumber])
+  @@index([workspaceId, status, dueAt])
+  @@index([workspaceId, ownerUserId])
+  workflowRuns WorkflowRun[]
+}
+
+model XpEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  // qualified_lead | won_deal | cleared_overdue | accepted_quote | resolved_ticket
+  kind        String
+  points      Int
+  // kind + the record it came from. Unique per user, so re-awarding is a no-op.
+  dedupeKey   String
+  recordType  String?
+  recordId    String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([workspaceId, userId, createdAt])
+}
+
+model Achievement {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  key         String
+  unlockedAt  DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([workspaceId, userId])
+}
+
+model Lead {
+  id              String     @id @default(cuid())
+  workspaceId     String
+  contactId       String     @unique
+  status          LeadStatus @default(NEW)
+  source          String?
+  ownerUserId     String?
+  // Deterministic, explainable score ΓÇö see leadScoring.service.js. Only
+  // recalculateScore()/createLead()/convertLead() ever write this.
+  score           Int        @default(0)
+  scoreFactors    Json?
+  scoreComputedAt DateTime?
+  customFields    Json?
+  notes           String?
+  convertedAt     DateTime?
+  convertedDealId String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @default(now()) @updatedAt
+
+  workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact            Contact              @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  owner              User?                @relation("LeadOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  deals              Deal[]
+  tasks              Task[]
+  crmActivities      CrmActivity[]
+  SequenceEnrollment SequenceEnrollment[]
+  LeadFormSubmission LeadFormSubmission[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, score])
+  @@index([workspaceId, ownerUserId])
+  workflowRuns WorkflowRun[]
+}
+
+model Deal {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  leadId            String?
+  contactId         String
+  title             String
+  value             Decimal?  @db.Decimal(12, 2)
+  currency          String    @default("INR")
+  stage             DealStage @default(QUALIFICATION)
+  ownerUserId       String?
+  expectedCloseDate DateTime?
+  closedAt          DateTime?
+  lostReason        String?
+  customFields      Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @default(now()) @updatedAt
+
+  workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead          Lead?              @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contact       Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  owner         User?              @relation("DealOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  stageHistory  DealStageHistory[]
+  lineItems     DealLineItem[]
+  quotes        Quote[]
+  tasks         Task[]
+  crmActivities CrmActivity[]
+
+  @@index([workspaceId, stage])
+  @@index([workspaceId, ownerUserId])
+  @@index([workspaceId, leadId])
+  @@index([workspaceId, contactId])
+  workflowRuns WorkflowRun[]
+}
+
+model DealStageHistory {
+  id              String     @id @default(cuid())
+  workspaceId     String
+  dealId          String
+  fromStage       DealStage?
+  toStage         DealStage
+  changedByUserId String?
+  changedAt       DateTime   @default(now())
+
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deal          Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  changedByUser User?     @relation("DealStageChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, dealId, changedAt])
+}
+
+model Task {
+  id               String     @id @default(cuid())
+  workspaceId      String
+  title            String
+  description      String?
+  status           TaskStatus @default(PENDING)
+  dueDate          DateTime?
+  assignedToUserId String?
+  leadId           String?
+  dealId           String?
+  contactId        String?
+  completedAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @default(now()) @updatedAt
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedTo User?     @relation("TaskAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  deal       Deal?     @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  contact    Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status, dueDate])
+  @@index([workspaceId, assignedToUserId])
+  @@index([workspaceId, leadId])
+  @@index([workspaceId, dealId])
+  @@index([workspaceId, contactId])
+}
+
+model CrmActivity {
+  id              String          @id @default(cuid())
+  workspaceId     String
+  type            CrmActivityType @default(NOTE)
+  content         String
+  createdByUserId String?
+  leadId          String?
+  dealId          String?
+  contactId       String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @default(now()) @updatedAt
+
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdByUser User?     @relation("CrmActivityAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  lead          Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  deal          Deal?     @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, leadId, createdAt])
+  @@index([workspaceId, dealId, createdAt])
+  @@index([workspaceId, contactId, createdAt])
+}
+
+model AgentTask {
+  id          String          @id @default(cuid())
+  workspaceId String
+  kind        String
+  targetType  String
+  targetId    String
+  status      AgentTaskStatus @default(PENDING)
+  runAfter    DateTime        @default(now())
+  attempts    Int             @default(0)
+  // Lease fields. Claiming is done in a transaction with SKIP LOCKED so two
+  // dispatchers take disjoint work instead of racing the same row.
+  lockedAt    DateTime?
+  lockedBy    String?
+  lastError   String?
+  // Why the agent scheduled this, in words a rep would understand.
+  reason      String?
+  // Set to `kind:targetType:targetId` while the task is live, and NULL the
+  // moment it finishes. Postgres treats NULLs as distinct, so this allows any
+  // number of completed rows for a record while permitting only one active
+  // one ΓÇö which is what "do not queue the same work twice" actually means.
+  // Putting `status` in the unique key instead made a second finished run
+  // collide with the first.
+  activeKey   String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @default(now()) @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs      AgentRun[]
+
+  @@unique([workspaceId, activeKey])
+  @@index([workspaceId, status, runAfter])
+}
+
+model AgentRun {
+  id          String   @id @default(cuid())
+  workspaceId String
+  taskId      String?
+  targetType  String
+  targetId    String
+  // Human-readable outcome: "Scheduled a follow-up ΓÇö nothing logged for 21 days".
+  summary     String
+  // [{ tool, args, ok, error? }] ΓÇö every step, including refusals.
+  steps       Json
+  // Writes that actually landed, and writes that were held back.
+  applied     Int      @default(0)
+  withheld    Int      @default(0)
+  degraded    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      AgentTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, targetType, targetId, createdAt])
+}
+
+model AgentFact {
+  id          String   @id @default(cuid())
+  workspaceId String
+  targetType  String
+  targetId    String
+  field       String
+  value       String
+  // [{ kind, detail, sourceUrl? }] as observed.
+  evidence    Json
+  score       Float
+  band        FactBand
+  applied     Boolean  @default(false)
+  // Why it was or was not applied, in one line.
+  rationale   String
+  // Set when a human accepts or rejects a withheld suggestion.
+  settledAt   DateTime?
+  settledBy   String?
+  accepted    Boolean?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, targetType, targetId, createdAt])
+  @@index([workspaceId, band, applied])
 }

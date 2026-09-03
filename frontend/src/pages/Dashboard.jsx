@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { canManage } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
@@ -6,9 +6,25 @@ import CreateCampaign from './CreateCampaign.jsx';
 import { wFetch, apiFetch } from '../lib/api.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import { useMessageRates, inr as inrRate } from '../lib/pricing.js';
+import { WalletSummaryCards } from '../components/WalletSummaryCards.jsx';
+// Chart-heavy screens are loaded on demand so Recharts stays out of the
+// initial bundle for anyone who never opens them.
+const CrmDashboardView = lazy(() =>
+  import('./CrmDashboardView.jsx').then(m => ({ default: m.CrmDashboardView })));
+import { CommandPalette } from '../components/CommandPalette.jsx';
+import Copilot from '../components/Copilot.jsx';
 import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 import ContactsView from './ContactsView.jsx';
+import LeadsView from './LeadsView.jsx';
+import DealsView from './DealsView.jsx';
+import TasksView from './TasksView.jsx';
+const ForecastView = lazy(() => import('./ForecastView.jsx'));
+const ProductsView = lazy(() => import('./ProductsView.jsx'));
+const QuotesView = lazy(() => import('./QuotesView.jsx'));
+const SequencesView = lazy(() => import('./SequencesView.jsx'));
+const LeadFormsView = lazy(() => import('./LeadFormsView.jsx'));
+const TicketsView = lazy(() => import('./TicketsView.jsx'));
 import InboxView from './InboxView.jsx';
 import WidgetsView from './WidgetsView.jsx';
 import AutomationView from './AutomationView.jsx';
@@ -583,55 +599,6 @@ const createTemplatePayload = (prompt, body) => {
 };
 
 const inr = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-// Wallet & spend at a glance (spec Part 5). Refreshes on the same
-// wallet:balance-updated event the sidebar listens to, so a recharge or a
-// campaign deduction shows here immediately.
-const WalletSummaryCards = () => {
-  const [summary, setSummary] = useState(null);
-
-  useEffect(() => {
-    let alive = true;
-    const load = () => wFetch('/wallet/summary')
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (alive && d) setSummary(d); })
-      .catch(() => {});
-    load();
-    const onUpdated = () => load();
-    window.addEventListener('wallet:balance-updated', onUpdated);
-    return () => { alive = false; window.removeEventListener('wallet:balance-updated', onUpdated); };
-  }, []);
-
-  if (!summary) return null;
-
-  const tiles = [
-    { label: 'Wallet Balance',   value: inr(summary.balance), accent: summary.balance <= 0 ? '#f87171' : 'var(--green)' },
-    { label: "Today's Spend",    value: inr(summary.todaySpend) },
-    { label: 'Campaign Spend',   value: inr(summary.campaignSpend) },
-    { label: 'Total Campaigns',  value: (summary.totalCampaigns || 0).toLocaleString() },
-    { label: 'Avg / Campaign',   value: inr(summary.averageCostPerCampaign) },
-    {
-      label: 'Last Recharge',
-      value: summary.lastRecharge ? inr(summary.lastRecharge.amount) : '—',
-      sub: summary.lastRecharge ? new Date(summary.lastRecharge.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'No recharges yet',
-    },
-  ];
-
-  return (
-    // 132px rather than 150px is what turns this into the design set's 2×N
-    // phone grid: at 150px a 360px screen has room for one column and the
-    // tiles stack into a six-deep list.
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))', gap: 12 }}>
-      {tiles.map(t => (
-        <div key={t.label} style={{ ...card, padding: '14px 16px' }}>
-          <p style={{ fontFamily: 'var(--mono)', fontSize: 9.5, fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 8 }}>{t.label}</p>
-          <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 20, color: t.accent || 'var(--t1)', letterSpacing: '-.02em' }}>{t.value}</p>
-          {t.sub && <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 3 }}>{t.sub}</p>}
-        </div>
-      ))}
-    </div>
-  );
-};
 
 // ─── command centre ──────────────────────────────────────────────────────────
 //
@@ -3541,7 +3508,17 @@ const ADMIN_NAV = [
   { id: 'home',           label: 'Home',           icon: 'home'  },
   { id: 'templates',      label: 'Templates',      icon: 'file'  },
   { id: 'campaigns',      label: 'Campaigns',      icon: 'send'  },
+  { id: 'crm-overview',   label: 'CRM Overview',   icon: 'layout' },
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
+  { id: 'leads',          label: 'Leads',          icon: 'target' },
+  { id: 'deals',          label: 'Deals',          icon: 'briefcase' },
+  { id: 'tasks',          label: 'Tasks',          icon: 'check-square' },
+  { id: 'forecast',       label: 'Forecast',       icon: 'chart' },
+  { id: 'products',       label: 'Products',       icon: 'briefcase' },
+  { id: 'quotes',         label: 'Quotes',         icon: 'note'  },
+  { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
+  { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
+  { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
   { id: 'widget',         label: 'Website Widget', icon: 'globe' },
   { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
@@ -3937,6 +3914,8 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
   const isAdmin = user?.role === 'ADMIN';
   const NAV = navForUser(user);
 
+  const [copilotOpen, setCopilotOpen] = useState(false);
+
   const page = sectionFromPath(routePath ?? window.location.pathname, user);
   const setPage = (p, subTab) => {
     if (!p) return;
@@ -4032,7 +4011,7 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
       />
     );
     if (page === 'templates')  return <TemplatesView />;
-    if (page === 'widget')     return <WidgetsView />;
+if (page === 'widget')     return <WidgetsView />;
     if (page === 'contacts')   return <ContactsView />;
     if (page === 'automation')     return <AutomationView initialTab={initialSubTab || 'basic'} />;
     // The WhatsApp AI Agent and AI Intent Matching are tabs 4 and 5 of the
@@ -4042,6 +4021,18 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     // implementation rather than a second copy of it.
     if (page === 'ai-agent')        return <AutomationView initialTab="wa-agent" />;
     if (page === 'intent-matching') return <AutomationView initialTab="ai-intent" />;
+if (page === 'crm-overview') return <CrmDashboardView user={user} />;
+    if (page === 'contacts')   return <ContactsView />;
+    if (page === 'leads')      return <LeadsView />;
+    if (page === 'deals')      return <DealsView initialTab={initialSubTab} />;
+    if (page === 'tasks')      return <TasksView />;
+    if (page === 'forecast')   return <ForecastView user={user} />;
+    if (page === 'products')   return <ProductsView />;
+    if (page === 'quotes')     return <QuotesView />;
+    if (page === 'sequences')  return <SequencesView />;
+    if (page === 'lead-forms') return <LeadFormsView />;
+    if (page === 'tickets')    return <TicketsView />;
+    if (page === 'automation')     return <AutomationView />;
     if (page === 'analytics')      return <AnalyticsView />;
     if (page === 'chat-analysis')  return <ChatAnalytics workspaceId={user.workspaceId} />;
     if (page === 'user-analytics') return <UserAnalyticsView />;
@@ -4091,12 +4082,41 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
           mobile={mobile} open={navOpen} onClose={() => setNavOpen(false)}
         />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0 }}>
-          {renderView()}
+          <Suspense fallback={
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--t2)', fontSize: 13 }}>
+              <div style={{ width: 24, height: 24, border: '2px solid var(--green)', borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 10px', animation: 'spin 1s linear infinite' }} />
+              Loading…
+            </div>
+          }>
+            {renderView()}
+          </Suspense>
         </div>
       </div>
-      {/* Outside the scrolling row so it stays pinned while the view scrolls,
+{/* Outside the scrolling row so it stays pinned while the view scrolls,
           and after it in the DOM so it is last in the tab order. */}
       {mobile && <MobileTabBar page={page} setPage={setPage} user={user} />}
+<CommandPalette />
+
+      {/* Reachable from anywhere in the dashboard, because the question you
+          want to ask it rarely arrives while you are on the right screen. */}
+      {!copilotOpen && (
+        <button
+          onClick={() => setCopilotOpen(true)}
+          aria-label="Ask your CRM"
+          className="m-lift"
+          style={{
+            position: 'fixed', right: 22, bottom: 90, zIndex: 90,
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '11px 16px', borderRadius: 999, cursor: 'pointer',
+            background: 'var(--green)', color: '#060A10', border: 'none',
+            fontFamily: 'inherit', fontSize: 13, fontWeight: 700,
+            boxShadow: '0 8px 28px rgba(30,191,94,.32)',
+          }}
+        >
+          <I n="spark" s={15} c="#060A10" /> Ask your CRM
+        </button>
+      )}
+      {copilotOpen && <Copilot onClose={() => setCopilotOpen(false)} />}
     </div>
   );
 }

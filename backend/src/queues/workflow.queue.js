@@ -15,6 +15,8 @@ export const workflowQueue = new Queue('workflows', {
   },
 });
 
+workflowQueue.on('error', () => {});
+
 // BullMQ refuses to add a job whose jobId already exists — including one that
 // has already completed but is still retained by removeOnComplete. Both helpers
 // below therefore clear the previous job before re-adding, and keep nothing
@@ -47,6 +49,12 @@ export async function enqueueWorkflowResume(runId, cursor, delayMs) {
 // One pending check per conversation — a customer sending five messages in a
 // row should not queue five delayed-response replies, and re-arming restarts
 // the timer from their latest message.
+//
+// The id must not begin with `delayed`: BullMQ keeps its own `<queue>:delayed`
+// key, and a custom id starting with that word is rejected outright
+// ("Custom Id cannot contain :"). This previously threw on every call, so the
+// delayed-response automation never actually fired — the error was swallowed
+// by the caller's try/catch in webhook.service.js and only logged.
 export async function enqueueDelayedResponseCheck(conversationId, delayMs) {
   return addReplacing('delayed-response', jobKey('delayed', conversationId), { conversationId }, delayMs);
 }
