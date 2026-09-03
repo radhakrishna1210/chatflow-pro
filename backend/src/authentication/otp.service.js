@@ -93,17 +93,25 @@ export async function attachMetaMessageId(
 
 /**
  * Verify a ChatFlow-generated authentication transaction.
+ *
+ * The lookup is scoped to `workspaceId`. Without it, two workspaces that had
+ * both sent an OTP to the same phone number would share a single pool of
+ * pending transactions, and whichever called /verify first would consume the
+ * other's — a cross-tenant leak, since the code from workspace A would verify
+ * against workspace B's transaction.
  */
-export async function verifyAuthenticationTransaction(
+export async function verifyAuthenticationTransaction({
+  workspaceId,
   phone,
-  code
-) {
+  code,
+}) {
   const normalizedPhone = String(phone || '').trim();
   const normalizedCode = String(code || '').trim();
 
   const transaction =
     await prisma.authenticationTransaction.findFirst({
       where: {
+        workspaceId,
         phone: normalizedPhone,
         source: 'CHATFLOW',
         status: 'PENDING',

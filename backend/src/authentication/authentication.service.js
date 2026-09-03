@@ -367,9 +367,18 @@ export async function sendAuthenticationOtp(
  * Verify a ChatFlow-generated Authentication OTP.
  */
 export async function verifyAuthenticationOtp(
+  workspaceId,
   phone,
   code
 ) {
+  if (!workspaceId) {
+    const error = new Error(
+      'Workspace is required.'
+    );
+    error.status = 400;
+    throw error;
+  }
+
   if (!phone || typeof phone !== 'string') {
     const error = new Error(
       'Phone number is required.'
@@ -401,8 +410,9 @@ export async function verifyAuthenticationOtp(
     throw error;
   }
 
-  return verifyAuthenticationTransaction(
-    recipient,
-    normalizedCode
-  );
+  return verifyAuthenticationTransaction({
+    workspaceId,
+    phone: recipient,
+    code: normalizedCode,
+  });
 }

@@ -3,7 +3,6 @@ import passport from 'passport';
 import { randomBytes } from 'crypto';
 import * as authController from '../controllers/auth.controller.js';
 import * as instagramController from '../controllers/instagram.controller.js';
-import authenticationRoutes from '../authentication/authentication.routes.js';
 import { authenticate, authenticateOptional } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
 import { rateLimit, emailSubject } from '../middleware/rateLimit.js';
@@ -14,22 +13,12 @@ import { signState, verifyState } from '../lib/oauthState.js';
 
 const router = Router();
 
-//
-// WhatsApp Authentication OTP API
-//
-// Mounted from routes/index.js as:
-//
-//   router.use('/auth', authRoutes);
-//
-// Therefore these become:
-//
-//   POST /api/v1/auth/otp/generate
-//   POST /api/v1/auth/otp/verify
-//
-// The OTP router uses authenticateApiKey + authentication:send.
-// Existing /auth routes below remain unchanged.
-//
-router.use('/otp', authenticationRoutes);
+// The WhatsApp Authentication OTP API used to be mounted here as well, at
+// /api/v1/auth/otp/*, giving it two public paths. It now lives only at
+// /api/v1/authentication/* (see routes/index.js), which is the path the
+// dashboard and the published API docs use. The routes under /auth are
+// dashboard session auth — JWT, brute-force limits, Google OAuth — whereas the
+// OTP router is API-key authenticated, so it does not belong under this prefix.
 
 // Brute-force protection on credential + token endpoints.
 //
