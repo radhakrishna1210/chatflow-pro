@@ -7,7 +7,7 @@
 // Limits are Meta's published ones (Business Management API → message
 // templates → components):
 //   - 10 buttons total
-//   - PHONE_NUMBER x1, URL x2, COPY_CODE x1, QUICK_REPLY x10
+//   - PHONE_NUMBER x1, URL x2, COPY_CODE x1, QUICK_REPLY x10, OTP x1
 //   - button text 25 chars, URL 2000 chars
 //   - a URL button may carry exactly one variable, only at the very end
 //   - quick replies must be contiguous, never alternating with other types
@@ -20,6 +20,9 @@ export const BUTTON_LIMITS = {
   QUICK_REPLY: 10,
   // A catalog template carries exactly one CATALOG button and nothing else.
   CATALOG: 1,
+  // An authentication template carries exactly one OTP button and nothing
+  // else — it is the button WhatsApp itself renders to copy the passcode.
+  OTP: 1,
   // Carousel cards are far more restricted than the message bubble: at most
   // two buttons, quick-reply or link only, and every card must repeat the
   // same set (enforced across cards in lib/templateStructure.js).
@@ -31,7 +34,14 @@ export const BUTTON_LIMITS = {
   desktopSafe: 3,
 };
 
-const TYPES = new Set(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'COPY_CODE', 'CATALOG']);
+const TYPES = new Set(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'COPY_CODE', 'CATALOG', 'OTP']);
+
+// The otp_type values Meta accepts on an OTP button. Only COPY_CODE is offered
+// here: one-tap and zero-tap autofill additionally require a signed Android app
+// hash registered on the WABA, and a template approved with either of those
+// cannot be delivered without it — so accepting them would produce templates
+// that pass review and then fail every send.
+const OTP_TYPES = new Set(['COPY_CODE']);
 // Meta accepts only these two inside a carousel card.
 const CARD_TYPES = new Set(['QUICK_REPLY', 'URL']);
 
@@ -55,7 +65,7 @@ export function normalizeButtons(raw, { context = 'template', where: whereLabel 
       : `A template can have at most ${maxTotal} buttons — this one has ${list.length}.`);
   }
 
-  const counts = { QUICK_REPLY: 0, URL: 0, PHONE_NUMBER: 0, COPY_CODE: 0, CATALOG: 0 };
+  const counts = { QUICK_REPLY: 0, URL: 0, PHONE_NUMBER: 0, COPY_CODE: 0, CATALOG: 0, OTP: 0 };
   const out = [];
 
   list.forEach((btn, i) => {
@@ -71,11 +81,13 @@ export function normalizeButtons(raw, { context = 'template', where: whereLabel 
     counts[type] += 1;
     const perType = isCard ? BUTTON_LIMITS.cardTotal : BUTTON_LIMITS[type];
     if (counts[type] > perType) {
-      const label = { PHONE_NUMBER: 'phone-number', URL: 'link', COPY_CODE: 'copy-code', QUICK_REPLY: 'quick-reply', CATALOG: 'catalog' }[type];
+      const label = { PHONE_NUMBER: 'phone-number', URL: 'link', COPY_CODE: 'copy-code', QUICK_REPLY: 'quick-reply', CATALOG: 'catalog', OTP: 'OTP' }[type];
       fail(`Only ${perType} ${label} button${perType === 1 ? ' is' : 's are'} allowed per ${isCard ? 'card' : 'template'}.`);
     }
 
-    const text = String(btn?.text || '').trim();
+    // Meta labels an OTP button "Copy code" when the template does not name
+    // one, so an omitted label is a default rather than an error.
+    const text = String(btn?.text || '').trim() || (type === 'OTP' ? 'Copy code' : '');
     if (!text) fail(`${where} needs a label.`);
     if (text.length > BUTTON_LIMITS.textChars) {
       fail(`${where} label is ${text.length} characters — the limit is ${BUTTON_LIMITS.textChars}.`);
@@ -138,6 +150,19 @@ export function normalizeButtons(raw, { context = 'template', where: whereLabel 
       return;
     }
 
+    // An OTP button is the authentication category's own button. Unlike
+    // COPY_CODE — the marketing coupon button, which carries a fixed sample
+    // code chosen at approval time — it carries no example at all: the value
+    // it copies is the passcode supplied on each send.
+    if (type === 'OTP') {
+      const otpType = String(btn?.otp_type || btn?.otpType || 'COPY_CODE').trim().toUpperCase();
+      if (!OTP_TYPES.has(otpType)) {
+        fail(`${where} uses otp_type "${otpType}" — only COPY_CODE authentication buttons are supported.`);
+      }
+      out.push({ type, otp_type: otpType, text });
+      return;
+    }
+
     // COPY_CODE carries the sample coupon Meta shows the reviewer.
     const code = String(btn?.example || btn?.code || '').trim();
     if (!code) fail(`${where} needs an example code (e.g. SAVE20).`);
@@ -148,6 +173,12 @@ export function normalizeButtons(raw, { context = 'template', where: whereLabel 
   // template with links, calls or quick replies.
   if (counts.CATALOG > 0 && out.length > 1) {
     fail('A catalog button must be the only button on the template.');
+  }
+
+  // Same for the OTP button: Meta builds the whole authentication message
+  // around it and accepts nothing beside it.
+  if (counts.OTP > 0 && out.length > 1) {
+    fail('An authentication template carries the OTP button and nothing else.');
   }
 
   // Quick replies must sit together. Meta errors on QR → URL → QR.

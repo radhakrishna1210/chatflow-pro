@@ -64,7 +64,7 @@ Rules:
 - Give every variable a realistic example. Meta rejects templates whose samples are placeholders like "XXX".
 - Footer max 60 characters. Add "Reply STOP to opt out" on MARKETING templates.
 - headerText max 60 characters and may contain at most one variable.
-- AUTHENTICATION templates: body carries the code as {{1}}, no footer, no header, suggestImage false, buttons [].
+- AUTHENTICATION templates: WhatsApp writes the passcode message itself, so only the category matters — no header, no footer, no buttons, suggestImage false. Whatever body you draft is replaced by Meta's own wording.
 
 Buttons — propose the ones that genuinely help the reader act, then stop:
 - Label max 25 characters. At most 2 URL, 1 PHONE_NUMBER, 1 COPY_CODE, and up to 10 QUICK_REPLY, 10 in total.
@@ -109,6 +109,12 @@ function normalizeVariables(body, rawVars) {
 
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
 
+// What WhatsApp actually renders for an authentication template. The copy is
+// Meta's, translated per language, and the template cannot change a word of it
+// (see lib/templateStructure.js → normalizeAuthentication) — so a drafted OTP
+// body is shown as this instead of as wording that would never be sent.
+const AUTH_MESSAGE = '<CODE> is your verification code. For your security, do not share this code.';
+
 function normalize(raw, prompt) {
   const category = CATEGORIES.has(raw?.category) ? raw.category : 'MARKETING';
   const isAuth = category === 'AUTHENTICATION';
@@ -141,9 +147,11 @@ function normalize(raw, prompt) {
     category,
     language: String(raw?.language || 'en').trim().slice(0, 10) || 'en',
     headerText,
-    body,
+    // An authentication draft previews Meta's wording, not the model's: the
+    // builder discards any body under this category because Meta does.
+    body: isAuth ? AUTH_MESSAGE : body,
     footer,
-    variables,
+    variables: isAuth ? [] : variables,
     buttons,
     buttonNote,
     buttonWarnings: buttonWarnings(buttons),

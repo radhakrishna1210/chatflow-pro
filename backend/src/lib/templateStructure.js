@@ -14,6 +14,10 @@
 //               and the same button signature.
 //   - CATALOG   BODY, optional FOOTER, and a single CATALOG button. No header.
 //   - STANDARD  the familiar HEADER / BODY / FOOTER / BUTTONS shape.
+//
+// The AUTHENTICATION *category* cuts across that: whatever type it nominally
+// uses, Meta writes the message itself and the template supplies only switches.
+// See normalizeAuthentication() below.
 
 import { normalizeButtons } from './templateButtons.js';
 
@@ -41,6 +45,10 @@ export const HEADER_FORMATS_BY_CATEGORY = {
 export const CARD_HEADER_FORMATS = ['IMAGE', 'VIDEO'];
 
 export const CARD_LIMITS = { min: 1, max: 10, bodyChars: 160 };
+
+// Meta's bounds on how long an authentication passcode stays valid. Outside
+// 1-90 minutes the template is rejected at submission.
+export const OTP_EXPIRATION_LIMITS = { min: 1, max: 90, default: 5 };
 
 const fail = (message) => { const e = new Error(message); e.status = 400; throw e; };
 
@@ -181,6 +189,76 @@ function normalizeCarousel(carousel) {
   return { type: 'CAROUSEL', cards: out };
 }
 
+// ── Authentication ─────────────────────────────────────────────────────────
+//
+// An authentication template is the one kind whose copy is not authored here.
+// Meta writes the passcode message itself, in the template's own language, and
+// the components carry only switches:
+//
+//   BODY    { add_security_recommendation }  → appends "For your security, do
+//                                              not share this code."
+//   FOOTER  { code_expiration_minutes }      → "This code expires in N minutes."
+//   BUTTONS [{ type: OTP, otp_type: COPY_CODE, text }]
+//
+// Meta rejects the template outright if any of these carries authored text
+// instead — a `BODY.text`, a `FOOTER.text`, a header, or a marketing COPY_CODE
+// coupon button. That rejection is the reason this branch exists: the builder
+// used to send the standard marketing shape under this category, which passed
+// every check here and failed at Meta with an opaque (#100) Invalid parameter.
+//
+// The OTP button is required, not optional. authentication/authentication.
+// service.js addresses it as button index 0 on every send, and Meta gives an
+// authentication template no other way to hand the passcode over.
+function normalizeAuthentication(list) {
+  if (find(list, 'HEADER')) {
+    fail('Authentication templates cannot carry a header — Meta builds the passcode message itself.');
+  }
+  if (find(list, 'CAROUSEL')) {
+    fail('Authentication templates cannot carry a carousel.');
+  }
+
+  const body = find(list, 'BODY');
+  if (body && String(body.text || '').trim()) {
+    fail('Authentication templates cannot carry body text — Meta writes the passcode message itself. Set the security recommendation and the expiry instead.');
+  }
+
+  const footer = find(list, 'FOOTER');
+  if (footer && String(footer.text || '').trim()) {
+    fail('Authentication templates cannot carry footer text — Meta writes the expiry line itself from the number of minutes you set.');
+  }
+
+  const buttons = normalizeButtons(find(list, 'BUTTONS')?.buttons);
+  if (buttons.length !== 1 || buttons[0].type !== 'OTP') {
+    fail('An authentication template needs exactly one OTP button — that is how the recipient copies the passcode.');
+  }
+
+  const out = [{
+    type: 'BODY',
+    // Meta's own wording, appended to the passcode line. Opt-out is allowed,
+    // so an explicit false is honoured rather than defaulted back to true.
+    add_security_recommendation: body?.add_security_recommendation !== false,
+  }];
+
+  // The footer exists only to carry the expiry. Left unset, Meta renders no
+  // expiry line at all — which is valid, so an absent value stays absent
+  // rather than being defaulted into the template.
+  if (footer !== undefined && footer !== null) {
+    const raw = footer.code_expiration_minutes;
+    if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+      const minutes = Number(raw);
+      if (!Number.isInteger(minutes)
+        || minutes < OTP_EXPIRATION_LIMITS.min
+        || minutes > OTP_EXPIRATION_LIMITS.max) {
+        fail(`The passcode expiry must be a whole number of minutes between ${OTP_EXPIRATION_LIMITS.min} and ${OTP_EXPIRATION_LIMITS.max} — Meta rejects anything outside that.`);
+      }
+      out.push({ type: 'FOOTER', code_expiration_minutes: minutes });
+    }
+  }
+
+  out.push({ type: 'BUTTONS', buttons });
+  return out;
+}
+
 // Validates and normalises a whole components array for the given category,
 // returning exactly what Meta should receive. Throws a 400 naming the problem.
 export function normalizeTemplateComponents(category, components) {
@@ -188,6 +266,11 @@ export function normalizeTemplateComponents(category, components) {
   if (list.length === 0) fail('A template needs at least a body.');
 
   const cat = String(category || '').toUpperCase();
+
+  // Checked before the type rules below: an authentication template's shape is
+  // decided by its category alone, not by which components it happens to hold.
+  if (cat === 'AUTHENTICATION') return normalizeAuthentication(list);
+
   const templateType = detectTemplateType(list);
   const allowedTypes = TYPES_BY_CATEGORY[cat] || TYPES_BY_CATEGORY.MARKETING;
   if (!allowedTypes.includes(templateType)) {
@@ -220,6 +303,11 @@ export function normalizeTemplateComponents(category, components) {
   const footer = normalizeFooter(find(list, 'FOOTER'));
   if (footer) out.push(footer);
   const buttons = normalizeButtons(find(list, 'BUTTONS')?.buttons);
+  // The OTP button belongs to the authentication category and is meaningless
+  // anywhere else — Meta rejects it on a marketing or utility template.
+  if (buttons.some((b) => b.type === 'OTP')) {
+    fail(`An OTP button is only available on authentication templates, not ${cat.toLowerCase()} ones.`);
+  }
   if (buttons.length) out.push({ type: 'BUTTONS', buttons });
   return out;
 }

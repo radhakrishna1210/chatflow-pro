@@ -174,9 +174,15 @@ export const segmentSchemas = {
 // [{ type: 'BODY', text: '...' }]) — the top-level `name` is just a Meta
 // identifier slug, so the meaningful-text check has to look inside
 // `components` rather than at `name`.
+//
+// An authentication template is the exception: Meta writes that message itself
+// and the body carries no text at all, only `add_security_recommendation`. It
+// is recognised by the shape of the body rather than by the request's category,
+// because an update may change the components without restating the category.
 function checkBodyText(components, ctx) {
   if (!Array.isArray(components)) return;
   const body = components.find((c) => String(c?.type || '').toUpperCase() === 'BODY');
+  if (body && body.text === undefined && 'add_security_recommendation' in body) return;
   if (body && !hasMeaningfulText(body.text)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
