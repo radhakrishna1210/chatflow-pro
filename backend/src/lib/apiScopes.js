@@ -120,6 +120,36 @@ export const API_SCOPES = Object.freeze([
     label: 'Manage webhooks',
     description: 'Change the workspace webhook URL.',
   },
+  {
+    id: 'analytics:read',
+    label: 'Read analytics',
+    description: 'Read overall workspace and campaign analytics.',
+  },
+  {
+    id: 'automations:read',
+    label: 'Read automations',
+    description: 'List active automation workflows and intent rules.',
+  },
+  {
+    id: 'automations:write',
+    label: 'Manage automations',
+    description: 'Trigger automations programmatically.',
+  },
+  {
+    id: 'ai-agent:read',
+    label: 'Read AI config',
+    description: 'Read AI Agent persona and settings.',
+  },
+  {
+    id: 'ai-agent:write',
+    label: 'Query AI Agent',
+    description: 'Send text to the AI Agent and receive a response.',
+  },
+  {
+    id: 'wallet:read',
+    label: 'Read wallet',
+    description: 'Read wallet balance and transaction history.',
+  },
 ]);
 
 const VALID = new Set(API_SCOPES.map((s) => s.id));
@@ -134,6 +164,12 @@ export const DEFAULT_SCOPES = Object.freeze([
   'campaigns:read',
   'contacts:read',
   'contacts:write',
+  'analytics:read',
+  'automations:read',
+  'automations:write',
+  'ai-agent:read',
+  'ai-agent:write',
+  'wallet:read',
 ]);
 
 export function normaliseScopes(input) {

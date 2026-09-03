@@ -27,6 +27,8 @@ import PaymentsView from './PaymentsView.jsx';
 import LegalCenter from '../components/LegalCenter.jsx';
 import { LEGAL_DOCS } from '../lib/legalContent.js';
 import AuthenticationDashboard from './AuthenticationDashboard.jsx';
+import ResourceCenter from './ResourceCenter.jsx';
+
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
 const StatusBadge = ({ s }) => {
@@ -3708,6 +3710,7 @@ const ADMIN_NAV = [
   { id: 'payments',       label: 'Payments',       icon: 'credit' },
   { id: 'api',            label: 'API Keys',       icon: 'key'   },
   { id: 'support',        label: 'Help & Support', icon: 'msg'   },
+  { id: 'resources',      label: 'Resource Center', icon: 'file' },
   { id: 'settings',       label: 'Settings',       icon: 'cog'   },
   { id: 'legal',          label: 'Legal',          icon: 'file'  },
 ];
@@ -3761,7 +3764,7 @@ const NAV_EMOJI = {
   integrations: '\u{1F50C}', setup: '\u{1F4F1}', api: '\u{1F511}', payments: '\u{1F4B3}',
   support: '\u{1F6DF}', settings: '\u2699\uFE0F',
   // absent from the design set — chosen to sit alongside the rest
-  widget: '\u{1F310}', legal: '\u{1F4DC}',
+  widget: '\u{1F310}', legal: '\u{1F4DC}', resources: '\u{1F4DA}',
   'admin-overview': '\u{1F9ED}', 'admin-analytics': '\u{1F4CA}', 'admin-revenue': '\u{1F4B0}',
   'admin-transactions': '\u{1F9FE}', 'admin-payments': '\u2705', 'admin-campaigns': '\u{1F4E3}',
   'admin-workspaces': '\u{1F3E2}', 'admin-users': '\u{1F464}', 'admin-numbers': '\u{1F4F1}',
@@ -3777,7 +3780,7 @@ const NAV_GROUPS = [
   { name: 'GROW',       ids: ['campaigns', 'templates', 'authentication', 'contacts'] },
   { name: 'AUTOMATE',   ids: ['ai-agent', 'automation', 'intent-matching'] },
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
-  { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'settings'] },
+  { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'resources', 'settings'] },
 ];
 
 // Super admins get their own banding: the platform sections have no analogue
@@ -4062,10 +4065,13 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
   );
 };
 
-const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), ...ADMIN_TABS.map(n => n.id), 'campaigns-create', 'profile']);
+const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), ...ADMIN_TABS.map(n => n.id), 'campaigns-create', 'profile', 'resources']);
 
 function sectionFromPath(path, user) {
   const defaultSection = user?.superAdmin === true ? 'admin-overview' : 'home';
+  // The Resource Center lives at its own /resources* URL family but renders
+  // inside this shell, so it resolves to a section id like everything else.
+  if (String(path || '').replace(/^\//, '').split('/')[0] === 'resources') return 'resources';
   const rest = String(path || '').replace(/^\/dashboard\/?/, '');
   if (!rest) return defaultSection;
   if (rest === 'campaigns/create') return 'campaigns-create';
@@ -4080,6 +4086,7 @@ function sectionFromPath(path, user) {
 function pathFromSection(section, subTab) {
   const path = section === 'home' ? '/dashboard'
     : section === 'campaigns-create' ? '/dashboard/campaigns/create'
+    : section === 'resources' ? '/resources'
     : `/dashboard/${section}`;
   return subTab ? `${path}?tab=${encodeURIComponent(subTab)}` : path;
 }
@@ -4206,6 +4213,16 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     if (page === 'support')        return <SupportView />;
     if (page === 'settings')       return <SettingsView />;
     if (page === 'profile')        return <ProfileView />;
+    if (page === 'resources') {
+      const rPath = String(routePath || window.location.pathname);
+      const slug = rPath === '/resources'
+        ? undefined
+        : rPath.replace(/^\/resources\/?/, '') || undefined;
+      // Keyed so crossing the landing↔sub-route boundary remounts rather than
+      // re-rendering the same instance: the landing branch runs hooks the
+      // sub-route branch (an early return) does not.
+      return <ResourceCenter key={slug ? 'sub' : 'landing'} slug={slug} />;
+    }
     if (page === 'legal')          return <LegalView initialTab={initialSubTab || 'terms'} />;
     const navItem = NAV.find(n => n.id === page);
     return <PlaceholderView title={navItem?.label || 'Section'} icon={navItem?.icon || 'cog'} />;
