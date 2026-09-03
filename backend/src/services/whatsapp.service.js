@@ -596,6 +596,30 @@ export async function sendPublicMessage(workspaceId, { to, template, type, body,
   const { sendWhatsAppMessage, sendTextMessage } = await import('../lib/meta.js');
 
   if (type === 'template') {
+    if (template.variables && Array.isArray(template.variables)) {
+      const storedTemplate = await prisma.template.findFirst({
+        where: {
+          workspaceId,
+          name: template.name,
+          language: template.language?.code || 'en'
+        }
+      });
+      if (!storedTemplate) {
+        const e = new Error(`Template ${template.name} not found in this workspace`);
+        e.status = 404;
+        throw e;
+      }
+      
+      const { buildTemplateSendPayload } = await import('./templatePayload.service.js');
+      const compiledPayload = await buildTemplateSendPayload(storedTemplate, {
+        phoneNumberId: waNumber.metaPhoneNumberId,
+        accessToken,
+        resolve: (idx) => template.variables[Number(idx)] || '',
+        log: false
+      });
+      
+      return sendWhatsAppMessage(waNumber.metaPhoneNumberId, accessToken, recipient, compiledPayload);
+    }
     return sendWhatsAppMessage(waNumber.metaPhoneNumberId, accessToken, recipient, template);
   } else if (type === 'text') {
     return sendTextMessage(waNumber.metaPhoneNumberId, accessToken, recipient, body);

@@ -8,13 +8,6 @@ import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
-const EVENTS = [
-  { id:'messages',   label:'Messages',   default:true  },
-  { id:'reactions',  label:'Reactions',  default:true  },
-  { id:'deliveries', label:'Deliveries', default:true  },
-  { id:'reads',      label:'Reads',      default:false },
-  { id:'referrals',  label:'Referrals',  default:false },
-];
 
 // The first call, ready to paste. Built from window.location.origin rather
 // than a hardcoded host so it is correct on localhost, on staging and in
@@ -84,12 +77,6 @@ export default function ApiKeysView() {
   const [keys, setKeys]         = useState([]);
   const [newKey, setNewKey]     = useState(null);
   const [newName, setNewName]   = useState('');
-  const [webhookUrl, setWebhookUrl] = useState('');
-  const [events, setEvents]     = useState(() => Object.fromEntries(EVENTS.map(e=>[e.id,e.default])));
-  const [webhookSaving, setWebhookSaving] = useState(false);
-  const [webhookMsg, setWebhookMsg] = useState(null); // { ok } | { error }
-  const [webhookTesting, setWebhookTesting] = useState(false);
-  const [webhookTestMsg, setWebhookTestMsg] = useState(null); // { ok } | { error }
   const [testPhone, setTestPhone] = useState('');
   const [testTpl, setTestTpl]   = useState('');
   const [testBody, setTestBody] = useState('');
@@ -107,13 +94,6 @@ export default function ApiKeysView() {
   useEffect(() => {
     wFetch('/api-keys').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setKeys(d)}).catch(()=>{});
     wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setTemplates(d.filter(t=>t.status!=='DELETED'))}).catch(()=>{});
-    wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{
-      if (!d) return;
-      if (d.webhookUrl) setWebhookUrl(d.webhookUrl);
-      if (Array.isArray(d.webhookEvents)) {
-        setEvents(Object.fromEntries(EVENTS.map(e => [e.id, d.webhookEvents.includes(e.id)])));
-      }
-    }).catch(()=>{});
   }, []);
 
   // Highest {{n}} across a template's components — the number of parameters
@@ -166,43 +146,6 @@ export default function ApiKeysView() {
     setKeys(p => p.filter(k => k.id!==id));
   };
 
-  const saveWebhook = async () => {
-    const trimmed = webhookUrl.trim();
-    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
-      setWebhookMsg({ error: 'Enter a valid URL starting with http:// or https://' });
-      return;
-    }
-    setWebhookSaving(true);
-    setWebhookMsg(null);
-    try {
-      const res = await wFetch('/settings', {
-        method: 'PATCH',
-        body: JSON.stringify({ webhookUrl: trimmed, webhookEvents: Object.keys(events).filter(k => events[k]) }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setWebhookMsg({ error: data.error || 'Could not save webhook configuration' }); return; }
-      setWebhookMsg({ ok: 'Webhook configuration saved.' });
-    } catch (e) {
-      setWebhookMsg({ error: e.message || 'Could not save webhook configuration' });
-    } finally {
-      setWebhookSaving(false);
-    }
-  };
-
-  const testWebhookCall = async () => {
-    setWebhookTesting(true);
-    setWebhookTestMsg(null);
-    try {
-      const res = await wFetch('/settings/webhook/test', { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setWebhookTestMsg({ error: data.error || 'Webhook test failed' }); return; }
-      setWebhookTestMsg({ ok: `Test payload delivered (status ${data.status}).` });
-    } catch (e) {
-      setWebhookTestMsg({ error: e.message || 'Webhook test failed' });
-    } finally {
-      setWebhookTesting(false);
-    }
-  };
 
   const validateTestFields = () => {
     const errs = {};
@@ -273,7 +216,7 @@ export default function ApiKeysView() {
         <p style={{ fontSize:11.5, color:'var(--t2)', marginLeft:10 }}>Manage API access, webhooks &amp; testing</p>
       </div>
 
-      <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18, maxWidth:860, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+      <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap:18, boxSizing:'border-box' }}>
 
         {/* ── API Keys card ── */}
         <div style={{ ...card, overflow:'hidden' }}>
@@ -333,52 +276,6 @@ export default function ApiKeysView() {
               </Btn>
             </div>
           )}
-        </div>
-
-        {/* ── Webhook card ── */}
-        <div style={{ ...card, padding:'20px' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:18 }}>
-            <I n="globe" s={16} c="var(--green)" />
-            <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>Webhook Configuration</span>
-          </div>
-          <div style={{ marginBottom:14 }}>
-            <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Webhook URL</label>
-            <input value={webhookUrl} onChange={e=>setWebhookUrl(e.target.value)} placeholder="https://your-server.com/webhook"
-              style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box' }}
-              onFocus={e=>e.target.style.borderColor='var(--gbd)'}
-              onBlur={e=>e.target.style.borderColor='var(--bd)'} />
-          </div>
-          <div style={{ marginBottom:16 }}>
-            <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:10 }}>Subscribe to Events</label>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-              {EVENTS.map(ev => {
-                const on = events[ev.id];
-                return (
-                  <div key={ev.id} onClick={() => setEvents(p=>({...p,[ev.id]:!p[ev.id]}))}
-                    style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 12px', borderRadius:8, border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`, background: on ? 'var(--gbg)' : 'rgba(255,255,255,0.02)', cursor:'pointer', transition:'all .15s' }}>
-                    <div style={{ width:14, height:14, borderRadius:3, border:`1.5px solid ${on ? 'var(--green)' : 'var(--bd)'}`, background: on ? 'var(--green)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all .15s' }}>
-                      {on && <I n="check" s={8} c="#08090c" w={3} />}
-                    </div>
-                    <span style={{ fontSize:13, fontWeight:500, color: on ? 'var(--green)' : 'var(--t2)' }}>{ev.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          {webhookMsg && (
-            <p style={{ fontSize:12, color: webhookMsg.error ? '#f87171' : 'var(--green)', margin:'0 0 10px' }}>
-              {webhookMsg.error || webhookMsg.ok}
-            </p>
-          )}
-          {webhookTestMsg && (
-            <p style={{ fontSize:12, color: webhookTestMsg.error ? '#f87171' : 'var(--green)', margin:'0 0 10px' }}>
-              {webhookTestMsg.error || webhookTestMsg.ok}
-            </p>
-          )}
-          <div style={{ display:'flex', gap:8 }}>
-            <Btn onClick={saveWebhook} disabled={webhookSaving}>{webhookSaving ? 'Saving…' : 'Save'}</Btn>
-            <Btn variant="outline" onClick={testWebhookCall} disabled={webhookTesting}>{webhookTesting ? 'Testing…' : 'Test Webhook'}</Btn>
-          </div>
         </div>
 
         {/* ── Quickstart card ── */}
