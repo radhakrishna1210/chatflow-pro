@@ -33,143 +33,144 @@ model User {
 }
 
 model Workspace {
-  id                           String                   @id @default(cuid())
+  id                           String  @id @default(cuid())
   name                         String
-  plan                         String                   @default("FREE")
+  plan                         String  @default("FREE")
   webhookUrl                   String?
-  webhookVerifyToken           String                   @default("")
+  webhookVerifyToken           String  @default("")
   webhookEvents                Json?
-  notifyNewConversation        Boolean                  @default(true)
-  notifyTemplateApproved       Boolean                  @default(true)
-  notifyTemplateRejected       Boolean                  @default(true)
-  notifyCampaignCompleted      Boolean                  @default(true)
-  notifyHighOptout             Boolean                  @default(true)
-  notifyRateLimit              Boolean                  @default(true)
-  emailNotifyCampaignCompleted Boolean                  @default(true)
-  emailNotifyMemberInvite      Boolean                  @default(true)
-  emailNotifyTemplateApproved  Boolean                  @default(true)
-  emailNotifyTemplateRejected  Boolean                  @default(true)
-  autoOooEnabled               Boolean                  @default(true)
-  autoWelcomeEnabled            Boolean                  @default(true)
-  autoDelayedEnabled            Boolean                  @default(false)
+  notifyNewConversation        Boolean @default(true)
+  notifyTemplateApproved       Boolean @default(true)
+  notifyTemplateRejected       Boolean @default(true)
+  notifyCampaignCompleted      Boolean @default(true)
+  notifyHighOptout             Boolean @default(true)
+  notifyRateLimit              Boolean @default(true)
+  emailNotifyCampaignCompleted Boolean @default(true)
+  emailNotifyMemberInvite      Boolean @default(true)
+  emailNotifyTemplateApproved  Boolean @default(true)
+  emailNotifyTemplateRejected  Boolean @default(true)
+  autoOooEnabled               Boolean @default(true)
+  autoWelcomeEnabled           Boolean @default(true)
+  autoDelayedEnabled           Boolean @default(false)
 
   // The three basic auto-replies used to be hardcoded constants in
   // webhook.service.js while the UI claimed they were configurable. They are
   // real editable fields now.
-  welcomeMessage               String                   @default("Thanks for reaching out! We've received your message and will get back to you shortly.")
-  oooMessage                   String                   @default("We're currently unavailable. We'll respond to your message as soon as possible.")
-  delayedMessage               String                   @default("Sorry for the wait — we're still looking into this and will reply as soon as we can.")
+  welcomeMessage String @default("Thanks for reaching out! We've received your message and will get back to you shortly.")
+  oooMessage     String @default("We're currently unavailable. We'll respond to your message as soon as possible.")
+  delayedMessage String @default("Sorry for the wait — we're still looking into this and will reply as soon as we can.")
 
   // How long an inbound message may sit without a human reply before the
   // delayed-response auto-reply fires.
-  delayedAfterMinutes          Int                      @default(15)
+  delayedAfterMinutes Int @default(15)
 
   // { tz: "Asia/Kolkata", days: [{ day: 0-6, enabled: bool, start: "09:00", end: "18:00" }] }
   // Null means "always open" — OOO then only fires on reopened conversations.
-  businessHours                Json?
+  businessHours Json?
 
-  voiceAiEnabled               Boolean                  @default(false)
-  voiceAiName                  String                   @default("MyCallGenie")
-  voiceAiPrompt                String                   @default("Greet the caller and ask for their details.")
-  voiceAiPhone                 String                   @default("")
+  voiceAiEnabled Boolean @default(false)
+  voiceAiName    String  @default("MyCallGenie")
+  voiceAiPrompt  String  @default("Greet the caller and ask for their details.")
+  voiceAiPhone   String  @default("")
 
   // Voice AI answers on this inbound number (provisioned with the telephony
   // provider); voiceAiPhone is where calls are forwarded on handoff.
-  voiceAiInboundPhone          String                   @default("")
-  voiceAiGreeting              String                   @default("Hi! Thanks for calling. How can I help you today?")
+  voiceAiInboundPhone String @default("")
+  voiceAiGreeting     String @default("Hi! Thanks for calling. How can I help you today?")
 
-  instagramUserId              String?
-  instagramUsername            String?
+  instagramUserId   String?
+  instagramUsername String?
 
   // Encrypted at rest via lib/encryption.js, same as WaNumber access tokens.
-  instagramAccessToken         String?
-  instagramConnectedAt         DateTime?
+  instagramAccessToken String?
+  instagramConnectedAt DateTime?
 
-  aiAgentEnabled               Boolean                  @default(false)
-  aiAgentName                  String                   @default("Assistant")
-  aiAgentPrompt                String                   @default("You are a helpful customer support agent. Answer briefly and politely.")
-  aiAgentKnowledge             String                   @default("")
-  aiAgentModel                 String                   @default("gemini-1.5-flash")
-  aiAgentDeployedAt            DateTime?
+  aiAgentEnabled    Boolean   @default(false)
+  aiAgentName       String    @default("Assistant")
+  aiAgentPrompt     String    @default("You are a helpful customer support agent. Answer briefly and politely.")
+  aiAgentKnowledge  String    @default("")
+  aiAgentModel      String    @default("gemini-1.5-flash")
+  aiAgentDeployedAt DateTime?
 
-  intentMatchingEnabled        Boolean                  @default(false)
-  intentMatchThreshold         Float                    @default(0.6)
+  intentMatchingEnabled Boolean @default(false)
+  intentMatchThreshold  Float   @default(0.6)
 
   // The agent's configuration beyond name/prompt/knowledge. Split into named
   // columns rather than one JSON blob because each is edited by its own
   // section of the AI Agent page and read independently when composing a
   // reply — a blob would make "did escalation change?" unanswerable.
-  aiAgentPurpose               String                   @default("")
-  aiAgentInstructions          String                   @default("")
-  aiAgentSafetyNote             String                   @default("")
+  aiAgentPurpose      String @default("")
+  aiAgentInstructions String @default("")
+  aiAgentSafetyNote   String @default("")
 
   // ["English", "Hindi", ...] — null means "no preference stated."
-  aiAgentLanguages              Json?
+  aiAgentLanguages Json?
 
   // Below this confidence the agent hands the conversation to a human.
-  escalationThreshold           Float                   @default(0.65)
+  escalationThreshold Float @default(0.65)
 
   // { refund, negativeSentiment, asksForHuman, highIntent } as booleans.
-  escalationRules              Json?
+  escalationRules Json?
 
   // Workspace profile, surfaced in Settings -> Workspace. `timezone` is the
   // display default only; businessHours carries its own tz for scheduling.
-  industry                     String?
-  timezone                     String                   @default("Asia/Kolkata")
-  brandColor                   String                   @default("#35e8f2")
-  brandLogoUrl                 String?
+  industry     String?
+  timezone     String  @default("Asia/Kolkata")
+  brandColor   String  @default("#35e8f2")
+  brandLogoUrl String?
 
-  suspended                    Boolean                  @default(false)
-  suspendedReason              String?
+  suspended       Boolean @default(false)
+  suspendedReason String?
 
-  walletBalance                Decimal                  @default(0) @db.Decimal(12, 2)
+  walletBalance Decimal @default(0) @db.Decimal(12, 2)
 
   // What one campaign message costs this workspace, in the wallet's currency
   // (INR). Campaign cost = valid recipients × this, charged once at launch.
   // Workspace-level so a reseller can price per account without a plan change.
-  costPerMessage               Decimal                  @default(0.92) @db.Decimal(10, 4)
+  costPerMessage Decimal @default(0.92) @db.Decimal(10, 4)
 
-  createdAt                    DateTime                 @default(now())
+  createdAt DateTime @default(now())
 
-  apiKeys                      ApiKey[]
-  triggers                     AutomationTrigger[]
-  campaigns                    Campaign[]
-  contacts                     Contact[]
-  conversations                Conversation[]
-  invoices                     Invoice[]
-  templates                    Template[]
-  waNumbers                    WaNumber[]
-  members                      WorkspaceMember[]
-  workflows                    Workflow[]
-  segments                     Segment[]
-  whatsappForms                WhatsappForm[]
-  walletTransactions           WalletTransaction[]
-  integrations                WorkspaceIntegration[]
-  supportTickets               SupportTicket[]
-  subscription                 Subscription?
-  usageCounters                UsageCounter[]
-  invitations                  Invitation[]
-  clusters                     Cluster[]
-  workflowRuns                 WorkflowRun[]
-  formSubmissions              WhatsappFormSubmission[]
-  instagramFlows               InstagramFlow[]
-  voiceCalls                   VoiceCall[]
-  optOuts                      OptOut[]
-  notifications                Notification[]
-  templateAssets               TemplateAsset[]
-  campaignAiSessions           CampaignAiSession[]
-  widgets                      Widget[]
-  widgetSessions               WidgetSession[]
-  widgetEvents                 WidgetEvent[]
-  knowledgeSources             KnowledgeSource[]
-  intentRules                  IntentRule[]
-  intentMatchEvents            IntentMatchEvent[]
-  addons                       WorkspaceAddon[]
-  customFields                 WorkspaceCustomField[]
-  customEvents                 WorkspaceCustomEvent[]
+  apiKeys              ApiKey[]
+  triggers             AutomationTrigger[]
+  campaigns            Campaign[]
+  contacts             Contact[]
+  conversations        Conversation[]
+  invoices             Invoice[]
+  templates            Template[]
+  authenticationConfig AuthenticationConfig?
+  waNumbers            WaNumber[]
+  members              WorkspaceMember[]
+  workflows            Workflow[]
+  segments             Segment[]
+  whatsappForms        WhatsappForm[]
+  walletTransactions   WalletTransaction[]
+  integrations         WorkspaceIntegration[]
+  supportTickets       SupportTicket[]
+  subscription         Subscription?
+  usageCounters        UsageCounter[]
+  invitations          Invitation[]
+  clusters             Cluster[]
+  workflowRuns         WorkflowRun[]
+  formSubmissions      WhatsappFormSubmission[]
+  instagramFlows       InstagramFlow[]
+  voiceCalls           VoiceCall[]
+  optOuts              OptOut[]
+  notifications        Notification[]
+  templateAssets       TemplateAsset[]
+  campaignAiSessions   CampaignAiSession[]
+  widgets              Widget[]
+  widgetSessions       WidgetSession[]
+  widgetEvents         WidgetEvent[]
+  knowledgeSources     KnowledgeSource[]
+  intentRules          IntentRule[]
+  intentMatchEvents    IntentMatchEvent[]
+  addons               WorkspaceAddon[]
+  customFields         WorkspaceCustomField[]
+  customEvents         WorkspaceCustomEvent[]
 
   // Authentication transaction records for WhatsApp OTP authentication.
-  authenticationTransactions   AuthenticationTransaction[]
+  authenticationTransactions AuthenticationTransaction[]
 }
 
 model WorkspaceMember {
@@ -724,6 +725,8 @@ model ApiKey {
   createdAt   DateTime  @default(now())
   revokedAt   DateTime?
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  authenticationConfig AuthenticationConfig?
 }
 
 model Invoice {
@@ -1053,6 +1056,7 @@ model EmailOtp {
 
   @@index([email, purpose])
 }
+
 model WhatsAppAuthOtp {
   id        String   @id @default(cuid())
   phone     String
@@ -1519,6 +1523,7 @@ model ConversationNote {
 
   @@index([conversationId, createdAt])
 }
+
 model AuthenticationTransaction {
   id            String    @id @default(cuid())
   workspaceId   String
@@ -1534,8 +1539,23 @@ model AuthenticationTransaction {
   createdAt     DateTime  @default(now())
   verifiedAt    DateTime?
 
-  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, phone, status])
   @@index([phone, expiresAt])
+}
+model AuthenticationConfig {
+  id          String @id @default(cuid())
+  workspaceId String @unique
+  apiKeyId    String? @unique
+
+  enabled    Boolean @default(false)
+  templateId String?
+  waNumberId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  apiKey    ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 }

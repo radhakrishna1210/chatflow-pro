@@ -5,6 +5,7 @@ import { sendWhatsAppMessage } from '../lib/meta.js';
 import {
   createAuthenticationTransaction,
   attachMetaMessageId,
+  invalidateAuthenticationTransaction,
   verifyAuthenticationTransaction,
 } from './otp.service.js';
 
@@ -16,18 +17,18 @@ import {
 const AUTHENTICATION_OTP_EXPIRATION_MINUTES = 10;
 
 /**
- * Authentication OTPs always remain valid for ten minutes.
+ * Authentication OTPs are valid for ten minutes.
  *
- * The template's expiry component controls Meta's rendered
- * expiry line, while this value controls the transaction that
- * ChatFlow verifies.
+ * This value controls the ChatFlow verification transaction.
+ * The configured Meta Authentication template controls
+ * the expiry information displayed to the customer.
  */
 function getExpirationMinutes() {
   return AUTHENTICATION_OTP_EXPIRATION_MINUTES;
 }
 
 /**
- * Verify that the template is an approved
+ * Verify that a template is an approved
  * AUTHENTICATION / COPY_CODE template.
  */
 function isCopyCodeAuthenticationTemplate(template) {
@@ -68,13 +69,15 @@ function isCopyCodeAuthenticationTemplate(template) {
 }
 
 /**
- * Resolve an approved Authentication template and
- * the WhatsApp number belonging to the workspace.
+ * Resolve the Authentication configuration for a workspace.
+ *
+ * The workspace configuration determines which approved
+ * Authentication template and WhatsApp number are used.
+ *
+ * The API caller does NOT provide templateId or waNumberId.
  */
-async function resolveTemplateAndNumber(
-  workspaceId,
-  templateId,
-  waNumberId
+async function resolveAuthenticationConfiguration(
+  workspaceId
 ) {
   if (!workspaceId) {
     const error = new Error('Workspace is required.');
@@ -82,30 +85,58 @@ async function resolveTemplateAndNumber(
     throw error;
   }
 
-  if (!templateId) {
+  const config =
+    await prisma.authenticationConfig.findUnique({
+      where: {
+        workspaceId,
+      },
+    });
+
+  if (!config) {
     const error = new Error(
-      'Authentication template is required.'
+      'Authentication is not configured for this workspace.'
     );
-    error.status = 400;
+    error.status = 409;
+    throw error;
+  }
+
+  if (!config.enabled) {
+    const error = new Error(
+      'Authentication is disabled for this workspace.'
+    );
+    error.status = 409;
+    throw error;
+  }
+
+  if (!config.templateId) {
+    const error = new Error(
+      'Authentication template is not configured.'
+    );
+    error.status = 409;
+    throw error;
+  }
+
+  if (!config.waNumberId) {
+    const error = new Error(
+      'Authentication WhatsApp number is not configured.'
+    );
+    error.status = 409;
     throw error;
   }
 
   const template = await prisma.template.findFirst({
     where: {
+      id: config.templateId,
       workspaceId,
-      OR: [
-        { id: templateId },
-        { name: templateId },
-      ],
       status: 'APPROVED',
     },
   });
 
   if (!template) {
     const error = new Error(
-      'Approved authentication template not found in this workspace.'
+      'The configured authentication template is not approved or no longer exists.'
     );
-    error.status = 404;
+    error.status = 409;
     throw error;
   }
 
@@ -114,7 +145,7 @@ async function resolveTemplateAndNumber(
     'AUTHENTICATION'
   ) {
     const error = new Error(
-      'The selected template is not an AUTHENTICATION template.'
+      'The configured template is not an AUTHENTICATION template.'
     );
     error.status = 422;
     throw error;
@@ -128,33 +159,23 @@ async function resolveTemplateAndNumber(
     throw error;
   }
 
-  const numberId =
-    waNumberId || template.waNumberId;
-
-  if (!numberId) {
-    const error = new Error(
-      'No WhatsApp number is configured for this authentication template.'
-    );
-    error.status = 404;
-    throw error;
-  }
-
   const waNumber = await prisma.waNumber.findFirst({
     where: {
-      id: numberId,
+      id: config.waNumberId,
       workspaceId,
     },
   });
 
   if (!waNumber) {
     const error = new Error(
-      'No WhatsApp number is connected to this authentication template.'
+      'The configured authentication WhatsApp number no longer exists.'
     );
-    error.status = 404;
+    error.status = 409;
     throw error;
   }
 
   return {
+    config,
     template,
     waNumber,
   };
@@ -163,8 +184,7 @@ async function resolveTemplateAndNumber(
 /**
  * Build the Meta Authentication template payload.
  *
- * The SAME OTP is inserted into the body and
- * COPY_CODE button.
+ * The generated OTP is used for the Authentication message.
  */
 function buildAuthenticationPayload(template, otp) {
   return {
@@ -198,30 +218,18 @@ function buildAuthenticationPayload(template, otp) {
 }
 
 /**
- * Send an Authentication OTP.
+ * Generate and send a ChatFlow Authentication OTP.
  *
- * Supported modes:
- *
- * CHATFLOW_GENERATED
- * ------------------
- * No OTP supplied.
- * ChatFlow generates and stores the OTP inside
- * AuthenticationTransaction.
- *
- * CLIENT_GENERATED
- * ----------------
- * OTP supplied by the client.
- * ChatFlow sends it through Meta but does not
- * verify it.
+ * Production Mode 1:
+ * - ChatFlow generates the OTP.
+ * - ChatFlow stores only the OTP hash.
+ * - ChatFlow sends the OTP through the configured
+ *   Authentication template and WhatsApp number.
+ * - The raw OTP is NEVER returned to the API caller.
  */
 export async function sendAuthenticationOtp(
   workspaceId,
-  {
-    templateId,
-    to,
-    otp,
-    waNumberId,
-  }
+  { to }
 ) {
   if (!workspaceId) {
     const error = new Error('Workspace is required.');
@@ -253,102 +261,56 @@ export async function sendAuthenticationOtp(
   const {
     template,
     waNumber,
-  } = await resolveTemplateAndNumber(
-    workspaceId,
-    templateId,
-    waNumberId
+  } = await resolveAuthenticationConfiguration(
+    workspaceId
   );
 
-  const clientGenerated =
-    otp !== undefined &&
-    otp !== null;
-
-  let code;
-  let expiresAt;
-  let transactionId = null;
-
-  if (clientGenerated) {
-    code = String(otp).trim();
-
-    if (!/^\d{6}$/.test(code)) {
-      const error = new Error(
-        'OTP must be exactly 6 digits.'
-      );
-      error.status = 400;
-      throw error;
-    }
-
-    expiresAt = new Date(
-      Date.now() +
-        getExpirationMinutes() *
-          60 *
-          1000
-    );
-  } else {
-    const generated =
-      await createAuthenticationTransaction({
-        workspaceId,
-        templateId: template.id,
-        waNumberId: waNumber.id,
-        phone: recipient,
-        expiresInMinutes:
-          getExpirationMinutes(),
-      });
-
-    code = generated.code;
-    expiresAt = generated.expiresAt;
-    transactionId = generated.transactionId;
-  }
+  const generated =
+    await createAuthenticationTransaction({
+      workspaceId,
+      templateId: template.id,
+      waNumberId: waNumber.id,
+      phone: recipient,
+      expiresInMinutes:
+        getExpirationMinutes(),
+    });
 
   const accessToken = decrypt(
     waNumber.encryptedAccessToken
   );
 
-  const result = await sendWhatsAppMessage(
-    waNumber.metaPhoneNumberId,
-    accessToken,
-    recipient,
-    buildAuthenticationPayload(
-      template,
-      code
-    )
-  );
-
-  const metaMessageId =
-    result?.messages?.[0]?.id || null;
-
-  if (transactionId) {
-    await attachMetaMessageId(
-      transactionId,
-      metaMessageId
-    );
-  }
-
-  return {
-    status: 'SENT',
-    phone: recipient,
-    templateName: template.name,
-    expiresAt: expiresAt.toISOString(),
-    expiresIn: Math.max(
-      0,
-      Math.floor(
-        (expiresAt.getTime() - Date.now()) /
-          1000
+  try {
+    const result = await sendWhatsAppMessage(
+      waNumber.metaPhoneNumberId,
+      accessToken,
+      recipient,
+      buildAuthenticationPayload(
+        template,
+        generated.code
       )
-    ),
-    metaMessageId,
+    );
+    const metaMessageId = result?.messages?.[0]?.id || null;
 
-    ...(clientGenerated
-      ? {}
-      : {
-          otp: code,
-          transactionId,
-        }),
+    // Meta accepted the message; inability to record its optional provider ID
+    // must not make an otherwise delivered code unusable.
+    await attachMetaMessageId(generated.transactionId, metaMessageId)
+      .catch(error => console.error('[Authentication] Failed to store Meta message ID:', error));
 
-    mode: clientGenerated
-      ? 'CLIENT_GENERATED'
-      : 'CHATFLOW_GENERATED',
-  };
+    return {
+      status: 'SENT',
+      phone: recipient,
+      templateName: template.name,
+      expiresAt: generated.expiresAt.toISOString(),
+      expiresIn: Math.max(0, Math.floor((generated.expiresAt.getTime() - Date.now()) / 1000)),
+      metaMessageId,
+      mode: 'CHATFLOW_GENERATED',
+    };
+  } catch (error) {
+    // A generated code which Meta did not accept must not remain verifiable.
+    await invalidateAuthenticationTransaction(generated.transactionId)
+      .catch(invalidationError => console.error('[Authentication] Failed to invalidate undelivered OTP:', invalidationError));
+    throw error;
+  }
 }
 
 /**
@@ -378,9 +340,7 @@ export async function verifyAuthenticationOtp(
     code === null ||
     String(code).trim() === ''
   ) {
-    const error = new Error(
-      'OTP is required.'
-    );
+    const error = new Error('OTP is required.');
     error.status = 400;
     throw error;
   }

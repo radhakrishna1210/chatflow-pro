@@ -43,7 +43,7 @@ import optOutRoutes from './optout.routes.js';
 import customFieldsRoutes from './customFields.routes.js';
 import assistantRoutes from './assistant.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
-
+import authenticationConfigRoutes from '../authentication/authentication-config.routes.js';
 const router = Router();
 
 router.get('/health', (req, res) =>
@@ -117,6 +117,7 @@ ws.use('/conversations', conversationsRoutes);
 ws.use('/analytics', analyticsRoutes);
 ws.use('/automation', automationRoutes);
 ws.use('/settings', settingsRoutes);
+ws.use('/authentication', authenticationConfigRoutes);
 ws.use('/members', membersRoutes);
 ws.use('/api-keys', apiKeysRoutes);
 ws.use('/segments', segmentsRoutes);

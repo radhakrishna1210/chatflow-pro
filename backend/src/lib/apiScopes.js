@@ -182,7 +182,12 @@ export function normaliseScopes(input) {
 //
 // Every new key is issued with an explicit list.
 export function keyAllows(apiKey, scope) {
-  if (apiKey?.scopes == null) return true;
+  // Legacy keys retain their historic access to pre-existing public routes,
+  // but they must not silently gain the new Authentication capability. Its
+  // dedicated key is always issued with an explicit authentication:send scope.
+  if (apiKey?.scopes == null) {
+    return !String(scope).startsWith('authentication:');
+  }
 
   const list = Array.isArray(apiKey.scopes)
     ? apiKey.scopes
