@@ -1,4 +1,4 @@
-﻿import { z } from 'zod';
+import { z } from 'zod';
 import { LeadStatus, DealStage } from '@prisma/client';
 const DEAL_STAGES = Object.keys(DealStage);
 const LEAD_STATUSES = Object.keys(LeadStatus);
@@ -453,9 +453,14 @@ const TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING_ON_CUSTOMER', 'RESOLVED
 const TICKET_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
 const leadFormField = z.object({
-  type: z.enum(['TEXT', 'EMAIL', 'PHONE', 'COMPANY', 'JOB_TITLE', 'TEXTAREA']),
+  key: z.string().trim().max(100).optional(),
+  type: z.union([
+    z.enum(['text', 'email', 'phone', 'textarea', 'select']),
+    z.enum(['TEXT', 'EMAIL', 'PHONE', 'COMPANY', 'JOB_TITLE', 'TEXTAREA']).transform((v) => v.toLowerCase()),
+  ]),
   label: z.string().trim().min(1).max(100),
   required: z.boolean().default(false),
+  options: z.array(z.string().trim()).optional(),
   placeholder: z.string().optional(),
 });
 
