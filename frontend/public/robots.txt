@@ -1,0 +1,20 @@
+# ChatFlow Pro
+
+User-agent: *
+Allow: /
+
+# The authenticated app has nothing useful to a crawler and should never be
+# indexed — these paths require a session and return the SPA shell to anyone
+# else.
+Disallow: /dashboard
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /auth/
+Disallow: /invite/
+Disallow: /api/
+
+# Public lead-capture forms are per-customer pages, not our content.
+Disallow: /forms/
+
+Sitemap: https://chatflow.mannmate.com/sitemap.xml

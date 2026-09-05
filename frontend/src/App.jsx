@@ -11,6 +11,7 @@ import ForgotPassword from './pages/ForgotPassword.jsx';
 import Legal from './pages/Legal.jsx';
 import CampaignAI from './pages/CampaignAI.jsx';
 import SiteAssistant from './components/SiteAssistant.jsx';
+import PublicForm from './pages/PublicForm.jsx';
 import { clearStoredSession } from './lib/api.js';
 
 // ─── Tiny history-based router ───────────────────────────────────────────────
@@ -269,6 +270,12 @@ function renderPage(path, nav, search) {
     return <ForgotPassword />;
   }
 
+  // Public lead-capture form: /forms/:workspaceId/:slug. Rendered for
+  // strangers, so it is never guarded and never assumes a session.
+  if (path.startsWith('/forms/')) {
+    const [, , workspaceId, slug] = path.split('/');
+    if (workspaceId && slug) return <PublicForm workspaceId={workspaceId} slug={slug} />;
+  }
   if (path === '/setup') {
     if (
       !isAuthed() ||

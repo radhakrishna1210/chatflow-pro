@@ -688,8 +688,7 @@ const WorkflowsTab = () => {
   const [selectedStepId, setSelectedStepId] = useState(null);
 
   const addActionStep = () => setSteps(p => [...p, { id:`step_${Date.now()}`, type:'action', subtype:'message', value:'Hello, how can I help you today?' }]);
-
-  // Adding from the palette. A second trigger would be ignored by the engine,
+// Adding from the palette. A second trigger would be ignored by the engine,
   // which runs the first one it finds, so it replaces the existing trigger
   // rather than quietly doing nothing.
   const addFromPalette = (item) => {
@@ -702,7 +701,8 @@ const WorkflowsTab = () => {
       : [...p, node]));
     setSelectedStepId(node.id);
   };
-  const updateStep = (id, fields) => setSteps(p => p.map(s => s.id === id ? { ...s, ...fields } : s));
+  
+const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? applyStepChange(s, fields) : s)));
   const removeStep = id => setSteps(p => p.filter(s => s.id !== id));
 
   const save = async () => {
@@ -711,6 +711,19 @@ const WorkflowsTab = () => {
     const trigger = steps.find(s => s.type === 'trigger');
     if (trigger?.subtype === 'keyword' && !String(trigger.value || '').trim()) {
       setError('Give the keyword trigger a word to match, or this workflow can never fire.');
+      return;
+    }
+    // A score trigger with no number can never fire, and the server refuses a
+    // non-numeric threshold outright rather than matching everything.
+    if (trigger?.subtype === 'score_above' && !Number.isFinite(Number(trigger.value))) {
+      setError('Give the score trigger a number, or this workflow can never fire.');
+      return;
+    }
+    const needsValue = steps.find(s =>
+      s.type === 'action' && ['task', 'owner', 'sequence', 'lead_status'].includes(s.subtype)
+      && !String(s.value || '').trim());
+    if (needsValue) {
+      setError(`The "${stepLabel(needsValue)}" action needs a value before this workflow can run.`);
       return;
     }
     if (!steps.some(s => s.type === 'action')) {
@@ -830,10 +843,7 @@ const WorkflowsTab = () => {
     if (!p) return p;
     return { ...p, nodes: (p.nodes || []).map(step => {
       if (step.id !== id) return step;
-      const next = { ...step, ...fields };
-      if (fields.type === 'trigger' && step.type !== 'trigger') { next.subtype = 'keyword'; next.value = 'HELP'; }
-      if (fields.type === 'action' && step.type !== 'action') { next.subtype = 'message'; next.value = 'Thanks for reaching out. Our team will help you shortly.'; }
-      return next;
+      return applyStepChange(step, fields);
     }) };
   });
 
@@ -1061,8 +1071,6 @@ const WorkflowsTab = () => {
   );
 };
 
-const TRIGGER_SUBTYPES = [['keyword', 'Keyword Match'], ['welcome', 'New Contact Welcome'], ['missed', 'Missed Inbound Call']];
-const ACTION_SUBTYPES = [['message', 'Send message'], ['buttons', 'Ask with buttons'], ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent']];
 
 // Mirrors CONDITION_SUBTYPES in backend/src/services/workflowConditions.js. A
 // condition asks something about the conversation and, when the answer is no,
@@ -1099,6 +1107,42 @@ const NODE_H = 74;
 const NODE_GAP = 44;
 const CANVAS_PAD = 28;
 
+const TRIGGER_SUBTYPES = [
+  ['keyword', 'Keyword Match'], ['welcome', 'New Contact Welcome'], ['missed', 'Missed Inbound Call'],
+  // CRM events. These fire from the leads/deals services rather than from an
+  // inbound message, so a run started by one has no conversation attached.
+  ['lead_created', 'CRM: Lead created'],
+  ['lead_status', 'CRM: Lead status changed'],
+  ['deal_stage', 'CRM: Deal stage changed'],
+  ['score_above', 'CRM: Lead score reaches'],
+];
+
+const ACTION_SUBTYPES = [
+  ['message', 'Send message'], ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent'],
+  ['task', 'CRM: Create task'],
+  ['lead_status', 'CRM: Set lead status'],
+  ['owner', 'CRM: Assign owner'],
+  ['sequence', 'CRM: Enrol in sequence'],
+];
+
+// Choice-driven steps get a dropdown rather than a free-text box, so a status
+// or stage cannot be mistyped into a value the server will reject.
+const LEAD_STATUS_CHOICES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'];
+const DEAL_STAGE_CHOICES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
+const prettyEnum = (s) => String(s).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+
+// Steps needing no configuration at all.
+const NO_CONFIG_SUBTYPES = ['welcome', 'missed', 'lead_created'];
+
+const PLACEHOLDERS = {
+  keyword: 'e.g. HELP',
+  tag: 'e.g. VIP',
+  agent: 'Agent name or email',
+  task: 'Task title, e.g. Call the new lead',
+  owner: 'Member name or email',
+  sequence: 'Name of a published sequence',
+  score_above: 'Score threshold, e.g. 70',
+};
 const PALETTE = [
   {
     name: 'TRIGGERS', color: '#f59e0b',
@@ -1275,6 +1319,35 @@ const WorkflowCanvas = ({ steps, selectedId, onSelect, onChange, onAdd, onRemove
   );
 };
 
+// Changing a step's kind must reset its value. Switching a keyword trigger to
+// "Deal stage changed" would otherwise leave value:"ORDER" behind — the select
+// would show nothing selected, and saving would store a stage the server never
+// matches.
+const DEFAULT_STEP_VALUE = {
+  keyword: 'HELP',
+  welcome: '', missed: '', lead_created: '',
+  lead_status: '', deal_stage: '',
+  score_above: '70',
+  message: 'Thanks for reaching out. Our team will help you shortly.',
+  delay: '1 hour',
+  tag: '', agent: '',
+  task: '', owner: '', sequence: '',
+};
+
+export function applyStepChange(step, fields) {
+  const next = { ...step, ...fields };
+
+  if (fields.type && fields.type !== step.type) {
+    next.subtype = fields.type === 'trigger' ? 'keyword' : 'message';
+    next.value = DEFAULT_STEP_VALUE[next.subtype];
+    return next;
+  }
+  if (fields.subtype && fields.subtype !== step.subtype) {
+    next.value = DEFAULT_STEP_VALUE[fields.subtype] ?? '';
+  }
+  return next;
+}
+
 const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange = false }) => {
   const isTrigger = step.type === 'trigger';
   const isCondition = step.type === 'condition';
@@ -1305,12 +1378,24 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
         <select value={step.value} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, minWidth:130 }}>
           {['Immediate', '5 min', '1 hour', '1 day'].map(v => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{v}</option>)}
         </select>
-      ) : (step.subtype === 'welcome' || step.subtype === 'missed' || (isCondition && !CONDITION_NEEDS_VALUE.has(step.subtype))) ? (
+) : NO_CONFIG_SUBTYPES.includes(step.subtype) ? (
         <span style={{ fontSize:12, color:'var(--t3)', flex:1 }}>No configuration needed</span>
+      ) : step.subtype === 'lead_status' ? (
+        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
+          {/* A trigger with no value means "any status change"; an action must name one. */}
+          {isTrigger && <option value="" style={{ background:'#07090F' }}>Any status</option>}
+          {LEAD_STATUS_CHOICES.map(v => <option key={v} value={v} style={{ background:'#07090F' }}>{prettyEnum(v)}</option>)}
+        </select>
+      ) : step.subtype === 'deal_stage' ? (
+        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
+          {isTrigger && <option value="" style={{ background:'#07090F' }}>Any stage</option>}
+          {DEAL_STAGE_CHOICES.map(v => <option key={v} value={v} style={{ background:'#07090F' }}>{prettyEnum(v)}</option>)}
+        </select>
       ) : (
         <input value={step.value || ''}
+          type={step.subtype === 'score_above' ? 'number' : 'text'}
           onChange={e => onChange({ value: isTrigger && step.subtype === 'keyword' ? e.target.value.toUpperCase() : e.target.value })}
-          placeholder={
+placeholder={
             isTrigger ? 'e.g. HELP'
             : step.subtype === 'field_equals' ? 'field=value, e.g. plan=premium'
             : step.subtype === 'field_set' ? 'field name, e.g. order_number'
@@ -1320,6 +1405,7 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
             : step.subtype === 'agent' ? 'Agent name or email'
             : 'Message text — use {{name}} or {{custom.order_number}}'
           }
+
           style={{ ...selectStyle, flex:1, minWidth:200, color: isTrigger && step.subtype === 'keyword' ? 'var(--green)' : 'var(--t1)', fontFamily: isTrigger && step.subtype === 'keyword' ? 'monospace' : 'inherit' }} />
       )}
 
@@ -1352,6 +1438,13 @@ const stepLabel = (step) => {
     case 'delay':   return `Wait: ${step.value}`;
     case 'tag':     return `Tag: ${step.value}`;
     case 'agent':   return `Assign: ${step.value}`;
+    case 'lead_created': return 'Lead created';
+    case 'lead_status':  return step.value ? `Lead status: ${prettyEnum(step.value)}` : 'Lead status changes';
+    case 'deal_stage':   return step.value ? `Deal stage: ${prettyEnum(step.value)}` : 'Deal stage changes';
+    case 'score_above':  return `Lead score reaches ${step.value}`;
+    case 'task':     return `Create task: "${step.value}"`;
+    case 'owner':    return `Assign owner: ${step.value}`;
+    case 'sequence': return `Enrol in: ${step.value}`;
     default:        return step.subtype;
   }
 };

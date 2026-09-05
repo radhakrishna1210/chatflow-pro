@@ -92,7 +92,7 @@ const envSchema = z.object({
   // API keys with a 404 ("no longer available to new users"), which silently
   // broke every AI feature. The `-latest` alias tracks the current Flash model
   // instead; override this only to pin a specific version deliberately.
-  GEMINI_MODEL: z.string().default('gemini-flash-latest'),
+  GEMINI_MODEL: z.string().default('gemini-2.5-flash'),
   // Where a request goes when GEMINI_MODEL answers 503 "experiencing high
   // demand" — which the flash tier does often enough to look like an outage
   // (measured at ~2 calls in 5). The lite model runs on separate capacity and
