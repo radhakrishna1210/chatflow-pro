@@ -1,12 +1,13 @@
 import { searchWorkspace } from './search.service.js';
-import { listLeads } from './leads.service.js';
+import { listLeads, updateLead } from './leads.service.js';
 import { listDeals, updateDealStage } from './deals.service.js';
-import { listTasks, createTask } from './tasks.service.js';
+import { listTasks, createTask, updateTask } from './tasks.service.js';
 import { getForecast } from './forecast.service.js';
 import { computeWorkspaceDealHealth } from './dealHealth.service.js';
 import { getRecommendations } from './nextBestAction.service.js';
-import { listTickets } from './tickets.service.js';
-import { updateLead } from './leads.service.js';
+import { listTickets, updateTicket } from './tickets.service.js';
+import { listMembers } from './members.service.js';
+import { prisma } from '../lib/prisma.js';
 
 // Tools the CRM copilot may use.
 //
@@ -94,7 +95,22 @@ export const TOOLS = {
     params: { view: 'string, optional — defaults to open' },
     run: async ({ workspaceId, user, args }) => {
       const { data } = await listTickets(workspaceId, { view: args.view ?? 'open' }, asUser(user));
-      return trim(data, ['id', 'ticketNumber', 'subject', 'status', 'priority', 'dueAt', 'isOverdue']);
+      return trim(data, ['id', 'ticketNumber', 'subject', 'status', 'priority', 'dueAt', 'isOverdue', 'owner.name', 'owner.id']);
+    },
+  },
+
+  list_members: {
+    kind: 'read',
+    description: 'List team members in the workspace with their name, email, and user ID.',
+    params: {},
+    run: async ({ workspaceId }) => {
+      const members = await listMembers(workspaceId);
+      return members.map((m) => ({
+        id: m.userId,
+        name: m.user?.name || m.user?.email || 'Member',
+        email: m.user?.email,
+        role: m.role,
+      }));
     },
   },
 
@@ -139,6 +155,93 @@ export const TOOLS = {
       leadId: args.leadId ?? undefined,
       assignedToUserId: user.id,
     }, user.id),
+  },
+
+  complete_task: {
+    kind: 'write',
+    description: 'Propose marking a task as completed. Requires confirmation.',
+    params: { taskId: 'string (task id or exact task title)' },
+    summarise: (args) => `Mark task ${args.taskTitle ? `"${args.taskTitle}"` : args.taskId} as completed`,
+    execute: async ({ workspaceId, args }) => {
+      let task = null;
+      if (args.taskId) {
+        task = await prisma.task.findFirst({
+          where: { workspaceId, id: args.taskId },
+          select: { id: true, title: true },
+        });
+      }
+      if (!task && (args.taskTitle || args.taskId)) {
+        const query = String(args.taskTitle || args.taskId).trim();
+        task = await prisma.task.findFirst({
+          where: {
+            workspaceId,
+            OR: [
+              { title: { equals: query, mode: 'insensitive' } },
+              { title: { contains: query, mode: 'insensitive' } },
+            ],
+          },
+          select: { id: true, title: true },
+        });
+      }
+      if (!task) {
+        const e = new Error(`Task not found in this workspace`);
+        e.status = 404;
+        throw e;
+      }
+      return updateTask(workspaceId, task.id, { status: 'COMPLETED' });
+    },
+  },
+
+  assign_ticket: {
+    kind: 'write',
+    description: 'Propose assigning a support ticket to a team member (or unassigning). Requires confirmation.',
+    params: {
+      ticketId: 'string (ticket id or ticket number like T-0004)',
+      ownerUserId: 'string (user id, or empty/null for unassigned)',
+      ownerName: 'string, optional (name of owner for display)',
+    },
+    summarise: (args) => {
+      const ticketRef = args.ticketNumber || args.ticketId;
+      const target = args.ownerName || args.ownerUserId || 'Unassigned';
+      return `Assign ticket ${ticketRef} to ${target}`;
+    },
+    execute: async ({ workspaceId, user, args }) => {
+      let ticket = null;
+      if (args.ticketId) {
+        ticket = await prisma.crmTicket.findFirst({
+          where: {
+            workspaceId,
+            OR: [{ id: args.ticketId }, { ticketNumber: args.ticketId }],
+          },
+          select: { id: true, ticketNumber: true },
+        });
+      }
+      if (!ticket) {
+        const e = new Error(`Ticket not found in this workspace`);
+        e.status = 404;
+        throw e;
+      }
+
+      let ownerId = args.ownerUserId || null;
+      if (ownerId && ownerId.toLowerCase() === 'unassigned') ownerId = null;
+
+      if (ownerId && !args.ownerName) {
+        const member = await prisma.workspaceMember.findFirst({
+          where: {
+            workspaceId,
+            OR: [
+              { userId: ownerId },
+              { user: { name: { equals: ownerId, mode: 'insensitive' } } },
+              { user: { email: { equals: ownerId, mode: 'insensitive' } } },
+            ],
+          },
+          select: { userId: true },
+        });
+        if (member) ownerId = member.userId;
+      }
+
+      return updateTicket(workspaceId, ticket.id, { ownerUserId: ownerId }, asUser(user));
+    },
   },
 
   update_lead_status: {

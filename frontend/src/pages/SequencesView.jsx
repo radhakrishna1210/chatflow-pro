@@ -175,7 +175,7 @@ const SequenceModal = ({ sequence, onClose, onSaved }) => {
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || 'Could not save this sequence');
+        throw new Error(d.error || d.message || 'Could not save this sequence');
       }
       onSaved();
       onClose();

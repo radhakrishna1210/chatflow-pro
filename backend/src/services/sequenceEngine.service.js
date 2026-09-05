@@ -18,11 +18,26 @@ export function validateSteps(steps) {
     const e = new Error('A sequence cannot have more than 50 steps'); e.status = 400; throw e;
   }
 
-  return steps.map((step, i) => {
+  return steps.map((rawStep, i) => {
     const at = `Step ${i + 1}`;
     const fail = (msg) => { const e = new Error(`${at}: ${msg}`); e.status = 400; throw e; };
 
-    if (!STEP_KINDS.includes(step?.kind)) fail(`unknown step type "${step?.kind}"`);
+    if (!rawStep || typeof rawStep !== 'object') fail('invalid step definition');
+
+    const rawKind = String(rawStep.kind || rawStep.type || '').toUpperCase();
+    let kind = rawKind;
+    if (rawKind === 'SEND_MESSAGE' || rawKind === 'EMAIL' || rawKind === 'SMS') kind = 'MESSAGE';
+    if (rawKind === 'FIELD_UPDATE') kind = 'UPDATE_FIELD';
+
+    if (!STEP_KINDS.includes(kind)) fail(`unknown step type "${rawStep?.kind || rawStep?.type}"`);
+
+    const step = {
+      ...rawStep,
+      kind,
+      body: rawStep.body ?? rawStep.content ?? rawStep.message,
+      title: rawStep.title ?? rawStep.name,
+      minutes: rawStep.minutes ?? rawStep.delayMinutes ?? (rawStep.delayHours !== undefined ? Number(rawStep.delayHours) * 60 : undefined),
+    };
 
     switch (step.kind) {
       case 'MESSAGE': {

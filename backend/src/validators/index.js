@@ -16,7 +16,13 @@ export function validate(schemas) {
       next();
     } catch (err) {
       if (err?.name === 'ZodError') {
-        return res.status(400).json({ error: 'Validation error', details: err.flatten().fieldErrors });
+        const issue = err.issues?.[0];
+        const field = issue?.path?.join('.') || '';
+        const msg = issue?.message || 'Validation error';
+        const readable = field && !msg.toLowerCase().includes(field.toLowerCase())
+          ? `${msg} (${field})`
+          : msg;
+        return res.status(400).json({ error: readable, message: readable, details: err.flatten().fieldErrors });
       }
       next(err);
     }
@@ -443,14 +449,55 @@ const lineItemBase = {
   taxRate: z.coerce.number().min(0).max(100).optional(),
 };
 
-const sequenceStep = z.object({
-  type: z.enum(['EMAIL', 'SMS', 'WAIT', 'TASK', 'FIELD_UPDATE']),
-  content: z.string().optional(),
-  delayHours: z.coerce.number().min(0).max(8760).optional(),
-});
+const sequenceStep = z.preprocess((val) => {
+  if (!val || typeof val !== 'object') return val;
+  const rawKind = String(val.kind || val.type || '').toUpperCase();
+  let kind = rawKind;
+  if (rawKind === 'SEND_MESSAGE' || rawKind === 'EMAIL' || rawKind === 'SMS') kind = 'MESSAGE';
+  if (rawKind === 'FIELD_UPDATE') kind = 'UPDATE_FIELD';
 
-const TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING_ON_CUSTOMER', 'RESOLVED', 'CLOSED'];
-const TICKET_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+  const body = val.body ?? val.content ?? val.message;
+  const title = val.title ?? val.name;
+  let minutes = val.minutes ?? val.delayMinutes;
+  if (minutes === undefined && val.delayHours !== undefined) {
+    minutes = Number(val.delayHours) * 60;
+  }
+
+  return {
+    ...val,
+    kind,
+    ...(body !== undefined ? { body } : {}),
+    ...(title !== undefined ? { title } : {}),
+    ...(minutes !== undefined ? { minutes } : {}),
+  };
+}, z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('MESSAGE'),
+    body: z.string().trim().min(1, 'Message text is required for a Send Message step').max(4096),
+  }).passthrough(),
+  z.object({
+    kind: z.literal('WAIT'),
+    minutes: z.coerce.number().positive('Wait duration must be a positive number').max(90 * 24 * 60),
+  }).passthrough(),
+  z.object({
+    kind: z.literal('TASK'),
+    title: z.string().trim().min(1, 'Task title is required for a Create Task step').max(200),
+    dueInDays: z.coerce.number().min(0).max(365).optional().default(1),
+  }).passthrough(),
+  z.object({
+    kind: z.literal('UPDATE_FIELD'),
+    status: z.enum(['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'], {
+      errorMap: () => ({ message: 'Status must be one of: NEW, CONTACTED, QUALIFIED, UNQUALIFIED, LOST' }),
+    }),
+  }).passthrough(),
+  z.object({
+    kind: z.literal('EXIT'),
+    reason: z.string().trim().max(200).optional().default('Sequence complete'),
+  }).passthrough(),
+]));
+
+const TICKET_STATUSES = ['NEW', 'OPEN', 'WAITING', 'RESOLVED', 'CLOSED'];
+const TICKET_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 
 const leadFormField = z.object({
   key: z.string().trim().max(100).optional(),
@@ -592,25 +639,35 @@ export const ticketSchemas = {
   create: z.object({
     subject: z.string().trim().min(1, 'A ticket needs a subject').max(200),
     description: z.union([z.string().trim().max(5000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
-    priority: z.enum(TICKET_PRIORITIES).optional(),
+    priority: z.union([
+      z.enum(TICKET_PRIORITIES),
+      z.enum(['MEDIUM']).transform(() => 'NORMAL'),
+    ]).optional(),
     category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     contactId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     teamId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     conversationId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }),
-  // `status` is absent by design ΓÇö it moves only through /status, which is what
+  // `status` is absent by design — it moves only through /status, which is what
   // enforces the transition rules and stamps resolvedAt/closedAt.
   update: z.object({
     subject: z.string().trim().min(1).max(200).optional(),
     description: z.union([z.string().trim().max(5000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
-    priority: z.enum(TICKET_PRIORITIES).optional(),
+    priority: z.union([
+      z.enum(TICKET_PRIORITIES),
+      z.enum(['MEDIUM']).transform(() => 'NORMAL'),
+    ]).optional(),
     category: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     teamId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }).strict(),
   status: z.object({
-    status: z.enum(TICKET_STATUSES),
+    status: z.union([
+      z.enum(TICKET_STATUSES),
+      z.enum(['IN_PROGRESS']).transform(() => 'OPEN'),
+      z.enum(['WAITING_ON_CUSTOMER']).transform(() => 'WAITING'),
+    ]),
   }).strict(),
 };
 

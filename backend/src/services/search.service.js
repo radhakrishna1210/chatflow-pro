@@ -37,7 +37,7 @@ export async function searchWorkspace(workspaceId, { q, limit = PER_ENTITY_LIMIT
     ])
     : [{}, {}];
 
-  const [contacts, leads, deals, tasks] = await Promise.all([
+  const [contacts, leads, deals, tasks, tickets] = await Promise.all([
     prisma.contact.findMany({
       where: {
         workspaceId,
@@ -92,6 +92,25 @@ export async function searchWorkspace(workspaceId, { q, limit = PER_ENTITY_LIMIT
       take,
       orderBy: { dueDate: 'asc' },
     }),
+    prisma.crmTicket.findMany({
+      where: {
+        workspaceId,
+        AND: [
+          ownedScope,
+          {
+            OR: [
+              { ticketNumber: insensitive(term) },
+              { subject: insensitive(term) },
+              { description: insensitive(term) },
+              { contact: { name: insensitive(term) } },
+            ],
+          },
+        ],
+      },
+      select: { id: true, ticketNumber: true, subject: true, status: true, priority: true },
+      take,
+      orderBy: { createdAt: 'desc' },
+    }),
   ]);
 
   const results = [
@@ -122,6 +141,13 @@ export async function searchWorkspace(workspaceId, { q, limit = PER_ENTITY_LIMIT
       title: t.title,
       subtitle: t.status === 'COMPLETED' ? 'Completed' : t.dueDate ? `Due ${t.dueDate.toISOString().slice(0, 10)}` : 'No due date',
       href: 'tasks',
+    })),
+    ...tickets.map((k) => ({
+      type: 'ticket',
+      id: k.id,
+      title: `${k.ticketNumber}: ${k.subject}`,
+      subtitle: `${pretty(k.status)} · ${pretty(k.priority)}`,
+      href: 'tickets',
     })),
   ];
 

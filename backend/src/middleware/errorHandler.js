@@ -13,7 +13,13 @@ export function errorHandler(err, req, res, next) {
   const status = err.status || err.statusCode || 500;
 
   if (err.name === 'ZodError') {
-    return res.status(400).json({ error: 'Validation error', details: err.flatten().fieldErrors });
+    const issue = err.issues?.[0];
+    const field = issue?.path?.join('.') || '';
+    const msg = issue?.message || 'Validation error';
+    const readable = field && !msg.toLowerCase().includes(field.toLowerCase())
+      ? `${msg} (${field})`
+      : msg;
+    return res.status(400).json({ error: readable, message: readable, details: err.flatten().fieldErrors });
   }
 
   if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {

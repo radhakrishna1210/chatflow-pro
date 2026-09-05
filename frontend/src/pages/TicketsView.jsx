@@ -298,7 +298,7 @@ const TicketDetail = ({ ticket, members, onClose, onChanged }) => {
 
         {(priority !== ticket.priority || ownerUserId !== (ticket.ownerUserId ?? '')) && (
           <Btn size="sm" disabled={busy}
-            onClick={() => patch({ priority, ownerUserId: ownerUserId || null })}>
+            onClick={() => patch({ priority, ownerUserId: ownerUserId ? ownerUserId : null })}>
             Apply changes
           </Btn>
         )}
@@ -340,7 +340,7 @@ export default function TicketsView() {
   useEffect(() => { setLoading(true); load(view); }, [view, load]);
 
   useEffect(() => {
-    wFetch('/members').then((r) => (r.ok ? r.json() : { data: [] })).then((b) => setMembers(b.data ?? b.members ?? [])).catch(() => setMembers([]));
+    wFetch('/members').then((r) => (r.ok ? r.json() : [])).then((b) => setMembers(Array.isArray(b) ? b : (b.data ?? b.members ?? []))).catch(() => setMembers([]));
     wFetch('/contacts?limit=200').then((r) => (r.ok ? r.json() : { data: [] })).then((b) => setContacts(b.data ?? [])).catch(() => setContacts([]));
   }, []);
 
