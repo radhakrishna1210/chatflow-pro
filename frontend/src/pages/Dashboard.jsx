@@ -42,6 +42,8 @@ import IntegrationsView from './IntegrationsView.jsx';
 import PaymentsView from './PaymentsView.jsx';
 import LegalCenter from '../components/LegalCenter.jsx';
 import { LEGAL_DOCS } from '../lib/legalContent.js';
+import AuthenticationDashboard from './AuthenticationDashboard.jsx';
+import ResourceCenter from './ResourceCenter.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -1777,6 +1779,20 @@ const HEADER_FORMAT_META = {
 const CARD_MAX = 10;
 const CARD_BODY_MAX = 160;
 
+// An authentication template is not authored — Meta writes the passcode
+// message itself, in the template's language, and the template only sets these
+// switches. Mirrors lib/templateStructure.js → normalizeAuthentication on the
+// server, which is what actually enforces them.
+const OTP_EXPIRY = { min: 1, max: 90, default: 5 };
+const OTP_BUTTON_LABEL_DEFAULT = 'Copy code';
+// What WhatsApp renders for each switch, shown in the preview so the user can
+// see the message they are approving rather than guess at it.
+const OTP_PREVIEW = {
+  body: '<CODE> is your verification code.',
+  security: 'For your security, do not share this code.',
+  expiry: (m) => `This code expires in ${m} minute${m === 1 ? '' : 's'}.`,
+};
+
 // Reads the type back off a saved template — the backend derives it the same
 // way rather than storing it, so there is nothing to read from a column.
 const detectTemplateType = (components) => {
@@ -1855,6 +1871,25 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
     const existing = isEdit ? findComp('BUTTONS')?.buttons : seed?.buttons;
     return Array.isArray(existing) ? existing.map(b => ({ ...b })) : [];
   });
+  // ── Authentication ──
+  // The three switches an authentication template is allowed to set. They are
+  // read back off the stored components when editing one, and default to what
+  // Meta itself suggests for a new one.
+  const [otpSecurityNote, setOtpSecurityNote] = useState(
+    () => (isEdit ? findComp('BODY')?.add_security_recommendation !== false : true),
+  );
+  // Blank means "no expiry line", which Meta accepts — so an absent value stays
+  // absent on an existing template rather than being invented here.
+  const [otpExpiry, setOtpExpiry] = useState(() => {
+    if (!isEdit) return String(OTP_EXPIRY.default);
+    const minutes = findComp('FOOTER')?.code_expiration_minutes;
+    return minutes === undefined || minutes === null ? '' : String(minutes);
+  });
+  const [otpButtonLabel, setOtpButtonLabel] = useState(() => {
+    const b = (findComp('BUTTONS')?.buttons || []).find(x => (x?.type || '').toUpperCase() === 'OTP');
+    return b?.text || OTP_BUTTON_LABEL_DEFAULT;
+  });
+
   const [headerPreview, setHeaderPreview] = useState(seed?.image?.dataUri ?? null);
   const [uploading, setUploading] = useState(false);
   const [examples, setExamples] = useState(() => {
@@ -1962,8 +1997,13 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
     { id:'AUTHENTICATION', label:'Authentication', hint:'One-time passwords (OTP) only.' },
   ];
 
+  // Authentication templates are configured, not written: Meta supplies the
+  // copy and the builder collects only the switches, so the body, footer and
+  // button editors below are replaced wholesale for this category.
+  const isAuth = category === 'AUTHENTICATION';
+
   // Extract {{1}}, {{2}}, ... in order
-  const vars = Array.from(new Set((body.match(/\{\{\d+\}\}/g) || [])))
+  const vars = isAuth ? [] : Array.from(new Set((body.match(/\{\{\d+\}\}/g) || [])))
     .map(v => parseInt(v.replace(/\D/g, ''), 10))
     .filter(n => !isNaN(n))
     .sort((a, b) => a - b);
@@ -2034,9 +2074,36 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
     }
   };
 
+  // An authentication template's components, which carry switches rather than
+  // copy — see the OTP_* constants above and normalizeAuthentication() on the
+  // server. Nothing here is authored by the user except the button's label.
+  const authComponents = () => {
+    const out = [{ type:'BODY', add_security_recommendation: otpSecurityNote }];
+    // Blank is a legitimate choice: Meta then renders no expiry line at all.
+    if (otpExpiry.trim()) out.push({ type:'FOOTER', code_expiration_minutes: Number(otpExpiry) });
+    out.push({
+      type:'BUTTONS',
+      buttons: [{ type:'OTP', otp_type:'COPY_CODE', text: otpButtonLabel.trim() || OTP_BUTTON_LABEL_DEFAULT }],
+    });
+    return out;
+  };
+
   const submit = async () => {
     setErr(null);
     if (!nameValid) { setErr('Name must contain only lowercase letters, numbers and underscores.'); return; }
+
+    if (isAuth) {
+      if (otpExpiry.trim()) {
+        const minutes = Number(otpExpiry);
+        if (!Number.isInteger(minutes) || minutes < OTP_EXPIRY.min || minutes > OTP_EXPIRY.max) {
+          setErr(`The code expiry must be a whole number of minutes between ${OTP_EXPIRY.min} and ${OTP_EXPIRY.max}.`); return;
+        }
+      }
+      if (!isEdit && numbers.length > 1 && !waNumberId) { setErr('Select which WhatsApp number this template belongs to.'); return; }
+      await save(authComponents());
+      return;
+    }
+
     const bodyError = validateMeaningfulText(body, 'Body text');
     if (bodyError) { setErr(bodyError); return; }
     for (const n of vars) {
@@ -2154,6 +2221,13 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
       if (cleanButtons.length) components.push({ type:'BUTTONS', buttons: cleanButtons });
     }
 
+    await save(components, media);
+  };
+
+  // Posts the finished components. Shared by the authored categories and the
+  // authentication one, which assembles a different components array but is
+  // created and edited through exactly the same endpoints.
+  const save = async (components, media = null) => {
     setSaving(true);
     try {
       const res = isEdit
@@ -2180,6 +2254,11 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
       setSaving(false);
     }
   };
+
+  // What makes a template submittable differs by category: an authentication
+  // template has no body to fill in — Meta writes it — so gating on one would
+  // leave its Submit button permanently disabled.
+  const canSubmit = !saving && nameValid && (isAuth ? !!otpButtonLabel.trim() : !!body.trim());
 
   const inputBase = {
     width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)',
@@ -2245,7 +2324,10 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
             </div>
           </div>
 
-          {/* Template Type — only the types the chosen category allows */}
+          {/* Template Type — only the types the chosen category allows. An
+              authentication template has exactly one shape, so there is
+              nothing to choose and the selector is hidden entirely. */}
+          {!isAuth && (
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Template Type <span style={{ color:'#f87171' }}>*</span></label>
             <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
@@ -2262,12 +2344,11 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
             </div>
             {allowedTypes.length === 1 && (
               <p style={{ fontSize:11, color:'var(--t3)', marginTop:5 }}>
-                {category === 'AUTHENTICATION'
-                  ? 'Authentication templates carry the passcode in the body — Meta does not allow other formats here.'
-                  : 'Only the standard format is available for this category.'}
+                Only the standard format is available for this category.
               </p>
             )}
           </div>
+          )}
 
           {/* Language */}
           <div>
@@ -2277,6 +2358,54 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
               {langs.map(l => <option key={l.code} value={l.code}>{l.label} ({l.code})</option>)}
             </select>
           </div>
+
+          {/* Authentication — Meta writes this message itself, in the language
+              chosen above, and rejects any wording of our own. So there is no
+              body, footer or button editor here: only the switches Meta reads.
+              What each one produces is shown in the preview below. */}
+          {isAuth && (
+            <div style={{ padding:'12px 14px', borderRadius:8, background:'rgba(251,191,36,.05)', border:'1px solid rgba(251,191,36,.2)' }}>
+              <p style={{ fontSize:12, fontWeight:700, color:'#fbbf24', marginBottom:6 }}>Passcode message</p>
+              <p style={{ fontSize:11, color:'#fbbf24', opacity:.85, marginBottom:14, lineHeight:1.55 }}>
+                WhatsApp writes this message itself and fills in the code on every send — the wording is fixed and translated for you. Meta rejects authentication templates that carry their own text.
+              </p>
+
+              <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>
+                Code expires after <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional, {OTP_EXPIRY.min}–{OTP_EXPIRY.max} minutes)</span>
+              </label>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <input type="number" min={OTP_EXPIRY.min} max={OTP_EXPIRY.max} value={otpExpiry}
+                  onChange={e => setOtpExpiry(e.target.value)}
+                  placeholder="5" style={{ ...inputBase, width:110 }} />
+                <span style={{ fontSize:12, color:'var(--t3)' }}>minutes</span>
+              </div>
+              <p style={{ fontSize:11, color:'var(--t3)', marginTop:4, lineHeight:1.5 }}>
+                Adds the expiry line to the message. Leave blank to omit it. This is also the window the OTP stays valid for when the code is verified here.
+              </p>
+
+              <label style={{ display:'flex', alignItems:'flex-start', gap:8, margin:'14px 0 0', cursor:'pointer' }}>
+                <input type="checkbox" checked={otpSecurityNote}
+                  onChange={e => setOtpSecurityNote(e.target.checked)}
+                  style={{ marginTop:2, accentColor:'var(--green)', width:15, height:15, cursor:'pointer' }} />
+                <span>
+                  <span style={{ display:'block', fontSize:12.5, fontWeight:600, color:'var(--t1)' }}>Add the security warning</span>
+                  <span style={{ display:'block', fontSize:11, color:'var(--t3)', marginTop:2, lineHeight:1.5 }}>
+                    Appends “{OTP_PREVIEW.security}” to the message.
+                  </span>
+                </span>
+              </label>
+
+              <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', margin:'14px 0 6px' }}>
+                Copy-code button label <span style={{ color:'#f87171' }}>*</span>
+              </label>
+              <input value={otpButtonLabel} maxLength={25}
+                onChange={e => setOtpButtonLabel(e.target.value)}
+                placeholder={OTP_BUTTON_LABEL_DEFAULT} style={inputBase} />
+              <p style={{ fontSize:11, color:'var(--t3)', marginTop:4, lineHeight:1.5 }}>
+                Tapping it copies the passcode. Every authentication template carries this one button and no others.
+              </p>
+            </div>
+          )}
 
           {/* Header — the formats depend on the category; a carousel puts its
               media on the cards instead, and a catalog template allows none. */}
@@ -2346,7 +2475,9 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
             </p>
           )}
 
-          {/* Body */}
+          {/* Body — authored for every category except authentication, whose
+              body is written by Meta and configured in the panel above. */}
+          {!isAuth && (
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Body Text <span style={{ color:'#f87171' }}>*</span></label>
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={4}
@@ -2356,6 +2487,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
               Use <code style={{ fontFamily:'monospace', color:'var(--green)' }}>{'{{1}}'}</code>, <code style={{ fontFamily:'monospace', color:'var(--green)' }}>{'{{2}}'}</code> etc. for variables. Max 1024 chars.
             </p>
           </div>
+          )}
 
           {/* Variable examples */}
           {vars.length > 0 && (
@@ -2378,8 +2510,10 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
             </div>
           )}
 
-          {/* Footer — independent of the header. Meta has no footer on a carousel. */}
-          {templateType !== 'CAROUSEL' && (
+          {/* Footer — independent of the header. Meta has no footer on a
+              carousel, and an authentication template's footer carries the
+              expiry rather than text (set in the panel above). */}
+          {templateType !== 'CAROUSEL' && !isAuth && (
             <div>
               <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Footer <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional, max 60 chars)</span></label>
               <input value={footer} maxLength={60} onChange={e => setFooter(e.target.value)}
@@ -2410,9 +2544,10 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
           )}
 
           {/* Buttons — the message bubble's own buttons. A carousel puts
-              buttons on each card instead, and a catalog template's single
-              button is configured above. */}
-          {templateType === 'STANDARD' && (
+              buttons on each card instead; a catalog template's single button
+              and an authentication template's OTP button are configured
+              above, and Meta allows neither of those to sit beside others. */}
+          {templateType === 'STANDARD' && !isAuth && (
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>
               Buttons <span style={{ color:'var(--t3)', fontWeight:500 }}>(optional)</span>
@@ -2598,13 +2733,32 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
                 {templateType === 'STANDARD' && headerKind === 'TEXT' && headerText && (
                   <p style={{ fontSize:12.5, fontWeight:700, color:'#111', margin:'0 0 4px', lineHeight:1.4 }}>{headerText}</p>
                 )}
-                <p style={{ fontSize:12, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word', fontFamily:'system-ui,-apple-system,sans-serif', margin:0 }}>
-                  {body || <span style={{ color:'#999', fontStyle:'italic' }}>Body preview…</span>}
-                </p>
-                {templateType !== 'CAROUSEL' && footer && (
+                {/* Meta's own wording for an authentication message, so the
+                    preview shows what the recipient reads rather than the
+                    switches that produce it. <CODE> is filled in per send. */}
+                {isAuth ? (
+                  <p style={{ fontSize:12, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word', fontFamily:'system-ui,-apple-system,sans-serif', margin:0 }}>
+                    {OTP_PREVIEW.body}{otpSecurityNote ? ` ${OTP_PREVIEW.security}` : ''}
+                  </p>
+                ) : (
+                  <p style={{ fontSize:12, color:'#111', lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word', fontFamily:'system-ui,-apple-system,sans-serif', margin:0 }}>
+                    {body || <span style={{ color:'#999', fontStyle:'italic' }}>Body preview…</span>}
+                  </p>
+                )}
+                {isAuth && otpExpiry.trim() && Number(otpExpiry) > 0 && (
+                  <p style={{ fontSize:10.5, color:'#888', marginTop:6, lineHeight:1.4 }}>{OTP_PREVIEW.expiry(Number(otpExpiry))}</p>
+                )}
+                {isAuth && (
+                  <div style={{ marginTop:8, borderTop:'1px solid #e4e0d8', paddingTop:2 }}>
+                    <div style={{ textAlign:'center', padding:'7px 4px', fontSize:12, color:'#00a5f4', fontWeight:500 }}>
+                      {'⧉ '}{otpButtonLabel.trim() || OTP_BUTTON_LABEL_DEFAULT}
+                    </div>
+                  </div>
+                )}
+                {templateType !== 'CAROUSEL' && !isAuth && footer && (
                   <p style={{ fontSize:10.5, color:'#888', marginTop:6, lineHeight:1.4 }}>{footer}</p>
                 )}
-                {templateType === 'STANDARD' && buttons.filter(b => (b.text || '').trim()).length > 0 && (
+                {templateType === 'STANDARD' && !isAuth && buttons.filter(b => (b.text || '').trim()).length > 0 && (
                   <div style={{ marginTop:8, borderTop:'1px solid #e4e0d8', paddingTop:2 }}>
                     {buttons.filter(b => (b.text || '').trim()).map((b, i) => (
                       <div key={i} style={{ textAlign:'center', padding:'7px 4px', fontSize:12, color:'#00a5f4', fontWeight:500, borderTop: i > 0 ? '1px solid #e4e0d8' : 'none' }}>
@@ -2652,7 +2806,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null }) => {
           <span style={{ fontSize:11, color:'var(--t3)' }}>Approval by Meta usually takes minutes to hours.</span>
           <div style={{ display:'flex', gap:8 }}>
             <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-            <Btn onClick={submit} disabled={saving || !body.trim() || !nameValid} style={{ boxShadow: (saving || !body.trim() || !nameValid) ? 'none' : 'var(--glow)' }}>
+            <Btn onClick={submit} disabled={!canSubmit} style={{ boxShadow: canSubmit ? 'var(--glow)' : 'none' }}>
               {saving ? (isEdit ? 'Saving…' : 'Submitting…') : (isEdit ? 'Save Changes' : 'Submit to Meta')}
             </Btn>
           </div>
@@ -3507,6 +3661,7 @@ const PlaceholderView = ({ title, icon }) => (
 const ADMIN_NAV = [
   { id: 'home',           label: 'Home',           icon: 'home'  },
   { id: 'templates',      label: 'Templates',      icon: 'file'  },
+   { id: 'authentication',label: 'Authentication',        icon: 'shield' },
   { id: 'campaigns',      label: 'Campaigns',      icon: 'send'  },
   { id: 'crm-overview',   label: 'CRM Overview',   icon: 'layout' },
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
@@ -3532,6 +3687,7 @@ const ADMIN_NAV = [
   { id: 'payments',       label: 'Payments',       icon: 'credit' },
   { id: 'api',            label: 'API Keys',       icon: 'key'   },
   { id: 'support',        label: 'Help & Support', icon: 'msg'   },
+  { id: 'resources',      label: 'Resource Center', icon: 'file' },
   { id: 'settings',       label: 'Settings',       icon: 'cog'   },
   { id: 'legal',          label: 'Legal',          icon: 'file'  },
 ];
@@ -3579,13 +3735,13 @@ const SUPERADMIN_NAV = [...ADMIN_TABS, { id: 'settings', label: 'Settings', icon
 // rather than colour emoji, so those two do follow the text colour.
 const NAV_EMOJI = {
   // straight from the design set
-  home: '\u{1F3E0}', inbox: '\u{1F4AC}', campaigns: '\u{1F4E3}', templates: '\u{1F4C4}',
+  home: '\u{1F3E0}', inbox: '\u{1F4AC}', campaigns: '\u{1F4E3}', templates: '\u{1F4C4}',authentication: '\u{1F510}',
   contacts: '\u{1F465}', 'ai-agent': '\u2726', automation: '\u26A1', 'intent-matching': '\u{1F3AF}',
   analytics: '\u{1F4CA}', 'chat-analysis': '\u{1F50E}', 'user-analytics': '\u{1F4C8}',
   integrations: '\u{1F50C}', setup: '\u{1F4F1}', api: '\u{1F511}', payments: '\u{1F4B3}',
   support: '\u{1F6DF}', settings: '\u2699\uFE0F',
   // absent from the design set — chosen to sit alongside the rest
-  widget: '\u{1F310}', legal: '\u{1F4DC}',
+  widget: '\u{1F310}', legal: '\u{1F4DC}', resources: '\u{1F4DA}',
   'admin-overview': '\u{1F9ED}', 'admin-analytics': '\u{1F4CA}', 'admin-revenue': '\u{1F4B0}',
   'admin-transactions': '\u{1F9FE}', 'admin-payments': '\u2705', 'admin-campaigns': '\u{1F4E3}',
   'admin-workspaces': '\u{1F3E2}', 'admin-users': '\u{1F464}', 'admin-numbers': '\u{1F4F1}',
@@ -3598,10 +3754,10 @@ const TEXT_GLYPHS = new Set(['\u2726', '\u26A1']);
 
 const NAV_GROUPS = [
   { name: 'COMMAND',    ids: ['home', 'inbox'] },
-  { name: 'GROW',       ids: ['campaigns', 'templates', 'contacts'] },
+  { name: 'GROW',       ids: ['campaigns', 'templates', 'authentication', 'contacts'] },
   { name: 'AUTOMATE',   ids: ['ai-agent', 'automation', 'intent-matching'] },
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
-  { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'settings'] },
+  { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'resources', 'settings'] },
 ];
 
 // Super admins get their own banding: the platform sections have no analogue
@@ -3886,10 +4042,13 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
   );
 };
 
-const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), ...ADMIN_TABS.map(n => n.id), 'campaigns-create', 'profile']);
+const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), ...ADMIN_TABS.map(n => n.id), 'campaigns-create', 'profile', 'resources']);
 
 function sectionFromPath(path, user) {
   const defaultSection = user?.superAdmin === true ? 'admin-overview' : 'home';
+  // The Resource Center lives at its own /resources* URL family but renders
+  // inside this shell, so it resolves to a section id like everything else.
+  if (String(path || '').replace(/^\//, '').split('/')[0] === 'resources') return 'resources';
   const rest = String(path || '').replace(/^\/dashboard\/?/, '');
   if (!rest) return defaultSection;
   if (rest === 'campaigns/create') return 'campaigns-create';
@@ -3904,6 +4063,7 @@ function sectionFromPath(path, user) {
 function pathFromSection(section, subTab) {
   const path = section === 'home' ? '/dashboard'
     : section === 'campaigns-create' ? '/dashboard/campaigns/create'
+    : section === 'resources' ? '/resources'
     : `/dashboard/${section}`;
   return subTab ? `${path}?tab=${encodeURIComponent(subTab)}` : path;
 }
@@ -4011,7 +4171,8 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
       />
     );
     if (page === 'templates')  return <TemplatesView />;
-if (page === 'widget')     return <WidgetsView />;
+    if (page === 'authentication') return <AuthenticationDashboard />;
+    if (page === 'widget')     return <WidgetsView />;
     if (page === 'contacts')   return <ContactsView />;
     if (page === 'automation')     return <AutomationView initialTab={initialSubTab || 'basic'} />;
     // The WhatsApp AI Agent and AI Intent Matching are tabs 4 and 5 of the
@@ -4043,6 +4204,16 @@ if (page === 'crm-overview') return <CrmDashboardView user={user} />;
     if (page === 'support')        return <SupportView />;
     if (page === 'settings')       return <SettingsView />;
     if (page === 'profile')        return <ProfileView />;
+    if (page === 'resources') {
+      const rPath = String(routePath || window.location.pathname);
+      const slug = rPath === '/resources'
+        ? undefined
+        : rPath.replace(/^\/resources\/?/, '') || undefined;
+      // Keyed so crossing the landing↔sub-route boundary remounts rather than
+      // re-rendering the same instance: the landing branch runs hooks the
+      // sub-route branch (an early return) does not.
+      return <ResourceCenter key={slug ? 'sub' : 'landing'} slug={slug} />;
+    }
     if (page === 'legal')          return <LegalView initialTab={initialSubTab || 'terms'} />;
     const navItem = NAV.find(n => n.id === page);
     return <PlaceholderView title={navItem?.label || 'Section'} icon={navItem?.icon || 'cog'} />;

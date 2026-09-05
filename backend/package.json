@@ -18,7 +18,8 @@
     "db:studio": "prisma studio",
     "tunnel": "cloudflared tunnel --url http://localhost:4000 --no-autoupdate",
     "test:assistant": "node --env-file=.env scripts/test-assistant-coverage.mjs",
-    "test:payload": "node scripts/template-payload-check.mjs"
+    "test:payload": "node scripts/template-payload-check.mjs",
+    "test:otp": "node --experimental-test-module-mocks --test tests/otp-scope.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.10.0",

@@ -17,7 +17,9 @@
 // a sync that dropped the stored card images.
 
 import { buildTemplateSendPayload, validateCarouselTemplate } from '../src/services/templatePayload.service.js';
-import { preserveInternalFields, detectTemplateType } from '../src/lib/templateStructure.js';
+import {
+  preserveInternalFields, detectTemplateType, normalizeTemplateComponents, toMetaComponents,
+} from '../src/lib/templateStructure.js';
 import { contactVariableResolver } from '../src/lib/templateParams.js';
 
 let pass = 0;
@@ -372,6 +374,132 @@ try {
   // must keep working untouched.
   const legacy = await build(catalogTemplate());
   check('templates stored before this change remain sendable', legacy.components.length === 1);
+
+  // ── Authentication ───────────────────────────────────────────────────────
+  //
+  // Meta writes the passcode message itself and rejects a template that
+  // carries its own. The builder used to submit the marketing shape under this
+  // category — authored body, text footer, COPY_CODE coupon button — which
+  // passed every local check and came back from Meta as (#100) Invalid
+  // parameter. These assertions pin the shape Meta actually accepts, and the
+  // rejections that now happen here instead of at review.
+  section('Authentication');
+
+  const authComponents = (over = {}) => [
+    { type: 'BODY', add_security_recommendation: true },
+    { type: 'FOOTER', code_expiration_minutes: 5 },
+    { type: 'BUTTONS', buttons: [{ type: 'OTP', otp_type: 'COPY_CODE', text: 'Copy code' }] },
+    ...(over.extra || []),
+  ];
+
+  const auth = normalizeTemplateComponents('AUTHENTICATION', authComponents());
+  check(
+    'an authentication template is the exact shape Meta documents',
+    JSON.stringify(toMetaComponents(auth)) === JSON.stringify([
+      { type: 'BODY', add_security_recommendation: true },
+      { type: 'FOOTER', code_expiration_minutes: 5 },
+      { type: 'BUTTONS', buttons: [{ type: 'OTP', otp_type: 'COPY_CODE', text: 'Copy code' }] },
+    ]),
+    JSON.stringify(auth),
+  );
+
+  // authentication/authentication.service.js reads exactly these two things
+  // back off the stored template before it will send an OTP through it.
+  const authButton = auth.find((c) => c.type === 'BUTTONS').buttons[0];
+  check(
+    'the OTP flow accepts the template the builder produces',
+    auth.find((c) => c.type === 'BUTTONS').buttons.length === 1
+      && authButton.type === 'OTP' && authButton.otp_type === 'COPY_CODE',
+    JSON.stringify(authButton),
+  );
+  check(
+    'the configured expiry is readable as code_expiration_minutes',
+    auth.find((c) => c.type === 'FOOTER').code_expiration_minutes === 5,
+  );
+
+  // Meta renders no expiry line when the footer is absent, which is valid —
+  // so an omitted expiry must not be invented.
+  const noExpiry = normalizeTemplateComponents('AUTHENTICATION', [
+    { type: 'BODY', add_security_recommendation: false },
+    { type: 'BUTTONS', buttons: [{ type: 'OTP' }] },
+  ]);
+  check(
+    'an omitted expiry stays omitted, and the security note can be declined',
+    !noExpiry.some((c) => c.type === 'FOOTER')
+      && noExpiry[0].add_security_recommendation === false,
+    JSON.stringify(noExpiry),
+  );
+  check(
+    'an OTP button with no label gets Meta’s own default',
+    noExpiry.find((c) => c.type === 'BUTTONS').buttons[0].text === 'Copy code',
+  );
+
+  await throws(
+    'the old marketing shape under AUTHENTICATION is rejected here, not at Meta',
+    () => normalizeTemplateComponents('AUTHENTICATION', [
+      { type: 'BODY', text: '{{1}} is your verification code', example: { body_text: [['123456']] } },
+      { type: 'FOOTER', text: 'Expires in 5 minutes. Do not share this code.' },
+      { type: 'BUTTONS', buttons: [{ type: 'COPY_CODE', text: 'Copy code', example: '1234' }] },
+    ]),
+    /cannot carry body text/i,
+  );
+  await throws(
+    'an authentication template without an OTP button is rejected',
+    () => normalizeTemplateComponents('AUTHENTICATION', [{ type: 'BODY' }]),
+    /needs exactly one OTP button/i,
+  );
+  await throws(
+    'nothing may sit beside the OTP button',
+    () => normalizeTemplateComponents('AUTHENTICATION', [
+      { type: 'BODY' },
+      { type: 'BUTTONS', buttons: [{ type: 'OTP' }, { type: 'QUICK_REPLY', text: 'Help' }] },
+    ]),
+    /OTP button and nothing else/i,
+  );
+  await throws(
+    'an authentication template may not carry a header',
+    () => normalizeTemplateComponents('AUTHENTICATION', [
+      { type: 'HEADER', format: 'TEXT', text: 'Verify' }, { type: 'BODY' },
+      { type: 'BUTTONS', buttons: [{ type: 'OTP' }] },
+    ]),
+    /cannot carry a header/i,
+  );
+  await throws(
+    'an expiry outside Meta’s 1-90 minutes is rejected',
+    () => normalizeTemplateComponents('AUTHENTICATION', [
+      { type: 'BODY' }, { type: 'FOOTER', code_expiration_minutes: 200 },
+      { type: 'BUTTONS', buttons: [{ type: 'OTP' }] },
+    ]),
+    /between 1 and 90/i,
+  );
+  await throws(
+    'one-tap autofill is refused — it needs an app hash we cannot supply',
+    () => normalizeTemplateComponents('AUTHENTICATION', [
+      { type: 'BODY' },
+      { type: 'BUTTONS', buttons: [{ type: 'OTP', otp_type: 'ONE_TAP', text: 'Autofill' }] },
+    ]),
+    /only COPY_CODE/i,
+  );
+  await throws(
+    'an OTP button cannot be smuggled onto a marketing template',
+    () => normalizeTemplateComponents('MARKETING', [
+      { type: 'BODY', text: 'Sale!' },
+      { type: 'BUTTONS', buttons: [{ type: 'OTP' }] },
+    ]),
+    /only available on authentication templates/i,
+  );
+
+  // The coupon button keeps its own, entirely separate meaning.
+  const coupon = normalizeTemplateComponents('MARKETING', [
+    { type: 'BODY', text: '20% off' },
+    { type: 'BUTTONS', buttons: [{ type: 'COPY_CODE', text: 'Copy code', example: 'SAVE20' }] },
+  ]);
+  check(
+    'the marketing coupon button is untouched by the OTP button’s arrival',
+    JSON.stringify(coupon.find((c) => c.type === 'BUTTONS').buttons[0])
+      === JSON.stringify({ type: 'COPY_CODE', text: 'Copy code', example: ['SAVE20'] }),
+    JSON.stringify(coupon),
+  );
 } catch (err) {
   check('suite ran to completion', false, err.stack || err.message);
 }
