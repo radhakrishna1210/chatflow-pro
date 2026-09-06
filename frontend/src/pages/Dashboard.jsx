@@ -26,6 +26,8 @@ const SequencesView = lazy(() => import('./SequencesView.jsx'));
 const LeadFormsView = lazy(() => import('./LeadFormsView.jsx'));
 const TicketsView = lazy(() => import('./TicketsView.jsx'));
 import InboxView from './InboxView.jsx';
+import CrmSalesInboxView from './CrmSalesInboxView.jsx';
+
 import WidgetsView from './WidgetsView.jsx';
 import AutomationView from './AutomationView.jsx';
 import AnalyticsView from './AnalyticsView.jsx';
@@ -3675,6 +3677,8 @@ const ADMIN_NAV = [
   { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
   { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
+  { id: 'crm-sales-inbox',label: 'CRM Sales Inbox',icon: 'msg'   },
+
   { id: 'widget',         label: 'Website Widget', icon: 'globe' },
   { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
   { id: 'ai-agent',       label: 'AI Agent',       icon: 'bot'   },
@@ -3735,7 +3739,8 @@ const SUPERADMIN_NAV = [...ADMIN_TABS, { id: 'settings', label: 'Settings', icon
 // rather than colour emoji, so those two do follow the text colour.
 const NAV_EMOJI = {
   // straight from the design set
-  home: '\u{1F3E0}', inbox: '\u{1F4AC}', campaigns: '\u{1F4E3}', templates: '\u{1F4C4}',authentication: '\u{1F510}',
+  home: '\u{1F3E0}', inbox: '\u{1F4AC}', 'crm-sales-inbox': '\u{1F4EB}', campaigns: '\u{1F4E3}', templates: '\u{1F4C4}',authentication: '\u{1F510}',
+
   contacts: '\u{1F465}', 'ai-agent': '\u2726', automation: '\u26A1', 'intent-matching': '\u{1F3AF}',
   analytics: '\u{1F4CA}', 'chat-analysis': '\u{1F50E}', 'user-analytics': '\u{1F4C8}',
   integrations: '\u{1F50C}', setup: '\u{1F4F1}', api: '\u{1F511}', payments: '\u{1F4B3}',
@@ -3753,7 +3758,8 @@ const NAV_EMOJI = {
 const TEXT_GLYPHS = new Set(['\u2726', '\u26A1']);
 
 const NAV_GROUPS = [
-  { name: 'COMMAND',    ids: ['home', 'inbox'] },
+  { name: 'COMMAND',    ids: ['home', 'inbox', 'crm-sales-inbox'] },
+
   { name: 'GROW',       ids: ['campaigns', 'templates', 'authentication', 'contacts'] },
   { name: 'AUTOMATE',   ids: ['ai-agent', 'automation', 'intent-matching'] },
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
@@ -4164,6 +4170,8 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     }
     if (page === 'home')       return <HomeView />;
     if (page === 'inbox')      return <InboxView />;
+    if (page === 'crm-sales-inbox') return <CrmSalesInboxView />;
+
     if (page === 'campaigns')  return (
       <CampaignsView
         onCreateCampaign={() => openCampaignEditor(null)}

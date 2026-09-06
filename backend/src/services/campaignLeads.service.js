@@ -1,6 +1,8 @@
 import { prisma } from '../lib/prisma.js';
 import { computeLeadScore } from './leadScoring.service.js';
+import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
+
 
 // Turning a campaign reply into a lead.
 //
@@ -65,7 +67,10 @@ export async function createLeadFromReply(workspaceId, contactId, { at = new Dat
   if (contact.optedOut) return { created: false, reason: 'Contact opted out' };
 
   const existing = await prisma.lead.findUnique({ where: { contactId }, select: { id: true } });
-  if (existing) return { created: false, reason: 'Already a lead', leadId: existing.id };
+  if (existing) {
+    computeLeadCategory(workspaceId, existing.id).catch(() => {});
+    return { created: false, reason: 'Already a lead', leadId: existing.id };
+  }
 
   const attribution = await findAttributableCampaign(workspaceId, contactId, at);
   if (!attribution) return { created: false, reason: 'No campaign to attribute this reply to' };
@@ -87,6 +92,8 @@ export async function createLeadFromReply(workspaceId, contactId, { at = new Dat
     },
     select: { id: true, score: true, source: true },
   });
+
+  await computeLeadCategory(workspaceId, lead.id).catch(() => {});
 
   // Same event any other lead creation raises, so CRM workflows treat a
   // campaign-generated lead exactly like a hand-entered one.

@@ -1581,6 +1581,12 @@ enum LeadStatus {
   LOST
 }
 
+enum LeadCategory {
+  HOT
+  WARM
+  COLD
+}
+
 enum DealStage {
   QUALIFICATION
   NEEDS_ANALYSIS
@@ -2092,6 +2098,9 @@ model Lead {
   score           Int        @default(0)
   scoreFactors    Json?
   scoreComputedAt DateTime?
+  category            LeadCategory?
+  categoryReasons     Json?
+  categoryComputedAt  DateTime?
   customFields    Json?
   notes           String?
   convertedAt     DateTime?
@@ -2109,7 +2118,9 @@ model Lead {
   LeadFormSubmission LeadFormSubmission[]
 
   @@index([workspaceId, status])
+  @@index([workspaceId, category])
   @@index([workspaceId, score])
+
   @@index([workspaceId, ownerUserId])
   workflowRuns WorkflowRun[]
 }

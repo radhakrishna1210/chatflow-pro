@@ -309,6 +309,26 @@ const LeadDetail = ({ lead, members, onChanged, onConverted }) => {
         </div>
       </div>
 
+      <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', padding: '16px 20px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--t1)' }}>Lead Category</span>
+          <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 10, background: lead.category === 'HOT' ? 'rgba(239,68,68,0.15)' : lead.category === 'WARM' ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.15)', color: lead.category === 'HOT' ? '#f87171' : lead.category === 'WARM' ? '#fbbf24' : '#60a5fa' }}>
+            {lead.category || 'COLD'}
+          </span>
+        </div>
+        {Array.isArray(lead.categoryReasons) && lead.categoryReasons.length > 0 && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--t2)', background: 'var(--bg)', padding: 10, borderRadius: 8 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--t1)' }}>Segmentation Reasons:</div>
+            <ul style={{ margin: 0, paddingLeft: 16 }}>
+              {lead.categoryReasons.map((r, idx) => (
+                <li key={idx}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+
       <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', padding: '18px 20px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
@@ -408,6 +428,7 @@ export default function LeadsView() {
   const [detail, setDetail] = useState(null);
   const [members, setMembers] = useState([]);
   const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('');
   const [status, setStatus] = useState('');
   const [owner, setOwner] = useState('');
   const [sort, setSort] = useState('score');
@@ -419,6 +440,7 @@ export default function LeadsView() {
     setLoading(true);
     const qs = new URLSearchParams();
     if (search) qs.set('search', search);
+    if (category) qs.set('category', category);
     if (status) qs.set('status', status);
     if (owner) qs.set('ownerUserId', owner);
     qs.set('sort', sort);
@@ -427,7 +449,7 @@ export default function LeadsView() {
       .then(d => setLeads(d.data ?? []))
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false));
-  }, [search, status, owner, sort]);
+  }, [search, category, status, owner, sort]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -470,13 +492,18 @@ export default function LeadsView() {
                 style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif" }} />
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
+              <FSelect value={category} onChange={e => setCategory(e.target.value)} placeholder="All categories"
+                options={[{ value: 'HOT', label: 'HOT 🔥' }, { value: 'WARM', label: 'WARM ⚡' }, { value: 'COLD', label: 'COLD ❄️' }]} />
               <FSelect value={status} onChange={e => setStatus(e.target.value)} placeholder="All statuses"
                 options={STATUSES.map(s => ({ value: s, label: pretty(s) }))} />
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
               <FSelect value={sort} onChange={e => setSort(e.target.value)}
                 options={[{ value: 'score', label: 'Top score' }, { value: 'newest', label: 'Newest' }]} />
+              <FSelect value={owner} onChange={e => setOwner(e.target.value)} placeholder="All owners"
+                options={members.map(m => ({ value: m.user.id, label: m.user.name || m.user.email }))} />
             </div>
-            <FSelect value={owner} onChange={e => setOwner(e.target.value)} placeholder="All owners"
-              options={members.map(m => ({ value: m.user.id, label: m.user.name || m.user.email }))} />
+
             <SavedViews
               entity="leads"
               current={{ search, status, ownerUserId: owner, sort }}
@@ -513,10 +540,16 @@ export default function LeadsView() {
                     <ScoreChip score={l.score} />
                   </div>
                   <div style={{ fontSize: 11.5, color: 'var(--t3)', marginBottom: 5 }}>{l.contact?.phoneNumber}</div>
-                  <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
                     <StatusBadge label={pretty(l.status)} tone={STATUS_TONE[l.status]} />
+                    {l.category && (
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: l.category === 'HOT' ? 'rgba(239,68,68,0.15)' : l.category === 'WARM' ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.15)', color: l.category === 'HOT' ? '#f87171' : l.category === 'WARM' ? '#fbbf24' : '#60a5fa' }}>
+                        {l.category}
+                      </span>
+                    )}
                     {l.owner && <span style={{ fontSize: 10.5, color: 'var(--t3)' }}>{l.owner.name}</span>}
                   </div>
+
                 </div>
               </button>
             ))}
