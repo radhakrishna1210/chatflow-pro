@@ -3758,13 +3758,14 @@ const NAV_EMOJI = {
 const TEXT_GLYPHS = new Set(['\u2726', '\u26A1']);
 
 const NAV_GROUPS = [
-  { name: 'COMMAND',    ids: ['home', 'inbox', 'crm-sales-inbox'] },
-
+  { name: 'COMMAND',    ids: ['home', 'inbox'] },
+  { name: 'CRM',        ids: ['crm-overview', 'crm-sales-inbox', 'leads', 'deals', 'tasks', 'forecast', 'products', 'quotes', 'sequences', 'lead-forms', 'tickets'] },
   { name: 'GROW',       ids: ['campaigns', 'templates', 'authentication', 'contacts'] },
   { name: 'AUTOMATE',   ids: ['ai-agent', 'automation', 'intent-matching'] },
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
   { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'resources', 'settings'] },
 ];
+
 
 // Super admins get their own banding: the platform sections have no analogue
 // in the design set, so these are grouped by what an operator is doing —

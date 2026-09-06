@@ -24,26 +24,37 @@ const testLeads = [
 ];
 
 async function main() {
-  console.log('Seeding workspace test leads for active user workspaces...');
-
-  // Find workspaces with members or contacts
-  const workspaces = await prisma.workspace.findMany({
+  // Find all workspace IDs associated with user Aditya
+  const users = await prisma.user.findMany({
     where: {
       OR: [
-        { members: { some: {} } },
-        { contacts: { some: {} } },
-        { leads: { some: {} } },
+        { email: { contains: 'aditya', mode: 'insensitive' } },
+        { name: { contains: 'Aditya', mode: 'insensitive' } },
       ],
     },
-    select: { id: true, name: true },
+    include: { workspaceMembers: true },
   });
 
-  console.log(`Found ${workspaces.length} active workspaces.`);
+  const targetWorkspaceIds = new Set();
+  for (const u of users) {
+    for (const wm of u.workspaceMembers) {
+      targetWorkspaceIds.add(wm.workspaceId);
+    }
+  }
 
-  for (const ws of workspaces) {
-    const workspaceId = ws.id;
-    console.log(`Seeding workspace "${ws.name}" (${workspaceId})...`);
+  // Fallback: also include all workspaces that have any contacts/leads
+  const activeWorkspaces = await prisma.workspace.findMany({
+    where: { contacts: { some: {} } },
+    select: { id: true },
+    take: 10,
+  });
 
+  for (const w of activeWorkspaces) targetWorkspaceIds.add(w.id);
+
+  console.log(`Seeding test data across ${targetWorkspaceIds.size} target workspace(s)...`);
+
+  for (const workspaceId of targetWorkspaceIds) {
+    console.log(`Seeding workspace ID: ${workspaceId}...`);
     for (const item of testLeads) {
       let contact = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber: item.phone } });
       if (!contact) {
@@ -74,13 +85,15 @@ async function main() {
     }
   }
 
-  console.log('Recalculating categories for all existing leads...');
-  const allLeads = await prisma.lead.findMany({ select: { id: true, workspaceId: true } });
-  for (const l of allLeads) {
-    await computeLeadCategory(l.workspaceId, l.id).catch(() => {});
+  console.log('Recalculating categories for existing leads in target workspaces...');
+  for (const workspaceId of targetWorkspaceIds) {
+    const leads = await prisma.lead.findMany({ where: { workspaceId }, select: { id: true } });
+    for (const l of leads) {
+      await computeLeadCategory(workspaceId, l.id).catch(() => {});
+    }
   }
 
-  console.log('Done! All active workspaces seeded successfully.');
+  console.log('DONE! Target workspaces seeded successfully.');
 }
 
 main()

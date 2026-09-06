@@ -704,11 +704,11 @@ export default function CrmSalesInboxView() {
           <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>
-                2. Audience Review ({audienceData.leads.length} Leads)
+                2. Audience Review ({(audienceData?.leads || []).length} Leads)
               </h3>
 
               <Btn
-                disabled={audienceData.eligibleCount === 0}
+                disabled={(audienceData?.eligibleCount || 0) === 0}
                 onClick={() => setShowConfirmModal(true)}
               >
                 <I n="send" s={16} /> Configure & Launch WhatsApp Campaign
@@ -736,20 +736,22 @@ export default function CrmSalesInboxView() {
                         Resolving audience...
                       </td>
                     </tr>
-                  ) : audienceData.leads.length === 0 ? (
+                  ) : (audienceData?.leads || []).length === 0 ? (
                     <tr>
                       <td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--t3)' }}>
                         No leads match the selected segment and filters.
                       </td>
                     </tr>
                   ) : (
-                    audienceData.leads.map((l) => (
+                    (audienceData?.leads || []).map((l) => (
                       <tr key={l.id} style={{ borderBottom: '1px solid var(--bd)' }}>
                         <td style={{ padding: 10, fontWeight: 600, color: 'var(--t1)' }}>{l.name}</td>
                         <td style={{ padding: 10, color: 'var(--t2)' }}>{l.phoneNumber}</td>
                         <td style={{ padding: 10 }}><CategoryBadge category={l.category} /></td>
                         <td style={{ padding: 10, fontWeight: 700, color: 'var(--primary)' }}>{l.score}</td>
-                        <td style={{ padding: 10 }}><StatusBadge s={l.status} /></td>
+                        <td style={{ padding: 10 }}>
+                          <StatusBadge label={l.status || 'NEW'} tone={l.status === 'QUALIFIED' ? 'green' : l.status === 'CONTACTED' ? 'violet' : 'gray'} />
+                        </td>
                         <td style={{ padding: 10, color: 'var(--t2)' }}>{l.source}</td>
                         <td style={{ padding: 10 }}>
                           {l.isEligible ? (
@@ -766,6 +768,7 @@ export default function CrmSalesInboxView() {
                 </tbody>
               </table>
             </div>
+
           </div>
         </div>
       )}
