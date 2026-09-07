@@ -81,9 +81,9 @@ export default function CrmSalesInboxView() {
     setLoading(true);
     try {
       const [segRes, tmplRes, numRes] = await Promise.all([
-        wFetch('/crm-sales-inbox/segments'),
-        wFetch('/templates'),
-        wFetch('/whatsapp'),
+        wFetch('/crm-sales-inbox/segments').then(r => r.ok ? r.json() : null),
+        wFetch('/templates').then(r => r.ok ? r.json() : null),
+        wFetch('/whatsapp').then(r => r.ok ? r.json() : null),
       ]);
       setSegments(segRes || { categories: { HOT: 0, WARM: 0, COLD: 0, ALL: 0 }, sources: [] });
       setTemplates(Array.isArray(tmplRes?.data) ? tmplRes.data : Array.isArray(tmplRes) ? tmplRes : []);
@@ -109,7 +109,9 @@ export default function CrmSalesInboxView() {
       if (leadSearch) query.set('search', leadSearch);
 
       const res = await wFetch(`/leads?${query.toString()}`);
-      const list = res?.data || [];
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data?.data || [];
       setLeads(list);
 
       if (list.length > 0 && !selectedLeadId) {
@@ -130,19 +132,28 @@ export default function CrmSalesInboxView() {
   const loadLeadContext = useCallback(async (leadId) => {
     if (!leadId) return;
     try {
-      const leadData = await wFetch(`/leads/${leadId}`);
+      const leadRes = await wFetch(`/leads/${leadId}`);
+      if (!leadRes.ok) return;
+      const leadData = await leadRes.json();
       setSelectedLead(leadData);
 
       // Fetch or find conversation for contact
       if (leadData?.contactId) {
         const convsRes = await wFetch(`/conversations?search=${encodeURIComponent(leadData.contact.phoneNumber)}`);
-        const convList = convsRes?.data || convsRes || [];
+        let convList = [];
+        if (convsRes.ok) {
+          const convsData = await convsRes.json();
+          convList = Array.isArray(convsData) ? convsData : convsData?.data || [];
+        }
         const match = Array.isArray(convList) ? convList[0] : null;
 
         if (match) {
           setConversation(match);
           const msgsRes = await wFetch(`/conversations/${match.id}/messages`);
-          setMessages(msgsRes?.data || msgsRes || []);
+          if (msgsRes.ok) {
+            const msgsData = await msgsRes.json();
+            setMessages(Array.isArray(msgsData) ? msgsData : msgsData?.data || []);
+          }
         } else {
           setConversation(null);
           setMessages([]);
@@ -169,7 +180,10 @@ export default function CrmSalesInboxView() {
       if (segStatus) query.set('status', segStatus);
 
       const res = await wFetch(`/crm-sales-inbox/audience-review?${query.toString()}`);
-      setAudienceData(res || { matchingCount: 0, eligibleCount: 0, excludedCount: 0, exclusions: {}, leads: [] });
+      if (res.ok) {
+        const data = await res.json();
+        setAudienceData(data || { matchingCount: 0, eligibleCount: 0, excludedCount: 0, exclusions: {}, leads: [] });
+      }
     } catch (err) {
       console.error('[CrmSalesInbox] Error reviewing audience:', err);
     } finally {
@@ -192,18 +206,27 @@ export default function CrmSalesInboxView() {
 
       // Create conversation if none exists
       if (!convId) {
-        const newConv = await wFetch('/conversations', {
+        const newRes = await wFetch('/conversations', {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contactId: selectedLead.contactId }),
         });
+        if (!newRes.ok) throw new Error('Failed to create conversation');
+        const newConv = await newRes.json();
         convId = newConv.id;
         setConversation(newConv);
       }
 
-      const sentMsg = await wFetch(`/conversations/${convId}/messages`, {
+      const res = await wFetch(`/conversations/${convId}/messages`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body: messageText.trim() }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to send message');
+      }
+      const sentMsg = await res.json();
 
       setMessages((prev) => [...prev, sentMsg]);
       setMessageText('');
@@ -224,18 +247,26 @@ export default function CrmSalesInboxView() {
     try {
       let convId = conversation?.id;
       if (!convId) {
-        const newConv = await wFetch('/conversations', {
+        const newRes = await wFetch('/conversations', {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contactId: selectedLead.contactId }),
         });
+        if (!newRes.ok) throw new Error('Failed to create conversation');
+        const newConv = await newRes.json();
         convId = newConv.id;
         setConversation(newConv);
       }
 
-      await wFetch(`/conversations/${convId}/template`, {
+      const res = await wFetch(`/conversations/${convId}/template`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ templateId: selectedTemplateId }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to send template');
+      }
 
       setShowTemplateModal(false);
       loadLeadContext(selectedLeadId);
@@ -251,7 +282,9 @@ export default function CrmSalesInboxView() {
   const handleRecalculateCategory = async () => {
     if (!selectedLeadId) return;
     try {
-      const updated = await wFetch(`/crm-sales-inbox/leads/${selectedLeadId}/recalculate-category`, { method: 'POST' });
+      const res = await wFetch(`/crm-sales-inbox/leads/${selectedLeadId}/recalculate-category`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to recalculate category');
+      const updated = await res.json();
       setSelectedLead(updated);
       fetchLeads();
       fetchMetadata();
@@ -271,6 +304,7 @@ export default function CrmSalesInboxView() {
     try {
       const res = await wFetch('/crm-sales-inbox/launch-bulk-campaign', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: campaignName.trim() || `CRM Segment (${segCategory}) Bulk Campaign`,
           category: segCategory,
@@ -281,8 +315,14 @@ export default function CrmSalesInboxView() {
         }),
       });
 
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to launch campaign');
+      }
+
+      const launchRes = await res.json();
       setShowConfirmModal(false);
-      setLaunchSuccess(res);
+      setLaunchSuccess(launchRes);
       fetchMetadata();
       fetchAudience();
     } catch (err) {
