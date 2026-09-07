@@ -528,6 +528,7 @@ export default function LeadsView() {
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [deleteMode, setDeleteMode] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -577,6 +578,7 @@ export default function LeadsView() {
         throw new Error(d.error || 'Bulk delete failed');
       }
       setConfirmBulkDelete(false);
+      setDeleteMode(false);
       if (selectedIds.has(activeId)) setActiveId(null);
       setSelectedIds(new Set());
       load();
@@ -616,8 +618,79 @@ export default function LeadsView() {
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Leads</span>
           <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{leads.length}</span>
         </div>
-        <ImportExport entity="leads" canImport onImported={load} />
-        <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New Lead</Btn>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ImportExport entity="leads" canImport onImported={load} />
+          {!deleteMode ? (
+            <button
+              onClick={() => setDeleteMode(true)}
+              title="Delete leads"
+              style={{
+                padding: '6px 13px',
+                borderRadius: 8,
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                background: 'rgba(239, 68, 68, 0.08)',
+                color: '#f87171',
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.16)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'}
+            >
+              <I n="trash" s={13} c="#f87171" /> Delete
+            </button>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                onClick={() => {
+                  setDeleteMode(false);
+                  setSelectedIds(new Set());
+                }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 8,
+                  border: '1px solid var(--bd)',
+                  background: 'transparent',
+                  color: 'var(--t2)',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedIds.size > 0) setConfirmBulkDelete(true);
+                }}
+                disabled={selectedIds.size === 0}
+                style={{
+                  padding: '6px 13px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: selectedIds.size > 0 ? '#ef4444' : 'rgba(239, 68, 68, 0.25)',
+                  color: selectedIds.size > 0 ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: selectedIds.size > 0 ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  boxShadow: selectedIds.size > 0 ? '0 2px 10px rgba(239, 68, 68, 0.35)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <I n="trash" s={13} c={selectedIds.size > 0 ? '#fff' : 'rgba(255, 255, 255, 0.5)'} />
+                Delete {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+              </button>
+            </div>
+          )}
+          <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New Lead</Btn>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -652,37 +725,29 @@ export default function LeadsView() {
               }}
             />
 
-            {leads.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 4px 2px 4px', borderTop: '1px solid var(--bd)', marginTop: 4 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--t2)', cursor: 'pointer' }}>
+            {deleteMode && leads.length > 0 && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 10px',
+                borderTop: '1px solid var(--bd)',
+                background: 'rgba(239, 68, 68, 0.06)',
+                borderRadius: 8,
+                marginTop: 4,
+              }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--t1)', fontWeight: 600, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={leads.length > 0 && selectedIds.size === leads.length}
                     onChange={toggleSelectAll}
-                    style={{ cursor: 'pointer' }}
+                    style={{ cursor: 'pointer', width: 15, height: 15, accentColor: '#ef4444' }}
                   />
                   <span>Select all ({leads.length})</span>
                 </label>
-                {selectedIds.size > 0 && (
-                  <button
-                    onClick={() => setConfirmBulkDelete(true)}
-                    style={{
-                      background: 'rgba(239, 68, 68, 0.12)',
-                      border: '1px solid rgba(239, 68, 68, 0.3)',
-                      color: '#f87171',
-                      borderRadius: 6,
-                      padding: '3px 8px',
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                  >
-                    <I n="trash" s={12} c="#f87171" /> Delete ({selectedIds.size})
-                  </button>
-                )}
+                <span style={{ fontSize: 11.5, color: selectedIds.size > 0 ? '#f87171' : 'var(--t3)', fontWeight: 600 }}>
+                  {selectedIds.size} selected
+                </span>
               </div>
             )}
           </div>
@@ -699,7 +764,16 @@ export default function LeadsView() {
             {leads.map(l => (
               <div
                 key={l.id}
-                onClick={() => setActiveId(l.id)}
+                onClick={() => {
+                  if (deleteMode) {
+                    setSelectedIds(prev => {
+                      const next = new Set(prev);
+                      next.has(l.id) ? next.delete(l.id) : next.add(l.id);
+                      return next;
+                    });
+                  }
+                  setActiveId(l.id);
+                }}
                 style={{
                   width: '100%',
                   display: 'flex',
@@ -708,19 +782,21 @@ export default function LeadsView() {
                   padding: '11px 14px',
                   cursor: 'pointer',
                   textAlign: 'left',
-                  background: activeId === l.id ? 'rgba(255,255,255,0.05)' : 'transparent',
+                  background: deleteMode && selectedIds.has(l.id) ? 'rgba(239, 68, 68, 0.08)' : activeId === l.id ? 'rgba(255,255,255,0.05)' : 'transparent',
                   borderBottom: '1px solid var(--bd)',
-                  borderLeft: `2px solid ${activeId === l.id ? 'var(--green)' : 'transparent'}`,
+                  borderLeft: `2px solid ${deleteMode && selectedIds.has(l.id) ? '#ef4444' : activeId === l.id ? 'var(--green)' : 'transparent'}`,
                   boxSizing: 'border-box',
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(l.id)}
-                  onChange={e => toggleSelect(l.id, e)}
-                  onClick={e => e.stopPropagation()}
-                  style={{ cursor: 'pointer', flexShrink: 0 }}
-                />
+                {deleteMode && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(l.id)}
+                    onChange={e => toggleSelect(l.id, e)}
+                    onClick={e => e.stopPropagation()}
+                    style={{ cursor: 'pointer', flexShrink: 0, width: 15, height: 15, accentColor: '#ef4444' }}
+                  />
+                )}
                 <Avatar name={l.contact?.name} size={34} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
