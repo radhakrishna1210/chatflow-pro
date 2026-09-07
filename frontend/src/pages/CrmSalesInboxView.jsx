@@ -90,7 +90,11 @@ export default function CrmSalesInboxView() {
       ]);
       setSegments(segRes || { categories: { HOT: 0, WARM: 0, COLD: 0, ALL: 0 }, sources: [] });
       setTemplates(Array.isArray(tmplRes?.data) ? tmplRes.data : Array.isArray(tmplRes) ? tmplRes : []);
-      setWaNumbers(Array.isArray(numRes?.data) ? numRes.data : Array.isArray(numRes) ? numRes : []);
+      const nums = Array.isArray(numRes?.data) ? numRes.data : Array.isArray(numRes) ? numRes : [];
+      setWaNumbers(nums);
+      if (nums.length > 0) {
+        setCampaignWaNumberId(nums[0].id);
+      }
     } catch (err) {
       console.error('[CrmSalesInbox] Error fetching metadata:', err);
       setError('Failed to load CRM Inbox data.');
@@ -102,6 +106,12 @@ export default function CrmSalesInboxView() {
   useEffect(() => {
     fetchMetadata();
   }, [fetchMetadata]);
+
+  useEffect(() => {
+    if (!campaignWaNumberId && waNumbers.length > 0) {
+      setCampaignWaNumberId(waNumbers[0].id);
+    }
+  }, [waNumbers, campaignWaNumberId]);
 
   // 2. Fetch Leads for Individual Mode
   const fetchLeads = useCallback(async () => {
@@ -963,15 +973,22 @@ export default function CrmSalesInboxView() {
             </div>
 
             <div>
-              <FLabel>Select WhatsApp Number</FLabel>
-              <FSelect value={campaignWaNumberId} onChange={(e) => setCampaignWaNumberId(e.target.value)}>
-                <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select sender number...</option>
-                {waNumbers.map((n) => (
-                  <option key={n.id} value={n.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
-                    {n.displayName || n.phoneNumber}
-                  </option>
-                ))}
-              </FSelect>
+              <FLabel>Sender WhatsApp Number</FLabel>
+              {waNumbers.length === 1 ? (
+                <div style={{ padding: '9px 13px', background: 'var(--bg)', border: '1px solid var(--bd)', borderRadius: 8, fontSize: 13, color: 'var(--t1)', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>{waNumbers[0].displayName ? `${waNumbers[0].displayName} (${waNumbers[0].phoneNumber})` : waNumbers[0].phoneNumber}</span>
+                  <span style={{ fontSize: 11, color: 'var(--green)', fontWeight: 700, background: 'rgba(34, 197, 94, 0.12)', padding: '2px 8px', borderRadius: 10 }}>Auto-Selected Active Sender</span>
+                </div>
+              ) : (
+                <FSelect value={campaignWaNumberId} onChange={(e) => setCampaignWaNumberId(e.target.value)}>
+                  <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select sender number...</option>
+                  {waNumbers.map((n) => (
+                    <option key={n.id} value={n.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                      {n.displayName || n.phoneNumber}
+                    </option>
+                  ))}
+                </FSelect>
+              )}
             </div>
 
             <div style={{ background: 'var(--bg)', padding: 14, borderRadius: 10, border: '1px solid var(--bd)', fontSize: 13, color: 'var(--t2)' }}>
