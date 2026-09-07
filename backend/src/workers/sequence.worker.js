@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { advanceEnrollment, findDueEnrollments } from '../services/sequenceEngine.service.js';
 import { enqueueAdvance } from '../queues/sequence.queue.js';
 import { sendTextMessage } from '../lib/meta.js';
-import { decrypt } from '../lib/crypto.js';
+import { decrypt } from '../lib/encryption.js';
 
 // Sends one sequence message. Kept here rather than in the engine so the
 // engine stays free of provider concerns and testable without a live number.
