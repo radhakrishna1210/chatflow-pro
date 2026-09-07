@@ -149,7 +149,7 @@ export default function CrmSalesInboxView() {
           const convsData = await convsRes.json();
           convList = Array.isArray(convsData) ? convsData : convsData?.data || [];
         }
-        const match = Array.isArray(convList) ? convList[0] : null;
+        const match = Array.isArray(convList) ? (convList.find(c => c.waNumberId) || convList[0]) : null;
 
         if (match) {
           setConversation(match);
