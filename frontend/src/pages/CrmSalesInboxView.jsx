@@ -62,6 +62,7 @@ export default function CrmSalesInboxView() {
   const [sendingMsg, setSendingMsg] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateVars, setTemplateVars] = useState({});
 
   // Segment Mode State
   const [segCategory, setSegCategory] = useState('HOT');
@@ -285,10 +286,18 @@ export default function CrmSalesInboxView() {
         setConversation(newConv);
       }
 
+      const selObj = templates.find((t) => t.id === selectedTemplateId);
+      const reqCount = (selObj?.components || []).reduce((max, c) => {
+        const nums = [...String(c?.text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
+        return nums.length ? Math.max(max, Math.max(...nums)) : max;
+      }, 0);
+
+      const varsArray = Array.from({ length: reqCount }, (_, i) => templateVars[i] || (i === 0 ? selectedLead?.contact?.name || 'Customer' : ''));
+
       const res = await wFetch(`/conversations/${convId}/template`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId: selectedTemplateId }),
+        body: JSON.stringify({ templateId: selectedTemplateId, variables: varsArray }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -296,6 +305,7 @@ export default function CrmSalesInboxView() {
       }
 
       setShowTemplateModal(false);
+      setTemplateVars({});
       loadLeadContext(selectedLeadId);
       alert('Template message sent successfully!');
     } catch (err) {
@@ -861,29 +871,71 @@ export default function CrmSalesInboxView() {
       )}
 
       {/* MODAL: INDIVIDUAL TEMPLATE SEND */}
-      {showTemplateModal && (
-        <Modal title="Send Approved WhatsApp Template" onClose={() => setShowTemplateModal(false)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <FLabel>Select Approved Template</FLabel>
-              <FSelect value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}>
-                <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select a template...</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
-                    {t.name} ({t.category || t.language || 'APPROVED'})
-                  </option>
-                ))}
-              </FSelect>
+      {showTemplateModal && (() => {
+        const selObj = templates.find((t) => t.id === selectedTemplateId);
+        const reqCount = (selObj?.components || []).reduce((max, c) => {
+          const nums = [...String(c?.text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
+          return nums.length ? Math.max(max, Math.max(...nums)) : max;
+        }, 0);
+
+        return (
+          <Modal title="Send Approved WhatsApp Template" onClose={() => setShowTemplateModal(false)}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <FLabel>Select Approved Template</FLabel>
+                <FSelect
+                  value={selectedTemplateId}
+                  onChange={(e) => {
+                    setSelectedTemplateId(e.target.value);
+                    const tObj = templates.find((t) => t.id === e.target.value);
+                    const count = (tObj?.components || []).reduce((max, c) => {
+                      const nums = [...String(c?.text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
+                      return nums.length ? Math.max(max, Math.max(...nums)) : max;
+                    }, 0);
+                    if (count > 0) {
+                      setTemplateVars({ 0: selectedLead?.contact?.name || 'Customer' });
+                    } else {
+                      setTemplateVars({});
+                    }
+                  }}
+                >
+                  <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select a template...</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                      {t.name} ({t.category || t.language || 'APPROVED'})
+                    </option>
+                  ))}
+                </FSelect>
+              </div>
+
+              {reqCount > 0 && (
+                <div style={{ background: 'var(--bg)', padding: 12, borderRadius: 10, border: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)' }}>
+                    Template Variables ({reqCount} required)
+                  </div>
+                  {Array.from({ length: reqCount }).map((_, idx) => (
+                    <div key={idx}>
+                      <FLabel>Variable &#123;&#123;{idx + 1}&#125;&#125; {idx === 0 ? '(Customer Name)' : ''}</FLabel>
+                      <FInput
+                        value={templateVars[idx] ?? (idx === 0 ? selectedLead?.contact?.name || 'Customer' : '')}
+                        onChange={(e) => setTemplateVars((prev) => ({ ...prev, [idx]: e.target.value }))}
+                        placeholder={`Value for {{${idx + 1}}}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <Btn variant="sec" onClick={() => setShowTemplateModal(false)}>Cancel</Btn>
+                <Btn onClick={handleSendTemplate} disabled={!selectedTemplateId || sendingMsg}>
+                  Send Template Message
+                </Btn>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <Btn variant="sec" onClick={() => setShowTemplateModal(false)}>Cancel</Btn>
-              <Btn onClick={handleSendTemplate} disabled={!selectedTemplateId || sendingMsg}>
-                Send Template Message
-              </Btn>
-            </div>
-          </div>
-        </Modal>
-      )}
+          </Modal>
+        );
+      })()}
 
       {/* MODAL: BULK CAMPAIGN CONFIRMATION & SETUP */}
       {showConfirmModal && (

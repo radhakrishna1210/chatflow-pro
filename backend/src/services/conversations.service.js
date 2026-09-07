@@ -320,14 +320,11 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
   const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
   const components = Array.isArray(template.components) ? template.components : [];
   const required = components.reduce((max, c) => Math.max(max, countVariables(c?.text)), 0);
-  const supplied = (Array.isArray(variables) ? variables : []).map((v) => String(v ?? ''));
+  let supplied = (Array.isArray(variables) ? variables : []).map((v) => String(v ?? ''));
   if (required > 0 && supplied.filter((v) => v.trim()).length < required) {
-    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
-    const e = new Error(
-      `"${template.name}" needs ${required} variable value${required === 1 ? '' : 's'}. Fill them in and try again.`,
-    );
-    e.status = 422; e.code = 'TEMPLATE_VARIABLES_REQUIRED'; e.details = { requiredVariables: required };
-    e.expose = true; throw e;
+    const resolver = contactVariableResolver(conversation.contact);
+    const bodyComp = components.find((c) => /\{\{\d+\}\}/.test(c?.text || ''));
+    supplied = Array.from({ length: required }, (_, i) => String(supplied[i] || resolver(i, bodyComp) || 'there'));
   }
 
   // Assembled exactly as a campaign send is, so an image header or a link
