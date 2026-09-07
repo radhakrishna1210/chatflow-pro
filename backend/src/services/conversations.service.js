@@ -5,8 +5,9 @@ import { sendTextMessage, sendWhatsAppMessage } from '../lib/meta.js';
 import { getWindowState, outsideWindowError, windowStateFrom, describeWindow } from './messagingWindow.js';
 import { consumeMessageCredit, releaseMessageCredit } from './subscription.service.js';
 import { assertNotOptedOut } from './optout.service.js';
-import { countVariables, buildTextComponents, buildButtonComponents } from '../lib/templateParams.js';
+import { countVariables, buildTextComponents, buildButtonComponents, contactVariableResolver } from '../lib/templateParams.js';
 import { headerImageComponent } from './templateImage.service.js';
+import { buildTemplateSendPayload } from './templatePayload.service.js';
 
 export async function listConversations(workspaceId, { page = 1, limit = 20 } = {}) {
   const skip = (page - 1) * limit;
@@ -327,19 +328,13 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     supplied = Array.from({ length: required }, (_, i) => String(supplied[i] || resolver(i, bodyComp) || 'there'));
   }
 
-  // Assembled exactly as a campaign send is, so an image header or a link
-  // button behaves the same here as it does in a campaign.
-  const resolve = (i) => String(supplied[i] ?? '').trim() || ' ';
-  const payload = { name: template.name, language: { code: template.language } };
-  const header = await headerImageComponent(template, {
-    phoneNumberId: conversation.waNumber.metaPhoneNumberId, accessToken,
+  const resolve = (i, component) => String(supplied[i] ?? '').trim() || contactVariableResolver(conversation.contact)(i, component);
+
+  const payload = await buildTemplateSendPayload(template, {
+    phoneNumberId: conversation.waNumber.metaPhoneNumberId,
+    accessToken,
+    resolve,
   });
-  const parts = [
-    ...(header ? [header] : []),
-    ...(required > 0 ? buildTextComponents(components, resolve) : []),
-    ...buildButtonComponents(components),
-  ];
-  if (parts.length) payload.components = parts;
 
   let result;
   try {
