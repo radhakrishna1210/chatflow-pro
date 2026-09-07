@@ -56,6 +56,8 @@ export default function CrmSalesInboxView() {
   // Conversation & Messaging State
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [windowState, setWindowState] = useState(null);
+  const [chatError, setChatError] = useState(null);
   const [messageText, setMessageText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
@@ -131,6 +133,7 @@ export default function CrmSalesInboxView() {
   // 3. Fetch Selected Lead Details & Messages
   const loadLeadContext = useCallback(async (leadId) => {
     if (!leadId) return;
+    setChatError(null);
     try {
       const leadRes = await wFetch(`/leads/${leadId}`);
       if (!leadRes.ok) return;
@@ -152,11 +155,18 @@ export default function CrmSalesInboxView() {
           const msgsRes = await wFetch(`/conversations/${match.id}/messages`);
           if (msgsRes.ok) {
             const msgsData = await msgsRes.json();
-            setMessages(Array.isArray(msgsData) ? msgsData : msgsData?.data || []);
+            const list = Array.isArray(msgsData) ? msgsData : msgsData?.messages || msgsData?.data || [];
+            setMessages(list);
+            if (!Array.isArray(msgsData) && msgsData?.window) {
+              setWindowState(msgsData.window);
+            } else {
+              setWindowState(null);
+            }
           }
         } else {
           setConversation(null);
           setMessages([]);
+          setWindowState(null);
         }
       }
     } catch (err) {
@@ -201,6 +211,7 @@ export default function CrmSalesInboxView() {
   const handleSendMessage = async () => {
     if (!messageText.trim() || !selectedLead) return;
     setSendingMsg(true);
+    setChatError(null);
     try {
       let convId = conversation?.id;
 
@@ -211,7 +222,10 @@ export default function CrmSalesInboxView() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contactId: selectedLead.contactId }),
         });
-        if (!newRes.ok) throw new Error('Failed to create conversation');
+        if (!newRes.ok) {
+          const errData = await newRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to create conversation');
+        }
         const newConv = await newRes.json();
         convId = newConv.id;
         setConversation(newConv);
@@ -224,7 +238,10 @@ export default function CrmSalesInboxView() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to send message');
+        const errMsg = errData.error || 'Failed to send message';
+        const errObj = new Error(errMsg);
+        errObj.code = errData.code;
+        throw errObj;
       }
       const sentMsg = await res.json();
 
@@ -234,7 +251,17 @@ export default function CrmSalesInboxView() {
       // Refresh lead details to pick up updated category/score
       loadLeadContext(selectedLeadId);
     } catch (err) {
-      alert(`Could not send message: ${err.message}`);
+      const isWindowErr = err.code === 'OUTSIDE_24H_WINDOW' ||
+        err.message?.toLowerCase().includes('24-hour') ||
+        err.message?.toLowerCase().includes('approved template') ||
+        err.message?.toLowerCase().includes('not messaged you');
+
+      if (isWindowErr) {
+        setChatError('This contact is outside WhatsApp\'s 24-hour reply window. Please send an approved template message to contact them.');
+        setShowTemplateModal(true);
+      } else {
+        setChatError(err.message);
+      }
     } finally {
       setSendingMsg(false);
     }
@@ -524,6 +551,26 @@ export default function CrmSalesInboxView() {
                     </Btn>
                   </div>
                 </div>
+
+                {/* 24-HOUR WINDOW NOTICE */}
+                {windowState && !windowState.open && (
+                  <div style={{ padding: '10px 16px', background: 'rgba(245, 158, 11, 0.12)', borderBottom: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', fontSize: 12.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>
+                      ⚡ <strong>WhatsApp 24h Window Closed:</strong> Contact has not messaged recently. Send an approved template message to contact them.
+                    </span>
+                    <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
+                      Send Template
+                    </Btn>
+                  </div>
+                )}
+
+                {/* CHAT ERROR BANNER */}
+                {chatError && (
+                  <div style={{ padding: '10px 16px', background: 'rgba(239, 68, 68, 0.12)', borderBottom: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', fontSize: 12.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>⚠️ {chatError}</span>
+                    <button onClick={() => setChatError(null)} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+                  </div>
+                )}
 
                 {/* MESSAGES TRAIL */}
                 <div style={{ flex: 1, padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg)' }}>
