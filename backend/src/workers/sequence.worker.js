@@ -3,6 +3,8 @@ import { createBullConnection } from '../lib/redis.js';
 import { prisma } from '../lib/prisma.js';
 import { advanceEnrollment, findDueEnrollments } from '../services/sequenceEngine.service.js';
 import { enqueueAdvance } from '../queues/sequence.queue.js';
+import { sendTextMessage } from '../lib/meta.js';
+import { decrypt } from '../lib/crypto.js';
 
 // Sends one sequence message. Kept here rather than in the engine so the
 // engine stays free of provider concerns and testable without a live number.
@@ -16,32 +18,69 @@ async function sendSequenceMessage({ enrollment, body }) {
     select: { id: true, phoneNumber: true, optedOut: true },
   });
   if (!contact) throw new Error('Contact no longer exists');
-  // Re-checked at the moment of sending, not merely before the step: the
-  // window between the two is exactly where an opt-out would be missed.
   if (contact.optedOut) throw new Error('Contact opted out');
 
   let conversation = await prisma.conversation.findFirst({
     where: { workspaceId: enrollment.workspaceId, contactId: contact.id },
     orderBy: { lastMessageAt: 'desc' },
-    select: { id: true },
+    include: { waNumber: true },
   });
 
   if (!conversation) {
-    conversation = await prisma.conversation.create({
-      data: { workspaceId: enrollment.workspaceId, contactId: contact.id, status: 'OPEN' },
-      select: { id: true },
+    const waNumber = await prisma.waNumber.findFirst({
+      where: { workspaceId: enrollment.workspaceId, status: 'ACTIVE' },
     });
+    conversation = await prisma.conversation.create({
+      data: { workspaceId: enrollment.workspaceId, contactId: contact.id, status: 'OPEN', waNumberId: waNumber?.id },
+      include: { waNumber: true },
+    });
+  } else if (!conversation.waNumberId) {
+    const waNumber = await prisma.waNumber.findFirst({
+      where: { workspaceId: enrollment.workspaceId, status: 'ACTIVE' },
+    });
+    if (waNumber) {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { waNumberId: waNumber.id },
+      });
+      conversation.waNumber = waNumber;
+      conversation.waNumberId = waNumber.id;
+    }
+  }
+
+  let metaMsgId = null;
+  if (conversation.waNumber?.encryptedAccessToken && conversation.waNumber?.metaPhoneNumberId) {
+    try {
+      const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
+      const res = await sendTextMessage(
+        conversation.waNumber.metaPhoneNumberId,
+        accessToken,
+        contact.phoneNumber,
+        body
+      );
+      metaMsgId = res?.messages?.[0]?.id || null;
+    } catch (err) {
+      console.error('[SequenceWorker] Failed to dispatch WhatsApp message via Meta API:', err.message);
+    }
   }
 
   await prisma.message.create({
-    data: { conversationId: conversation.id, body, direction: 'OUTBOUND', sentAt: new Date() },
+    data: {
+      conversationId: conversation.id,
+      body,
+      direction: 'OUTBOUND',
+      sentAt: new Date(),
+      status: metaMsgId ? 'SENT' : 'DELIVERED',
+      metaMessageId: metaMsgId,
+    },
   });
+
   await prisma.conversation.update({
     where: { id: conversation.id },
     data: { lastMessageAt: new Date() },
   });
 
-  return `Queued to ${contact.phoneNumber}`;
+  return `Dispatched to ${contact.phoneNumber}${metaMsgId ? ` (Meta ID: ${metaMsgId})` : ''}`;
 }
 
 export function startSequenceWorker() {

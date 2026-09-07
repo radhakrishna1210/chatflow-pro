@@ -79,19 +79,28 @@ export default function CrmSalesInboxView() {
   const [launching, setLaunching] = useState(false);
   const [launchSuccess, setLaunchSuccess] = useState(null);
 
+  // Sequence Enrollment State
+  const [sequencesList, setSequencesList] = useState([]);
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [selectedSequenceId, setSelectedSequenceId] = useState('');
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollTarget, setEnrollTarget] = useState(null); // { type: 'lead', leadId } or { type: 'segment', leadIds }
+
   // 1. Fetch initial segments & metadata
   const fetchMetadata = useCallback(async () => {
     setLoading(true);
     try {
-      const [segRes, tmplRes, numRes] = await Promise.all([
+      const [segRes, tmplRes, numRes, seqRes] = await Promise.all([
         wFetch('/crm-sales-inbox/segments').then(r => r.ok ? r.json() : null),
         wFetch('/templates').then(r => r.ok ? r.json() : null),
         wFetch('/whatsapp/numbers').then(r => r.ok ? r.json() : null),
+        wFetch('/sequences').then(r => r.ok ? r.json() : null),
       ]);
       setSegments(segRes || { categories: { HOT: 0, WARM: 0, COLD: 0, ALL: 0 }, sources: [] });
       setTemplates(Array.isArray(tmplRes?.data) ? tmplRes.data : Array.isArray(tmplRes) ? tmplRes : []);
       const nums = Array.isArray(numRes) ? numRes : Array.isArray(numRes?.data) ? numRes.data : [];
       setWaNumbers(nums);
+      setSequencesList(Array.isArray(seqRes?.data) ? seqRes.data : Array.isArray(seqRes) ? seqRes : []);
       if (nums.length > 0) {
         setCampaignWaNumberId(nums[0].id);
       }
@@ -379,6 +388,37 @@ export default function CrmSalesInboxView() {
     }
   };
 
+  // 9. Enroll Lead or Segment in Sequence
+  const handleEnrollInSequence = async () => {
+    if (!selectedSequenceId || !enrollTarget) return;
+    setEnrolling(true);
+    try {
+      const payload = enrollTarget.type === 'lead'
+        ? { leadIds: [enrollTarget.leadId] }
+        : { leadIds: enrollTarget.leadIds };
+
+      const res = await wFetch(`/sequences/${selectedSequenceId}/enroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'Failed to enroll');
+      }
+
+      const resData = await res.json();
+      setShowEnrollModal(false);
+      setSelectedSequenceId('');
+      alert(`Successfully enrolled ${resData.enrolled} lead(s) into the sequence!`);
+    } catch (err) {
+      alert(`Sequence enrollment failed: ${err.message}`);
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--t2)' }}>
@@ -653,9 +693,14 @@ export default function CrmSalesInboxView() {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>CRM Context</h3>
-                  <Btn size="xs" variant="ghost" onClick={handleRecalculateCategory} title="Recalculate Lead Category & Score">
-                    <I n="refresh" s={14} /> Recalculate
-                  </Btn>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <Btn size="xs" variant="sec" onClick={() => { setEnrollTarget({ type: 'lead', leadId: selectedLead.id }); setShowEnrollModal(true); }} title="Enroll Lead in Sequence Cadence">
+                      <I n="layers" s={13} /> Enroll Sequence
+                    </Btn>
+                    <Btn size="xs" variant="ghost" onClick={handleRecalculateCategory} title="Recalculate Lead Category & Score">
+                      <I n="refresh" s={13} />
+                    </Btn>
+                  </div>
                 </div>
 
                 {/* LEAD HEADER */}
@@ -814,12 +859,25 @@ export default function CrmSalesInboxView() {
                 2. Audience Review ({(audienceData?.leads || []).length} Leads)
               </h3>
 
-              <Btn
-                disabled={(audienceData?.eligibleCount || 0) === 0}
-                onClick={() => setShowConfirmModal(true)}
-              >
-                <I n="send" s={16} /> Configure & Launch WhatsApp Campaign
-              </Btn>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Btn
+                  variant="sec"
+                  disabled={(audienceData?.eligibleCount || 0) === 0}
+                  onClick={() => {
+                    const eligibleIds = (audienceData?.leads || []).filter(l => l.isEligible).map(l => l.id);
+                    setEnrollTarget({ type: 'segment', leadIds: eligibleIds });
+                    setShowEnrollModal(true);
+                  }}
+                >
+                  <I n="layers" s={16} /> Enroll Segment in Sequence
+                </Btn>
+                <Btn
+                  disabled={(audienceData?.eligibleCount || 0) === 0}
+                  onClick={() => setShowConfirmModal(true)}
+                >
+                  <I n="send" s={16} /> Configure & Launch WhatsApp Campaign
+                </Btn>
+              </div>
             </div>
 
             {/* AUDIENCE TABLE */}
@@ -1020,6 +1078,38 @@ export default function CrmSalesInboxView() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Btn onClick={() => setLaunchSuccess(null)}>Done</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: ENROLL IN SEQUENCE */}
+      {showEnrollModal && (
+        <Modal title="Enroll Leads in Automated Sequence Cadence" onClose={() => setShowEnrollModal(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <FLabel>Select Sequence Cadence</FLabel>
+              <FSelect value={selectedSequenceId} onChange={(e) => setSelectedSequenceId(e.target.value)}>
+                <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select sequence cadence...</option>
+                {sequencesList.map((s) => (
+                  <option key={s.id} value={s.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                    {s.name} ({s.status} · {Array.isArray(s.steps) ? s.steps.length : 0} steps)
+                  </option>
+                ))}
+              </FSelect>
+            </div>
+
+            <div style={{ background: 'var(--bg)', padding: 14, borderRadius: 10, border: '1px solid var(--bd)', fontSize: 13, color: 'var(--t2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div>• Recipients to Enroll: <strong>{enrollTarget?.type === 'lead' ? '1 Selected Lead' : `${enrollTarget?.leadIds?.length || 0} Segment Leads`}</strong></div>
+              <div>• Sequence Automation: Executes multi-step cadence (WhatsApp messages, delay waits, CRM task creation).</div>
+              <div>• Auto-Exit Handoff: Stops automatically when lead replies, shifting them live to CRM Sales Inbox.</div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+              <Btn variant="sec" onClick={() => setShowEnrollModal(false)}>Cancel</Btn>
+              <Btn onClick={handleEnrollInSequence} disabled={enrolling || !selectedSequenceId}>
+                {enrolling ? 'Enrolling Leads...' : 'Confirm & Enroll'}
+              </Btn>
             </div>
           </div>
         </Modal>
