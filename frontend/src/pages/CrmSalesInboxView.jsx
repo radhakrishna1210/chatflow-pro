@@ -369,15 +369,15 @@ export default function CrmSalesInboxView() {
   }
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1600, margin: '0 auto' }}>
+    <div style={{ padding: '20px 28px', maxWidth: 1600, margin: '0 auto', height: 'calc(100vh - 40px)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
       {/* HEADER & NAVIGATION */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--t1)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <I n="messageSquare" s={26} c="var(--primary)" />
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--t1)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <I n="messageSquare" s={24} c="var(--primary)" />
             CRM Sales Inbox
           </h1>
-          <p style={{ fontSize: 13, color: 'var(--t2)', margin: '4px 0 0 0' }}>
+          <p style={{ fontSize: 12.5, color: 'var(--t2)', margin: '3px 0 0 0' }}>
             Message specific CRM leads or target dynamically segmented lead audiences via WhatsApp bulk campaigns.
           </p>
         </div>
@@ -387,10 +387,10 @@ export default function CrmSalesInboxView() {
           <button
             onClick={() => setActiveTab('individual')}
             style={{
-              padding: '8px 16px',
+              padding: '7px 14px',
               borderRadius: 8,
               border: 'none',
-              fontSize: 13,
+              fontSize: 12.5,
               fontWeight: 600,
               cursor: 'pointer',
               background: activeTab === 'individual' ? 'var(--primary)' : 'transparent',
@@ -401,16 +401,16 @@ export default function CrmSalesInboxView() {
               transition: 'all 0.15s ease',
             }}
           >
-            <I n="user" s={16} />
+            <I n="user" s={15} />
             Individual Lead Mode
           </button>
           <button
             onClick={() => setActiveTab('segment')}
             style={{
-              padding: '8px 16px',
+              padding: '7px 14px',
               borderRadius: 8,
               border: 'none',
-              fontSize: 13,
+              fontSize: 12.5,
               fontWeight: 600,
               cursor: 'pointer',
               background: activeTab === 'segment' ? 'var(--primary)' : 'transparent',
@@ -421,14 +421,14 @@ export default function CrmSalesInboxView() {
               transition: 'all 0.15s ease',
             }}
           >
-            <I n="target" s={16} />
+            <I n="target" s={15} />
             Segment / Filter Mode
           </button>
         </div>
       </div>
 
       {/* METRICS & CATEGORY BUCKETS OVERVIEW */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16, flexShrink: 0 }}>
         {[
           { key: 'HOT', label: 'HOT Leads', count: segments.categories?.HOT || 0, color: '#f87171', bg: 'rgba(239, 68, 68, 0.08)' },
           { key: 'WARM', label: 'WARM Leads', count: segments.categories?.WARM || 0, color: '#fbbf24', bg: 'rgba(245, 158, 11, 0.08)' },
@@ -445,16 +445,16 @@ export default function CrmSalesInboxView() {
               background: 'var(--surf)',
               border: `1px solid ${activeTab === 'individual' && categoryFilter === item.key ? item.color : 'var(--bd)'}`,
               borderRadius: 12,
-              padding: '16px 20px',
+              padding: '12px 16px',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
               boxShadow: 'var(--card-shadow)',
             }}
           >
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
               {item.label}
             </div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: item.color, marginTop: 4 }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: item.color, marginTop: 2 }}>
               {item.count}
             </div>
           </div>
@@ -463,10 +463,10 @@ export default function CrmSalesInboxView() {
 
       {/* TAB 1: INDIVIDUAL LEAD MESSAGING MODE */}
       {activeTab === 'individual' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr 340px', gap: 20, minHeight: 650 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '310px 1fr 330px', gap: 16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {/* LEFT: LEAD SEARCH & LIST */}
-          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ marginBottom: 12 }}>
+          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+            <div style={{ marginBottom: 10, flexShrink: 0 }}>
               <FInput
                 placeholder="Search lead by name, phone, email..."
                 value={leadSearch}
@@ -474,13 +474,13 @@ export default function CrmSalesInboxView() {
               />
             </div>
 
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', flexShrink: 0 }}>
               {['ALL', 'HOT', 'WARM', 'COLD'].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setCategoryFilter(cat)}
                   style={{
-                    padding: '4px 10px',
+                    padding: '3px 9px',
                     borderRadius: 6,
                     border: '1px solid var(--bd)',
                     fontSize: 11,
@@ -495,7 +495,7 @@ export default function CrmSalesInboxView() {
               ))}
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
               {leads.length === 0 ? (
                 <div style={{ padding: 20, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>
                   No matching CRM leads found.
@@ -508,19 +508,19 @@ export default function CrmSalesInboxView() {
                       key={l.id}
                       onClick={() => setSelectedLeadId(l.id)}
                       style={{
-                        padding: 12,
+                        padding: 10,
                         borderRadius: 10,
                         border: `1px solid ${isSelected ? 'var(--primary)' : 'var(--bd)'}`,
-                        background: isSelected ? 'rgba(99, 102, 241, 0.06)' : 'var(--bg)',
+                        background: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg)',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)' }}>{l.contact?.name || l.contact?.phoneNumber}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{l.contact?.name || l.contact?.phoneNumber}</span>
                         <CategoryBadge category={l.category} />
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5, color: 'var(--t2)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--t2)' }}>
                         <span>{l.contact?.phoneNumber}</span>
                         <span style={{ fontWeight: 600, color: 'var(--primary)' }}>Score: {l.score}</span>
                       </div>
@@ -532,16 +532,16 @@ export default function CrmSalesInboxView() {
           </div>
 
           {/* MIDDLE: CONVERSATION THREAD & MESSAGE COMPOSER */}
-          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
             {selectedLead ? (
               <>
                 {/* THREAD HEADER */}
-                <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
                   <div>
-                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>
+                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>
                       Conversation with {selectedLead.contact?.name || selectedLead.contact?.phoneNumber}
                     </h3>
-                    <div style={{ fontSize: 12, color: 'var(--t2)', marginTop: 2 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 2 }}>
                       WhatsApp Contact: {selectedLead.contact?.phoneNumber}
                     </div>
                   </div>
@@ -554,7 +554,7 @@ export default function CrmSalesInboxView() {
 
                 {/* 24-HOUR WINDOW NOTICE */}
                 {windowState && !windowState.open && (
-                  <div style={{ padding: '10px 16px', background: 'rgba(245, 158, 11, 0.12)', borderBottom: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', fontSize: 12.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ padding: '9px 14px', background: 'rgba(245, 158, 11, 0.12)', borderBottom: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
                     <span>
                       ⚡ <strong>WhatsApp 24h Window Closed:</strong> Contact has not messaged recently. Send an approved template message to contact them.
                     </span>
@@ -566,14 +566,14 @@ export default function CrmSalesInboxView() {
 
                 {/* CHAT ERROR BANNER */}
                 {chatError && (
-                  <div style={{ padding: '10px 16px', background: 'rgba(239, 68, 68, 0.12)', borderBottom: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', fontSize: 12.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ padding: '9px 14px', background: 'rgba(239, 68, 68, 0.12)', borderBottom: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
                     <span>⚠️ {chatError}</span>
                     <button onClick={() => setChatError(null)} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
                   </div>
                 )}
 
                 {/* MESSAGES TRAIL */}
-                <div style={{ flex: 1, padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg)' }}>
+                <div style={{ flex: 1, minHeight: 0, padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg)' }}>
                   {messages.length === 0 ? (
                     <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>
                       No message history with this lead yet. Start the conversation below.
@@ -587,12 +587,12 @@ export default function CrmSalesInboxView() {
                           style={{
                             alignSelf: isOutbound ? 'flex-end' : 'flex-start',
                             maxWidth: '75%',
-                            padding: '10px 14px',
+                            padding: '9px 13px',
                             borderRadius: 12,
                             background: isOutbound ? 'var(--primary)' : 'var(--surf)',
                             color: isOutbound ? '#fff' : 'var(--t1)',
                             border: isOutbound ? 'none' : '1px solid var(--bd)',
-                            fontSize: 13.5,
+                            fontSize: 13,
                             boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
                           }}
                         >
@@ -607,7 +607,7 @@ export default function CrmSalesInboxView() {
                 </div>
 
                 {/* COMPOSER */}
-                <div style={{ padding: 16, borderTop: '1px solid var(--bd)', display: 'flex', gap: 10 }}>
+                <div style={{ padding: 12, borderTop: '1px solid var(--bd)', display: 'flex', gap: 10, flexShrink: 0, background: 'var(--surf)' }}>
                   <FInput
                     placeholder="Type WhatsApp message to lead..."
                     value={messageText}
@@ -616,7 +616,7 @@ export default function CrmSalesInboxView() {
                     style={{ flex: 1 }}
                   />
                   <Btn onClick={handleSendMessage} disabled={sendingMsg || !messageText.trim()}>
-                    <I n="send" s={16} /> Send
+                    <I n="send" s={15} /> Send
                   </Btn>
                 </div>
               </>
@@ -628,7 +628,7 @@ export default function CrmSalesInboxView() {
           </div>
 
           {/* RIGHT: CRM CONTEXT PANEL */}
-          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 20, overflowY: 'auto' }}>
+          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 16, overflowY: 'auto', height: '100%' }}>
             {selectedLead ? (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
