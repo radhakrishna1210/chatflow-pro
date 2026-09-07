@@ -154,7 +154,7 @@ export async function launchSegmentCampaign(workspaceId, { name, category, sourc
   await setRecipients(workspaceId, campaign.id, contactIds);
 
   // 3. Launch campaign via existing campaign execution engine
-  const launched = await launchCampaign(workspaceId, campaign.id, user);
+  const launched = await launchCampaign(workspaceId, campaign.id, null, null, user);
 
   return {
     campaign: launched,
