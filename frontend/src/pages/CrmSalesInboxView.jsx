@@ -86,11 +86,11 @@ export default function CrmSalesInboxView() {
       const [segRes, tmplRes, numRes] = await Promise.all([
         wFetch('/crm-sales-inbox/segments').then(r => r.ok ? r.json() : null),
         wFetch('/templates').then(r => r.ok ? r.json() : null),
-        wFetch('/whatsapp').then(r => r.ok ? r.json() : null),
+        wFetch('/whatsapp/numbers').then(r => r.ok ? r.json() : null),
       ]);
       setSegments(segRes || { categories: { HOT: 0, WARM: 0, COLD: 0, ALL: 0 }, sources: [] });
       setTemplates(Array.isArray(tmplRes?.data) ? tmplRes.data : Array.isArray(tmplRes) ? tmplRes : []);
-      const nums = Array.isArray(numRes?.data) ? numRes.data : Array.isArray(numRes) ? numRes : [];
+      const nums = Array.isArray(numRes) ? numRes : Array.isArray(numRes?.data) ? numRes.data : [];
       setWaNumbers(nums);
       if (nums.length > 0) {
         setCampaignWaNumberId(nums[0].id);
