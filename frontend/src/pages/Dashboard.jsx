@@ -3665,19 +3665,8 @@ const ADMIN_NAV = [
   { id: 'templates',      label: 'Templates',      icon: 'file'  },
    { id: 'authentication',label: 'Authentication',        icon: 'shield' },
   { id: 'campaigns',      label: 'Campaigns',      icon: 'send'  },
-  { id: 'crm-overview',   label: 'CRM Overview',   icon: 'layout' },
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
-  { id: 'leads',          label: 'Leads',          icon: 'target' },
-  { id: 'deals',          label: 'Deals',          icon: 'briefcase' },
-  { id: 'tasks',          label: 'Tasks',          icon: 'check-square' },
-  { id: 'forecast',       label: 'Forecast',       icon: 'chart' },
-  { id: 'products',       label: 'Products',       icon: 'briefcase' },
-  { id: 'quotes',         label: 'Quotes',         icon: 'note'  },
-  { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
-  { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
-  { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
-  { id: 'crm-sales-inbox',label: 'CRM Sales Inbox',icon: 'msg'   },
 
   { id: 'widget',         label: 'Website Widget', icon: 'globe' },
   { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
@@ -3693,6 +3682,18 @@ const ADMIN_NAV = [
   { id: 'support',        label: 'Help & Support', icon: 'msg'   },
   { id: 'resources',      label: 'Resource Center', icon: 'file' },
   { id: 'settings',       label: 'Settings',       icon: 'cog'   },
+
+  { id: 'crm-overview',   label: 'CRM Overview',   icon: 'layout' },
+  { id: 'crm-sales-inbox',label: 'CRM Sales Inbox',icon: 'msg'   },
+  { id: 'leads',          label: 'Leads',          icon: 'target' },
+  { id: 'deals',          label: 'Deals',          icon: 'briefcase' },
+  { id: 'tasks',          label: 'Tasks',          icon: 'check-square' },
+  { id: 'forecast',       label: 'Forecast',       icon: 'chart' },
+  { id: 'products',       label: 'Products',       icon: 'briefcase' },
+  { id: 'quotes',         label: 'Quotes',         icon: 'note'  },
+  { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
+  { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
+  { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
   { id: 'legal',          label: 'Legal',          icon: 'file'  },
 ];
 
@@ -3739,7 +3740,7 @@ const SUPERADMIN_NAV = [...ADMIN_TABS, { id: 'settings', label: 'Settings', icon
 // rather than colour emoji, so those two do follow the text colour.
 const NAV_EMOJI = {
   // straight from the design set
-  home: '\u{1F3E0}', inbox: '\u{1F4AC}', 'crm-sales-inbox': '\u{1F4EB}', campaigns: '\u{1F4E3}', templates: '\u{1F4C4}',authentication: '\u{1F510}',
+  home: '\u{1F3E0}', inbox: '\u{1F4AC}', campaigns: '\u{1F4E3}', templates: '\u{1F4C4}',authentication: '\u{1F510}',
 
   contacts: '\u{1F465}', 'ai-agent': '\u2726', automation: '\u26A1', 'intent-matching': '\u{1F3AF}',
   analytics: '\u{1F4CA}', 'chat-analysis': '\u{1F50E}', 'user-analytics': '\u{1F4C8}',
@@ -3759,7 +3760,6 @@ const TEXT_GLYPHS = new Set(['\u2726', '\u26A1']);
 
 const NAV_GROUPS = [
   { name: 'COMMAND',    ids: ['home', 'inbox'] },
-  { name: 'CRM',        ids: ['crm-overview', 'crm-sales-inbox', 'leads', 'deals', 'tasks', 'forecast', 'products', 'quotes', 'sequences', 'lead-forms', 'tickets'] },
   { name: 'GROW',       ids: ['campaigns', 'templates', 'authentication', 'contacts'] },
   { name: 'AUTOMATE',   ids: ['ai-agent', 'automation', 'intent-matching'] },
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
