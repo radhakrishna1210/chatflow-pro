@@ -268,14 +268,12 @@ const DeleteConfirmModal = ({ count = 1, leadName, onClose, onConfirmed, busy })
   </Modal>
 );
 
-const LeadDetail = ({ lead, members, onChanged, onConverted, onDelete }) => {
+const LeadDetail = ({ lead, members, onChanged, onConverted }) => {
   const [notes, setNotes] = useState(lead.notes || '');
   const [savingNotes, setSavingNotes] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [converting, setConverting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [customDefs, setCustomDefs] = useState([]);
   const [customValues, setCustomValues] = useState(lead.customFields || {});
 
@@ -301,23 +299,6 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onDelete }) => {
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Update failed'); }
       onChanged(await res.json());
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
-  };
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      const res = await wFetch(`/leads/${lead.id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || 'Failed to delete lead');
-      }
-      setConfirmDelete(false);
-      onDelete?.(lead.id);
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setDeleting(false);
-    }
   };
 
   const saveNotes = async () => { setSavingNotes(true); await patch({ notes }); setSavingNotes(false); };
@@ -353,26 +334,6 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onDelete }) => {
           <Btn size="sm" onClick={() => setConverting(true)} disabled={isConverted || busy}>
             {isConverted ? 'Converted' : 'Convert to Deal'}
           </Btn>
-          <button
-            onClick={() => setConfirmDelete(true)}
-            disabled={busy || deleting}
-            title="Delete Lead"
-            style={{
-              padding: '6px 12px',
-              borderRadius: 8,
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              background: 'rgba(239, 68, 68, 0.08)',
-              color: '#f87171',
-              fontSize: 12.5,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <I n="trash" s={13} c="#f87171" /> Delete
-          </button>
         </div>
       </div>
 
@@ -499,16 +460,6 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onDelete }) => {
         <ConvertModal lead={lead} members={members}
           onClose={() => setConverting(false)}
           onConverted={(deal) => { setConverting(false); onConverted(deal); }} />
-      )}
-
-      {confirmDelete && (
-        <DeleteConfirmModal
-          count={1}
-          leadName={c.name || 'this lead'}
-          onClose={() => setConfirmDelete(false)}
-          onConfirmed={handleDelete}
-          busy={deleting}
-        />
       )}
     </div>
   );
@@ -824,12 +775,6 @@ export default function LeadsView() {
         {detail ? (
           <LeadDetail lead={detail} members={members}
             onChanged={applyUpdate}
-            onDelete={(deletedId) => {
-              load();
-              if (activeId === deletedId) setActiveId(null);
-              setSelectedIds(prev => { const n = new Set(prev); n.delete(deletedId); return n; });
-              window.dispatchEvent(new CustomEvent('crm:pipeline-sync'));
-            }}
             onConverted={() => {
               load();
               wFetch(`/leads/${activeId}`).then(r => r.ok && r.json()).then(d => d && setDetail(d)).catch(() => {});
@@ -853,7 +798,11 @@ export default function LeadsView() {
       {confirmBulkDelete && (
         <DeleteConfirmModal
           count={selectedIds.size}
-          onClose={() => setConfirmBulkDelete(false)}
+          onClose={() => {
+            setConfirmBulkDelete(false);
+            setDeleteMode(false);
+            setSelectedIds(new Set());
+          }}
           onConfirmed={handleBulkDelete}
           busy={bulkDeleting}
         />
