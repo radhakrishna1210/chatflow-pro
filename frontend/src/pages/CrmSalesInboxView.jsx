@@ -93,6 +93,72 @@ export default function CrmSalesInboxView() {
   const [confirmBulkDeleteAudience, setConfirmBulkDeleteAudience] = useState(false);
   const [bulkDeletingAudience, setBulkDeletingAudience] = useState(false);
 
+  // Resizable Panel Widths for Individual Lead Mode
+  const [leftWidth, setLeftWidth] = useState(() => {
+    const saved = localStorage.getItem('crm_sales_inbox_left_width');
+    return saved ? Math.max(240, Math.min(450, Number(saved))) : 300;
+  });
+  const [rightWidth, setRightWidth] = useState(() => {
+    const saved = localStorage.getItem('crm_sales_inbox_right_width');
+    return saved ? Math.max(300, Math.min(650, Number(saved))) : 380;
+  });
+  const [isResizingLeft, setIsResizingLeft] = useState(false);
+  const [isResizingRight, setIsResizingRight] = useState(false);
+
+  // Resize Left (Lead List)
+  const startResizeLeft = useCallback((e) => {
+    e.preventDefault();
+    setIsResizingLeft(true);
+    const startX = e.clientX;
+    const startW = leftWidth;
+
+    const onMouseMove = (moveEv) => {
+      const delta = moveEv.clientX - startX;
+      const newW = Math.max(240, Math.min(480, startW + delta));
+      setLeftWidth(newW);
+    };
+
+    const onMouseUp = () => {
+      setIsResizingLeft(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      setLeftWidth((w) => {
+        localStorage.setItem('crm_sales_inbox_left_width', String(w));
+        return w;
+      });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [leftWidth]);
+
+  // Resize Right (CRM Context Panel & Conversation)
+  const startResizeRight = useCallback((e) => {
+    e.preventDefault();
+    setIsResizingRight(true);
+    const startX = e.clientX;
+    const startW = rightWidth;
+
+    const onMouseMove = (moveEv) => {
+      const delta = startX - moveEv.clientX;
+      const newW = Math.max(300, Math.min(650, startW + delta));
+      setRightWidth(newW);
+    };
+
+    const onMouseUp = () => {
+      setIsResizingRight(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      setRightWidth((w) => {
+        localStorage.setItem('crm_sales_inbox_right_width', String(w));
+        return w;
+      });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [rightWidth]);
+
   // 1. Fetch initial segments & metadata
   const fetchMetadata = useCallback(async () => {
     setLoading(true);
@@ -597,9 +663,27 @@ export default function CrmSalesInboxView() {
 
       {/* TAB 1: INDIVIDUAL LEAD MESSAGING MODE */}
       {activeTab === 'individual' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '310px 1fr 330px', gap: 16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <div style={{
+          display: 'flex',
+          gap: 0,
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+          userSelect: (isResizingLeft || isResizingRight) ? 'none' : 'auto',
+        }}>
           {/* LEFT: LEAD SEARCH & LIST */}
-          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+          <div style={{
+            width: leftWidth,
+            flexShrink: 0,
+            background: 'var(--surf)',
+            border: '1px solid var(--bd)',
+            borderRadius: 14,
+            padding: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            overflow: 'hidden',
+          }}>
             <div style={{ marginBottom: 10, flexShrink: 0 }}>
               <FInput
                 placeholder="Search lead by name, phone, email..."
@@ -665,23 +749,53 @@ export default function CrmSalesInboxView() {
             </div>
           </div>
 
+          {/* LEFT RESIZER */}
+          <div
+            onMouseDown={startResizeLeft}
+            title="Drag to resize lead list"
+            style={{
+              width: 10,
+              cursor: 'col-resize',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+              flexShrink: 0,
+              userSelect: 'none',
+              transition: 'background 0.15s ease',
+              background: isResizingLeft ? 'rgba(99, 102, 241, 0.25)' : 'transparent',
+            }}
+          >
+            <div style={{ width: 2, height: 28, borderRadius: 1, background: isResizingLeft ? 'var(--primary)' : 'var(--bd)' }} />
+          </div>
+
           {/* MIDDLE: CONVERSATION THREAD & MESSAGE COMPOSER */}
-          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+          <div style={{
+            flex: 1,
+            minWidth: 320,
+            background: 'var(--surf)',
+            border: '1px solid var(--bd)',
+            borderRadius: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            overflow: 'hidden',
+          }}>
             {selectedLead ? (
               <>
                 {/* THREAD HEADER */}
-                <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>
+                <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 12 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       Conversation with {selectedLead.contact?.name || selectedLead.contact?.phoneNumber}
                     </h3>
                     <div style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 2 }}>
                       WhatsApp Contact: {selectedLead.contact?.phoneNumber}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                     <Btn size="sm" variant="sec" onClick={() => setShowTemplateModal(true)}>
-                      <I n="fileText" s={14} /> Send Template
+                      <I n="file" s={14} /> Send Template
                     </Btn>
                   </div>
                 </div>
@@ -761,22 +875,131 @@ export default function CrmSalesInboxView() {
             )}
           </div>
 
+          {/* RIGHT RESIZER */}
+          <div
+            onMouseDown={startResizeRight}
+            title="Drag to resize CRM Context panel & conversation"
+            style={{
+              width: 10,
+              cursor: 'col-resize',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+              flexShrink: 0,
+              userSelect: 'none',
+              transition: 'background 0.15s ease',
+              background: isResizingRight ? 'rgba(99, 102, 241, 0.25)' : 'transparent',
+            }}
+          >
+            <div style={{ width: 2, height: 32, borderRadius: 1, background: isResizingRight ? 'var(--primary)' : 'var(--bd)' }} />
+          </div>
+
           {/* RIGHT: CRM CONTEXT PANEL */}
-          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 16, overflowY: 'auto', height: '100%' }}>
+          <div style={{
+            width: rightWidth,
+            flexShrink: 0,
+            background: 'var(--surf)',
+            border: '1px solid var(--bd)',
+            borderRadius: 14,
+            padding: 16,
+            overflowY: 'auto',
+            height: '100%',
+          }}>
             {selectedLead ? (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>CRM Context</h3>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <Btn size="xs" variant="sec" onClick={() => { setEnrollTarget({ type: 'lead', leadId: selectedLead.id }); setShowEnrollModal(true); }} title="Enroll Lead in Sequence Cadence">
-                      <I n="layers" s={13} /> Enroll Sequence
-                    </Btn>
-                    <Btn size="xs" variant="ghost" onClick={handleRecalculateCategory} title="Recalculate Lead Category & Score">
-                      <I n="refresh" s={13} />
-                    </Btn>
-                    <Btn size="xs" variant="ghost" onClick={() => setConfirmDeleteLead(true)} title="Delete Lead from CRM">
-                      <I n="trash" s={13} c="#f87171" />
-                    </Btn>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--bd)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <I n="columns" s={16} c="var(--primary)" />
+                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)', whiteSpace: 'nowrap' }}>CRM Context</h3>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        onClick={handleRecalculateCategory}
+                        title="Recalculate Lead Category & Score"
+                        style={{
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid var(--bd)',
+                          borderRadius: 6,
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: 'var(--t2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <I n="refresh" s={12} />
+                      </button>
+                      <button
+                        onClick={() => setRightWidth(prev => prev >= 480 ? 350 : 520)}
+                        title={rightWidth >= 480 ? "Compact view" : "Expand context panel"}
+                        style={{
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid var(--bd)',
+                          borderRadius: 6,
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: 'var(--t2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <I n="columns" s={12} /> {rightWidth >= 480 ? 'Compact' : 'Expand'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteLead(true)}
+                        title="Delete Lead from CRM"
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.08)',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                          borderRadius: 6,
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: '#f87171',
+                          display: 'flex',
+                          alignItems: 'center',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <I n="trash" s={12} c="#f87171" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button
+                      onClick={() => { setEnrollTarget({ type: 'lead', leadId: selectedLead.id }); setShowEnrollModal(true); }}
+                      title="Enroll Lead in Sequence Cadence"
+                      style={{
+                        flex: 1,
+                        padding: '7px 12px',
+                        borderRadius: 8,
+                        border: '1px solid var(--bd)',
+                        background: 'rgba(255, 255, 255, 0.06)',
+                        color: 'var(--t1)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'}
+                    >
+                      <I n="wflow" s={13} c="var(--primary)" /> Enroll in Sequence Cadence
+                    </button>
                   </div>
                 </div>
 
