@@ -8,6 +8,7 @@ import { wFetch } from '../lib/api.js';
 const ACTIONS = [
   { id: 'nav-home', label: 'Go to Home', icon: 'home', nav: 'home', keywords: 'dashboard overview' },
   { id: 'nav-crm', label: 'Go to CRM Overview', icon: 'chart', nav: 'crm-overview', keywords: 'pipeline metrics kpi' },
+  { id: 'nav-crm-sales-inbox', label: 'Go to CRM Sales Inbox', icon: 'msg', nav: 'crm-sales-inbox', keywords: 'sales inbox leads follow-up category segmentation' },
   { id: 'nav-leads', label: 'Go to Leads', icon: 'target', nav: 'leads', keywords: 'prospects' },
   { id: 'nav-deals', label: 'Go to Deals', icon: 'briefcase', nav: 'deals', keywords: 'pipeline opportunities kanban' },
   { id: 'nav-tasks', label: 'Go to Tasks', icon: 'check-square', nav: 'tasks', keywords: 'todo work queue' },

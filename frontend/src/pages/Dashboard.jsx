@@ -26,6 +26,8 @@ const SequencesView = lazy(() => import('./SequencesView.jsx'));
 const LeadFormsView = lazy(() => import('./LeadFormsView.jsx'));
 const TicketsView = lazy(() => import('./TicketsView.jsx'));
 import InboxView from './InboxView.jsx';
+import CrmSalesInboxView from './CrmSalesInboxView.jsx';
+
 import WidgetsView from './WidgetsView.jsx';
 import AutomationView from './AutomationView.jsx';
 import AnalyticsView from './AnalyticsView.jsx';
@@ -3663,18 +3665,9 @@ const ADMIN_NAV = [
   { id: 'templates',      label: 'Templates',      icon: 'file'  },
    { id: 'authentication',label: 'Authentication',        icon: 'shield' },
   { id: 'campaigns',      label: 'Campaigns',      icon: 'send'  },
-  { id: 'crm-overview',   label: 'CRM Overview',   icon: 'layout' },
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
-  { id: 'leads',          label: 'Leads',          icon: 'target' },
-  { id: 'deals',          label: 'Deals',          icon: 'briefcase' },
-  { id: 'tasks',          label: 'Tasks',          icon: 'check-square' },
-  { id: 'forecast',       label: 'Forecast',       icon: 'chart' },
-  { id: 'products',       label: 'Products',       icon: 'briefcase' },
-  { id: 'quotes',         label: 'Quotes',         icon: 'note'  },
-  { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
-  { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
-  { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
+
   { id: 'widget',         label: 'Website Widget', icon: 'globe' },
   { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
   { id: 'ai-agent',       label: 'AI Agent',       icon: 'bot'   },
@@ -3689,6 +3682,18 @@ const ADMIN_NAV = [
   { id: 'support',        label: 'Help & Support', icon: 'msg'   },
   { id: 'resources',      label: 'Resource Center', icon: 'file' },
   { id: 'settings',       label: 'Settings',       icon: 'cog'   },
+
+  { id: 'crm-overview',   label: 'CRM Overview',   icon: 'layout' },
+  { id: 'crm-sales-inbox',label: 'CRM Sales Inbox',icon: 'msg'   },
+  { id: 'leads',          label: 'Leads',          icon: 'target' },
+  { id: 'deals',          label: 'Deals',          icon: 'briefcase' },
+  { id: 'tasks',          label: 'Tasks',          icon: 'check-square' },
+  { id: 'forecast',       label: 'Forecast',       icon: 'chart' },
+  { id: 'products',       label: 'Products',       icon: 'briefcase' },
+  { id: 'quotes',         label: 'Quotes',         icon: 'note'  },
+  { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
+  { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
+  { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
   { id: 'legal',          label: 'Legal',          icon: 'file'  },
 ];
 
@@ -3736,6 +3741,7 @@ const SUPERADMIN_NAV = [...ADMIN_TABS, { id: 'settings', label: 'Settings', icon
 const NAV_EMOJI = {
   // straight from the design set
   home: '\u{1F3E0}', inbox: '\u{1F4AC}', campaigns: '\u{1F4E3}', templates: '\u{1F4C4}',authentication: '\u{1F510}',
+
   contacts: '\u{1F465}', 'ai-agent': '\u2726', automation: '\u26A1', 'intent-matching': '\u{1F3AF}',
   analytics: '\u{1F4CA}', 'chat-analysis': '\u{1F50E}', 'user-analytics': '\u{1F4C8}',
   integrations: '\u{1F50C}', setup: '\u{1F4F1}', api: '\u{1F511}', payments: '\u{1F4B3}',
@@ -3759,6 +3765,7 @@ const NAV_GROUPS = [
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
   { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'resources', 'settings'] },
 ];
+
 
 // Super admins get their own banding: the platform sections have no analogue
 // in the design set, so these are grouped by what an operator is doing —
@@ -4164,6 +4171,8 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     }
     if (page === 'home')       return <HomeView />;
     if (page === 'inbox')      return <InboxView />;
+    if (page === 'crm-sales-inbox') return <CrmSalesInboxView />;
+
     if (page === 'campaigns')  return (
       <CampaignsView
         onCreateCampaign={() => openCampaignEditor(null)}

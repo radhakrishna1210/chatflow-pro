@@ -32,18 +32,19 @@ export const FInput = ({ value, onChange, placeholder, type = 'text', onKeyDown,
     {...rest} />
 );
 
-export const FSelect = ({ value, onChange, options = [], disabled, placeholder, onFocus, onBlur, ...rest }) => (
+export const FSelect = ({ value, onChange, options = [], children, disabled, placeholder, onFocus, onBlur, ...rest }) => (
   <select
     value={value ?? ''} onChange={onChange} disabled={disabled}
     style={{ ...fieldStyle, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? .6 : 1 }}
     onFocus={focusRing(onFocus)} onBlur={blurRing(onBlur)}
     {...rest}>
-    {placeholder && <option value="">{placeholder}</option>}
+    {placeholder && <option value="" style={{ background: '#1e293b', color: '#f8fafc' }}>{placeholder}</option>}
     {options.map(o => (
-      <option key={o.value} value={o.value} style={{ background: 'var(--surf)', color: 'var(--t1)' }}>
+      <option key={o.value} value={o.value} style={{ background: '#1e293b', color: '#f8fafc' }}>
         {o.label}
       </option>
     ))}
+    {children}
   </select>
 );
 

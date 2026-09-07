@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import { isValidPhone, normalizePhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
+import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
+
 
 // Public lead-capture forms.
 //
@@ -307,6 +309,7 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   });
 
   await record('CREATED', null, { contactId: contact.id, leadId: lead.id });
+  await computeLeadCategory(workspaceId, lead.id).catch((err) => console.error('[LeadForms] Category compute failed:', err.message));
   emitCrmEvent(workspaceId, 'lead_created', { leadId: lead.id, contactId: contact.id, score });
 
   return { ok: true, message: form.successMessage };

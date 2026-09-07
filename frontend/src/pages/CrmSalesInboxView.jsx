@@ -1,0 +1,1540 @@
+import { useState, useEffect, useCallback } from 'react';
+import { I } from '../components/Icons.jsx';
+import { Btn } from '../components/Btn.jsx';
+import { Avatar } from '../components/Avatar.jsx';
+import { Modal } from '../components/Modal.jsx';
+import { StatusBadge } from '../components/StatusBadge.jsx';
+import { FInput, FLabel, FSelect } from '../components/Form.jsx';
+import { wFetch } from '../lib/api.js';
+
+const CATEGORY_COLORS = {
+  HOT: { bg: 'rgba(239, 68, 68, 0.12)', bd: 'rgba(239, 68, 68, 0.3)', c: '#f87171', label: 'HOT 🔥' },
+  WARM: { bg: 'rgba(245, 158, 11, 0.12)', bd: 'rgba(245, 158, 11, 0.3)', c: '#fbbf24', label: 'WARM ⚡' },
+  COLD: { bg: 'rgba(59, 130, 246, 0.12)', bd: 'rgba(59, 130, 246, 0.3)', c: '#60a5fa', label: 'COLD ❄️' },
+};
+
+const CategoryBadge = ({ category = 'COLD' }) => {
+  const cfg = CATEGORY_COLORS[category] || CATEGORY_COLORS.COLD;
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '3px 8px',
+        borderRadius: 12,
+        fontSize: 11,
+        fontWeight: 700,
+        background: cfg.bg,
+        border: `1px solid ${cfg.bd}`,
+        color: cfg.c,
+      }}
+    >
+      {cfg.label}
+    </span>
+  );
+};
+
+export default function CrmSalesInboxView() {
+  const [activeTab, setActiveTab] = useState('individual'); // 'individual' | 'segment'
+
+  // Common data
+  const [segments, setSegments] = useState({ categories: { HOT: 0, WARM: 0, COLD: 0, ALL: 0 }, sources: [] });
+  const [templates, setTemplates] = useState([]);
+  const [waNumbers, setWaNumbers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Individual Mode State
+  const [leads, setLeads] = useState([]);
+  const [selectedLeadId, setSelectedLeadId] = useState(null);
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [leadSearch, setLeadSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('');
+
+  // Conversation & Messaging State
+  const [conversation, setConversation] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [windowState, setWindowState] = useState(null);
+  const [chatError, setChatError] = useState(null);
+  const [messageText, setMessageText] = useState('');
+  const [sendingMsg, setSendingMsg] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateVars, setTemplateVars] = useState({});
+
+  // Segment Mode State
+  const [segCategory, setSegCategory] = useState('HOT');
+  const [segSource, setSegSource] = useState('');
+  const [segStatus, setSegStatus] = useState('');
+  const [audienceData, setAudienceData] = useState({ matchingCount: 0, eligibleCount: 0, excludedCount: 0, exclusions: {}, leads: [] });
+  const [loadingAudience, setLoadingAudience] = useState(false);
+
+  // Bulk Campaign Launch State
+  const [campaignName, setCampaignName] = useState('');
+  const [campaignTemplateId, setCampaignTemplateId] = useState('');
+  const [campaignWaNumberId, setCampaignWaNumberId] = useState('');
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [launchSuccess, setLaunchSuccess] = useState(null);
+
+  // Sequence Enrollment State
+  const [sequencesList, setSequencesList] = useState([]);
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [selectedSequenceId, setSelectedSequenceId] = useState('');
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollTarget, setEnrollTarget] = useState(null); // { type: 'lead', leadId } or { type: 'segment', leadIds }
+
+  // Lead Deletion State
+  const [confirmDeleteLead, setConfirmDeleteLead] = useState(false);
+  const [deletingLead, setDeletingLead] = useState(false);
+  const [selectedAudienceIds, setSelectedAudienceIds] = useState(new Set());
+  const [confirmBulkDeleteAudience, setConfirmBulkDeleteAudience] = useState(false);
+  const [bulkDeletingAudience, setBulkDeletingAudience] = useState(false);
+
+  // Resizable Panel Widths for Individual Lead Mode
+  const [leftWidth, setLeftWidth] = useState(() => {
+    const saved = localStorage.getItem('crm_sales_inbox_left_width');
+    return saved ? Math.max(240, Math.min(450, Number(saved))) : 300;
+  });
+  const [rightWidth, setRightWidth] = useState(() => {
+    const saved = localStorage.getItem('crm_sales_inbox_right_width');
+    return saved ? Math.max(300, Math.min(650, Number(saved))) : 380;
+  });
+  const [isResizingLeft, setIsResizingLeft] = useState(false);
+  const [isResizingRight, setIsResizingRight] = useState(false);
+
+  // Resize Left (Lead List)
+  const startResizeLeft = useCallback((e) => {
+    e.preventDefault();
+    setIsResizingLeft(true);
+    const startX = e.clientX;
+    const startW = leftWidth;
+
+    const onMouseMove = (moveEv) => {
+      const delta = moveEv.clientX - startX;
+      const newW = Math.max(240, Math.min(480, startW + delta));
+      setLeftWidth(newW);
+    };
+
+    const onMouseUp = () => {
+      setIsResizingLeft(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      setLeftWidth((w) => {
+        localStorage.setItem('crm_sales_inbox_left_width', String(w));
+        return w;
+      });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [leftWidth]);
+
+  // Resize Right (CRM Context Panel & Conversation)
+  const startResizeRight = useCallback((e) => {
+    e.preventDefault();
+    setIsResizingRight(true);
+    const startX = e.clientX;
+    const startW = rightWidth;
+
+    const onMouseMove = (moveEv) => {
+      const delta = startX - moveEv.clientX;
+      const newW = Math.max(300, Math.min(650, startW + delta));
+      setRightWidth(newW);
+    };
+
+    const onMouseUp = () => {
+      setIsResizingRight(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      setRightWidth((w) => {
+        localStorage.setItem('crm_sales_inbox_right_width', String(w));
+        return w;
+      });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [rightWidth]);
+
+  // 1. Fetch initial segments & metadata
+  const fetchMetadata = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [segRes, tmplRes, numRes, seqRes] = await Promise.all([
+        wFetch('/crm-sales-inbox/segments').then(r => r.ok ? r.json() : null),
+        wFetch('/templates').then(r => r.ok ? r.json() : null),
+        wFetch('/whatsapp/numbers').then(r => r.ok ? r.json() : null),
+        wFetch('/sequences').then(r => r.ok ? r.json() : null),
+      ]);
+      setSegments(segRes || { categories: { HOT: 0, WARM: 0, COLD: 0, ALL: 0 }, sources: [] });
+      setTemplates(Array.isArray(tmplRes?.data) ? tmplRes.data : Array.isArray(tmplRes) ? tmplRes : []);
+      const nums = Array.isArray(numRes) ? numRes : Array.isArray(numRes?.data) ? numRes.data : [];
+      setWaNumbers(nums);
+      setSequencesList(Array.isArray(seqRes?.data) ? seqRes.data : Array.isArray(seqRes) ? seqRes : []);
+      if (nums.length > 0) {
+        setCampaignWaNumberId(nums[0].id);
+      }
+    } catch (err) {
+      console.error('[CrmSalesInbox] Error fetching metadata:', err);
+      setError('Failed to load CRM Inbox data.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMetadata();
+  }, [fetchMetadata]);
+
+  useEffect(() => {
+    if (!campaignWaNumberId && waNumbers.length > 0) {
+      setCampaignWaNumberId(waNumbers[0].id);
+    }
+  }, [waNumbers, campaignWaNumberId]);
+
+  // 2. Fetch Leads for Individual Mode
+  const fetchLeads = useCallback(async () => {
+    try {
+      const query = new URLSearchParams();
+      if (categoryFilter && categoryFilter !== 'ALL') query.set('category', categoryFilter);
+      if (statusFilter) query.set('status', statusFilter);
+      if (leadSearch) query.set('search', leadSearch);
+
+      const res = await wFetch(`/leads?${query.toString()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data?.data || [];
+      setLeads(list);
+
+      if (list.length > 0 && !selectedLeadId) {
+        setSelectedLeadId(list[0].id);
+      }
+    } catch (err) {
+      console.error('[CrmSalesInbox] Error fetching leads:', err);
+    }
+  }, [categoryFilter, statusFilter, leadSearch, selectedLeadId]);
+
+  useEffect(() => {
+    if (activeTab === 'individual') {
+      fetchLeads();
+    }
+  }, [activeTab, fetchLeads]);
+
+  // 3. Fetch Selected Lead Details & Messages
+  const loadLeadContext = useCallback(async (leadId) => {
+    if (!leadId) return;
+    setChatError(null);
+    try {
+      const leadRes = await wFetch(`/leads/${leadId}`);
+      if (!leadRes.ok) return;
+      const leadData = await leadRes.json();
+      setSelectedLead(leadData);
+
+      // Fetch or find conversation for contact
+      if (leadData?.contactId) {
+        const convsRes = await wFetch(`/conversations?search=${encodeURIComponent(leadData.contact.phoneNumber)}`);
+        let convList = [];
+        if (convsRes.ok) {
+          const convsData = await convsRes.json();
+          convList = Array.isArray(convsData) ? convsData : convsData?.data || [];
+        }
+        const match = Array.isArray(convList) ? (convList.find(c => c.waNumberId) || convList[0]) : null;
+
+        if (match) {
+          setConversation(match);
+          const msgsRes = await wFetch(`/conversations/${match.id}/messages`);
+          if (msgsRes.ok) {
+            const msgsData = await msgsRes.json();
+            const list = Array.isArray(msgsData) ? msgsData : msgsData?.messages || msgsData?.data || [];
+            setMessages(list);
+            if (!Array.isArray(msgsData) && msgsData?.window) {
+              setWindowState(msgsData.window);
+            } else {
+              setWindowState(null);
+            }
+          }
+        } else {
+          setConversation(null);
+          setMessages([]);
+          setWindowState(null);
+        }
+      }
+    } catch (err) {
+      console.error('[CrmSalesInbox] Error loading lead details:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedLeadId && activeTab === 'individual') {
+      loadLeadContext(selectedLeadId);
+    }
+  }, [selectedLeadId, activeTab, loadLeadContext]);
+
+  // 4. Fetch Segment Audience Review
+  const fetchAudience = useCallback(async () => {
+    setLoadingAudience(true);
+    try {
+      const query = new URLSearchParams();
+      if (segCategory && segCategory !== 'ALL') query.set('category', segCategory);
+      if (segSource) query.set('source', segSource);
+      if (segStatus) query.set('status', segStatus);
+
+      const res = await wFetch(`/crm-sales-inbox/audience-review?${query.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAudienceData(data || { matchingCount: 0, eligibleCount: 0, excludedCount: 0, exclusions: {}, leads: [] });
+      }
+    } catch (err) {
+      console.error('[CrmSalesInbox] Error reviewing audience:', err);
+    } finally {
+      setLoadingAudience(false);
+    }
+  }, [segCategory, segSource, segStatus]);
+
+  useEffect(() => {
+    if (activeTab === 'segment') {
+      fetchAudience();
+    }
+  }, [activeTab, fetchAudience]);
+
+  // 5. Direct Message Sending
+  const handleSendMessage = async () => {
+    if (!messageText.trim() || !selectedLead) return;
+    setSendingMsg(true);
+    setChatError(null);
+    try {
+      let convId = conversation?.id;
+
+      // Create conversation if none exists
+      if (!convId) {
+        const newRes = await wFetch('/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contactId: selectedLead.contactId }),
+        });
+        if (!newRes.ok) {
+          const errData = await newRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to create conversation');
+        }
+        const newConv = await newRes.json();
+        convId = newConv.id;
+        setConversation(newConv);
+      }
+
+      const res = await wFetch(`/conversations/${convId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: messageText.trim() }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const errMsg = errData.error || 'Failed to send message';
+        const errObj = new Error(errMsg);
+        errObj.code = errData.code;
+        throw errObj;
+      }
+      const sentMsg = await res.json();
+
+      setMessages((prev) => [...prev, sentMsg]);
+      setMessageText('');
+
+      // Refresh lead details to pick up updated category/score
+      loadLeadContext(selectedLeadId);
+    } catch (err) {
+      const isWindowErr = err.code === 'OUTSIDE_24H_WINDOW' ||
+        err.message?.toLowerCase().includes('24-hour') ||
+        err.message?.toLowerCase().includes('approved template') ||
+        err.message?.toLowerCase().includes('not messaged you');
+
+      if (isWindowErr) {
+        setChatError('This contact is outside WhatsApp\'s 24-hour reply window. Please send an approved template message to contact them.');
+        setShowTemplateModal(true);
+      } else {
+        setChatError(err.message);
+      }
+    } finally {
+      setSendingMsg(false);
+    }
+  };
+
+  // 6. Template Message Sending (Individual)
+  const handleSendTemplate = async () => {
+    if (!selectedTemplateId || !selectedLead) return;
+    setSendingMsg(true);
+    try {
+      let convId = conversation?.id;
+      if (!convId) {
+        const newRes = await wFetch('/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contactId: selectedLead.contactId }),
+        });
+        if (!newRes.ok) throw new Error('Failed to create conversation');
+        const newConv = await newRes.json();
+        convId = newConv.id;
+        setConversation(newConv);
+      }
+
+      const selObj = templates.find((t) => t.id === selectedTemplateId);
+      const reqCount = (selObj?.components || []).reduce((max, c) => {
+        const nums = [...String(c?.text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
+        return nums.length ? Math.max(max, Math.max(...nums)) : max;
+      }, 0);
+
+      const varsArray = Array.from({ length: reqCount }, (_, i) => templateVars[i] || (i === 0 ? selectedLead?.contact?.name || 'Customer' : ''));
+
+      const res = await wFetch(`/conversations/${convId}/template`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateId: selectedTemplateId, variables: varsArray }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to send template');
+      }
+
+      setShowTemplateModal(false);
+      setTemplateVars({});
+      loadLeadContext(selectedLeadId);
+      alert('Template message sent successfully!');
+    } catch (err) {
+      alert(`Could not send template: ${err.message}`);
+    } finally {
+      setSendingMsg(false);
+    }
+  };
+
+  // 7. Recalculate Lead Category
+  const handleRecalculateCategory = async () => {
+    if (!selectedLeadId) return;
+    try {
+      const res = await wFetch(`/crm-sales-inbox/leads/${selectedLeadId}/recalculate-category`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to recalculate category');
+      const updated = await res.json();
+      setSelectedLead(updated);
+      fetchLeads();
+      fetchMetadata();
+    } catch (err) {
+      alert(`Recalculate failed: ${err.message}`);
+    }
+  };
+
+  // 8. Launch Bulk Campaign
+  const handleLaunchCampaign = async () => {
+    if (!campaignTemplateId || !campaignWaNumberId) {
+      alert('Please select both a WhatsApp Template and a WhatsApp Number.');
+      return;
+    }
+    setLaunching(true);
+    setLaunchSuccess(null);
+    try {
+      const res = await wFetch('/crm-sales-inbox/launch-bulk-campaign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: campaignName.trim() || `CRM Segment (${segCategory}) Bulk Campaign`,
+          category: segCategory,
+          source: segSource,
+          status: segStatus,
+          templateId: campaignTemplateId,
+          waNumberId: campaignWaNumberId,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to launch campaign');
+      }
+
+      const launchRes = await res.json();
+      setShowConfirmModal(false);
+      setLaunchSuccess(launchRes);
+      fetchMetadata();
+      fetchAudience();
+    } catch (err) {
+      alert(`Campaign launch failed: ${err.message}`);
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  // 9. Enroll Lead or Segment in Sequence
+  const handleEnrollInSequence = async () => {
+    if (!selectedSequenceId || !enrollTarget) return;
+    setEnrolling(true);
+    try {
+      const payload = enrollTarget.type === 'lead'
+        ? { leadIds: [enrollTarget.leadId] }
+        : { leadIds: enrollTarget.leadIds };
+
+      const res = await wFetch(`/sequences/${selectedSequenceId}/enroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'Failed to enroll');
+      }
+
+      const resData = await res.json();
+      setShowEnrollModal(false);
+      setSelectedSequenceId('');
+      alert(`Successfully enrolled ${resData.enrolled} lead(s) into the sequence!`);
+    } catch (err) {
+      alert(`Sequence enrollment failed: ${err.message}`);
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
+  // 10. Single Lead Deletion
+  const handleDeleteSingleLead = async () => {
+    if (!selectedLeadId) return;
+    setDeletingLead(true);
+    try {
+      const res = await wFetch(`/leads/${selectedLeadId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Failed to delete lead');
+      }
+      setConfirmDeleteLead(false);
+      setSelectedLead(null);
+      setSelectedLeadId(null);
+      fetchLeads();
+      fetchMetadata();
+      window.dispatchEvent(new CustomEvent('crm:pipeline-sync'));
+    } catch (err) {
+      alert(`Could not delete lead: ${err.message}`);
+    } finally {
+      setDeletingLead(false);
+    }
+  };
+
+  // 11. Bulk Audience Deletion (Segment Mode)
+  const toggleSelectAudience = (id) => {
+    setSelectedAudienceIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllAudience = () => {
+    const allIds = (audienceData?.leads || []).map((l) => l.id);
+    if (selectedAudienceIds.size === allIds.length) {
+      setSelectedAudienceIds(new Set());
+    } else {
+      setSelectedAudienceIds(new Set(allIds));
+    }
+  };
+
+  const handleBulkDeleteAudience = async () => {
+    if (selectedAudienceIds.size === 0) return;
+    setBulkDeletingAudience(true);
+    try {
+      const res = await wFetch('/leads/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedAudienceIds] }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Bulk delete failed');
+      }
+      setConfirmBulkDeleteAudience(false);
+      setSelectedAudienceIds(new Set());
+      fetchAudience();
+      fetchMetadata();
+      fetchLeads();
+      window.dispatchEvent(new CustomEvent('crm:pipeline-sync'));
+    } catch (err) {
+      alert(`Bulk delete failed: ${err.message}`);
+    } finally {
+      setBulkDeletingAudience(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--t2)' }}>
+        <I n="loader" s={24} c="var(--primary)" />
+        <div style={{ marginTop: 12, fontSize: 14 }}>Loading CRM Sales Inbox...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '16px 20px', width: '100%', height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
+      {/* HEADER & NAVIGATION */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--t1)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <I n="messageSquare" s={24} c="var(--primary)" />
+            CRM Sales Inbox
+          </h1>
+          <p style={{ fontSize: 12.5, color: 'var(--t2)', margin: '3px 0 0 0' }}>
+            Message specific CRM leads or target dynamically segmented lead audiences via WhatsApp bulk campaigns.
+          </p>
+        </div>
+
+        {/* TAB SWITCHER */}
+        <div style={{ display: 'flex', background: 'var(--surf)', padding: 4, borderRadius: 10, border: '1px solid var(--bd)' }}>
+          <button
+            onClick={() => setActiveTab('individual')}
+            style={{
+              padding: '7px 14px',
+              borderRadius: 8,
+              border: 'none',
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: activeTab === 'individual' ? 'var(--primary)' : 'transparent',
+              color: activeTab === 'individual' ? '#fff' : 'var(--t2)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <I n="user" s={15} />
+            Individual Lead Mode
+          </button>
+          <button
+            onClick={() => setActiveTab('segment')}
+            style={{
+              padding: '7px 14px',
+              borderRadius: 8,
+              border: 'none',
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: activeTab === 'segment' ? 'var(--primary)' : 'transparent',
+              color: activeTab === 'segment' ? '#fff' : 'var(--t2)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <I n="target" s={15} />
+            Segment / Filter Mode
+          </button>
+        </div>
+      </div>
+
+      {/* METRICS & CATEGORY BUCKETS OVERVIEW */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16, flexShrink: 0 }}>
+        {[
+          { key: 'HOT', label: 'HOT Leads', count: segments.categories?.HOT || 0, color: '#f87171', bg: 'rgba(239, 68, 68, 0.08)' },
+          { key: 'WARM', label: 'WARM Leads', count: segments.categories?.WARM || 0, color: '#fbbf24', bg: 'rgba(245, 158, 11, 0.08)' },
+          { key: 'COLD', label: 'COLD Leads', count: segments.categories?.COLD || 0, color: '#60a5fa', bg: 'rgba(59, 130, 246, 0.08)' },
+          { key: 'ALL', label: 'Total CRM Prospects', count: segments.categories?.ALL || 0, color: 'var(--primary)', bg: 'rgba(99, 102, 241, 0.08)' },
+        ].map((item) => (
+          <div
+            key={item.key}
+            onClick={() => {
+              if (activeTab === 'individual') setCategoryFilter(item.key);
+              else setSegCategory(item.key);
+            }}
+            style={{
+              background: 'var(--surf)',
+              border: `1px solid ${activeTab === 'individual' && categoryFilter === item.key ? item.color : 'var(--bd)'}`,
+              borderRadius: 12,
+              padding: '12px 16px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: 'var(--card-shadow)',
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              {item.label}
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: item.color, marginTop: 2 }}>
+              {item.count}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* TAB 1: INDIVIDUAL LEAD MESSAGING MODE */}
+      {activeTab === 'individual' && (
+        <div style={{
+          display: 'flex',
+          gap: 0,
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+          userSelect: (isResizingLeft || isResizingRight) ? 'none' : 'auto',
+        }}>
+          {/* LEFT: LEAD SEARCH & LIST */}
+          <div style={{
+            width: leftWidth,
+            flexShrink: 0,
+            background: 'var(--surf)',
+            border: '1px solid var(--bd)',
+            borderRadius: 14,
+            padding: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            overflow: 'hidden',
+          }}>
+            <div style={{ marginBottom: 10, flexShrink: 0 }}>
+              <FInput
+                placeholder="Search lead by name, phone, email..."
+                value={leadSearch}
+                onChange={(e) => setLeadSearch(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', flexShrink: 0 }}>
+              {['ALL', 'HOT', 'WARM', 'COLD'].map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setCategoryFilter(cat)}
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: 6,
+                    border: '1px solid var(--bd)',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: categoryFilter === cat ? 'var(--primary)' : 'var(--bg)',
+                    color: categoryFilter === cat ? '#fff' : 'var(--t2)',
+                  }}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
+              {leads.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>
+                  No matching CRM leads found.
+                </div>
+              ) : (
+                leads.map((l) => {
+                  const isSelected = l.id === selectedLeadId;
+                  return (
+                    <div
+                      key={l.id}
+                      onClick={() => setSelectedLeadId(l.id)}
+                      style={{
+                        padding: 10,
+                        borderRadius: 10,
+                        border: `1px solid ${isSelected ? 'var(--primary)' : 'var(--bd)'}`,
+                        background: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{l.contact?.name || l.contact?.phoneNumber}</span>
+                        <CategoryBadge category={l.category} />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--t2)' }}>
+                        <span>{l.contact?.phoneNumber}</span>
+                        <span style={{ fontWeight: 600, color: 'var(--primary)' }}>Score: {l.score}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* LEFT RESIZER */}
+          <div
+            onMouseDown={startResizeLeft}
+            title="Drag to resize lead list"
+            style={{
+              width: 10,
+              cursor: 'col-resize',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+              flexShrink: 0,
+              userSelect: 'none',
+              transition: 'background 0.15s ease',
+              background: isResizingLeft ? 'rgba(99, 102, 241, 0.25)' : 'transparent',
+            }}
+          >
+            <div style={{ width: 2, height: 28, borderRadius: 1, background: isResizingLeft ? 'var(--primary)' : 'var(--bd)' }} />
+          </div>
+
+          {/* MIDDLE: CONVERSATION THREAD & MESSAGE COMPOSER */}
+          <div style={{
+            flex: 1,
+            minWidth: 320,
+            background: 'var(--surf)',
+            border: '1px solid var(--bd)',
+            borderRadius: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            overflow: 'hidden',
+          }}>
+            {selectedLead ? (
+              <>
+                {/* THREAD HEADER */}
+                <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 12 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      Conversation with {selectedLead.contact?.name || selectedLead.contact?.phoneNumber}
+                    </h3>
+                    <div style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 2 }}>
+                      WhatsApp Contact: {selectedLead.contact?.phoneNumber}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    <Btn size="sm" variant="sec" onClick={() => setShowTemplateModal(true)}>
+                      <I n="file" s={14} /> Send Template
+                    </Btn>
+                  </div>
+                </div>
+
+                {/* 24-HOUR WINDOW NOTICE */}
+                {windowState && !windowState.open && (
+                  <div style={{ padding: '9px 14px', background: 'rgba(245, 158, 11, 0.12)', borderBottom: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                    <span>
+                      ⚡ <strong>WhatsApp 24h Window Closed:</strong> Contact has not messaged recently. Send an approved template message to contact them.
+                    </span>
+                    <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
+                      Send Template
+                    </Btn>
+                  </div>
+                )}
+
+                {/* CHAT ERROR BANNER */}
+                {chatError && (
+                  <div style={{ padding: '9px 14px', background: 'rgba(239, 68, 68, 0.12)', borderBottom: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                    <span>⚠️ {chatError}</span>
+                    <button onClick={() => setChatError(null)} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+                  </div>
+                )}
+
+                {/* MESSAGES TRAIL */}
+                <div style={{ flex: 1, minHeight: 0, padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg)' }}>
+                  {messages.length === 0 ? (
+                    <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>
+                      No message history with this lead yet. Start the conversation below.
+                    </div>
+                  ) : (
+                    messages.map((m) => {
+                      const isOutbound = m.direction === 'OUTBOUND';
+                      return (
+                        <div
+                          key={m.id}
+                          style={{
+                            alignSelf: isOutbound ? 'flex-end' : 'flex-start',
+                            maxWidth: '75%',
+                            padding: '9px 13px',
+                            borderRadius: 12,
+                            background: isOutbound ? 'var(--primary)' : 'var(--surf)',
+                            color: isOutbound ? '#fff' : 'var(--t1)',
+                            border: isOutbound ? 'none' : '1px solid var(--bd)',
+                            fontSize: 13,
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                          }}
+                        >
+                          <div>{m.body}</div>
+                          <div style={{ fontSize: 10, opacity: 0.7, textAlign: 'right', marginTop: 4 }}>
+                            {new Date(m.sentAt || m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* COMPOSER */}
+                <div style={{ padding: 12, borderTop: '1px solid var(--bd)', display: 'flex', gap: 10, flexShrink: 0, background: 'var(--surf)' }}>
+                  <FInput
+                    placeholder="Type WhatsApp message to lead..."
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                    style={{ flex: 1 }}
+                  />
+                  <Btn onClick={handleSendMessage} disabled={sendingMsg || !messageText.trim()}>
+                    <I n="send" s={15} /> Send
+                  </Btn>
+                </div>
+              </>
+            ) : (
+              <div style={{ margin: 'auto', color: 'var(--t3)', fontSize: 14 }}>
+                Select a lead from the list to view conversation.
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT RESIZER */}
+          <div
+            onMouseDown={startResizeRight}
+            title="Drag to resize CRM Context panel & conversation"
+            style={{
+              width: 10,
+              cursor: 'col-resize',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+              flexShrink: 0,
+              userSelect: 'none',
+              transition: 'background 0.15s ease',
+              background: isResizingRight ? 'rgba(99, 102, 241, 0.25)' : 'transparent',
+            }}
+          >
+            <div style={{ width: 2, height: 32, borderRadius: 1, background: isResizingRight ? 'var(--primary)' : 'var(--bd)' }} />
+          </div>
+
+          {/* RIGHT: CRM CONTEXT PANEL */}
+          <div style={{
+            width: rightWidth,
+            flexShrink: 0,
+            background: 'var(--surf)',
+            border: '1px solid var(--bd)',
+            borderRadius: 14,
+            padding: 16,
+            overflowY: 'auto',
+            height: '100%',
+          }}>
+            {selectedLead ? (
+              <div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--bd)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <I n="columns" s={16} c="var(--primary)" />
+                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)', whiteSpace: 'nowrap' }}>CRM Context</h3>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        onClick={handleRecalculateCategory}
+                        title="Recalculate Lead Category & Score"
+                        style={{
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid var(--bd)',
+                          borderRadius: 6,
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: 'var(--t2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <I n="refresh" s={12} />
+                      </button>
+                      <button
+                        onClick={() => setRightWidth(prev => prev >= 480 ? 350 : 520)}
+                        title={rightWidth >= 480 ? "Compact view" : "Expand context panel"}
+                        style={{
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid var(--bd)',
+                          borderRadius: 6,
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: 'var(--t2)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <I n="columns" s={12} /> {rightWidth >= 480 ? 'Compact' : 'Expand'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteLead(true)}
+                        title="Delete Lead from CRM"
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.08)',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                          borderRadius: 6,
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: '#f87171',
+                          display: 'flex',
+                          alignItems: 'center',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <I n="trash" s={12} c="#f87171" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button
+                      onClick={() => { setEnrollTarget({ type: 'lead', leadId: selectedLead.id }); setShowEnrollModal(true); }}
+                      title="Enroll Lead in Sequence Cadence"
+                      style={{
+                        flex: 1,
+                        padding: '7px 12px',
+                        borderRadius: 8,
+                        border: '1px solid var(--bd)',
+                        background: 'rgba(255, 255, 255, 0.06)',
+                        color: 'var(--t1)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'}
+                    >
+                      <I n="wflow" s={13} c="var(--primary)" /> Enroll in Sequence Cadence
+                    </button>
+                  </div>
+                </div>
+
+                {/* LEAD HEADER */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 16, borderBottom: '1px solid var(--bd)', marginBottom: 16 }}>
+                  <Avatar name={selectedLead.contact?.name || 'L'} size={42} />
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--t1)' }}>{selectedLead.contact?.name || 'Unnamed Lead'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--t2)' }}>{selectedLead.contact?.phoneNumber}</div>
+                  </div>
+                </div>
+
+                {/* CATEGORY & EXPLAINABILITY */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Lead Category (Segmentation)
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <CategoryBadge category={selectedLead.category} />
+                  </div>
+
+                  {/* EXPLAINABILITY REASONS BOX */}
+                  <div style={{ background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--bd)', padding: 12 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--t1)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <I n="info" s={14} c="var(--primary)" /> Segmentation Reasons:
+                    </div>
+                    {Array.isArray(selectedLead.categoryReasons) && selectedLead.categoryReasons.length > 0 ? (
+                      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: 'var(--t2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {selectedLead.categoryReasons.map((r, i) => (
+                          <li key={i}>{r}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div style={{ fontSize: 12, color: 'var(--t3)' }}>No explanation available yet.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* METRICS & STATUS */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--bd)', paddingBottom: 8 }}>
+                    <span style={{ color: 'var(--t2)' }}>Lead Status</span>
+                    <StatusBadge s={selectedLead.status} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--bd)', paddingBottom: 8 }}>
+                    <span style={{ color: 'var(--t2)' }}>Lead Score</span>
+                    <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{selectedLead.score} / 100</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--bd)', paddingBottom: 8 }}>
+                    <span style={{ color: 'var(--t2)' }}>Source</span>
+                    <span style={{ fontWeight: 600, color: 'var(--t1)' }}>{selectedLead.source || 'Direct'}</span>
+                  </div>
+                </div>
+
+                {/* FORM ANSWERS SUMMARY */}
+                {selectedLead.LeadFormSubmission?.length > 0 && (
+                  <div style={{ marginTop: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Recent Form Submission Answers
+                    </div>
+                    <div style={{ background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--bd)', padding: 12, fontSize: 12, color: 'var(--t2)' }}>
+                      {Object.entries(selectedLead.LeadFormSubmission[0].answers || {}).map(([k, v]) => (
+                        <div key={k} style={{ marginBottom: 4 }}>
+                          <strong style={{ color: 'var(--t1)' }}>{k}:</strong> {String(v)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', color: 'var(--t3)', fontSize: 13, paddingTop: 40 }}>
+                Select a lead to view CRM details and segmentation explanation.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: SEGMENT & FILTER BULK CAMPAIGN MODE */}
+      {activeTab === 'segment' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
+          {/* CONTROLS & SELECTION */}
+          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 20 }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>
+              1. Select CRM Segment & Filters
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+              <div>
+                <FLabel>Lead Category Segment</FLabel>
+                <FSelect value={segCategory} onChange={(e) => setSegCategory(e.target.value)}>
+                  <option value="HOT">HOT Leads (High Intent & Score)</option>
+                  <option value="WARM">WARM Leads (Moderate Intent & Score)</option>
+                  <option value="COLD">COLD Leads (Low Engagement)</option>
+                  <option value="ALL">All Leads (Entire CRM)</option>
+                </FSelect>
+              </div>
+
+              <div>
+                <FLabel>Source Filter</FLabel>
+                <FInput
+                  placeholder="e.g. Website, Form, Ads..."
+                  value={segSource}
+                  onChange={(e) => setSegSource(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <FLabel>Lead Status Filter</FLabel>
+                <FSelect value={segStatus} onChange={(e) => setSegStatus(e.target.value)}>
+                  <option value="">All Lead Statuses</option>
+                  <option value="NEW">NEW</option>
+                  <option value="CONTACTED">CONTACTED</option>
+                  <option value="QUALIFIED">QUALIFIED</option>
+                  <option value="UNQUALIFIED">UNQUALIFIED</option>
+                </FSelect>
+              </div>
+            </div>
+          </div>
+
+          {/* AUDIENCE REVIEW SUMMARY CARDS */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+            <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase' }}>
+                Total Matching CRM Leads
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--t1)', marginTop: 4 }}>
+                {audienceData.matchingCount}
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--surf)', border: '1px solid var(--gbd)', borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--green)', textTransform: 'uppercase' }}>
+                Eligible For WhatsApp Delivery
+              </div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--green)', marginTop: 4 }}>
+                {audienceData.eligibleCount}
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--surf)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#f87171', textTransform: 'uppercase' }}>
+                Excluded Contacts ({audienceData.excludedCount})
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--t2)', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div>• Opted Out: <strong>{audienceData.exclusions?.optedOutCount || 0}</strong></div>
+                <div>• Missing/Invalid Phone: <strong>{audienceData.exclusions?.invalidPhoneCount || 0}</strong></div>
+              </div>
+            </div>
+          </div>
+
+          {/* LAUNCH BAR & AUDIENCE REVIEW TABLE */}
+          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>
+                2. Audience Review ({(audienceData?.leads || []).length} Leads)
+              </h3>
+
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                {selectedAudienceIds.size > 0 && (
+                  <button
+                    onClick={() => setConfirmBulkDeleteAudience(true)}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      color: '#f87171',
+                      borderRadius: 8,
+                      padding: '7px 12px',
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <I n="trash" s={14} c="#f87171" /> Delete Selected ({selectedAudienceIds.size})
+                  </button>
+                )}
+                <Btn
+                  variant="sec"
+                  disabled={(audienceData?.eligibleCount || 0) === 0}
+                  onClick={() => {
+                    const eligibleIds = (audienceData?.leads || []).filter(l => l.isEligible).map(l => l.id);
+                    setEnrollTarget({ type: 'segment', leadIds: eligibleIds });
+                    setShowEnrollModal(true);
+                  }}
+                >
+                  <I n="layers" s={16} /> Enroll Segment in Sequence
+                </Btn>
+                <Btn
+                  disabled={(audienceData?.eligibleCount || 0) === 0}
+                  onClick={() => setShowConfirmModal(true)}
+                >
+                  <I n="send" s={16} /> Configure & Launch WhatsApp Campaign
+                </Btn>
+              </div>
+            </div>
+
+            {/* AUDIENCE TABLE */}
+            <div style={{ overflowX: 'auto', maxHeight: '480px', overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--bd)', textAlign: 'left', color: 'var(--t2)', fontSize: 12 }}>
+                    <th style={{ padding: 10, width: 34 }}>
+                      <input
+                        type="checkbox"
+                        checked={(audienceData?.leads || []).length > 0 && selectedAudienceIds.size === (audienceData?.leads || []).length}
+                        onChange={toggleSelectAllAudience}
+                        style={{ cursor: 'pointer' }}
+                        title="Select All Leads in Audience"
+                      />
+                    </th>
+                    <th style={{ padding: 10 }}>Lead Name</th>
+                    <th style={{ padding: 10 }}>Phone Number</th>
+                    <th style={{ padding: 10 }}>Category</th>
+                    <th style={{ padding: 10 }}>Score</th>
+                    <th style={{ padding: 10 }}>Status</th>
+                    <th style={{ padding: 10 }}>Source</th>
+                    <th style={{ padding: 10 }}>Delivery Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingAudience ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--t2)' }}>
+                        Resolving audience...
+                      </td>
+                    </tr>
+                  ) : (audienceData?.leads || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--t3)' }}>
+                        No leads match the selected segment and filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    (audienceData?.leads || []).map((l) => (
+                      <tr key={l.id} style={{ borderBottom: '1px solid var(--bd)', background: selectedAudienceIds.has(l.id) ? 'rgba(239, 68, 68, 0.04)' : 'transparent' }}>
+                        <td style={{ padding: 10, width: 34 }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedAudienceIds.has(l.id)}
+                            onChange={() => toggleSelectAudience(l.id)}
+                            style={{ cursor: 'pointer' }}
+                          />
+                        </td>
+                        <td style={{ padding: 10, fontWeight: 600, color: 'var(--t1)' }}>{l.name}</td>
+                        <td style={{ padding: 10, color: 'var(--t2)' }}>{l.phoneNumber}</td>
+                        <td style={{ padding: 10 }}><CategoryBadge category={l.category} /></td>
+                        <td style={{ padding: 10, fontWeight: 700, color: 'var(--primary)' }}>{l.score}</td>
+                        <td style={{ padding: 10 }}>
+                          <StatusBadge label={l.status || 'NEW'} tone={l.status === 'QUALIFIED' ? 'green' : l.status === 'CONTACTED' ? 'violet' : 'gray'} />
+                        </td>
+                        <td style={{ padding: 10, color: 'var(--t2)' }}>{l.source}</td>
+                        <td style={{ padding: 10 }}>
+                          {l.isEligible ? (
+                            <span style={{ color: 'var(--green)', fontWeight: 700, fontSize: 12 }}>Eligible</span>
+                          ) : (
+                            <span style={{ color: '#f87171', fontWeight: 600, fontSize: 12 }}>
+                              Excluded ({l.exclusionReason})
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: INDIVIDUAL TEMPLATE SEND */}
+      {showTemplateModal && (() => {
+        const selObj = templates.find((t) => t.id === selectedTemplateId);
+        const reqCount = (selObj?.components || []).reduce((max, c) => {
+          const nums = [...String(c?.text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
+          return nums.length ? Math.max(max, Math.max(...nums)) : max;
+        }, 0);
+
+        return (
+          <Modal title="Send Approved WhatsApp Template" onClose={() => setShowTemplateModal(false)}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <FLabel>Select Approved Template</FLabel>
+                <FSelect
+                  value={selectedTemplateId}
+                  onChange={(e) => {
+                    setSelectedTemplateId(e.target.value);
+                    const tObj = templates.find((t) => t.id === e.target.value);
+                    const count = (tObj?.components || []).reduce((max, c) => {
+                      const nums = [...String(c?.text || '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1], 10));
+                      return nums.length ? Math.max(max, Math.max(...nums)) : max;
+                    }, 0);
+                    if (count > 0) {
+                      setTemplateVars({ 0: selectedLead?.contact?.name || 'Customer' });
+                    } else {
+                      setTemplateVars({});
+                    }
+                  }}
+                >
+                  <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select a template...</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                      {t.name} ({t.category || t.language || 'APPROVED'})
+                    </option>
+                  ))}
+                </FSelect>
+              </div>
+
+              {reqCount > 0 && (
+                <div style={{ background: 'var(--bg)', padding: 12, borderRadius: 10, border: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)' }}>
+                    Template Variables ({reqCount} required)
+                  </div>
+                  {Array.from({ length: reqCount }).map((_, idx) => (
+                    <div key={idx}>
+                      <FLabel>Variable &#123;&#123;{idx + 1}&#125;&#125; {idx === 0 ? '(Customer Name)' : ''}</FLabel>
+                      <FInput
+                        value={templateVars[idx] ?? (idx === 0 ? selectedLead?.contact?.name || 'Customer' : '')}
+                        onChange={(e) => setTemplateVars((prev) => ({ ...prev, [idx]: e.target.value }))}
+                        placeholder={`Value for {{${idx + 1}}}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <Btn variant="sec" onClick={() => setShowTemplateModal(false)}>Cancel</Btn>
+                <Btn onClick={handleSendTemplate} disabled={!selectedTemplateId || sendingMsg}>
+                  Send Template Message
+                </Btn>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {/* MODAL: BULK CAMPAIGN CONFIRMATION & SETUP */}
+      {showConfirmModal && (
+        <Modal title="Configure & Launch Bulk Segment Campaign" onClose={() => setShowConfirmModal(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <FLabel>Campaign Name</FLabel>
+              <FInput
+                placeholder={`e.g. ${segCategory} Leads Campaign`}
+                value={campaignName}
+                onChange={(e) => setCampaignName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <FLabel>Select WhatsApp Approved Template</FLabel>
+              <FSelect value={campaignTemplateId} onChange={(e) => setCampaignTemplateId(e.target.value)}>
+                <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select template...</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                    {t.name} ({t.language})
+                  </option>
+                ))}
+              </FSelect>
+            </div>
+
+            <div>
+              <FLabel>Sender WhatsApp Number</FLabel>
+              {waNumbers.length === 1 ? (
+                <div style={{ padding: '9px 13px', background: 'var(--bg)', border: '1px solid var(--bd)', borderRadius: 8, fontSize: 13, color: 'var(--t1)', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>{waNumbers[0].displayName ? `${waNumbers[0].displayName} (${waNumbers[0].phoneNumber})` : waNumbers[0].phoneNumber}</span>
+                  <span style={{ fontSize: 11, color: 'var(--green)', fontWeight: 700, background: 'rgba(34, 197, 94, 0.12)', padding: '2px 8px', borderRadius: 10 }}>Auto-Selected Active Sender</span>
+                </div>
+              ) : (
+                <FSelect value={campaignWaNumberId} onChange={(e) => setCampaignWaNumberId(e.target.value)}>
+                  <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select sender number...</option>
+                  {waNumbers.map((n) => (
+                    <option key={n.id} value={n.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                      {n.displayName || n.phoneNumber}
+                    </option>
+                  ))}
+                </FSelect>
+              )}
+            </div>
+
+            <div style={{ background: 'var(--bg)', padding: 14, borderRadius: 10, border: '1px solid var(--bd)', fontSize: 13, color: 'var(--t2)' }}>
+              <div>• Dynamic Audience Category: <strong>{segCategory}</strong></div>
+              <div>• Recipients to Message: <strong>{audienceData.eligibleCount} eligible leads</strong></div>
+              <div>• Excluded Contacts: <strong>{audienceData.excludedCount} contacts</strong></div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+              <Btn variant="sec" onClick={() => setShowConfirmModal(false)}>Cancel</Btn>
+              <Btn onClick={handleLaunchCampaign} disabled={launching || !campaignTemplateId || !campaignWaNumberId}>
+                {launching ? 'Launching Campaign...' : 'Confirm & Launch Campaign'}
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* LAUNCH SUCCESS BANNER */}
+      {launchSuccess && (
+        <Modal title="Campaign Launched Successfully! 🎉" onClose={() => setLaunchSuccess(null)}>
+          <div style={{ fontSize: 14, color: 'var(--t1)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              Bulk campaign <strong>{launchSuccess.campaign?.name}</strong> has been created and launched for WhatsApp delivery.
+            </div>
+            <div style={{ background: 'var(--bg)', padding: 12, borderRadius: 8, fontSize: 13, color: 'var(--t2)' }}>
+              <div>• Sent to: <strong>{launchSuccess.audienceSummary?.eligibleSent} eligible contacts</strong></div>
+              <div>• Excluded: <strong>{launchSuccess.audienceSummary?.excluded} contacts</strong></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Btn onClick={() => setLaunchSuccess(null)}>Done</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: ENROLL IN SEQUENCE */}
+      {showEnrollModal && (
+        <Modal title="Enroll Leads in Automated Sequence Cadence" onClose={() => setShowEnrollModal(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <FLabel>Select Sequence Cadence</FLabel>
+              <FSelect value={selectedSequenceId} onChange={(e) => setSelectedSequenceId(e.target.value)}>
+                <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select sequence cadence...</option>
+                {sequencesList.map((s) => (
+                  <option key={s.id} value={s.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                    {s.name} ({s.status} · {Array.isArray(s.steps) ? s.steps.length : 0} steps)
+                  </option>
+                ))}
+              </FSelect>
+            </div>
+
+            <div style={{ background: 'var(--bg)', padding: 14, borderRadius: 10, border: '1px solid var(--bd)', fontSize: 13, color: 'var(--t2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div>• Recipients to Enroll: <strong>{enrollTarget?.type === 'lead' ? '1 Selected Lead' : `${enrollTarget?.leadIds?.length || 0} Segment Leads`}</strong></div>
+              <div>• Sequence Automation: Executes multi-step cadence (WhatsApp messages, delay waits, CRM task creation).</div>
+              <div>• Auto-Exit Handoff: Stops automatically when lead replies, shifting them live to CRM Sales Inbox.</div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+              <Btn variant="sec" onClick={() => setShowEnrollModal(false)}>Cancel</Btn>
+              <Btn onClick={handleEnrollInSequence} disabled={enrolling || !selectedSequenceId}>
+                {enrolling ? 'Enrolling Leads...' : 'Confirm & Enroll'}
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: CONFIRM SINGLE LEAD DELETION */}
+      {confirmDeleteLead && selectedLead && (
+        <Modal title="Delete CRM Lead" onClose={() => setConfirmDeleteLead(false)} width={460}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <I n="alertt" s={18} c="#f87171" />
+              </div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+                  Delete "{selectedLead.contact?.name || selectedLead.contact?.phoneNumber || 'this lead'}"?
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>
+                  This will permanently delete this lead from your CRM pipeline, inbox, and category segmentation metrics. This action cannot be undone.
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+              <Btn variant="ghost" size="sm" onClick={() => setConfirmDeleteLead(false)} disabled={deletingLead}>Cancel</Btn>
+              <button
+                onClick={handleDeleteSingleLead}
+                disabled={deletingLead}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#ef4444',
+                  color: '#fff',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: deletingLead ? 'not-allowed' : 'pointer',
+                  opacity: deletingLead ? 0.7 : 1,
+                  transition: 'opacity 0.15s ease',
+                }}
+              >
+                {deletingLead ? 'Deleting…' : 'Delete Lead'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: CONFIRM BULK AUDIENCE DELETION */}
+      {confirmBulkDeleteAudience && (
+        <Modal title={`Delete ${selectedAudienceIds.size} Leads`} onClose={() => setConfirmBulkDeleteAudience(false)} width={460}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <I n="alertt" s={18} c="#f87171" />
+              </div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+                  Delete {selectedAudienceIds.size} selected leads?
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>
+                  This will permanently delete {selectedAudienceIds.size} leads from your CRM pipeline, audience review, and segmentation metrics across the system. This action cannot be undone.
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+              <Btn variant="ghost" size="sm" onClick={() => setConfirmBulkDeleteAudience(false)} disabled={bulkDeletingAudience}>Cancel</Btn>
+              <button
+                onClick={handleBulkDeleteAudience}
+                disabled={bulkDeletingAudience}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#ef4444',
+                  color: '#fff',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: bulkDeletingAudience ? 'not-allowed' : 'pointer',
+                  opacity: bulkDeletingAudience ? 0.7 : 1,
+                  transition: 'opacity 0.15s ease',
+                }}
+              >
+                {bulkDeletingAudience ? 'Deleting…' : `Delete ${selectedAudienceIds.size} Leads`}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}

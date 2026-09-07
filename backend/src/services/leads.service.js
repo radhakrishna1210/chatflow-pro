@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { isValidPhone, normalizePhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
+import { computeLeadCategory } from './leadSegmentation.service.js';
 import { validateCrmCustomFields } from './customFields.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 import { scopeFilter } from './recordScope.service.js';
@@ -14,11 +15,12 @@ const LEAD_INCLUDE = {
 // `user` carries the caller's identity and role. Record visibility is applied
 // here rather than in the controller so every path — list, get, and the
 // exports that reuse them — is scoped by the same rule.
-export async function listLeads(workspaceId, { status = '', ownerUserId = '', search = '', sort = 'score' } = {}, user = null) {
+export async function listLeads(workspaceId, { category = '', status = '', ownerUserId = '', search = '', sort = 'score' } = {}, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const where = {
     workspaceId,
     ...scope,
+    ...(category ? { category } : {}),
     ...(status ? { status } : {}),
     ...(ownerUserId ? { ownerUserId } : {}),
     ...(search ? {
@@ -38,6 +40,7 @@ export async function listLeads(workspaceId, { status = '', ownerUserId = '', se
   ]);
   return { data, total };
 }
+
 
 export async function getLead(workspaceId, id, user = null) {
   // An out-of-scope lead returns the same 404 as a non-existent one. A 403
@@ -96,10 +99,13 @@ export async function createLead(workspaceId, body) {
     include: LEAD_INCLUDE,
   });
 
+  // Compute automatic lead category (HOT / WARM / COLD)
+  const categorizedLead = await computeLeadCategory(workspaceId, lead.id).catch(() => lead);
+
   // Fire-and-forget: an automation must never delay or fail the write that
   // triggered it.
   emitCrmEvent(workspaceId, 'lead_created', { leadId: lead.id, contactId, score });
-  return lead;
+  return categorizedLead;
 }
 
 // `updates` arrives pre-whitelisted by the strict update validator, so
@@ -134,9 +140,32 @@ export async function updateLead(workspaceId, id, updates, user = null) {
 
 export async function deleteLead(workspaceId, id, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true } });
+  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true, contactId: true } });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
   await prisma.lead.delete({ where: { id } });
+  emitCrmEvent(workspaceId, 'lead_deleted', { leadId: id, contactId: lead.contactId });
+}
+
+export async function deleteLeads(workspaceId, ids = [], user = null) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    const e = new Error('At least one lead ID is required'); e.status = 400; throw e;
+  }
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const leads = await prisma.lead.findMany({
+    where: { id: { in: ids }, workspaceId, ...scope },
+    select: { id: true, contactId: true },
+  });
+  if (leads.length === 0) {
+    return { count: 0 };
+  }
+  const leadIds = leads.map(l => l.id);
+  const result = await prisma.lead.deleteMany({
+    where: { id: { in: leadIds }, workspaceId },
+  });
+  for (const l of leads) {
+    emitCrmEvent(workspaceId, 'lead_deleted', { leadId: l.id, contactId: l.contactId });
+  }
+  return { count: result.count };
 }
 
 export async function recalculateScore(workspaceId, id, user = null) {
@@ -151,6 +180,9 @@ export async function recalculateScore(workspaceId, id, user = null) {
     include: LEAD_INCLUDE,
   });
 
+  // Re-compute category after score recalculation
+  const categorized = await computeLeadCategory(workspaceId, id).catch(() => updated);
+
   // The previous score travels with the event so a threshold trigger fires on
   // the crossing rather than on every rescore above the line.
   if (score !== lead.score) {
@@ -158,7 +190,7 @@ export async function recalculateScore(workspaceId, id, user = null) {
       leadId: id, contactId: lead.contactId, score, previousScore: lead.score,
     });
   }
-  return updated;
+  return categorized;
 }
 
 // Transactional by design: a conversion that created a Deal but failed to mark

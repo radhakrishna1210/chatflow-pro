@@ -63,9 +63,12 @@ import copilotRoutes from './copilot.routes.js';
 import agentRoutes from './agent.routes.js';
 import gamificationRoutes from './gamification.routes.js';
 import publicFormsRoutes from './publicForms.routes.js';
+import crmSalesInboxRoutes from './crmSalesInbox.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 
+
 const router = Router();
+
 
 router.get('/health', (req, res) =>
   res.json({
@@ -137,6 +140,8 @@ ws.use('/campaigns', campaignsRoutes);
 ws.use('/contacts', contactsRoutes);
 ws.use('/clusters', clustersRoutes);
 ws.use('/leads', leadsRoutes);
+ws.use('/crm-sales-inbox', crmSalesInboxRoutes);
+
 ws.use('/deals', dealsRoutes);
 ws.use('/tasks', tasksRoutes);
 ws.use('/activities', activitiesRoutes);

@@ -381,6 +381,24 @@ async function handleInboundMessage(value, msg) {
 
   const workspaceId = waNumber.workspaceId;
 
+  // Immediately exit active sequence cadences with exitOnReply enabled
+  await prisma.sequenceEnrollment.updateMany({
+    where: {
+      workspaceId,
+      contactId: contact.id,
+      status: { in: ['ACTIVE', 'WAITING'] },
+      sequence: { exitOnReply: true },
+    },
+    data: {
+      status: 'EXITED',
+      exitReason: 'Contact replied',
+      nextRunAt: null,
+      completedAt: new Date(),
+    },
+  }).catch((err) => {
+    console.error('[Inbound] Failed to auto-exit sequence enrollments:', err.message);
+  });
+
   // Tell the customer's own system. This is the event an integration is most
   // likely to want, and until now nothing was ever dispatched.
   emitWebhook(workspaceId, 'message.received', {

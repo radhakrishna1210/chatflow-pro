@@ -227,6 +227,47 @@ const ConvertModal = ({ lead, members, onClose, onConverted }) => {
   );
 };
 
+const DeleteConfirmModal = ({ count = 1, leadName, onClose, onConfirmed, busy }) => (
+  <Modal title={count === 1 ? 'Delete Lead' : `Delete ${count} Leads`} onClose={onClose} width={460}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <I n="alertt" s={18} c="#f87171" />
+        </div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+            {count === 1 ? `Delete "${leadName || 'this lead'}"?` : `Delete ${count} selected leads?`}
+          </div>
+          <div style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>
+            This will permanently remove {count === 1 ? 'this lead' : 'these leads'} from your CRM pipeline, inbox, and segmentation. This action cannot be undone.
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+        <Btn variant="ghost" size="sm" onClick={onClose} disabled={busy}>Cancel</Btn>
+        <button
+          onClick={onConfirmed}
+          disabled={busy}
+          style={{
+            padding: '7px 16px',
+            borderRadius: 8,
+            border: 'none',
+            background: '#ef4444',
+            color: '#fff',
+            fontSize: 12.5,
+            fontWeight: 700,
+            cursor: busy ? 'not-allowed' : 'pointer',
+            opacity: busy ? 0.7 : 1,
+            transition: 'opacity 0.15s ease',
+          }}
+        >
+          {busy ? 'Deleting…' : count === 1 ? 'Delete Lead' : `Delete ${count} Leads`}
+        </button>
+      </div>
+    </div>
+  </Modal>
+);
+
 const LeadDetail = ({ lead, members, onChanged, onConverted }) => {
   const [notes, setNotes] = useState(lead.notes || '');
   const [savingNotes, setSavingNotes] = useState(false);
@@ -289,9 +330,11 @@ const LeadDetail = ({ lead, members, onChanged, onConverted }) => {
             {c.phoneNumber}{c.email ? ` · ${c.email}` : ''}{lead.source ? ` · via ${lead.source}` : ''}
           </div>
         </div>
-        <Btn size="sm" onClick={() => setConverting(true)} disabled={isConverted || busy}>
-          {isConverted ? 'Converted' : 'Convert to Deal'}
-        </Btn>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Btn size="sm" onClick={() => setConverting(true)} disabled={isConverted || busy}>
+            {isConverted ? 'Converted' : 'Convert to Deal'}
+          </Btn>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(230px,1fr))', gap: 16, marginBottom: 22 }}>
@@ -308,6 +351,26 @@ const LeadDetail = ({ lead, members, onChanged, onConverted }) => {
             options={members.map(m => ({ value: m.user.id, label: m.user.name || m.user.email }))} />
         </div>
       </div>
+
+      <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', padding: '16px 20px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--t1)' }}>Lead Category</span>
+          <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 10, background: lead.category === 'HOT' ? 'rgba(239,68,68,0.15)' : lead.category === 'WARM' ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.15)', color: lead.category === 'HOT' ? '#f87171' : lead.category === 'WARM' ? '#fbbf24' : '#60a5fa' }}>
+            {lead.category || 'COLD'}
+          </span>
+        </div>
+        {Array.isArray(lead.categoryReasons) && lead.categoryReasons.length > 0 && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--t2)', background: 'var(--bg)', padding: 10, borderRadius: 8 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--t1)' }}>Segmentation Reasons:</div>
+            <ul style={{ margin: 0, paddingLeft: 16 }}>
+              {lead.categoryReasons.map((r, idx) => (
+                <li key={idx}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
 
       <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', padding: '18px 20px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -408,17 +471,23 @@ export default function LeadsView() {
   const [detail, setDetail] = useState(null);
   const [members, setMembers] = useState([]);
   const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('');
   const [status, setStatus] = useState('');
   const [owner, setOwner] = useState('');
   const [sort, setSort] = useState('score');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     const qs = new URLSearchParams();
     if (search) qs.set('search', search);
+    if (category) qs.set('category', category);
     if (status) qs.set('status', status);
     if (owner) qs.set('ownerUserId', owner);
     qs.set('sort', sort);
@@ -427,7 +496,50 @@ export default function LeadsView() {
       .then(d => setLeads(d.data ?? []))
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false));
-  }, [search, status, owner, sort]);
+  }, [search, category, status, owner, sort]);
+
+  const toggleSelect = (id, e) => {
+    e.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === leads.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(leads.map(l => l.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      const res = await wFetch('/leads/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Bulk delete failed');
+      }
+      setConfirmBulkDelete(false);
+      setDeleteMode(false);
+      if (selectedIds.has(activeId)) setActiveId(null);
+      setSelectedIds(new Set());
+      load();
+      window.dispatchEvent(new CustomEvent('crm:pipeline-sync'));
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   useEffect(() => { load(); }, [load]);
 
@@ -457,8 +569,79 @@ export default function LeadsView() {
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Leads</span>
           <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{leads.length}</span>
         </div>
-        <ImportExport entity="leads" canImport onImported={load} />
-        <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New Lead</Btn>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ImportExport entity="leads" canImport onImported={load} />
+          {!deleteMode ? (
+            <button
+              onClick={() => setDeleteMode(true)}
+              title="Delete leads"
+              style={{
+                padding: '6px 13px',
+                borderRadius: 8,
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                background: 'rgba(239, 68, 68, 0.08)',
+                color: '#f87171',
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.16)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'}
+            >
+              <I n="trash" s={13} c="#f87171" /> Delete
+            </button>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                onClick={() => {
+                  setDeleteMode(false);
+                  setSelectedIds(new Set());
+                }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 8,
+                  border: '1px solid var(--bd)',
+                  background: 'transparent',
+                  color: 'var(--t2)',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedIds.size > 0) setConfirmBulkDelete(true);
+                }}
+                disabled={selectedIds.size === 0}
+                style={{
+                  padding: '6px 13px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: selectedIds.size > 0 ? '#ef4444' : 'rgba(239, 68, 68, 0.25)',
+                  color: selectedIds.size > 0 ? '#fff' : 'rgba(255, 255, 255, 0.5)',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: selectedIds.size > 0 ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  boxShadow: selectedIds.size > 0 ? '0 2px 10px rgba(239, 68, 68, 0.35)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <I n="trash" s={13} c={selectedIds.size > 0 ? '#fff' : 'rgba(255, 255, 255, 0.5)'} />
+                Delete {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+              </button>
+            </div>
+          )}
+          <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New Lead</Btn>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -470,13 +653,18 @@ export default function LeadsView() {
                 style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--t1)', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif" }} />
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
+              <FSelect value={category} onChange={e => setCategory(e.target.value)} placeholder="All categories"
+                options={[{ value: 'HOT', label: 'HOT 🔥' }, { value: 'WARM', label: 'WARM ⚡' }, { value: 'COLD', label: 'COLD ❄️' }]} />
               <FSelect value={status} onChange={e => setStatus(e.target.value)} placeholder="All statuses"
                 options={STATUSES.map(s => ({ value: s, label: pretty(s) }))} />
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
               <FSelect value={sort} onChange={e => setSort(e.target.value)}
                 options={[{ value: 'score', label: 'Top score' }, { value: 'newest', label: 'Newest' }]} />
+              <FSelect value={owner} onChange={e => setOwner(e.target.value)} placeholder="All owners"
+                options={members.map(m => ({ value: m.user.id, label: m.user.name || m.user.email }))} />
             </div>
-            <FSelect value={owner} onChange={e => setOwner(e.target.value)} placeholder="All owners"
-              options={members.map(m => ({ value: m.user.id, label: m.user.name || m.user.email }))} />
+
             <SavedViews
               entity="leads"
               current={{ search, status, ownerUserId: owner, sort }}
@@ -487,6 +675,32 @@ export default function LeadsView() {
                 setSort(f.sort ?? 'score');
               }}
             />
+
+            {deleteMode && leads.length > 0 && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 10px',
+                borderTop: '1px solid var(--bd)',
+                background: 'rgba(239, 68, 68, 0.06)',
+                borderRadius: 8,
+                marginTop: 4,
+              }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--t1)', fontWeight: 600, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={leads.length > 0 && selectedIds.size === leads.length}
+                    onChange={toggleSelectAll}
+                    style={{ cursor: 'pointer', width: 15, height: 15, accentColor: '#ef4444' }}
+                  />
+                  <span>Select all ({leads.length})</span>
+                </label>
+                <span style={{ fontSize: 11.5, color: selectedIds.size > 0 ? '#f87171' : 'var(--t3)', fontWeight: 600 }}>
+                  {selectedIds.size} selected
+                </span>
+              </div>
+            )}
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -499,11 +713,41 @@ export default function LeadsView() {
               </div>
             )}
             {leads.map(l => (
-              <button key={l.id} onClick={() => setActiveId(l.id)}
-                style={{ width: '100%', display: 'flex', gap: 10, padding: '11px 14px', cursor: 'pointer', textAlign: 'left',
-                  background: activeId === l.id ? 'rgba(255,255,255,0.05)' : 'transparent',
-                  border: 'none', borderBottom: '1px solid var(--bd)',
-                  borderLeft: `2px solid ${activeId === l.id ? 'var(--green)' : 'transparent'}` }}>
+              <div
+                key={l.id}
+                onClick={() => {
+                  if (deleteMode) {
+                    setSelectedIds(prev => {
+                      const next = new Set(prev);
+                      next.has(l.id) ? next.delete(l.id) : next.add(l.id);
+                      return next;
+                    });
+                  }
+                  setActiveId(l.id);
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '11px 14px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  background: deleteMode && selectedIds.has(l.id) ? 'rgba(239, 68, 68, 0.08)' : activeId === l.id ? 'rgba(255,255,255,0.05)' : 'transparent',
+                  borderBottom: '1px solid var(--bd)',
+                  borderLeft: `2px solid ${deleteMode && selectedIds.has(l.id) ? '#ef4444' : activeId === l.id ? 'var(--green)' : 'transparent'}`,
+                  boxSizing: 'border-box',
+                }}
+              >
+                {deleteMode && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(l.id)}
+                    onChange={e => toggleSelect(l.id, e)}
+                    onClick={e => e.stopPropagation()}
+                    style={{ cursor: 'pointer', flexShrink: 0, width: 15, height: 15, accentColor: '#ef4444' }}
+                  />
+                )}
                 <Avatar name={l.contact?.name} size={34} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
@@ -513,12 +757,17 @@ export default function LeadsView() {
                     <ScoreChip score={l.score} />
                   </div>
                   <div style={{ fontSize: 11.5, color: 'var(--t3)', marginBottom: 5 }}>{l.contact?.phoneNumber}</div>
-                  <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
                     <StatusBadge label={pretty(l.status)} tone={STATUS_TONE[l.status]} />
+                    {l.category && (
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: l.category === 'HOT' ? 'rgba(239,68,68,0.15)' : l.category === 'WARM' ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.15)', color: l.category === 'HOT' ? '#f87171' : l.category === 'WARM' ? '#fbbf24' : '#60a5fa' }}>
+                        {l.category}
+                      </span>
+                    )}
                     {l.owner && <span style={{ fontSize: 10.5, color: 'var(--t3)' }}>{l.owner.name}</span>}
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -544,6 +793,19 @@ export default function LeadsView() {
       {creating && (
         <NewLeadModal onClose={() => setCreating(false)}
           onCreated={(lead) => { setCreating(false); load(); setActiveId(lead.id); }} />
+      )}
+
+      {confirmBulkDelete && (
+        <DeleteConfirmModal
+          count={selectedIds.size}
+          onClose={() => {
+            setConfirmBulkDelete(false);
+            setDeleteMode(false);
+            setSelectedIds(new Set());
+          }}
+          onConfirmed={handleBulkDelete}
+          busy={bulkDeleting}
+        />
       )}
     </div>
   );
