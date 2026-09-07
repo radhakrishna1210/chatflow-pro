@@ -230,16 +230,33 @@ async function main() {
     console.error('[Migration] Failed to run migration:', err);
   }
 
+  let connected = false;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      await prisma.$connect();
+      connected = true;
+      console.log('[DB] Connected to PostgreSQL');
+      break;
+    } catch (err) {
+      console.warn(`[DB] Connection attempt ${attempt}/5 failed: ${err.message}`);
+      if (attempt < 5) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  if (!connected) {
+    console.error('[DB] Connection failed after 5 attempts.');
+    process.exit(1);
+  }
+
   try {
-    await prisma.$connect();
-    console.log('[DB] Connected to PostgreSQL');
     // Before anything reads a credential: platform keys stored in the database
     // override the environment, and every client below is built from `env`.
     await loadPlatformSettings();
     await initializeSubscriptions();
   } catch (err) {
-    console.error('[DB] Connection failed:', err.message);
-    process.exit(1);
+    console.error('[DB] Post-connect initialization failed:', err.message);
   }
 
   // Website assistant knowledge index. Deliberately not awaited: it embeds
