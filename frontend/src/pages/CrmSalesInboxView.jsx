@@ -369,7 +369,7 @@ export default function CrmSalesInboxView() {
   }
 
   return (
-    <div style={{ padding: '20px 28px', maxWidth: 1600, margin: '0 auto', height: 'calc(100vh - 40px)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
+    <div style={{ padding: '16px 20px', width: '100%', height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
       {/* HEADER & NAVIGATION */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
         <div>
