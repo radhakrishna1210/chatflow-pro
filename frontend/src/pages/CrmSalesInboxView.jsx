@@ -867,9 +867,11 @@ export default function CrmSalesInboxView() {
             <div>
               <FLabel>Select Approved Template</FLabel>
               <FSelect value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}>
-                <option value="">Select a template...</option>
+                <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select a template...</option>
                 {templates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name} ({t.category})</option>
+                  <option key={t.id} value={t.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                    {t.name} ({t.category || t.language || 'APPROVED'})
+                  </option>
                 ))}
               </FSelect>
             </div>
@@ -899,9 +901,11 @@ export default function CrmSalesInboxView() {
             <div>
               <FLabel>Select WhatsApp Approved Template</FLabel>
               <FSelect value={campaignTemplateId} onChange={(e) => setCampaignTemplateId(e.target.value)}>
-                <option value="">Select template...</option>
+                <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select template...</option>
                 {templates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name} ({t.language})</option>
+                  <option key={t.id} value={t.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                    {t.name} ({t.language})
+                  </option>
                 ))}
               </FSelect>
             </div>
@@ -909,9 +913,11 @@ export default function CrmSalesInboxView() {
             <div>
               <FLabel>Select WhatsApp Number</FLabel>
               <FSelect value={campaignWaNumberId} onChange={(e) => setCampaignWaNumberId(e.target.value)}>
-                <option value="">Select sender number...</option>
+                <option value="" style={{ background: '#1e293b', color: '#cbd5e1' }}>Select sender number...</option>
                 {waNumbers.map((n) => (
-                  <option key={n.id} value={n.id}>{n.displayName || n.phoneNumber}</option>
+                  <option key={n.id} value={n.id} style={{ background: '#1e293b', color: '#f8fafc' }}>
+                    {n.displayName || n.phoneNumber}
+                  </option>
                 ))}
               </FSelect>
             </div>
