@@ -736,7 +736,7 @@ export default function CrmSalesInboxView() {
 
       {/* TAB 2: SEGMENT & FILTER BULK CAMPAIGN MODE */}
       {activeTab === 'segment' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
           {/* CONTROLS & SELECTION */}
           <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 20 }}>
             <h3 style={{ margin: '0 0 16px 0', fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>
@@ -823,7 +823,7 @@ export default function CrmSalesInboxView() {
             </div>
 
             {/* AUDIENCE TABLE */}
-            <div style={{ overflowX: 'auto' }}>
+            <div style={{ overflowX: 'auto', maxHeight: '480px', overflowY: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--bd)', textAlign: 'left', color: 'var(--t2)', fontSize: 12 }}>
