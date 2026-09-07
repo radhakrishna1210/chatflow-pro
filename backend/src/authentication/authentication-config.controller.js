@@ -18,3 +18,12 @@ export async function updateConfiguration(req, res) {
 
   res.json(result);
 }
+
+export async function getUsage(req, res) {
+  const result =
+    await authenticationConfigService.getAuthenticationUsage(
+      req.params.workspaceId
+    );
+
+  res.json(result);
+}

@@ -229,7 +229,7 @@ function buildAuthenticationPayload(template, otp) {
  */
 export async function sendAuthenticationOtp(
   workspaceId,
-  { to }
+  { to, campaignId = null }
 ) {
   if (!workspaceId) {
     const error = new Error('Workspace is required.');
@@ -265,11 +265,31 @@ export async function sendAuthenticationOtp(
     workspaceId
   );
 
+  // `campaignId` is internal worker metadata only. Verify it belongs to this
+  // workspace and is an Authentication campaign before persisting the link.
+  // The public controller never supplies this value.
+  if (campaignId) {
+    const campaign = await prisma.campaign.findFirst({
+      where: {
+        id: campaignId,
+        workspaceId,
+        template: { category: { equals: 'AUTHENTICATION', mode: 'insensitive' } },
+      },
+      select: { id: true },
+    });
+    if (!campaign) {
+      const error = new Error('Authentication campaign not found.');
+      error.status = 404;
+      throw error;
+    }
+  }
+
   const generated =
     await createAuthenticationTransaction({
       workspaceId,
       templateId: template.id,
       waNumberId: waNumber.id,
+      campaignId,
       phone: recipient,
       expiresInMinutes:
         getExpirationMinutes(),

@@ -56,6 +56,7 @@ export async function createAuthenticationTransaction({
   workspaceId,
   templateId,
   waNumberId,
+  campaignId = null,
   phone,
   expiresInMinutes = DEFAULT_EXPIRY_MINUTES,
 }) {
@@ -139,6 +140,7 @@ export async function createAuthenticationTransaction({
                 workspaceId,
                 templateId,
                 waNumberId,
+                campaignId,
                 phone,
                 otpHash,
                 source: 'CHATFLOW',

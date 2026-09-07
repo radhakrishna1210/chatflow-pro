@@ -2,7 +2,9 @@ import * as campaignsService from '../services/campaigns.service.js';
 
 export async function list(req, res) {
   const { page, limit } = req.query;
-  const result = await campaignsService.listCampaigns(req.params.workspaceId, { page: +page || 1, limit: +limit || 20 });
+  const type = ['regular', 'authentication'].includes(String(req.query.type || '').toLowerCase())
+    ? String(req.query.type).toLowerCase() : undefined;
+  const result = await campaignsService.listCampaigns(req.params.workspaceId, { page: +page || 1, limit: +limit || 20, type });
   res.json(result);
 }
 

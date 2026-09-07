@@ -1108,6 +1108,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
   const [c, setC] = useState(null);
   const [err, setErr] = useState(null);
   const [cancelling, setCancelling] = useState(false);
+  const [lifecycleChanging, setLifecycleChanging] = useState(false);
 
   const load = async () => {
     try {
@@ -1139,6 +1140,18 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
     finally { setCancelling(false); }
   };
 
+  const changeLifecycle = async (action) => {
+    setLifecycleChanging(true);
+    try {
+      const res = await wFetch(`/campaigns/${campaignId}/${action}`, { method: 'PATCH' });
+      const data = await res.json();
+      if (!res.ok) { setErr(data.error || `${action} failed`); return; }
+      await load();
+      onChanged?.();
+    } catch (e) { setErr(e.message); }
+    finally { setLifecycleChanging(false); }
+  };
+
   // Members can cancel too — they can create and launch campaigns, so being
   // unable to stop one would be worse than not starting it.
   const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING'].includes(c.status);
@@ -1146,6 +1159,9 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
   // draft: anything launched is a report, and "editing" it would imply changes
   // reaching messages that have already gone out.
   const editable = c?.status === 'DRAFT';
+  const isAuthentication = String(c?.template?.category || '').toUpperCase() === 'AUTHENTICATION';
+  const pausable = isAuthentication && ['RUNNING', 'SCHEDULED'].includes(c?.status);
+  const resumable = isAuthentication && c?.status === 'PAUSED';
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef, true);
@@ -1174,7 +1190,16 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                   Failed. Skipped counts numbers that opted out: they were
                   never sent to and never charged for. */}
               <div className="rgrid-3" style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
-                {[
+                {(isAuthentication ? [
+                  ['Total Requests', c.report?.authentication?.totalRequests, 'var(--t1)'],
+                  ['Accepted by WhatsApp', c.report?.authentication?.acceptedByWhatsApp, 'var(--t1)'],
+                  ['Delivered', c.report?.delivered, 'var(--t1)'],
+                  ['Verified', c.report?.authentication?.verified, 'var(--green)'],
+                  ['Expired', c.report?.authentication?.expired, '#fbbf24'],
+                  ['Failed Transactions', c.report?.authentication?.failed, '#f87171'],
+                  ['Retries', c.report?.retried ?? 0, '#c4ff46'],
+                  ['Skipped (Opted Out)', c.report?.skipped ?? c.skipped, '#fbbf24'],
+                ] : [
                   ['Total Contacts', c.report?.totalContacts ?? c.totalContacts, 'var(--t1)'],
                   ['Sent',           c.report?.sent ?? c.sent,                   'var(--t1)'],
                   ['Delivered',      c.report?.delivered ?? c.delivered,         'var(--t1)'],
@@ -1183,13 +1208,34 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                   ['Retries',        c.report?.retried ?? 0,                     '#c4ff46'],
                   ['Retrying Now',   c.report?.retrying ?? 0,                    '#c4ff46'],
                   ['Skipped (Opted Out)', c.report?.skipped ?? c.skipped,        '#fbbf24'],
-                ].map(([k, v, danger]) => (
+                ]).map(([k, v, danger]) => (
                   <div key={k} style={{ padding:'12px 14px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
                     <p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>{k}</p>
-                    <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:18, color: (v ?? 0) > 0 ? danger : 'var(--t1)' }}>{(v ?? 0).toLocaleString()}</p>
+                    <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:18, color: v != null && v > 0 ? danger : 'var(--t1)' }}>{v == null ? '—' : v.toLocaleString()}</p>
                   </div>
                 ))}
               </div>
+
+              {isAuthentication ? (
+                <div style={{ padding:'13px 16px', borderRadius:10, background:'rgba(157,107,255,.07)', border:'1px solid rgba(157,107,255,.28)' }}>
+                  <p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>Verification rate</p>
+                  <p style={{ fontSize:18, fontWeight:800, color:'#c4ff46' }}>{c.report?.authentication?.verificationRate == null ? '—' : `${c.report.authentication.verificationRate}%`}</p>
+                </div>
+              ) : (
+                <>
+                  {(c.report?.replies != null || c.report?.totalClicks != null) && <div className="rgrid-3" style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+                    {[
+                      ['Replies', c.report?.replies],
+                      ['Reply Rate', c.report?.replyRate == null ? '—' : `${c.report.replyRate}%`],
+                      ['Total Clicks', c.report?.totalClicks],
+                    ].map(([k, v]) => <div key={k} style={{ padding:'12px 14px', borderRadius:10, background:'rgba(53,232,242,.05)', border:'1px solid var(--gbd)' }}><p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>{k}</p><p style={{ fontWeight:800, fontSize:18, color:'var(--t1)' }}>{v == null ? '—' : v.toLocaleString?.() ?? v}</p></div>)}
+                  </div>}
+                  <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(255,255,255,.02)', border:'1px solid var(--bd)' }}>
+                    <p style={{ fontSize:11, fontWeight:700, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Button-wise clicks</p>
+                    {Array.isArray(c.report?.buttonClicks) && c.report.buttonClicks.length > 0 ? c.report.buttonClicks.map((button) => <div key={button.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', fontSize:13, color:'var(--t1)' }}><span>{button.label}</span><strong>{button.clicks.toLocaleString()}</strong></div>) : c.report?.buttonTracking?.mode === 'UNAVAILABLE' ? <><p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.55 }}>{c.report.buttonTracking.reason}</p>{c.report.buttonTracking.buttons?.map((button) => <p key={button.id} style={{ marginTop:6, fontSize:12, color:'var(--t3)' }}>{button.cardIndex == null ? button.title : `Card ${button.cardIndex + 1}: ${button.title}`}</p>)}</> : <p style={{ fontSize:12, color:'var(--t3)' }}>No tracked button clicks yet.</p>}
+                  </div>
+                </>
+              )}
 
               {/* The retry engine, in the one place a campaign's owner looks
                   after a send goes wrong: how many messages are still owed an
@@ -1308,6 +1354,8 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                 {cancelling ? 'Cancelling…' : 'Cancel Campaign'}
               </Btn>
             )}
+            {pausable && <Btn variant="outline" size="sm" onClick={() => changeLifecycle('pause')} disabled={lifecycleChanging}>{lifecycleChanging ? 'Pausing…' : 'Pause Campaign'}</Btn>}
+            {resumable && <Btn size="sm" onClick={() => changeLifecycle('resume')} disabled={lifecycleChanging}>{lifecycleChanging ? 'Resuming…' : 'Resume Campaign'}</Btn>}
             {editable && (
               <Btn size="sm" onClick={() => onEdit?.(campaignId)} style={{ boxShadow:'var(--glow)' }}>
                 <I n="pencil" s={12} c="#08090c" />
@@ -1322,16 +1370,47 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
   );
 };
 
+const AuthenticationUsagePanel = ({ usage, loading, search }) => {
+  if (loading) return <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading Authentication usage…</div>;
+  const metrics = usage?.metrics || {};
+  const q = search.trim().toLowerCase();
+  const attempts = (usage?.recent || []).filter((attempt) => !q || [attempt.templateName, attempt.campaignName, attempt.source, attempt.status].some((value) => String(value || '').toLowerCase().includes(q)));
+  return <>
+    <div className="rgrid-3" style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16 }}>
+      {[
+        ['OTP Requests', metrics.otpRequests], ['Accepted by WhatsApp', metrics.acceptedByWhatsApp], ['Delivered', metrics.delivered],
+        ['Verified', metrics.verified], ['Expired', metrics.expired], ['Failed', metrics.failed],
+        ['Verification Rate', metrics.verificationRate == null ? null : `${metrics.verificationRate}%`], ['Cost', metrics.cost == null ? null : `₹${Number(metrics.cost).toFixed(2)}`],
+      ].map(([label, value]) => <div key={label} style={{ padding:'12px 14px', borderRadius:10, background:'rgba(255,255,255,.02)', border:'1px solid var(--bd)' }}><p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>{label}</p><p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:18, color:'var(--t1)' }}>{value == null ? '—' : value.toLocaleString?.() ?? value}</p></div>)}
+    </div>
+    {metrics.deliveryTrackingAvailable === false && <p style={{ margin:'-6px 0 16px', fontSize:12, color:'var(--t3)' }}>Delivery is unavailable for direct Authentication API sends because no delivery receipt is stored for their transaction records.</p>}
+    <div style={{ ...card, overflowX:'auto' }}>
+      <p style={{ fontSize:11, fontWeight:700, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:10 }}>Recent Authentication attempts</p>
+      {attempts.length === 0 ? <p style={{ fontSize:13, color:'var(--t2)', padding:'16px 0' }}>{q ? 'No Authentication attempts match your search.' : 'No Authentication API or campaign OTP attempts yet.'}</p> : <table style={{ width:'100%', borderCollapse:'collapse', minWidth:650 }}><thead><tr style={{ borderBottom:'1px solid var(--bd)' }}>{['Source', 'Template', 'Status', 'Accepted', 'Created', 'Verified'].map((label) => <th key={label} style={{ padding:'10px 12px', textAlign:'left', fontSize:11, fontWeight:700, color:'var(--t2)', textTransform:'uppercase' }}>{label}</th>)}</tr></thead><tbody>{attempts.map((attempt) => <tr key={attempt.id} style={{ borderBottom:'1px solid var(--bd)' }}><td style={{ padding:'11px 12px', fontSize:12, color:'var(--t2)' }}>{attempt.source === 'API' ? 'API' : `Campaign${attempt.campaignName ? ` · ${attempt.campaignName}` : ''}`}</td><td style={{ padding:'11px 12px', fontSize:12, color:'var(--t1)' }}>{attempt.templateName || '—'}</td><td style={{ padding:'11px 12px' }}><StatusBadge s={attempt.status} /></td><td style={{ padding:'11px 12px', fontSize:12, color:'var(--t2)' }}>{attempt.acceptedByWhatsApp ? 'Yes' : '—'}</td><td style={{ padding:'11px 12px', fontSize:12, color:'var(--t2)' }}>{fmtDate(attempt.createdAt)}</td><td style={{ padding:'11px 12px', fontSize:12, color:'var(--t2)' }}>{fmtDate(attempt.verifiedAt)}</td></tr>)}</tbody></table>}
+    </div>
+  </>;
+};
+
 const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
   const [campaigns, setCampaigns] = useState([]);
+  const [authenticationUsage, setAuthenticationUsage] = useState(null);
   const [loading, setLoading]     = useState(true);
   const [detailId, setDetailId]   = useState(null);
   const [search, setSearch]       = useState('');
+  const [campaignType, setCampaignType] = useState('regular');
 
   const loadCampaigns = async () => {
     setLoading(true);
     try {
-      const res = await wFetch('/campaigns');
+      if (campaignType === 'authentication') {
+        const res = await wFetch('/authentication/analytics');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to load Authentication usage');
+        setAuthenticationUsage(data);
+        setCampaigns([]);
+        return;
+      }
+      const res = await wFetch(`/campaigns?type=${campaignType}`);
       const data = await res.json();
       const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
       setCampaigns(list);
@@ -1344,7 +1423,7 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
 
   useEffect(() => {
     loadCampaigns();
-  }, []);
+  }, [campaignType]);
 
   // Matched on the fields a person would actually search by. Campaigns are
   // already loaded in full, so this filters in place rather than refetching.
@@ -1380,35 +1459,38 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <DashHeader title="Campaigns" subtitle="Manage and monitor your broadcasts"
-        searchPlaceholder="Search campaigns…" onSearch={setSearch} />
+      <DashHeader title="Campaign Analytics" subtitle={campaignType === 'regular' ? 'Manage and monitor your broadcasts' : 'Monitor Authentication API and OTP usage'}
+        searchPlaceholder={campaignType === 'regular' ? 'Search campaigns…' : 'Search Authentication attempts…'} onSearch={setSearch} />
       <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
         {/* Every workspace member can create a campaign — the button used to
             be admin-only, which left members on a Free plan able to import
             contacts and then do nothing with them. */}
         <WalletStatusBanner style={{ marginBottom: 16 }} />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-          <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>
+        <div style={{ display:'inline-flex', padding:4, gap:4, border:'1px solid var(--bd)', borderRadius:10, marginBottom:16, background:'rgba(255,255,255,.02)' }}>
+          {[['regular', 'Regular Campaigns'], ['authentication', 'Authentication']].map(([type, label]) => <button key={type} onClick={() => setCampaignType(type)} style={{ border:0, borderRadius:7, padding:'8px 12px', cursor:'pointer', fontSize:12, fontWeight:700, color: campaignType === type ? '#071015' : 'var(--t2)', background: campaignType === type ? 'var(--green)' : 'transparent' }}>{label}</button>)}
         </div>
-        {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+          {campaignType === 'regular' && <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>}
+        </div>
+        {campaignType === 'authentication' ? <AuthenticationUsagePanel usage={authenticationUsage} loading={loading} search={search} /> : loading ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading campaigns…</div>
         ) : visibleCampaigns.length === 0 ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>
-            {q ? `No campaigns match “${search.trim()}”.` : 'No campaigns yet. Create your first campaign.'}
+            {q ? `No campaigns match “${search.trim()}”.` : campaignType === 'regular' ? 'No regular campaigns yet. Create your first campaign.' : 'No Authentication campaigns yet.'}
           </div>
         ) : (
           <div style={{ ...card, overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  {['Campaign', 'Status', 'Sent', 'Delivered', 'Read', 'Failed', 'Retries', 'Skipped', 'Cost', 'Rate', 'Date', ''].map(h => (
+                  {(campaignType === 'authentication' ? ['Campaign', 'Status', 'OTP Requests', 'Delivered', 'Verified', 'Expired', 'Failed', 'Rate', 'Cost', 'Date', ''] : ['Campaign', 'Status', 'Sent', 'Delivered', 'Read', 'Failed', 'Retries', 'Skipped', 'Cost', 'Rate', 'Date', '']).map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {visibleCampaigns.map((c, i) => {
-                  const sent = c.sentCount ?? c.sent ?? 0;
+                  const sent = campaignType === 'authentication' ? (c.authentication?.totalRequests ?? c.sentCount ?? c.sent ?? 0) : (c.sentCount ?? c.sent ?? 0);
                   const delivered = c.deliveredCount ?? c.delivered ?? 0;
                   const read = c.readCount ?? c.read ?? 0;
                   const rate = sent > 0 ? +((delivered / sent) * 100).toFixed(1) : 0;
@@ -1422,24 +1504,29 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
                       <td style={{ padding: '14px 16px' }}><StatusBadge s={c.status} /></td>
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{sent.toLocaleString()}</td>
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{delivered.toLocaleString()}</td>
-                      <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{read.toLocaleString()}</td>
-                      <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.failed ?? 0) > 0 ? '#f87171' : 'var(--t2)' }}>{(c.failed ?? 0).toLocaleString()}</td>
+                      {campaignType === 'regular' && <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{read.toLocaleString()}</td>}
+                      {campaignType === 'authentication' && <>
+                        <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--green)' }}>{c.authentication?.verified == null ? '—' : c.authentication.verified.toLocaleString()}</td>
+                        <td style={{ padding: '14px 16px', fontSize: '13px', color: '#fbbf24' }}>{c.authentication?.expired == null ? '—' : c.authentication.expired.toLocaleString()}</td>
+                      </>}
+                      <td style={{ padding: '14px 16px', fontSize: '13px', color: (campaignType === 'authentication' ? (c.authentication?.failed ?? 0) : (c.failed ?? 0)) > 0 ? '#f87171' : 'var(--t2)' }}>{campaignType === 'authentication' && c.authentication?.failed == null ? '—' : (campaignType === 'authentication' ? (c.authentication?.failed ?? 0) : (c.failed ?? 0)).toLocaleString()}</td>
                       {/* Messages that needed a retry, with the ones still
                           waiting on an attempt called out — those are not
                           failures yet, and the Failed column excludes them. */}
-                      <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.retried ?? 0) > 0 ? '#c4ff46' : 'var(--t2)' }}
+                      {campaignType === 'regular' && <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.retried ?? 0) > 0 ? '#c4ff46' : 'var(--t2)' }}
                         title={(c.retrying ?? 0) > 0 ? `${c.retrying} still waiting on a retry` : 'Messages that needed at least one retry'}>
                         {(c.retried ?? 0).toLocaleString()}
                         {(c.retrying ?? 0) > 0 && <span style={{ fontSize: '11px', color: 'var(--t3)' }}> · {c.retrying} waiting</span>}
-                      </td>
-                      <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.skipped ?? 0) > 0 ? '#fbbf24' : 'var(--t2)' }}>{(c.skipped ?? 0).toLocaleString()}</td>
+                      </td>}
+                      {campaignType === 'regular' && <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.skipped ?? 0) > 0 ? '#fbbf24' : 'var(--t2)' }}>{(c.skipped ?? 0).toLocaleString()}</td>}
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{c.totalCost == null ? '—' : `₹${Number(c.totalCost).toFixed(2)}`}</td>
-                      <td style={{ padding: '14px 16px' }}>
+                      {campaignType === 'regular' && <td style={{ padding: '14px 16px' }}>
                         {rate > 0 ? <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <div style={{ width: '60px', height: '4px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)' }}><div style={{ height: '100%', width: `${Math.min(rate,100)}%`, borderRadius: '4px', background: 'var(--green)' }} /></div>
                           <span style={{ fontSize: '12px', color: 'var(--green)', fontWeight: 600 }}>{rate}%</span>
                         </div> : sent > 0 ? <span style={{ fontSize: '11.5px', color: 'var(--t3)' }} title="Delivery receipts arrive via webhook">Awaiting receipts</span> : <span style={{ fontSize: '12px', color: 'var(--t2)' }}>—</span>}
-                      </td>
+                      </td>}
+                      {campaignType === 'authentication' && <td style={{ padding: '14px 16px', fontSize: '12px', color: 'var(--green)', fontWeight:600 }}>{c.authentication?.verificationRate == null ? '—' : `${c.authentication.verificationRate}%`}</td>}
                       <td style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--t2)' }}>{date}</td>
                       <td style={{ padding: '14px 16px' }}><Btn variant="outline" size="sm" onClick={() => setDetailId(c.id)}>View</Btn></td>
                     </tr>
@@ -1450,7 +1537,7 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
           </div>
         )}
       </div>
-      {detailId && (
+      {campaignType === 'regular' && detailId && (
         <CampaignDetailModal
           campaignId={detailId}
           onClose={() => setDetailId(null)}

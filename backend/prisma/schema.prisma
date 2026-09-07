@@ -431,6 +431,7 @@ model Campaign {
   workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   recipients      CampaignRecipient[]
   aiSessions      CampaignAiSession[]
+  authenticationTransactions AuthenticationTransaction[]
 }
 
 model CampaignRecipient {
@@ -1529,6 +1530,8 @@ model AuthenticationTransaction {
   workspaceId   String
   templateId    String
   waNumberId    String
+  // Present only for OTPs dispatched by an Authentication campaign.
+  campaignId    String?
   phone         String
   otpHash       String?
   source        String    @default("CHATFLOW")
@@ -1540,9 +1543,11 @@ model AuthenticationTransaction {
   verifiedAt    DateTime?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign  Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, phone, status])
   @@index([phone, expiresAt])
+  @@index([campaignId, status])
 }
 model AuthenticationConfig {
   id          String @id @default(cuid())

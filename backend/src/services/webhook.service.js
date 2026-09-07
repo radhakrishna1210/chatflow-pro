@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { findMatchingTrigger } from './automation.service.js';
 import { matchIntent, generateAgentReply } from './aiAgent.service.js';
-import { handleCampaignAiInbound } from './campaignAi.service.js';
+import { handleCampaignAiInbound, parseCampaignCtaPayload } from './campaignAi.service.js';
 import { queueTemplateApprovedEmail, queueTemplateRejectedEmail } from './email.service.js';
 import { handleRecipientFailure } from './retry.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
@@ -341,6 +341,25 @@ async function handleInboundMessage(value, msg) {
   // `metaMessageId` is unique now, so the create fails on a repeat. Bailing out
   // here rather than at the write is what stops the automation re-running.
   const sentAt = new Date(parseInt(msg.timestamp, 10) * 1000);
+  // Attribute only when Meta provides exact evidence: the CTA payload or an
+  // explicit reply context pointing at an outbound campaign message. Generic
+  // inbound messages have no reliable campaign identity and stay unlinked.
+  const payloadRecipientId = parseCampaignCtaPayload(buttonPayload);
+  let campaignRecipient = null;
+  try {
+    campaignRecipient = await prisma.campaignRecipient.findFirst({
+      where: payloadRecipientId
+        ? { id: payloadRecipientId, contactId: contact.id, campaign: { workspaceId, waNumberId: waNumber.id } }
+        : msg.context?.id
+          ? { contactId: contact.id, campaign: { workspaceId, waNumberId: waNumber.id }, messages: { some: { metaMessageId: msg.context.id } } }
+          : { id: '__no_campaign_attribution__' },
+      select: { id: true },
+    });
+  } catch (error) {
+    // Attribution is optional analytics metadata; never reject a valid webhook
+    // delivery because this lookup is unavailable.
+    console.error('[Inbound] Campaign attribution lookup failed:', error.message);
+  }
   try {
     await prisma.message.create({
       data: {
@@ -354,6 +373,7 @@ async function handleInboundMessage(value, msg) {
         status: 'DELIVERED',
         statusAt: sentAt,
         sentAt,
+        campaignRecipientId: campaignRecipient?.id ?? null,
         ...(parsed.media || {}),
         ...(parsed.location || {}),
       },

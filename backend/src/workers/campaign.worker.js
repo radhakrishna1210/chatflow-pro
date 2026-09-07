@@ -142,7 +142,7 @@ async function processRetryJob(job) {
     console.log(`[CampaignRetry] Campaign ${campaignId} not found — skipping retry`);
     return;
   }
-  if (campaign.status === 'CANCELLED') {
+  if (isAuthenticationCampaign(campaign) ? campaign.status !== 'RUNNING' : campaign.status === 'CANCELLED') {
     console.log(`[CampaignRetry] Campaign ${campaignId} was cancelled — skipping retry for ${recipientId}`);
     return;
   }
@@ -237,6 +237,7 @@ if (isAuthenticationCampaign(campaign)) {
       templateId: campaign.template.id,
       to: recipient.contact.phoneNumber,
       waNumberId: campaign.waNumber.id,
+      campaignId: campaign.id,
     }
   );
 
@@ -508,6 +509,7 @@ if (isAuthenticationCampaign(campaign)) {
       templateId: campaign.template.id,
       to: recipient.contact.phoneNumber,
       waNumberId: campaign.waNumber.id,
+      campaignId: campaign.id,
     }
   );
 

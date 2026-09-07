@@ -291,3 +291,96 @@ export async function updateAuthenticationConfiguration(
       AUTHENTICATION_OTP_EXPIRATION_MINUTES,
   };
 }
+
+/**
+ * Workspace-scoped Authentication API/OTP usage.
+ *
+ * AuthenticationTransaction is the source of truth here: direct API requests
+ * intentionally have campaignId = NULL and must be visible alongside OTPs
+ * issued by Authentication campaigns. A Meta message id proves acceptance,
+ * not delivery, so delivery stays unavailable until a delivery receipt is
+ * stored against AuthenticationTransaction.
+ */
+export async function getAuthenticationUsage(workspaceId) {
+  if (!workspaceId) {
+    throw createError('Workspace is required.', 400);
+  }
+
+  const now = new Date();
+  const [statusRows, pendingExpired, acceptedByWhatsApp, recent] = await Promise.all([
+    prisma.authenticationTransaction.groupBy({
+      by: ['status'],
+      where: { workspaceId },
+      _count: { _all: true },
+    }),
+    // Expiry is a fact of time even if the customer never submits the code and
+    // therefore never drives otp.service.js through its EXPIRED transition.
+    prisma.authenticationTransaction.count({
+      where: { workspaceId, status: 'PENDING', expiresAt: { lte: now } },
+    }),
+    prisma.authenticationTransaction.count({
+      where: { workspaceId, metaMessageId: { not: null } },
+    }),
+    prisma.authenticationTransaction.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        templateId: true,
+        campaignId: true,
+        status: true,
+        expiresAt: true,
+        verifiedAt: true,
+        createdAt: true,
+        metaMessageId: true,
+        campaign: { select: { id: true, name: true } },
+      },
+    }),
+  ]);
+
+  const templateIds = [...new Set(recent.map((transaction) => transaction.templateId))];
+  const templates = templateIds.length
+    ? await prisma.template.findMany({
+        where: { workspaceId, id: { in: templateIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const templateNameById = new Map(templates.map((template) => [template.id, template.name]));
+
+  const counts = Object.fromEntries(statusRows.map((row) => [row.status, row._count._all]));
+  const otpRequests = statusRows.reduce((total, row) => total + row._count._all, 0);
+  const verified = counts.VERIFIED || 0;
+
+  return {
+    metrics: {
+      otpRequests,
+      // Meta acceptance is useful operational data, but deliberately not
+      // labelled as delivery: a delivery webhook is not persisted for direct
+      // Authentication API sends.
+      acceptedByWhatsApp,
+      delivered: null,
+      verified,
+      expired: (counts.EXPIRED || 0) + pendingExpired,
+      failed: counts.FAILED || 0,
+      verificationRate: otpRequests > 0
+        ? Number(((verified / otpRequests) * 100).toFixed(1))
+        : null,
+      deliveryTrackingAvailable: false,
+      cost: null,
+    },
+    recent: recent.map((transaction) => ({
+      id: transaction.id,
+      templateId: transaction.templateId,
+      templateName: templateNameById.get(transaction.templateId) ?? null,
+      campaignId: transaction.campaignId,
+      campaignName: transaction.campaign?.name ?? null,
+      source: transaction.campaignId ? 'CAMPAIGN' : 'API',
+      status: transaction.status,
+      expiresAt: transaction.expiresAt,
+      verifiedAt: transaction.verifiedAt,
+      createdAt: transaction.createdAt,
+      acceptedByWhatsApp: Boolean(transaction.metaMessageId),
+    })),
+  };
+}
