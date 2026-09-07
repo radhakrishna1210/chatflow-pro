@@ -140,9 +140,32 @@ export async function updateLead(workspaceId, id, updates, user = null) {
 
 export async function deleteLead(workspaceId, id, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true } });
+  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true, contactId: true } });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
   await prisma.lead.delete({ where: { id } });
+  emitCrmEvent(workspaceId, 'lead_deleted', { leadId: id, contactId: lead.contactId });
+}
+
+export async function deleteLeads(workspaceId, ids = [], user = null) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    const e = new Error('At least one lead ID is required'); e.status = 400; throw e;
+  }
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const leads = await prisma.lead.findMany({
+    where: { id: { in: ids }, workspaceId, ...scope },
+    select: { id: true, contactId: true },
+  });
+  if (leads.length === 0) {
+    return { count: 0 };
+  }
+  const leadIds = leads.map(l => l.id);
+  const result = await prisma.lead.deleteMany({
+    where: { id: { in: leadIds }, workspaceId },
+  });
+  for (const l of leads) {
+    emitCrmEvent(workspaceId, 'lead_deleted', { leadId: l.id, contactId: l.contactId });
+  }
+  return { count: result.count };
 }
 
 export async function recalculateScore(workspaceId, id, user = null) {

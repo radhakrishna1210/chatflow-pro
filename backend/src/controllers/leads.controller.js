@@ -26,6 +26,12 @@ export async function remove(req, res) {
   res.status(204).send();
 }
 
+export async function bulkRemove(req, res) {
+  const { ids } = req.body;
+  const result = await leadsService.deleteLeads(req.params.workspaceId, ids, req.user);
+  res.json(result);
+}
+
 export async function recalculateScore(req, res) {
   const result = await leadsService.recalculateScore(req.params.workspaceId, req.params.id, req.user);
   res.json(result);

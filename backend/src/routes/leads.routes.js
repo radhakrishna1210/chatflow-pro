@@ -14,6 +14,7 @@ router.post('/', authorize('CLIENT'), validate({ body: leadSchemas.create }), le
 router.get('/:id', leadsController.get);
 router.patch('/:id', authorize('CLIENT'), validate({ body: leadSchemas.update }), leadsController.update);
 router.delete('/:id', authorize('CLIENT'), leadsController.remove);
+router.post('/bulk-delete', authorize('CLIENT'), leadsController.bulkRemove);
 router.post('/:id/recalculate-score', authorize('CLIENT'), leadsController.recalculateScore);
 router.post('/:id/convert', authorize('CLIENT'), validate({ body: leadSchemas.convert }), leadsController.convert);
 

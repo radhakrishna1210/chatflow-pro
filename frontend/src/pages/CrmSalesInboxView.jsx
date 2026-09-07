@@ -86,6 +86,13 @@ export default function CrmSalesInboxView() {
   const [enrolling, setEnrolling] = useState(false);
   const [enrollTarget, setEnrollTarget] = useState(null); // { type: 'lead', leadId } or { type: 'segment', leadIds }
 
+  // Lead Deletion State
+  const [confirmDeleteLead, setConfirmDeleteLead] = useState(false);
+  const [deletingLead, setDeletingLead] = useState(false);
+  const [selectedAudienceIds, setSelectedAudienceIds] = useState(new Set());
+  const [confirmBulkDeleteAudience, setConfirmBulkDeleteAudience] = useState(false);
+  const [bulkDeletingAudience, setBulkDeletingAudience] = useState(false);
+
   // 1. Fetch initial segments & metadata
   const fetchMetadata = useCallback(async () => {
     setLoading(true);
@@ -419,6 +426,73 @@ export default function CrmSalesInboxView() {
     }
   };
 
+  // 10. Single Lead Deletion
+  const handleDeleteSingleLead = async () => {
+    if (!selectedLeadId) return;
+    setDeletingLead(true);
+    try {
+      const res = await wFetch(`/leads/${selectedLeadId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Failed to delete lead');
+      }
+      setConfirmDeleteLead(false);
+      setSelectedLead(null);
+      setSelectedLeadId(null);
+      fetchLeads();
+      fetchMetadata();
+      window.dispatchEvent(new CustomEvent('crm:pipeline-sync'));
+    } catch (err) {
+      alert(`Could not delete lead: ${err.message}`);
+    } finally {
+      setDeletingLead(false);
+    }
+  };
+
+  // 11. Bulk Audience Deletion (Segment Mode)
+  const toggleSelectAudience = (id) => {
+    setSelectedAudienceIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllAudience = () => {
+    const allIds = (audienceData?.leads || []).map((l) => l.id);
+    if (selectedAudienceIds.size === allIds.length) {
+      setSelectedAudienceIds(new Set());
+    } else {
+      setSelectedAudienceIds(new Set(allIds));
+    }
+  };
+
+  const handleBulkDeleteAudience = async () => {
+    if (selectedAudienceIds.size === 0) return;
+    setBulkDeletingAudience(true);
+    try {
+      const res = await wFetch('/leads/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedAudienceIds] }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Bulk delete failed');
+      }
+      setConfirmBulkDeleteAudience(false);
+      setSelectedAudienceIds(new Set());
+      fetchAudience();
+      fetchMetadata();
+      fetchLeads();
+      window.dispatchEvent(new CustomEvent('crm:pipeline-sync'));
+    } catch (err) {
+      alert(`Bulk delete failed: ${err.message}`);
+    } finally {
+      setBulkDeletingAudience(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--t2)' }}>
@@ -700,6 +774,9 @@ export default function CrmSalesInboxView() {
                     <Btn size="xs" variant="ghost" onClick={handleRecalculateCategory} title="Recalculate Lead Category & Score">
                       <I n="refresh" s={13} />
                     </Btn>
+                    <Btn size="xs" variant="ghost" onClick={() => setConfirmDeleteLead(true)} title="Delete Lead from CRM">
+                      <I n="trash" s={13} c="#f87171" />
+                    </Btn>
                   </div>
                 </div>
 
@@ -859,7 +936,27 @@ export default function CrmSalesInboxView() {
                 2. Audience Review ({(audienceData?.leads || []).length} Leads)
               </h3>
 
-              <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                {selectedAudienceIds.size > 0 && (
+                  <button
+                    onClick={() => setConfirmBulkDeleteAudience(true)}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      color: '#f87171',
+                      borderRadius: 8,
+                      padding: '7px 12px',
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <I n="trash" s={14} c="#f87171" /> Delete Selected ({selectedAudienceIds.size})
+                  </button>
+                )}
                 <Btn
                   variant="sec"
                   disabled={(audienceData?.eligibleCount || 0) === 0}
@@ -885,6 +982,15 @@ export default function CrmSalesInboxView() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--bd)', textAlign: 'left', color: 'var(--t2)', fontSize: 12 }}>
+                    <th style={{ padding: 10, width: 34 }}>
+                      <input
+                        type="checkbox"
+                        checked={(audienceData?.leads || []).length > 0 && selectedAudienceIds.size === (audienceData?.leads || []).length}
+                        onChange={toggleSelectAllAudience}
+                        style={{ cursor: 'pointer' }}
+                        title="Select All Leads in Audience"
+                      />
+                    </th>
                     <th style={{ padding: 10 }}>Lead Name</th>
                     <th style={{ padding: 10 }}>Phone Number</th>
                     <th style={{ padding: 10 }}>Category</th>
@@ -897,19 +1003,27 @@ export default function CrmSalesInboxView() {
                 <tbody>
                   {loadingAudience ? (
                     <tr>
-                      <td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--t2)' }}>
+                      <td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--t2)' }}>
                         Resolving audience...
                       </td>
                     </tr>
                   ) : (audienceData?.leads || []).length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'var(--t3)' }}>
+                      <td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'var(--t3)' }}>
                         No leads match the selected segment and filters.
                       </td>
                     </tr>
                   ) : (
                     (audienceData?.leads || []).map((l) => (
-                      <tr key={l.id} style={{ borderBottom: '1px solid var(--bd)' }}>
+                      <tr key={l.id} style={{ borderBottom: '1px solid var(--bd)', background: selectedAudienceIds.has(l.id) ? 'rgba(239, 68, 68, 0.04)' : 'transparent' }}>
+                        <td style={{ padding: 10, width: 34 }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedAudienceIds.has(l.id)}
+                            onChange={() => toggleSelectAudience(l.id)}
+                            style={{ cursor: 'pointer' }}
+                          />
+                        </td>
                         <td style={{ padding: 10, fontWeight: 600, color: 'var(--t1)' }}>{l.name}</td>
                         <td style={{ padding: 10, color: 'var(--t2)' }}>{l.phoneNumber}</td>
                         <td style={{ padding: 10 }}><CategoryBadge category={l.category} /></td>
@@ -1110,6 +1224,90 @@ export default function CrmSalesInboxView() {
               <Btn onClick={handleEnrollInSequence} disabled={enrolling || !selectedSequenceId}>
                 {enrolling ? 'Enrolling Leads...' : 'Confirm & Enroll'}
               </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: CONFIRM SINGLE LEAD DELETION */}
+      {confirmDeleteLead && selectedLead && (
+        <Modal title="Delete CRM Lead" onClose={() => setConfirmDeleteLead(false)} width={460}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <I n="alertt" s={18} c="#f87171" />
+              </div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+                  Delete "{selectedLead.contact?.name || selectedLead.contact?.phoneNumber || 'this lead'}"?
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>
+                  This will permanently delete this lead from your CRM pipeline, inbox, and category segmentation metrics. This action cannot be undone.
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+              <Btn variant="ghost" size="sm" onClick={() => setConfirmDeleteLead(false)} disabled={deletingLead}>Cancel</Btn>
+              <button
+                onClick={handleDeleteSingleLead}
+                disabled={deletingLead}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#ef4444',
+                  color: '#fff',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: deletingLead ? 'not-allowed' : 'pointer',
+                  opacity: deletingLead ? 0.7 : 1,
+                  transition: 'opacity 0.15s ease',
+                }}
+              >
+                {deletingLead ? 'Deleting…' : 'Delete Lead'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: CONFIRM BULK AUDIENCE DELETION */}
+      {confirmBulkDeleteAudience && (
+        <Modal title={`Delete ${selectedAudienceIds.size} Leads`} onClose={() => setConfirmBulkDeleteAudience(false)} width={460}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <I n="alertt" s={18} c="#f87171" />
+              </div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+                  Delete {selectedAudienceIds.size} selected leads?
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>
+                  This will permanently delete {selectedAudienceIds.size} leads from your CRM pipeline, audience review, and segmentation metrics across the system. This action cannot be undone.
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+              <Btn variant="ghost" size="sm" onClick={() => setConfirmBulkDeleteAudience(false)} disabled={bulkDeletingAudience}>Cancel</Btn>
+              <button
+                onClick={handleBulkDeleteAudience}
+                disabled={bulkDeletingAudience}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: '#ef4444',
+                  color: '#fff',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  cursor: bulkDeletingAudience ? 'not-allowed' : 'pointer',
+                  opacity: bulkDeletingAudience ? 0.7 : 1,
+                  transition: 'opacity 0.15s ease',
+                }}
+              >
+                {bulkDeletingAudience ? 'Deleting…' : `Delete ${selectedAudienceIds.size} Leads`}
+              </button>
             </div>
           </div>
         </Modal>
