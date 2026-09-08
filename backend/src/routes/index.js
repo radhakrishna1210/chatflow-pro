@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import authRoutes from './auth.routes.js';
+import oauthRoutes from './oauth.routes.js';
 import authenticationRoutes from '../authentication/authentication.routes.js';
 import publicRoutes from './public.routes.js';
 import whatsappRoutes from './whatsapp.routes.js';
@@ -92,6 +93,12 @@ router.get('/pricing', (req, res) =>
 // -----------------------------------------------------------------------------
 
 router.use('/auth', authRoutes);
+
+// ChatFlow as an OAuth authorization server: another application sends a user
+// here to approve access, and receives a scoped ApiKey rather than the user
+// copying one out of Settings. Public — an authorization request arrives as a
+// browser navigation, and the token exchange authenticates with a client secret.
+router.use('/oauth', oauthRoutes);
 
 // WhatsApp Authentication OTP API.
 // Uses API-key authentication and authentication:send scope.
