@@ -209,7 +209,14 @@ const ProfileMenu = () => {
           position:'absolute', top:'calc(100% + 8px)', right:0,
           width:280, background:'var(--surf)', border:'1px solid var(--bd)',
           borderRadius:12, boxShadow:'0 16px 40px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.3)',
-          zIndex:200, overflow:'hidden', animation:'fadeIn .12s ease-out',
+          zIndex:200, animation:'fadeIn .12s ease-out',
+          // This menu grows with its contents — the workspace switcher adds a row
+          // per workspace on top of six fixed items. With `overflow:hidden` and no
+          // height limit it ran off the bottom of the screen and CLIPPED, so on a
+          // short viewport the last entries (API Keys, Legal, Sign out) were
+          // unreachable at 100% zoom and only appeared once zooming out made the
+          // viewport taller in CSS pixels. Cap the height and let it scroll.
+          maxHeight:'calc(100vh - 96px)', overflowY:'auto', overflowX:'hidden',
         }}>
           {/* Header — identity */}
           <div style={{ padding:'16px 18px', display:'flex', alignItems:'center', gap:12, borderBottom:'1px solid var(--bd)', background:'linear-gradient(135deg, rgba(53,232,242,0.06), transparent)' }}>
