@@ -12,6 +12,7 @@ import Legal from './pages/Legal.jsx';
 import CampaignAI from './pages/CampaignAI.jsx';
 import SiteAssistant from './components/SiteAssistant.jsx';
 import PublicForm from './pages/PublicForm.jsx';
+import OAuthConsent, { peekPendingOAuthRequest, clearPendingOAuthRequest } from './pages/OAuthConsent.jsx';
 import { clearStoredSession } from './lib/api.js';
 
 // ─── Tiny history-based router ───────────────────────────────────────────────
@@ -176,6 +177,32 @@ export default function App() {
       path === '/resources' ||
       path.startsWith('/resources/');
 
+    // Bring someone back to a half-finished authorisation.
+    //
+    // A visitor who arrived at /oauth/consent without an account is sent away to
+    // sign up, verify an emailed code and create a workspace — several screens,
+    // each of which ends by navigating somewhere of its own choosing. Rather
+    // than teach Login, Register and WorkspaceSetup each to carry the pending
+    // request, it is parked in sessionStorage and picked up here, at the one
+    // place they all eventually land. It expires on its own after 30 minutes,
+    // matching the signed blob's own lifetime, so a stale one cannot ambush
+    // someone days later.
+    if (path.startsWith('/dashboard') && isAuthed() && canAccessDashboard()) {
+      const pending = peekPendingOAuthRequest();
+      if (pending) {
+        // One shot. The URL carries it from here, so someone who then walks away
+        // from the consent screen is not bounced back to it on their next visit.
+        clearPendingOAuthRequest();
+        navigate(`/oauth/consent?req=${encodeURIComponent(pending)}`, { replace: true });
+        return;
+      }
+    }
+
+    // The consent page decides for itself what to do when there is no session —
+    // it may need to hand back to a popup opener rather than redirect — so it is
+    // deliberately exempt from the guards below.
+    if (path === '/oauth/consent') return;
+
     if (
       (path.startsWith('/dashboard') || isResources) &&
       !isAuthed()
@@ -218,11 +245,14 @@ export default function App() {
   // The website assistant rides above every screen, so a question that occurs
   // to someone on the pricing page is still answerable once they are inside
   // the dashboard. It is withheld from /auth/callback, which is a redirect in
-  // progress rather than a page anyone reads.
+  // progress rather than a page anyone reads — and from /oauth/consent, which is
+  // a security decision that should have nothing floating over it, and which is
+  // often a small popup where a chat widget would cover the buttons outright.
+  const bareScreen = path === '/auth/callback' || path === '/oauth/consent';
   return (
     <>
       {page}
-      {path !== '/auth/callback' && <SiteAssistant />}
+      {!bareScreen && <SiteAssistant />}
     </>
   );
 }
@@ -255,6 +285,13 @@ function renderPage(path, nav, search) {
   // the page, not be bounced to their dashboard.
   if (path === '/product/campaign-ai') {
     return <CampaignAI onNav={nav} />;
+  }
+
+  // Where another application sends a user to approve access. Renders for
+  // signed-out visitors too — it parks the request and sends them to sign up,
+  // then App's guard brings them back here afterwards.
+  if (path === '/oauth/consent') {
+    return <OAuthConsent search={search} />;
   }
 
   if (path === '/login') {

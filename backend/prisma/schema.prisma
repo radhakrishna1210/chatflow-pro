@@ -142,6 +142,8 @@ model Workspace {
   createdAt                    DateTime                 @default(now())
 
   apiKeys                      ApiKey[]
+  oauthAuthorizationCodes      OAuthAuthorizationCode[]
+  oauthConsents                OAuthConsent[]
   triggers                     AutomationTrigger[]
   campaigns                    Campaign[]
   contacts                     Contact[]
@@ -775,6 +777,96 @@ model ApiKey {
   createdAt   DateTime  @default(now())
   revokedAt   DateTime?
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// ─── OAuth: ChatFlow as an authorization server ──────────────────────────────
+//
+// Everything else called "OAuth" in this codebase is INBOUND — ChatFlow acting as
+// a client of Google, Meta or Instagram. These three models are the other
+// direction: another application asks a ChatFlow user for permission and walks
+// away with a scoped ApiKey, instead of the user copying one out of Settings.
+//
+// The first such application is Spandan, the voice-agent platform, which sends a
+// WhatsApp confirmation after a call. It is registered as a row rather than
+// hardcoded, so a second app never needs a code change.
+
+/// An application allowed to ask ChatFlow users for access.
+///
+/// `clientSecretHash` is a sha256 hash, exactly like ApiKey.keyHash: ChatFlow only
+/// ever needs to VERIFY a secret the client sends, never to reproduce one, so
+/// storing it reversibly would be strictly worse for no benefit. The client keeps
+/// the only copy of the raw value.
+///
+/// `redirectUris` is matched by EXACT STRING and nothing looser. Prefix or
+/// same-origin matching is the usual way this gets broken: anything accepting a
+/// near-miss lets an attacker point the authorization response at a listener they
+/// control and walk off with the code.
+model OAuthClient {
+  id               String    @id @default(cuid())
+  clientId         String    @unique
+  clientSecretHash String    @unique
+  /// Shown on the consent screen, so it must read as the product's real name.
+  name             String
+  /// string[] — candidate redirect URIs, compared exactly.
+  redirectUris     Json
+  /// string[] — the ceiling on what this client may ever request, enforced
+  /// server-side. A client asking for more is trimmed to the intersection.
+  allowedScopes    Json
+  disabledAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
+
+  authorizationCodes OAuthAuthorizationCode[]
+  consents           OAuthConsent[]
+}
+
+/// A short-lived, single-use code exchanged for an API key.
+///
+/// Kept in the database rather than in the Redis/Map store the Google-login flow
+/// uses. That store is right for its own case — same origin, redeemed seconds
+/// later by the browser that started it — but here the redeemer is a different
+/// process on another origin, the in-memory fallback is per-process, and a deploy
+/// landing between authorize and exchange would silently break a connect. One row
+/// per connect attempt is nothing, and it leaves an audit trail.
+model OAuthAuthorizationCode {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  clientId    String
+  userId      String
+  workspaceId String
+  /// Re-checked at exchange: the redirect_uri presented at the token endpoint
+  /// must equal the one the code was issued for.
+  redirectUri String
+  scopes      Json
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime    @default(now())
+  client      OAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+/// What a user has already approved, per workspace and application.
+///
+/// Lets a reconnect skip the consent screen, and gives a future "Connected apps"
+/// page something to list and revoke. Keyed on the workspace as well as the user
+/// because someone with several workspaces is granting access to one of them, and
+/// the consent screen has to be able to say which.
+model OAuthConsent {
+  id          String      @id @default(cuid())
+  userId      String
+  workspaceId String
+  clientId    String
+  scopes      Json
+  revokedAt   DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @default(now()) @updatedAt
+  client      OAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId, clientId])
+  @@index([workspaceId])
 }
 
 model Invoice {
