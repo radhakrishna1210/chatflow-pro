@@ -9,6 +9,7 @@ import * as analyticsController from '../controllers/analytics.controller.js';
 import * as walletController from '../controllers/wallet.controller.js';
 import * as aiAgentController from '../controllers/aiAgent.controller.js';
 import * as automationController from '../controllers/automation.controller.js';
+import * as publicIdentityController from '../controllers/publicIdentity.controller.js';
 import * as whatsappService from '../services/whatsapp.service.js';
 import { validate, templateSchemas, campaignSchemas } from '../validators/index.js';
 
@@ -23,6 +24,13 @@ const injectWorkspace = (fn) => (req, res, next) => {
   req.params.workspaceId = req.workspaceId;
   return fn(req, res, next);
 };
+
+// --- Identity ---
+// Which workspace does this key belong to, and which numbers can it send from?
+// No scope required: a key should always be able to identify itself, and an
+// integration that cannot name the workspace it is acting on is one wrong paste
+// away from messaging another business's customers from their number.
+router.get('/me', publicIdentityController.me);
 
 // --- Messages ---
 router.post('/messages', requireScope('messages:send'), async (req, res, next) => {
