@@ -6,7 +6,7 @@ import { assertNotOptedOut, normalizePhone } from './optout.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { countVariables } from '../lib/templateParams.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
-import { normaliseScopes, API_SCOPES } from '../lib/apiScopes.js';
+import { normaliseScopes, API_SCOPES, DEFAULT_SCOPES } from '../lib/apiScopes.js';
 
 function generateKey() {
   const raw = 'cfp_' + randomBytes(32).toString('hex');
@@ -26,7 +26,10 @@ export async function listApiKeys(workspaceId) {
 // The catalogue the UI renders its scope checkboxes from, so the two cannot
 // drift out of step.
 export function listApiScopes() {
-  return API_SCOPES;
+  // `default` says which ones a key gets when the caller chooses nothing, so the
+  // UI can tick exactly those and stay in step with normaliseScopes() instead of
+  // hardcoding a second opinion about what a sensible key looks like.
+  return API_SCOPES.map((s) => ({ ...s, default: DEFAULT_SCOPES.includes(s.id) }));
 }
 
 export async function createApiKey(workspaceId, { name, environment = 'production', scopes }, user) {
