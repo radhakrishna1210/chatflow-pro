@@ -77,6 +77,10 @@ export default function ApiKeysView() {
   const [keys, setKeys]         = useState([]);
   const [newKey, setNewKey]     = useState(null);
   const [newName, setNewName]   = useState('');
+  // The scope catalogue comes from the server (GET /api-keys/scopes) rather than
+  // a copy here, so a scope added in apiScopes.js appears without a UI change.
+  const [allScopes, setAllScopes] = useState([]);
+  const [pickedScopes, setPickedScopes] = useState(new Set());
   const [testPhone, setTestPhone] = useState('');
   const [testTpl, setTestTpl]   = useState('');
   const [testBody, setTestBody] = useState('');
@@ -94,6 +98,13 @@ export default function ApiKeysView() {
   useEffect(() => {
     wFetch('/api-keys').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setKeys(d)}).catch(()=>{});
     wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setTemplates(d.filter(t=>t.status!=='DELETED'))}).catch(()=>{});
+    wFetch('/api-keys/scopes').then(r=>r.ok&&r.json()).then(d=>{
+      if (!Array.isArray(d)) return;
+      setAllScopes(d);
+      // Tick what the server would have granted anyway, so making an ordinary key
+      // stays one click and nobody needs to know what a scope is.
+      setPickedScopes(new Set(d.filter(x=>x.default).map(x=>x.id)));
+    }).catch(()=>{});
   }, []);
 
   // Highest {{n}} across a template's components — the number of parameters
@@ -127,7 +138,11 @@ export default function ApiKeysView() {
   });
 
   const generate = async () => {
-    const res = await wFetch('/api-keys', { method:'POST', body:JSON.stringify({ name:newName||'New Key', environment:'live' }) }).catch(()=>null);
+    // Omitted when the catalogue never loaded or nothing is ticked, so the server
+    // falls back to DEFAULT_SCOPES rather than being sent an empty list it rejects.
+    const body = { name: newName || 'New Key', environment: 'live' };
+    if (pickedScopes.size) body.scopes = [...pickedScopes];
+    const res = await wFetch('/api-keys', { method:'POST', body:JSON.stringify(body) }).catch(()=>null);
     if (res?.ok) {
       const k = await res.json();
       setKeys(p=>[...p,k]);
@@ -266,7 +281,46 @@ export default function ApiKeysView() {
           })}
 
           {isAdmin && (
-            <div style={{ padding:'14px 20px', background:'rgba(255,255,255,0.015)', display:'flex', gap:8, alignItems:'center' }}>
+            <div style={{ padding:'14px 20px', background:'rgba(255,255,255,0.015)' }}>
+              {allScopes.length > 0 && (
+                <div style={{ marginBottom:12 }}>
+                  <p style={{ fontSize:11, color:'var(--t3)', marginBottom:8, letterSpacing:'.03em', textTransform:'uppercase' }}>
+                    What this key may do
+                  </p>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                    {allScopes.map(sc => {
+                      const on = pickedScopes.has(sc.id);
+                      return (
+                        <button
+                          key={sc.id}
+                          type="button"
+                          title={sc.description}
+                          onClick={() => setPickedScopes(prev => {
+                            const next = new Set(prev);
+                            if (next.has(sc.id)) next.delete(sc.id); else next.add(sc.id);
+                            return next;
+                          })}
+                          style={{
+                            padding:'5px 10px', borderRadius:7, fontSize:12, cursor:'pointer',
+                            fontFamily:"'Manrope',sans-serif",
+                            background: on ? 'rgba(53,232,242,0.1)' : 'rgba(255,255,255,0.03)',
+                            color: on ? 'var(--green)' : 'var(--t3)',
+                            border: on ? '1px solid var(--gbd)' : '1px solid var(--bd)',
+                          }}
+                        >
+                          {on ? '✓ ' : ''}{sc.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:8, lineHeight:1.5 }}>
+                    Ticked by default is what an ordinary key gets. Add
+                    <span style={{ color:'var(--t2)' }}> Manage templates </span>
+                    if this key belongs to an app that creates templates and submits them to Meta — Spandan does.
+                  </p>
+                </div>
+              )}
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
               <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Key name (optional)"
                 style={{ flex:1, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none' }}
                 onKeyDown={e=>e.key==='Enter'&&generate()} />
@@ -274,6 +328,7 @@ export default function ApiKeysView() {
                 <I n="plus" s={13} c="var(--green)" />
                 Generate New
               </Btn>
+              </div>
             </div>
           )}
         </div>
