@@ -106,7 +106,9 @@ export default function ApiKeysView() {
 
   useEffect(() => {
     wFetch('/api-keys').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setKeys(d)}).catch(()=>{});
-    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setTemplates(d.filter(t=>t.status!=='DELETED'))}).catch(()=>{});
+    // Authentication templates go through the dedicated Authentication API, not
+    // this general "send a template message" playground, so they're excluded here.
+    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setTemplates(d.filter(t=>t.status!=='DELETED' && t.category!=='AUTHENTICATION'))}).catch(()=>{});
     wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{
       if (!d) return;
       if (d.webhookUrl) setWebhookUrl(d.webhookUrl);

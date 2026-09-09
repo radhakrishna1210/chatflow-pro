@@ -4,6 +4,14 @@ import { wFetch } from '../lib/api.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+// The exact same template builder/editor, live preview and preview modal the
+// normal Templates page uses — reused here rather than a second
+// implementation, per the "Authentication is a self-contained module" rule.
+import { TemplateModal } from '../components/TemplateModal.jsx';
+import { TemplatePreviewModal } from '../components/TemplatePreviewModal.jsx';
+import { StatusBadge } from '../components/StatusBadge.jsx';
+import { statusLabel } from '../lib/templateHelpers.js';
+import { fmtDate } from '../lib/formatters.js';
 
 function getErrorMessage(data, fallback) {
   return (
@@ -30,6 +38,15 @@ function maskApiKey(key) {
 }
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
+
+// Authentication's own page background — deep navy/blue instead of the app's
+// default near-black, scoped to this page only (applied inline, not to the
+// shared --bg/--surf tokens every other page also uses). Cards above keep
+// using --surf as-is, which is lighter than this, so they stay clearly
+// visible without any card styling changing.
+const authPageBackground =
+  'radial-gradient(ellipse 900px 500px at 50% -10%, rgba(53,232,242,0.06), transparent 60%), ' +
+  'linear-gradient(165deg, #060a13 0%, #0a1119 45%, #05070d 100%)';
 
 const mono = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
@@ -233,7 +250,316 @@ const selectFieldStyle = {
   fontSize: 13.5, fontFamily: "'Manrope',sans-serif", outline: 'none', cursor: 'pointer',
 };
 
+// Tabs, styled like the segmented pill control already used elsewhere in the
+// dashboard (e.g. the Campaign Analytics view), so Authentication's own
+// Overview / Templates / Analytics areas read as one product area rather than
+// three unrelated pages.
+const TABS = [
+  { id: 'overview',  label: 'Overview' },
+  { id: 'templates', label: 'Templates' },
+  { id: 'analytics', label: 'Analytics' },
+];
+
+const TabBar = ({ active, onChange }) => (
+  <div style={{ display: 'inline-flex', padding: 4, gap: 4, border: '1px solid var(--bd)', borderRadius: 10, background: 'rgba(255,255,255,.02)' }}>
+    {TABS.map(t => {
+      const on = active === t.id;
+      return (
+        <button key={t.id} onClick={() => onChange(t.id)} style={{ border: 0, borderRadius: 7, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all .15s', color: on ? '#071015' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent', boxShadow: on ? '0 0 18px rgba(53,232,242,0.35)' : 'none' }}>
+          {t.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+// Moved from Dashboard.jsx's CampaignsView (was the "Authentication" tab on
+// Campaign Analytics) as-is — same /authentication/analytics endpoint, same
+// metrics, same table — just reached from the Authentication module now, so
+// Campaign Analytics covers regular campaigns only.
+const AuthenticationAnalyticsPanel = () => {
+  const [usage, setUsage] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErr('');
+    wFetch('/authentication/analytics')
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(getErrorMessage(data, 'Failed to load Authentication usage'));
+        if (!cancelled) setUsage(data);
+      })
+      .catch((e) => { if (!cancelled) setErr(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <div style={{ textAlign: 'center', padding: '48px', color: 'var(--t2)', fontSize: 13 }}>Loading Authentication usage…</div>;
+  if (err) return <AlertBanner type="error">{err}</AlertBanner>;
+
+  const metrics = usage?.metrics || {};
+  const q = search.trim().toLowerCase();
+  const attempts = (usage?.recent || []).filter((attempt) => !q || [attempt.templateName, attempt.campaignName, attempt.source, attempt.status].some((value) => String(value || '').toLowerCase().includes(q)));
+
+  return (
+    <>
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search Authentication attempts…"
+        style={{ ...selectFieldStyle, cursor: 'text', maxWidth: 320, marginBottom: 16 }}
+      />
+      <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
+        {[
+          ['OTP Requests', metrics.otpRequests], ['Accepted by WhatsApp', metrics.acceptedByWhatsApp], ['Delivered', metrics.delivered],
+          ['Verified', metrics.verified], ['Expired', metrics.expired], ['Failed', metrics.failed],
+          ['Verification Rate', metrics.verificationRate == null ? null : `${metrics.verificationRate}%`], ['Cost', metrics.cost == null ? null : `₹${Number(metrics.cost).toFixed(2)}`],
+        ].map(([label, value]) => (
+          <div key={label} style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: '1px solid var(--bd)' }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>{label}</p>
+            <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 18, color: 'var(--t1)' }}>{value == null ? '—' : value.toLocaleString?.() ?? value}</p>
+          </div>
+        ))}
+      </div>
+      {metrics.deliveryTrackingAvailable === false && (
+        <p style={{ margin: '-6px 0 16px', fontSize: 12, color: 'var(--t3)' }}>
+          Delivery is unavailable for direct Authentication API sends because no delivery receipt is stored for their transaction records.
+        </p>
+      )}
+      <div style={{ borderRadius: 10, padding: '16px 18px', background: 'rgba(0,0,0,0.35)', border: '1px solid var(--bd)', overflowX: 'auto' }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Recent Authentication attempts</p>
+        {attempts.length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--t2)', padding: '16px 0' }}>{q ? 'No Authentication attempts match your search.' : 'No Authentication API or campaign OTP attempts yet.'}</p>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                {['Source', 'Template', 'Status', 'Accepted', 'Created', 'Verified'].map((label) => (
+                  <th key={label} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase' }}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {attempts.map((attempt) => (
+                <tr key={attempt.id} style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t2)' }}>{attempt.source === 'API' ? 'API' : `Campaign${attempt.campaignName ? ` · ${attempt.campaignName}` : ''}`}</td>
+                  <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t1)' }}>{attempt.templateName || '—'}</td>
+                  <td style={{ padding: '11px 12px' }}><StatusBadge s={attempt.status} /></td>
+                  <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t2)' }}>{attempt.acceptedByWhatsApp ? 'Yes' : '—'}</td>
+                  <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t2)' }}>{fmtDate(attempt.createdAt)}</td>
+                  <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t2)' }}>{fmtDate(attempt.verifiedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
+  );
+};
+
+// The Authentication module's own template list — create, edit and preview
+// all reuse the normal Templates page's builder/editor and preview modal;
+// only the entry point (this tab, instead of the normal Templates page) and
+// the category filter (AUTHENTICATION only) differ.
+const AuthenticationTemplatesPanel = () => {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [previewTemplate, setPreviewTemplate] = useState(null);
+
+  const loadTemplates = () => {
+    setLoading(true);
+    wFetch('/templates')
+      .then((r) => r.ok && r.json())
+      .then((d) => { if (Array.isArray(d)) setTemplates(d.filter((t) => t.category === 'AUTHENTICATION')); })
+      .catch(() => setErr('Failed to load Authentication templates.'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(loadTemplates, []);
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <Btn onClick={() => setCreating(true)} style={{ boxShadow: 'var(--glow)' }}>
+          <I n="file" s={14} c="#08090c" /> New Template
+        </Btn>
+      </div>
+
+      {err && <AlertBanner type="error">{err}</AlertBanner>}
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '48px', color: 'var(--t2)', fontSize: 13 }}>Loading templates…</div>
+      ) : templates.length === 0 ? (
+        <div style={{ borderRadius: 10, padding: '48px 24px', background: 'rgba(0,0,0,0.35)', border: '1px solid var(--bd)', textAlign: 'center', color: 'var(--t2)', fontSize: 13 }}>
+          No Authentication templates yet. Create one, or use "Sync from Meta" on the Templates page — it still reaches this list.
+        </div>
+      ) : (
+        <div style={{ borderRadius: 10, background: 'rgba(0,0,0,0.35)', border: '1px solid var(--bd)', overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--bd)' }}>
+                {['Name', 'Language', 'Status', ''].map((h) => (
+                  <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {templates.map((t) => (
+                <tr key={t.id} style={{ borderBottom: '1px solid var(--bd)' }}>
+                  <td style={{ padding: '14px 16px', fontSize: 13.5, fontWeight: 600, color: 'var(--t1)' }}>
+                    {t.name}
+                    {t.status === 'REJECTED' && t.rejectedReason && (
+                      <p style={{ margin: '4px 0 0', fontSize: 11, color: '#f87171', fontWeight: 500 }}>{t.rejectedReason}</p>
+                    )}
+                  </td>
+                  <td style={{ padding: '14px 16px', fontSize: 13, color: 'var(--t2)' }}>{t.language}</td>
+                  <td style={{ padding: '14px 16px' }}><StatusBadge s={statusLabel(t.status)} /></td>
+                  <td style={{ padding: '14px 16px', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <Btn variant="outline" size="sm" onClick={() => setPreviewTemplate(t)}>Preview</Btn>
+                    <Btn variant="outline" size="sm" onClick={() => setEditingTemplate(t)}>Edit</Btn>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {creating && (
+        <TemplateModal
+          forcedCategory="AUTHENTICATION"
+          onClose={() => setCreating(false)}
+          onSaved={() => { setCreating(false); loadTemplates(); }}
+        />
+      )}
+
+      {editingTemplate && (
+        <TemplateModal
+          template={editingTemplate}
+          forcedCategory="AUTHENTICATION"
+          onClose={() => setEditingTemplate(null)}
+          onSaved={() => { setEditingTemplate(null); loadTemplates(); }}
+        />
+      )}
+
+      {previewTemplate && (
+        <TemplatePreviewModal template={previewTemplate} onClose={() => setPreviewTemplate(null)} />
+      )}
+    </>
+  );
+};
+
+// Replaces window.confirm() for the "Regenerate Key" action. Matches the
+// modal chrome already established in this file (backdrop, card, header/body/
+// footer bands) rather than introducing a new dialog pattern.
+const ConfirmRegenerateModal = ({ onCancel, onConfirm, loading }) => (
+  <div
+    onClick={loading ? undefined : onCancel}
+    role="dialog" aria-modal="true" aria-label="Regenerate API Key?"
+    style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+  >
+    <div onClick={e => e.stopPropagation()} style={{ ...card, border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(53,232,242,0.10)', width: '100%', maxWidth: 440, overflow: 'hidden' }}>
+      <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+            <I n="alertt" s={15} c="#f87171" />
+          </div>
+          <h3 style={{ margin: 0, fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)' }}>Regenerate API Key?</h3>
+        </div>
+        <button onClick={onCancel} disabled={loading} style={{ width: 26, height: 26, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: loading ? 'not-allowed' : 'pointer', color: 'var(--t2)', flexShrink: 0, opacity: loading ? .5 : 1 }}>
+          <I n="x" s={12} c="var(--t2)" />
+        </button>
+      </div>
+
+      <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--t2)', lineHeight: 1.6 }}>
+          Your current API key will become invalid immediately after regeneration. Any application currently using the old key will stop authenticating until it is updated with the new key.
+        </p>
+
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 9, background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)' }}>
+          <I n="alertc" s={14} c="#fbbf24" />
+          <p style={{ margin: 0, fontSize: 12.5, color: '#fcd34d', lineHeight: 1.55 }}>
+            Make sure you can update your application with the new key before continuing.
+          </p>
+        </div>
+      </div>
+
+      <div style={{ padding: '13px 22px', borderTop: '1px solid var(--bd)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <Btn variant="ghost" onClick={onCancel} disabled={loading}>Cancel</Btn>
+        <Btn
+          variant="ghost"
+          onClick={onConfirm}
+          disabled={loading}
+          style={{ border: '1px solid rgba(248,113,113,.4)', background: 'rgba(248,113,113,.08)', color: '#f87171' }}
+        >
+          {loading ? 'Regenerating…' : 'Regenerate Key'}
+        </Btn>
+      </div>
+    </div>
+  </div>
+);
+
+// The one-time reveal of a freshly rotated key. Closing it is the only way
+// out — no backdrop-click dismiss — since the raw value is dropped the moment
+// it closes and cannot be recovered from this page again.
+const NewKeyModal = ({ apiKey, onClose }) => (
+  <div role="dialog" aria-modal="true" aria-label="New API Key Generated" style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div style={{ ...card, border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(53,232,242,0.10)', width: '100%', maxWidth: 480, overflow: 'hidden' }}>
+      <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--sbg)', border: '1px solid var(--sbd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+            <I n="checkc" s={15} c="var(--success)" />
+          </div>
+          <h3 style={{ margin: 0, fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)' }}>New API Key Generated</h3>
+        </div>
+        <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', color: 'var(--t2)', flexShrink: 0 }}>
+          <I n="x" s={12} c="var(--t2)" />
+        </button>
+      </div>
+
+      <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--t2)', lineHeight: 1.6 }}>
+          Your previous API key is now invalid and a new key has been generated successfully.
+        </p>
+
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 9 }}>
+            New API Key
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderRadius: 10, padding: '12px 14px', background: 'rgba(0,0,0,0.35)', border: '1px solid var(--bd)' }}>
+            <code style={{ flex: 1, minWidth: 0, fontFamily: mono, fontSize: 13, wordBreak: 'break-all', color: 'var(--t1)' }}>
+              {apiKey || 'Not available'}
+            </code>
+            {apiKey && <CopyButton text={apiKey} label="Copy Key" message="Key copied" />}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 9, background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)' }}>
+          <I n="alertc" s={14} c="#fbbf24" />
+          <p style={{ margin: 0, fontSize: 12.5, color: '#fcd34d', lineHeight: 1.55 }}>
+            Save this key securely. For security, the full key will only be available in this window. Once you close this window, you may not be able to view or copy the full key again.
+          </p>
+        </div>
+      </div>
+
+      <div style={{ padding: '13px 22px', borderTop: '1px solid var(--bd)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <Btn onClick={onClose} style={{ boxShadow: 'var(--glow)' }}>Close</Btn>
+      </div>
+    </div>
+  </div>
+);
+
 export default function AuthenticationDashboard() {
+  const [activeTab, setActiveTab] = useState('overview');
+
   const [configuration, setConfiguration] =
     useState(null);
 
@@ -257,6 +583,19 @@ export default function AuthenticationDashboard() {
 
   const [apiKeyMetadata, setApiKeyMetadata] =
     useState(null);
+
+  // Regenerate confirmation + the one-time reveal of the freshly rotated key.
+  // Kept separate from `apiKey` above (which is the first-time-provisioning
+  // reveal) so closing this modal can drop the raw value without touching
+  // that unrelated flow.
+  const [showRegenerateConfirm, setShowRegenerateConfirm] =
+    useState(false);
+
+  const [newlyRotatedKey, setNewlyRotatedKey] =
+    useState(null);
+
+  const [showNewKeyModal, setShowNewKeyModal] =
+    useState(false);
 
   const [enabled, setEnabled] =
     useState(false);
@@ -400,18 +739,12 @@ export default function AuthenticationDashboard() {
     }
   }
 
+  // Confirmation now happens in ConfirmRegenerateModal (a custom in-app
+  // dialog) before this is ever called — see handleConfirmRegenerate below.
+  // The request itself, its endpoint and its payload are unchanged.
   async function rotateApiKey() {
-    if (
-      !window.confirm(
-        'Rotate the Authentication API key? The previous key will stop working.'
-      )
-    ) {
-      return;
-    }
-
     setRotating(true);
     setError('');
-    setSuccess('');
 
     try {
       const res = await wFetch(
@@ -432,12 +765,20 @@ export default function AuthenticationDashboard() {
         );
       }
 
-      setApiKey(data.rawKey || null);
       setApiKeyMetadata(data);
+      setConfiguration(prev => ({
+        ...prev,
+        apiKeyId: data.id || data.apiKeyId || prev?.apiKeyId,
+      }));
+      // The old key is invalid the moment this succeeds — if it was still
+      // being displayed inline from an earlier generate in this session,
+      // drop it so nothing offers an already-dead key for copy.
+      setApiKey(null);
 
-      setSuccess(
-        'Authentication API key rotated. Copy the new key and update your backend immediately.'
-      );
+      // Revealed only in the success modal, not inline on the page — see
+      // NewKeyModal's onClose, which drops this the moment it's dismissed.
+      setNewlyRotatedKey(data.rawKey || null);
+      setShowNewKeyModal(true);
     } catch (err) {
       setError(
         err?.message ||
@@ -448,9 +789,23 @@ export default function AuthenticationDashboard() {
     }
   }
 
+  // Confirm modal stays open (buttons disabled via `rotating`) for the
+  // duration of the request, so it can't be submitted twice, then closes
+  // once rotateApiKey settles — on success the new-key modal is already open
+  // by that point, on failure the existing error banner is what's left.
+  async function handleConfirmRegenerate() {
+    await rotateApiKey();
+    setShowRegenerateConfirm(false);
+  }
+
+  function closeNewKeyModal() {
+    setShowNewKeyModal(false);
+    setNewlyRotatedKey(null);
+  }
+
   if (loading) {
     return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: authPageBackground }}>
         <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '28px 32px', maxWidth: 900, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
           <div style={{ ...card, padding: '40px 24px', textAlign: 'center', fontSize: 13, color: 'var(--t2)' }}>
             Loading Authentication configuration…
@@ -485,7 +840,7 @@ export default function AuthenticationDashboard() {
       : 'Not provisioned';
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: authPageBackground }}>
       <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 900, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
 
         {/* ── Header ── */}
@@ -505,9 +860,35 @@ export default function AuthenticationDashboard() {
           <StatusPill enabled={enabled} />
         </div>
 
+        <TabBar active={activeTab} onChange={setActiveTab} />
+
         {error && <AlertBanner type="error">{error}</AlertBanner>}
         {success && <AlertBanner type="success">{success}</AlertBanner>}
 
+        {activeTab === 'templates' && (
+          <section style={{ ...card, padding: '22px 24px' }}>
+            <SectionHeader
+              icon="file"
+              title="Authentication Templates"
+              description="Create, edit and preview the OTP templates used by your Authentication configuration."
+            />
+            <AuthenticationTemplatesPanel />
+          </section>
+        )}
+
+        {activeTab === 'analytics' && (
+          <section style={{ ...card, padding: '22px 24px' }}>
+            <SectionHeader
+              icon="chart"
+              title="Authentication Analytics"
+              description="OTP requests, deliveries and verification outcomes across the Authentication API and campaigns."
+            />
+            <AuthenticationAnalyticsPanel />
+          </section>
+        )}
+
+        {activeTab === 'overview' && (
+        <>
         {/* ── Configuration ── */}
         <section style={{ ...card, padding: '22px 24px' }}>
           <SectionHeader
@@ -553,9 +934,18 @@ export default function AuthenticationDashboard() {
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: 7, fontSize: 12, fontWeight: 600, color: 'var(--t2)' }}>
-                Authentication Template
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 7 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t2)' }}>
+                  Authentication Template
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('templates')}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 700, color: 'var(--green)' }}
+                >
+                  Manage Templates →
+                </button>
+              </div>
 
               <select
                 value={templateId}
@@ -659,7 +1049,7 @@ export default function AuthenticationDashboard() {
                 <Btn
                   size="sm"
                   variant="ghost"
-                  onClick={rotateApiKey}
+                  onClick={() => setShowRegenerateConfirm(true)}
                   disabled={rotating}
                   style={{ border: '1px solid rgba(248,113,113,.4)', background: 'rgba(248,113,113,.08)', color: '#f87171' }}
                 >
@@ -698,8 +1088,22 @@ export default function AuthenticationDashboard() {
             ))}
           </div>
         </section>
+        </>
+        )}
 
       </div>
+
+      {showRegenerateConfirm && (
+        <ConfirmRegenerateModal
+          loading={rotating}
+          onCancel={() => setShowRegenerateConfirm(false)}
+          onConfirm={handleConfirmRegenerate}
+        />
+      )}
+
+      {showNewKeyModal && (
+        <NewKeyModal apiKey={newlyRotatedKey} onClose={closeNewKeyModal} />
+      )}
     </div>
   );
 }
