@@ -409,6 +409,17 @@ tbody tr:hover { background: rgba(255,255,255,0.022); }
    a horizontal scrollbar on a small screen. */
 .modal-card { max-width: calc(100vw - 32px); }
 
+/* Several pages make .dash-page a scrolling COLUMN flex container. A flex item
+   defaults to flex-shrink:1, so once the cards total more than the viewport the
+   browser shrinks them to fit instead of letting the container scroll — and a
+   card with overflow:hidden then swallows its own contents. On API Keys that hid
+   the entire key list at 100% zoom while it reappeared below ~70%, which reads as
+   a rendering glitch rather than a layout rule.
+
+   flex-shrink only applies to flex items, so this is inert on the .dash-page
+   pages that are not flex containers, and corrective on the ones that are. */
+.dash-page > * { flex-shrink: 0; }
+
 /* ── Page chrome ─────────────────────────────────────────────────────────────
    Roughly half the dashboard's pages build their own 58px header instead of
    using DashHeader. Fixed 28px gutters and a locked height are fine on a
