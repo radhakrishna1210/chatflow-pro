@@ -19,12 +19,15 @@ import ContactsView from './ContactsView.jsx';
 import LeadsView from './LeadsView.jsx';
 import DealsView from './DealsView.jsx';
 import TasksView from './TasksView.jsx';
+import EngagementsView from './EngagementsView.jsx';
+import AiAgentsView from './AiAgentsView.jsx';
 const ForecastView = lazy(() => import('./ForecastView.jsx'));
 const ProductsView = lazy(() => import('./ProductsView.jsx'));
 const QuotesView = lazy(() => import('./QuotesView.jsx'));
 const SequencesView = lazy(() => import('./SequencesView.jsx'));
 const LeadFormsView = lazy(() => import('./LeadFormsView.jsx'));
 const TicketsView = lazy(() => import('./TicketsView.jsx'));
+const CustomizeBusinessView = lazy(() => import('./CustomizeBusinessView.jsx'));
 import InboxView from './InboxView.jsx';
 import CrmSalesInboxView from './CrmSalesInboxView.jsx';
 
@@ -3692,15 +3695,18 @@ const ADMIN_NAV = [
 
   { id: 'crm-overview',   label: 'CRM Overview',   icon: 'layout' },
   { id: 'crm-sales-inbox',label: 'CRM Sales Inbox',icon: 'msg'   },
+  { id: 'ai-chatbots',    label: 'AI Chatbots',    icon: 'bot'   },
   { id: 'leads',          label: 'Leads',          icon: 'target' },
   { id: 'deals',          label: 'Deals',          icon: 'briefcase' },
   { id: 'tasks',          label: 'Tasks',          icon: 'check-square' },
+  { id: 'engagements',    label: 'Engagements',    icon: 'activity' },
   { id: 'forecast',       label: 'Forecast',       icon: 'chart' },
   { id: 'products',       label: 'Products',       icon: 'briefcase' },
   { id: 'quotes',         label: 'Quotes',         icon: 'note'  },
   { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
   { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
   { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
+  { id: 'customize-business', label: 'Customize Your Business', icon: 'sliders' },
   { id: 'legal',          label: 'Legal',          icon: 'file'  },
 ];
 
@@ -3753,6 +3759,11 @@ const NAV_EMOJI = {
   analytics: '\u{1F4CA}', 'chat-analysis': '\u{1F50E}', 'user-analytics': '\u{1F4C8}',
   integrations: '\u{1F50C}', setup: '\u{1F4F1}', api: '\u{1F511}', payments: '\u{1F4B3}',
   support: '\u{1F6DF}', settings: '\u2699\uFE0F',
+  // crm navigation
+  'crm-overview': '\u{1F4CA}', 'crm-sales-inbox': '\u{1F4E5}', 'ai-chatbots': '\u{1F916}', leads: '\u{1F3AF}', deals: '\u{1F4BC}',
+  tasks: '\u2705', engagements: '\u{1F4DE}', forecast: '\u{1F4C8}', products: '\u{1F4E6}',
+  quotes: '\u{1F4DD}', sequences: '\u2699\uFE0F', 'lead-forms': '\u{1F4CB}', tickets: '\u{1F3AB}',
+  'customize-business': '\u{1F39B}\uFE0F',
   // absent from the design set — chosen to sit alongside the rest
   widget: '\u{1F310}', legal: '\u{1F4DC}', resources: '\u{1F4DA}',
   'admin-overview': '\u{1F9ED}', 'admin-analytics': '\u{1F4CA}', 'admin-revenue': '\u{1F4B0}',
@@ -3768,6 +3779,7 @@ const TEXT_GLYPHS = new Set(['\u2726', '\u26A1']);
 const NAV_GROUPS = [
   { name: 'COMMAND',    ids: ['home', 'inbox'] },
   { name: 'GROW',       ids: ['campaigns', 'templates', 'authentication', 'contacts'] },
+  { name: 'CRM & SALES', ids: ['crm-overview', 'crm-sales-inbox', 'ai-chatbots', 'leads', 'deals', 'tasks', 'engagements', 'forecast', 'products', 'quotes', 'sequences', 'lead-forms', 'tickets', 'customize-business'] },
   { name: 'AUTOMATE',   ids: ['ai-agent', 'automation', 'intent-matching'] },
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
   { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'resources', 'settings'] },
@@ -3869,6 +3881,20 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
   const GROUPS = navGroupsForUser(user);
   const planLabel = isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'Member';
   const [balance, setBalance] = useState(null);
+  const [crmBadge, setCrmBadge] = useState(0);
+
+  useEffect(() => {
+    const onCrmBadge = (e) => setCrmBadge(Number(e.detail) || 0);
+    window.addEventListener('crm:badge-updated', onCrmBadge);
+    Promise.all([
+      wFetch('/tasks?isOverdue=true').then(r => r.json()).catch(() => ({ data: [] })),
+      wFetch('/insights/recommendations?limit=1').then(r => r.json()).catch(() => ({ total: 0 })),
+    ]).then(([tData, rData]) => {
+      const count = (tData.data?.length || 0) + (rData.total || 0);
+      setCrmBadge(count);
+    }).catch(() => {});
+    return () => window.removeEventListener('crm:badge-updated', onCrmBadge);
+  }, []);
 
   useEffect(() => {
     if (isSuperAdmin) return undefined;
@@ -3966,19 +3992,39 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(item.id); } }}
                   onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)'; }}
                   onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '7px 10px', borderRadius: '9px', cursor: 'pointer', transition: 'background .15s ease, border-color .15s ease', justifyContent: col ? 'center' : 'flex-start',
+                  style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '7px 10px', borderRadius: '9px', cursor: 'pointer', transition: 'background .15s ease, border-color .15s ease', justifyContent: col ? 'center' : 'flex-start',
                     background: on ? 'rgba(53,232,242,0.10)' : 'transparent',
                     borderLeft: col ? 'none' : `2px solid ${on ? 'var(--accent)' : 'transparent'}` }}
                   onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
                   onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}
-                  title={col ? item.label : ''}>
+                  title={col ? (item.id === 'crm-overview' && crmBadge > 0 ? `${item.label} (${crmBadge} urgent)` : item.label) : ''}>
                   {/* Fixed-width cell so labels line up whether the glyph is
                       wide (emoji) or narrow, and held back when inactive so
                       nineteen colour glyphs don't all shout at once. */}
                   <span aria-hidden="true" style={{ width: 18, textAlign: 'center', fontSize: TEXT_GLYPHS.has(NAV_EMOJI[item.id]) ? 15.5 : 14.5, lineHeight: 1, flexShrink: 0, opacity: on ? 1 : 0.85, color: on ? 'var(--accent)' : 'var(--t2)' }}>
                     {NAV_EMOJI[item.id] || '\u2022'}
                   </span>
-                  {!col && <span style={{ fontSize: '13.5px', fontWeight: on ? 700 : 500, color: on ? 'var(--t1)' : 'var(--t2)', whiteSpace: 'nowrap' }}>{item.label}</span>}
+                  {!col && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: '13.5px', fontWeight: on ? 700 : 500, color: on ? 'var(--t1)' : 'var(--t2)', whiteSpace: 'nowrap' }}>{item.label}</span>
+                      {item.id === 'crm-overview' && crmBadge > 0 && (
+                        <span style={{
+                          background: '#ef4444',
+                          color: '#fff',
+                          fontSize: '10px',
+                          fontWeight: 800,
+                          padding: '1px 6px',
+                          borderRadius: '9px',
+                          marginLeft: '6px'
+                        }}>
+                          {crmBadge > 99 ? '99+' : crmBadge}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {col && item.id === 'crm-overview' && crmBadge > 0 && (
+                    <span style={{ position: 'absolute', top: 6, right: 6, width: 7, height: 7, borderRadius: '50%', background: '#ef4444' }} />
+                  )}
                 </div>
               );
             })}
@@ -4196,19 +4242,21 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     // The design set lists them as first-class destinations, so they get their
     // own routes and sidebar entries — pointing at the existing, already-wired
     // implementation rather than a second copy of it.
-    if (page === 'ai-agent')        return <AutomationView initialTab="wa-agent" />;
+    if (page === 'ai-agent' || page === 'ai-chatbots') return <AiAgentsView user={user} initialTab={initialSubTab} />;
     if (page === 'intent-matching') return <AutomationView initialTab="ai-intent" />;
-if (page === 'crm-overview') return <CrmDashboardView user={user} />;
+    if (page === 'crm-overview') return <CrmDashboardView user={user} />;
     if (page === 'contacts')   return <ContactsView />;
     if (page === 'leads')      return <LeadsView />;
     if (page === 'deals')      return <DealsView initialTab={initialSubTab} />;
-    if (page === 'tasks')      return <TasksView />;
+    if (page === 'tasks')       return <TasksView />;
+    if (page === 'engagements') return <EngagementsView user={user} initialTab={initialSubTab} />;
     if (page === 'forecast')   return <ForecastView user={user} />;
     if (page === 'products')   return <ProductsView />;
     if (page === 'quotes')     return <QuotesView />;
     if (page === 'sequences')  return <SequencesView />;
     if (page === 'lead-forms') return <LeadFormsView />;
     if (page === 'tickets')    return <TicketsView />;
+    if (page === 'customize-business') return <CustomizeBusinessView user={user} initialTab={initialSubTab} />;
     if (page === 'automation')     return <AutomationView />;
     if (page === 'analytics')      return <AnalyticsView />;
     if (page === 'chat-analysis')  return <ChatAnalytics workspaceId={user.workspaceId} />;

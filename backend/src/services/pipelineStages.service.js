@@ -54,11 +54,41 @@ export async function stageProbabilities(workspaceId) {
   return new Map(data.map((s) => [s.key, FIXED_PROBABILITY[s.key] ?? s.probability]));
 }
 
+export async function createStage(workspaceId, { key, label, probability = 50, sortOrder = 0 }) {
+  await ensureStages(workspaceId);
+  const existing = await prisma.pipelineStage.findFirst({ where: { workspaceId, key } });
+  if (existing) {
+    const e = new Error(`Stage with key "${key}" already exists`); e.status = 400; throw e;
+  }
+  return prisma.pipelineStage.create({
+    data: {
+      workspaceId,
+      key,
+      label,
+      probability: Math.min(100, Math.max(0, Number(probability) || 0)),
+      sortOrder: Number(sortOrder) || 0,
+      isActive: true,
+    },
+  });
+}
+
+export async function deleteStage(workspaceId, key) {
+  if (CLOSED_STAGES.includes(key)) {
+    const e = new Error('Terminal closed stages cannot be deleted'); e.status = 400; throw e;
+  }
+  const stage = await prisma.pipelineStage.findFirst({ where: { workspaceId, key } });
+  if (!stage) {
+    const e = new Error('Pipeline stage not found'); e.status = 404; throw e;
+  }
+  await prisma.pipelineStage.delete({ where: { id: stage.id } });
+}
+
 export async function updateStage(workspaceId, key, updates) {
-  if (!STAGE_KEYS.includes(key)) {
+  await ensureStages(workspaceId);
+  const stage = await prisma.pipelineStage.findFirst({ where: { workspaceId, key }, select: { id: true } });
+  if (!stage) {
     const e = new Error('Unknown pipeline stage'); e.status = 404; throw e;
   }
-  await ensureStages(workspaceId);
 
   const data = { ...updates };
 
@@ -72,7 +102,6 @@ export async function updateStage(workspaceId, key, updates) {
     }
   }
 
-  const stage = await prisma.pipelineStage.findFirst({ where: { workspaceId, key }, select: { id: true } });
   return prisma.pipelineStage.update({ where: { id: stage.id }, data });
 }
 
@@ -80,18 +109,17 @@ export async function updateStage(workspaceId, key, updates) {
 // duplicate sortOrders, so callers submit the full ordering and it is written
 // in one transaction.
 export async function reorderStages(workspaceId, keys) {
-  const unknown = keys.filter((k) => !STAGE_KEYS.includes(k));
+  await ensureStages(workspaceId);
+  const existing = await prisma.pipelineStage.findMany({ where: { workspaceId }, select: { key: true } });
+  const validKeys = new Set(existing.map((s) => s.key));
+  const unknown = keys.filter((k) => !validKeys.has(k));
   if (unknown.length) {
     const e = new Error(`Unknown stage(s): ${unknown.join(', ')}`); e.status = 400; throw e;
   }
   if (new Set(keys).size !== keys.length) {
     const e = new Error('Duplicate stages in ordering'); e.status = 400; throw e;
   }
-  if (keys.length !== STAGE_KEYS.length) {
-    const e = new Error(`Ordering must list all ${STAGE_KEYS.length} stages`); e.status = 400; throw e;
-  }
 
-  await ensureStages(workspaceId);
   await prisma.$transaction(
     keys.map((key, i) =>
       prisma.pipelineStage.updateMany({ where: { workspaceId, key }, data: { sortOrder: i } })),

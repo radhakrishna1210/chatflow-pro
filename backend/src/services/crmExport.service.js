@@ -15,15 +15,22 @@ export function sanitiseCell(value) {
   return FORMULA_TRIGGERS.includes(s[0]) ? `'${s}` : s;
 }
 
+function maskPhoneNumber(phone) {
+  if (!phone) return '';
+  const s = String(phone).trim();
+  if (s.length <= 4) return '****';
+  return s.slice(0, 4) + '****' + s.slice(-3);
+}
+
 // RFC 4180 quoting, applied after sanitising.
 export function toCsvValue(value) {
   const s = sanitiseCell(value);
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export function toCsv(rows, columns) {
+export function toCsv(rows, columns, options = {}) {
   const header = columns.map((c) => toCsvValue(c.label)).join(',');
-  const body = rows.map((row) => columns.map((c) => toCsvValue(c.value(row))).join(','));
+  const body = rows.map((row) => columns.map((c) => toCsvValue(c.value(row, options))).join(','));
   return [header, ...body].join('\r\n');
 }
 
@@ -41,7 +48,7 @@ const EXPORTS = {
     },
     columns: [
       { label: 'Name', value: (l) => l.contact?.name },
-      { label: 'Phone', value: (l) => l.contact?.phoneNumber },
+      { label: 'Phone', value: (l, opt) => (opt?.maskPhone ? maskPhoneNumber(l.contact?.phoneNumber) : l.contact?.phoneNumber) },
       { label: 'Email', value: (l) => l.contact?.email },
       { label: 'Status', value: (l) => l.status },
       { label: 'Score', value: (l) => l.score },
@@ -111,7 +118,7 @@ const EXPORTS = {
 
 export const EXPORTABLE = Object.keys(EXPORTS);
 
-export async function exportEntity(workspaceId, entity) {
+export async function exportEntity(workspaceId, entity, options = {}) {
   const spec = EXPORTS[entity];
   if (!spec) {
     const e = new Error(`Cannot export "${entity}". Try one of: ${EXPORTABLE.join(', ')}`);
@@ -120,7 +127,7 @@ export async function exportEntity(workspaceId, entity) {
   }
   const rows = await spec.fetch(workspaceId);
   return {
-    csv: toCsv(rows, spec.columns),
+    csv: toCsv(rows, spec.columns, options),
     filename: `${spec.filename}-${new Date().toISOString().slice(0, 10)}.csv`,
     count: rows.length,
   };

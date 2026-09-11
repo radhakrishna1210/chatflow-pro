@@ -9,9 +9,11 @@ const ACTIONS = [
   { id: 'nav-home', label: 'Go to Home', icon: 'home', nav: 'home', keywords: 'dashboard overview' },
   { id: 'nav-crm', label: 'Go to CRM Overview', icon: 'chart', nav: 'crm-overview', keywords: 'pipeline metrics kpi' },
   { id: 'nav-crm-sales-inbox', label: 'Go to CRM Sales Inbox', icon: 'msg', nav: 'crm-sales-inbox', keywords: 'sales inbox leads follow-up category segmentation' },
+  { id: 'nav-ai-chatbots', label: 'Go to AI Chatbots & Agents', icon: 'bot', nav: 'ai-chatbots', keywords: 'ai agents bots qualification compliance support knowledge guidelines actions' },
   { id: 'nav-leads', label: 'Go to Leads', icon: 'target', nav: 'leads', keywords: 'prospects' },
   { id: 'nav-deals', label: 'Go to Deals', icon: 'briefcase', nav: 'deals', keywords: 'pipeline opportunities kanban' },
   { id: 'nav-tasks', label: 'Go to Tasks', icon: 'check-square', nav: 'tasks', keywords: 'todo work queue' },
+  { id: 'nav-engagements', label: 'Go to Engagements', icon: 'activity', nav: 'engagements', keywords: 'engagements calls video messages visits meetings' },
   { id: 'nav-forecast', label: 'Go to Forecast', icon: 'chart', nav: 'forecast', keywords: 'commit best case quota weighted pipeline' },
   { id: 'nav-products', label: 'Go to Products', icon: 'briefcase', nav: 'products', keywords: 'catalogue services sku price' },
   { id: 'nav-quotes', label: 'Go to Quotes', icon: 'note', nav: 'quotes', keywords: 'proposal estimate pricing' },
@@ -21,6 +23,7 @@ const ACTIONS = [
   { id: 'nav-campaigns', label: 'Go to Campaigns', icon: 'send', nav: 'campaigns', keywords: 'broadcast' },
   { id: 'nav-automation', label: 'Go to Automation', icon: 'zap', nav: 'automation', keywords: 'workflows agent rules' },
   { id: 'nav-analytics', label: 'Go to Analytics', icon: 'chart', nav: 'analytics', keywords: 'reports stats' },
+  { id: 'nav-customize-business', label: 'Go to Customize Your Business', icon: 'sliders', nav: 'customize-business', keywords: 'customize business pipeline lead lifecycle prospecting criteria deal mode tags call visit outcomes deal setup tickets categories documents' },
   { id: 'nav-settings', label: 'Go to Settings', icon: 'cog', nav: 'settings', keywords: 'preferences workspace' },
 ];
 

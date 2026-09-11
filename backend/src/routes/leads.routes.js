@@ -15,6 +15,10 @@ router.get('/:id', leadsController.get);
 router.patch('/:id', authorize('CLIENT'), validate({ body: leadSchemas.update }), leadsController.update);
 router.delete('/:id', authorize('CLIENT'), leadsController.remove);
 router.post('/bulk-delete', authorize('CLIENT'), leadsController.bulkRemove);
+router.post('/bulk-assign', authorize('CLIENT'), leadsController.bulkAssign);
+router.post('/bulk-status', authorize('CLIENT'), leadsController.bulkStatus);
+router.post('/bulk-category', authorize('CLIENT'), leadsController.bulkCategory);
+router.post('/bulk-task', authorize('CLIENT'), leadsController.bulkTask);
 router.post('/:id/recalculate-score', authorize('CLIENT'), leadsController.recalculateScore);
 router.post('/:id/convert', authorize('CLIENT'), validate({ body: leadSchemas.convert }), leadsController.convert);
 

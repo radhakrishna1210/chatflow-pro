@@ -2,9 +2,10 @@ import * as exportService from '../services/crmExport.service.js';
 import * as importService from '../services/crmImport.service.js';
 
 export async function exportCsv(req, res) {
-  const { csv, filename, count } = await exportService.exportEntity(req.params.workspaceId, req.params.entity);
+  const maskPhone = req.query.maskPhone === 'true' || req.query.maskPhone === true;
+  const { csv, filename, count } = await exportService.exportEntity(req.params.workspaceId, req.params.entity, { maskPhone });
   // Exports can contain customer contact details, so they are logged.
-  console.log(`[export] workspace=${req.params.workspaceId} user=${req.user.id} entity=${req.params.entity} rows=${count}`);
+  console.log(`[export] workspace=${req.params.workspaceId} user=${req.user.id} entity=${req.params.entity} rows=${count} masked=${maskPhone}`);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(csv);

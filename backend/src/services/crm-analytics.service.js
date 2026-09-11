@@ -27,30 +27,25 @@ function bucketByMonth(rows, dateField, now) {
   return buckets;
 }
 
-export async function getCrmAnalytics(workspaceId, { userId } = {}) {
+export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {}) {
   const baseWhere = { workspaceId };
   if (userId) baseWhere.ownerUserId = userId;
 
   const now = new Date();
+  let startDate = null;
+  if (range === '7d') startDate = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+  else if (range === '30d') startDate = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+  else if (range === '90d') startDate = new Date(now.getTime() - 90 * 24 * 3600 * 1000);
+  else if (range === 'this_month') startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const startOf90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
   const startOfChart = new Date(now.getFullYear(), now.getMonth() - (MONTHS_ON_CHART - 1), 1);
 
   const openWhere = { ...baseWhere, stage: { notIn: CLOSED_STAGES } };
 
-  // Aggregates are computed in the database. Loading every open deal to sum it
-  // in JS put the whole pipeline through the API process on each dashboard
-  // load, which is the one thing a summary screen must not do.
-  const [
-    closedWonThisMonth,
-    openByStage,
-    closed90d,
-    createdInWindow,
-    wonInWindow,
-    topOpenDeals,
-    activities,
-    stageChanges,
-  ] = await Promise.all([
+  // Batch 1: Deal aggregates (3 queries)
+  const [closedWonThisMonth, openByStage, closed90d] = await Promise.all([
     prisma.deal.aggregate({
       where: { ...baseWhere, stage: 'CLOSED_WON', closedAt: { gte: startOfMonth } },
       _sum: { value: true },
@@ -67,6 +62,10 @@ export async function getCrmAnalytics(workspaceId, { userId } = {}) {
       _sum: { value: true },
       _count: { _all: true },
     }),
+  ]);
+
+  // Batch 2: Deals timeline and top deals (3 queries)
+  const [createdInWindow, wonInWindow, topOpenDeals] = await Promise.all([
     prisma.deal.findMany({
       where: { ...baseWhere, createdAt: { gte: startOfChart } },
       select: { value: true, createdAt: true },
@@ -88,6 +87,10 @@ export async function getCrmAnalytics(workspaceId, { userId } = {}) {
       orderBy: { value: { sort: 'desc', nulls: 'last' } },
       take: 5,
     }),
+  ]);
+
+  // Batch 3: Feeds and leads (3 queries)
+  const [activities, stageChanges, allLeadsForSource] = await Promise.all([
     prisma.crmActivity.findMany({
       where: { workspaceId, ...(userId ? { createdByUserId: userId } : {}) },
       orderBy: { createdAt: 'desc' },
@@ -106,8 +109,83 @@ export async function getCrmAnalytics(workspaceId, { userId } = {}) {
         deal: { select: { title: true, contact: { select: { name: true } } } },
       },
     }),
+    prisma.lead.findMany({
+      where: { workspaceId, ...(startDate ? { createdAt: { gte: startDate } } : {}) },
+      select: {
+        id: true,
+        source: true,
+        status: true,
+        deals: {
+          select: { id: true, stage: true, value: true },
+        },
+      },
+    }),
   ]);
 
+  // Derived lead counts without extra DB roundtrips
+  const newLeadsCount = allLeadsForSource.length;
+  const qualifiedLeadsCount = allLeadsForSource.filter(
+    (l) => l.status === 'QUALIFIED' || l.status === 'CONVERTED'
+  ).length;
+
+  // Batch 4: Activity counts and tasks (4 queries)
+  const [activityGroups, overdueTasks, dueTodayTasks, completedTasks] = await Promise.all([
+    prisma.crmActivity.groupBy({
+      by: ['type'],
+      where: { workspaceId, ...(startDate ? { createdAt: { gte: startDate } } : {}) },
+      _count: { _all: true },
+    }),
+    prisma.task.count({ where: { workspaceId, status: 'PENDING', dueDate: { lt: now } } }),
+    prisma.task.count({
+      where: {
+        workspaceId,
+        status: 'PENDING',
+        dueDate: {
+          gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+          lt: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1),
+        },
+      },
+    }),
+    prisma.task.count({ where: { workspaceId, status: 'COMPLETED', ...(startDate ? { completedAt: { gte: startDate } } : {}) } }),
+  ]);
+
+  const actCountMap = {};
+  for (const g of activityGroups || []) {
+    actCountMap[g.type] = g._count._all;
+  }
+  const callsCount = actCountMap.CALL || 0;
+  const notesCount = actCountMap.NOTE || 0;
+  const emailsCount = actCountMap.EMAIL || 0;
+  const meetingsCount = actCountMap.MEETING || 0;
+
+  // Lead Source Performance Breakdown
+  const sourceMap = new Map();
+  for (const l of allLeadsForSource || []) {
+    const src = l.source || 'Direct';
+    const cur = sourceMap.get(src) || {
+      source: src,
+      leads: 0,
+      qualified: 0,
+      deals: 0,
+      won: 0,
+      revenue: 0,
+    };
+    cur.leads++;
+    if (l.status === 'QUALIFIED' || l.status === 'CONVERTED') {
+      cur.qualified++;
+    }
+    for (const d of l.deals || []) {
+      cur.deals++;
+      if (d.stage === 'CLOSED_WON') {
+        cur.won++;
+        cur.revenue += toNumber(d.value);
+      }
+    }
+    sourceMap.set(src, cur);
+  }
+  const leadSourcePerformance = Array.from(sourceMap.values()).sort((a, b) => b.leads - a.leads);
+
+  const openDealsCount = openByStage.reduce((acc, s) => acc + (s._count?._all ?? 0), 0);
   const openPipelineTotal = openByStage.reduce((sum, g) => sum + toNumber(g._sum.value), 0);
 
   const wonGroup = closed90d.find((g) => g.stage === 'CLOSED_WON');
@@ -171,18 +249,36 @@ export async function getCrmAnalytics(workspaceId, { userId } = {}) {
     .sort((a, b) => b.when.getTime() - a.when.getTime())
     .slice(0, 10);
 
+  const leadToDealConversionRate = newLeadsCount > 0 ? parseFloat(((qualifiedLeadsCount / newLeadsCount) * 100).toFixed(1)) : 0;
+
   return {
     kpis: {
       closedWonMonthly: toNumber(closedWonThisMonth._sum.value),
       openPipelineTotal,
       winRate90d: parseFloat(winRate90d.toFixed(1)),
       averageDeal90d,
+      newLeads: newLeadsCount,
+      qualifiedLeads: qualifiedLeadsCount,
+      openDeals: openDealsCount,
+      wonDeals: wonCount,
+      conversionRate: leadToDealConversionRate,
     },
     charts: {
       pipelineVsWon,
       openPipelineByStage,
     },
+    leadSourcePerformance,
+    activityPerformance: {
+      calls: callsCount,
+      notes: notesCount,
+      emails: emailsCount,
+      meetings: meetingsCount,
+      overdueTasks,
+      dueTodayTasks,
+      completedTasks,
+    },
     dealsInProgress,
     recentActivity,
+    range,
   };
 }

@@ -10,11 +10,36 @@ import { wFetch } from '../lib/api.js';
 import { SavedViews } from '../components/SavedViews.jsx';
 import { ImportExport } from '../components/ImportExport.jsx';
 
-const STAGES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
+const DEFAULT_STAGES = [
+  { key: 'QUALIFICATION', label: 'Qualification', tone: 'blue', color: '#3b82f6' },
+  { key: 'NEEDS_ANALYSIS', label: 'Needs Analysis', tone: 'violet', color: '#8b5cf6' },
+  { key: 'PROPOSAL', label: 'Proposal', tone: 'amber', color: '#f59e0b' },
+  { key: 'NEGOTIATION', label: 'Negotiation', tone: 'amber', color: '#ec4899' },
+  { key: 'CLOSED_WON', label: 'Closed Won', tone: 'green', color: '#10b981' },
+  { key: 'CLOSED_LOST', label: 'Closed Lost', tone: 'red', color: '#ef4444' },
+];
 
 const STAGE_TONE = {
   QUALIFICATION: 'blue', NEEDS_ANALYSIS: 'violet', PROPOSAL: 'amber',
   NEGOTIATION: 'amber', CLOSED_WON: 'green', CLOSED_LOST: 'red',
+};
+
+const StageBadge = ({ stageKey, stages = [] }) => {
+  const st = stages.find(s => s.key === stageKey);
+  const label = st?.label || pretty(stageKey);
+  const tone = st?.tone || STAGE_TONE[stageKey];
+  if (st?.color) {
+    return (
+      <span style={{
+        padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+        background: `${st.color}18`, border: `1px solid ${st.color}45`,
+        color: st.color, whiteSpace: 'nowrap', display: 'inline-block'
+      }}>
+        {label}
+      </span>
+    );
+  }
+  return <StatusBadge label={label} tone={tone || 'gray'} />;
 };
 
 const pretty = s => String(s || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
@@ -164,7 +189,7 @@ const HealthPanel = ({ health }) => {
   );
 };
 
-const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted }) => {
+const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages = [] }) => {
   const [deal, setDeal] = useState(null);
   const [title, setTitle] = useState('');
   const [value, setValue] = useState('');
@@ -265,7 +290,7 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted }) => {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--t3)' }}>
               <span>Current stage</span>
-              <StatusBadge label={pretty(deal.stage)} tone={STAGE_TONE[deal.stage]} />
+              <StageBadge stageKey={deal.stage} stages={stages} />
               {deal.lostReason && <span>· {deal.lostReason}</span>}
             </div>
           </div>
@@ -316,13 +341,13 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted }) => {
   );
 };
 
-const NewDealModal = ({ members, onClose, onCreated }) => {
+const NewDealModal = ({ members, onClose, onCreated, stages = [] }) => {
   const [search, setSearch] = useState('');
   const [contacts, setContacts] = useState([]);
   const [contactId, setContactId] = useState(null);
   const [title, setTitle] = useState('');
   const [value, setValue] = useState('');
-  const [stage, setStage] = useState('QUALIFICATION');
+  const [stage, setStage] = useState(stages[0]?.key || 'QUALIFICATION');
   const [ownerUserId, setOwner] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
@@ -368,7 +393,7 @@ const NewDealModal = ({ members, onClose, onCreated }) => {
           <div><FLabel>Value (INR)</FLabel><FInput type="number" value={value} onChange={e => setValue(e.target.value)} /></div>
           <div>
             <FLabel>Stage</FLabel>
-            <FSelect value={stage} onChange={e => setStage(e.target.value)} options={STAGES.map(s => ({ value: s, label: pretty(s) }))} />
+            <FSelect value={stage} onChange={e => setStage(e.target.value)} options={stages.map(s => ({ value: s.key, label: s.label || pretty(s.key) }))} />
           </div>
         </div>
         <div>
@@ -402,6 +427,7 @@ const NewDealModal = ({ members, onClose, onCreated }) => {
 
 export default function DealsView({ initialTab }) {
   const [tab, setTab] = useState(initialTab === 'table' ? 'table' : 'board');
+  const [stages, setStages] = useState(DEFAULT_STAGES);
   const [deals, setDeals] = useState([]);
   const [members, setMembers] = useState([]);
   const [owner, setOwner] = useState('');
@@ -411,6 +437,26 @@ export default function DealsView({ initialTab }) {
   const [dragOverStage, setDragOverStage] = useState(null);
   const [openDealId, setOpenDealId] = useState(null);
   const [creating, setCreating] = useState(false);
+
+  const loadStages = useCallback(() => {
+    wFetch('/crm-customization/deal_setup')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (d && Array.isArray(d.stages) && d.stages.length > 0) {
+          setStages(d.stages.map(s => ({
+            key: s.key,
+            label: s.label || pretty(s.key),
+            tone: STAGE_TONE[s.key] || 'blue',
+            color: s.color || '#3b82f6',
+            probability: s.probability,
+            slaDays: s.slaDays,
+          })));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { loadStages(); }, [loadStages]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -462,10 +508,11 @@ export default function DealsView({ initialTab }) {
   // Keyboard equivalent of dragging a card: shift it one column along the
   // pipeline. Same optimistic path and rollback as the drop handler.
   const nudgeStage = (deal, direction) => {
-    const from = STAGES.indexOf(deal.stage);
+    const stageKeys = stages.map(s => s.key);
+    const from = stageKeys.indexOf(deal.stage);
     const to = from + direction;
-    if (from === -1 || to < 0 || to >= STAGES.length) return;
-    moveTo(deal.id, STAGES[to]);
+    if (from === -1 || to < 0 || to >= stageKeys.length) return;
+    moveTo(deal.id, stageKeys[to]);
   };
 
   const byStage = stage => deals.filter(d => d.stage === stage);
@@ -508,7 +555,8 @@ export default function DealsView({ initialTab }) {
       ) : tab === 'board' ? (
         <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: '18px 28px' }}>
           <div style={{ display: 'flex', gap: 14, height: '100%', minWidth: 'min-content' }}>
-            {STAGES.map(stage => {
+            {stages.map(stageObj => {
+              const stage = stageObj.key;
               const items = byStage(stage);
               const isOver = dragOverStage === stage;
               return (
@@ -528,7 +576,8 @@ export default function DealsView({ initialTab }) {
                     transition: 'background .15s ease, border-color .15s ease' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '2px 3px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <StatusBadge label={pretty(stage)} tone={STAGE_TONE[stage]} />
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: stageObj.color || '#38bdf8', flexShrink: 0 }} />
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--t1)' }}>{stageObj.label}</span>
                       <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600 }}>{items.length}</span>
                     </div>
                     <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--t2)' }}>
@@ -573,7 +622,7 @@ export default function DealsView({ initialTab }) {
                     style={{ borderBottom: '1px solid var(--bd)', cursor: 'pointer' }}>
                     <td style={{ padding: '11px 16px', fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{d.title}</td>
                     <td style={{ padding: '11px 16px', fontSize: 12.5, color: 'var(--t2)' }}>{d.contact?.name || '—'}</td>
-                    <td style={{ padding: '11px 16px' }}><StatusBadge label={pretty(d.stage)} tone={STAGE_TONE[d.stage]} /></td>
+                    <td style={{ padding: '11px 16px' }}><StageBadge stageKey={d.stage} stages={stages} /></td>
                     <td style={{ padding: '11px 16px', fontSize: 13, fontWeight: 700, color: 'var(--t1)' }}>{fmtMoney(d.value)}</td>
                     <td style={{ padding: '11px 16px', fontSize: 12.5, color: 'var(--t2)' }}>{d.owner?.name || '—'}</td>
                     <td style={{ padding: '11px 16px', fontSize: 12.5, color: 'var(--t2)' }}>{fmtDate(d.expectedCloseDate)}</td>
@@ -593,7 +642,7 @@ export default function DealsView({ initialTab }) {
       )}
 
       {openDealId && (
-        <DealDetailModal dealId={openDealId} members={members}
+        <DealDetailModal dealId={openDealId} members={members} stages={stages}
           onClose={() => setOpenDealId(null)}
           onSaved={(updated) => {
             setDeals(prev => prev.map(d => (d.id === updated.id ? { ...d, ...updated } : d)));
@@ -603,7 +652,7 @@ export default function DealsView({ initialTab }) {
       )}
 
       {creating && (
-        <NewDealModal members={members} onClose={() => setCreating(false)}
+        <NewDealModal members={members} stages={stages} onClose={() => setCreating(false)}
           onCreated={() => { setCreating(false); load(); }} />
       )}
     </div>

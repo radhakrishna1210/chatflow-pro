@@ -9,16 +9,30 @@ import { countVariables, buildTextComponents, buildButtonComponents, contactVari
 import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
 
-export async function listConversations(workspaceId, { page = 1, limit = 20 } = {}) {
+export async function listConversations(workspaceId, { page = 1, limit = 20, contactId = null, search = '' } = {}) {
   const skip = (page - 1) * limit;
+  const where = { workspaceId };
+  if (contactId) {
+    where.contactId = contactId;
+  } else if (search && search.trim()) {
+    const q = search.trim();
+    where.contact = {
+      OR: [
+        { name: { contains: q, mode: 'insensitive' } },
+        { phoneNumber: { contains: q } },
+      ],
+    };
+  }
+
   const [data, total] = await Promise.all([
     prisma.conversation.findMany({
-      where: { workspaceId },
+      where,
       skip,
       take: limit,
       orderBy: { lastMessageAt: 'desc' },
       include: {
-        contact: { select: { id: true, name: true, phoneNumber: true } },
+        contact: { select: { id: true, name: true, phoneNumber: true, email: true, optedOut: true } },
+        waNumber: { select: { id: true, phoneNumber: true, displayName: true, status: true } },
         // Two messages rather than one: the preview needs the latest, and
         // "who is handling this" needs the latest *outbound*, which is often
         // the one behind it.
@@ -37,9 +51,76 @@ export async function listConversations(workspaceId, { page = 1, limit = 20 } = 
         },
       },
     }),
-    prisma.conversation.count({ where: { workspaceId } }),
+    prisma.conversation.count({ where }),
   ]);
   return { data, total };
+}
+
+export async function getOrCreateConversation(workspaceId, { contactId, waNumberId = null } = {}) {
+  if (!contactId) {
+    const e = new Error('contactId is required');
+    e.status = 400;
+    throw e;
+  }
+
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId },
+  });
+  if (!contact) {
+    const e = new Error('Contact not found');
+    e.status = 404;
+    throw e;
+  }
+
+  let conversation = await prisma.conversation.findFirst({
+    where: { workspaceId, contactId },
+    include: {
+      contact: true,
+      waNumber: true,
+    },
+    orderBy: { lastMessageAt: 'desc' },
+  });
+
+  let resolvedWaNumberId = waNumberId;
+  if (resolvedWaNumberId) {
+    const valid = await prisma.waNumber.findFirst({ where: { id: resolvedWaNumberId, workspaceId } });
+    if (!valid) resolvedWaNumberId = null;
+  }
+  if (!resolvedWaNumberId) {
+    const defaultNumber = await prisma.waNumber.findFirst({
+      where: { workspaceId, status: { in: ['ACTIVE', 'CONNECTED'] } },
+    }) || await prisma.waNumber.findFirst({ where: { workspaceId } });
+    resolvedWaNumberId = defaultNumber?.id || null;
+  }
+
+  if (conversation) {
+    if (!conversation.waNumberId && resolvedWaNumberId) {
+      conversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { waNumberId: resolvedWaNumberId },
+        include: {
+          contact: true,
+          waNumber: true,
+        },
+      });
+    }
+    return conversation;
+  }
+
+  conversation = await prisma.conversation.create({
+    data: {
+      workspaceId,
+      contactId,
+      status: 'OPEN',
+      waNumberId: resolvedWaNumberId,
+    },
+    include: {
+      contact: true,
+      waNumber: true,
+    },
+  });
+
+  return conversation;
 }
 
 export async function getMessages(workspaceId, conversationId) {
@@ -102,12 +183,21 @@ function describeSendFailure(err) {
   return e;
 }
 
-export async function sendMessage(workspaceId, conversationId, userId, { type, body }) {
+export async function sendMessage(workspaceId, conversationId, userId, { type, body, contactId, phoneNumber } = {}) {
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
     include: { contact: true, waNumber: true },
   });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+
+  if (contactId && conversation.contactId !== contactId) {
+    const e = new Error('Recipient mismatch: conversation contact does not match the target contact');
+    e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
+  }
+  if (phoneNumber && conversation.contact.phoneNumber !== phoneNumber) {
+    const e = new Error('Recipient mismatch: conversation phone number does not match the target contact');
+    e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
+  }
 
   // The thread survives its number being disconnected, but there is nothing left
   // to send from — the history stays readable, replies do not.
@@ -121,12 +211,13 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   // from the inbox — a customer who sent STOP must not be messaged again.
   await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
 
-  // WhatsApp's 24-hour rule. Checked here rather than discovered at Meta,
-  // because the rejection that comes back (error 131047) reached the agent as
-  // an unexplained 400 — and, crucially, the message credit below had already
-  // been spent by then.
+  // WhatsApp's 24-hour rule:
+  // Meta Cloud API is the authoritative source of truth for whether the customer
+  // service window is currently active. If lastInboundAt is null or stale in the local
+  // DB (e.g., webhook was not delivered, in local dev, or network delay), we attempt the
+  // send via Meta. If Meta rejects with 131047, describeSendFailure() refunds credit
+  // and returns OUTSIDE_24H_WINDOW. If Meta accepts, we sync lastInboundAt.
   const windowState = await getWindowState(conversationId);
-  if (!windowState.open) throw outsideWindowError(windowState);
 
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Message overage' });
   if (!credit.ok) {
@@ -170,6 +261,9 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     where: { id: conversationId },
     data: {
       lastMessageAt: new Date(),
+      // If Meta accepted the free-form send, the 24-hour window is active on WhatsApp.
+      // Sync lastInboundAt so local window checks reflect this reality.
+      ...(!windowState.open ? { lastInboundAt: new Date() } : {}),
       // A person replying is a takeover. Shared inboxes work this way for a
       // reason: once an agent is in the thread, an automated reply arriving
       // between their messages reads as the company talking to itself.
@@ -217,9 +311,8 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
 
   await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
 
-  // An attachment is a free-form message, so the same 24-hour rule applies.
+  // An attachment is a free-form message, so the same 24-hour rule applies via Meta.
   const windowState = await getWindowState(conversationId);
-  if (!windowState.open) throw outsideWindowError(windowState);
 
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Media message' });
   if (!credit.ok) {
@@ -268,7 +361,11 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
 
   await prisma.conversation.update({
     where: { id: conversationId },
-    data: { lastMessageAt: new Date() },
+    data: {
+      lastMessageAt: new Date(),
+      ...(!windowState.open ? { lastInboundAt: new Date() } : {}),
+      ...(userId ? { humanHandoffAt: new Date() } : {}),
+    },
   });
 
   return message;
@@ -281,12 +378,21 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
 // message told the agent to "send an approved template to reopen the
 // conversation" while no route existed to send one. Closing the window without
 // this is only half the rule.
-export async function sendTemplateMessage(workspaceId, conversationId, userId, { templateId, variables = [] } = {}) {
+export async function sendTemplateMessage(workspaceId, conversationId, userId, { templateId, variables = [], contactId, phoneNumber } = {}) {
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
     include: { contact: true, waNumber: true },
   });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+
+  if (contactId && conversation.contactId !== contactId) {
+    const e = new Error('Recipient mismatch: conversation contact does not match the target contact');
+    e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
+  }
+  if (phoneNumber && conversation.contact.phoneNumber !== phoneNumber) {
+    const e = new Error('Recipient mismatch: conversation phone number does not match the target contact');
+    e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
+  }
   if (!conversation.waNumber) {
     const e = new Error('The WhatsApp number for this conversation was disconnected — connect a number to reply.');
     e.status = 409; throw e;
@@ -626,4 +732,61 @@ export async function setBotEnabled(workspaceId, conversationId, enabled) {
     botEnabled: updated.humanHandoffAt === null,
     humanHandoffAt: updated.humanHandoffAt,
   };
+}
+
+/**
+ * Explicitly reopen/sync the 24-hour reply window for a conversation.
+ * Useful when the contact messaged outside webhooks or during manual sync.
+ */
+export async function reopenWindow(workspaceId, conversationId) {
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+  });
+  if (!conversation) {
+    const e = new Error('Conversation not found');
+    e.status = 404;
+    throw e;
+  }
+  const now = new Date();
+  const updated = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { lastInboundAt: now },
+  });
+  return { success: true, lastInboundAt: updated.lastInboundAt, window: windowStateFrom(now) };
+}
+
+/**
+ * Simulate an inbound WhatsApp message from the contact for testing/dev environments.
+ */
+export async function simulateInboundMessage(workspaceId, conversationId, { body = 'Hii' } = {}) {
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    include: { contact: true },
+  });
+  if (!conversation) {
+    const e = new Error('Conversation not found');
+    e.status = 404;
+    throw e;
+  }
+  const now = new Date();
+  const message = await prisma.message.create({
+    data: {
+      conversationId,
+      body: String(body || 'Hii').trim(),
+      direction: 'INBOUND',
+      type: 'TEXT',
+      status: 'DELIVERED',
+      statusAt: now,
+      sentAt: now,
+    },
+  });
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: {
+      lastInboundAt: now,
+      lastMessageAt: now,
+      unreadCount: { increment: 1 },
+    },
+  });
+  return { success: true, message, window: windowStateFrom(now) };
 }
