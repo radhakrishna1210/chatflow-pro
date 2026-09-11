@@ -49,3 +49,13 @@ export async function launchBulkCampaign(req, res, next) {
     next(err);
   }
 }
+
+export async function getCampaignAnalytics(req, res, next) {
+  try {
+    const data = await crmSalesInboxService.getSegmentCampaignAnalytics(req.workspace.id);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+

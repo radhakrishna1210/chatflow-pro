@@ -29,7 +29,7 @@ const DESTINATION = { task: 'tasks', deal: 'deals', lead: 'leads', ticket: 'tick
 
 const RECORD_ICON = { task: 'check-square', deal: 'briefcase', lead: 'target', ticket: 'alertc', contact: 'user' };
 
-export default function NextBestActions({ limit = 8 }) {
+export default function NextBestActions({ limit = 8, onTotalChange }) {
   const [items, setItems] = useState(null);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState(null);
@@ -40,11 +40,13 @@ export default function NextBestActions({ limit = 8 }) {
       if (!res.ok) throw new Error(`Could not load recommendations (${res.status}).`);
       const body = await res.json();
       setItems(body.data ?? []);
-      setTotal(body.total ?? 0);
+      const count = body.total ?? 0;
+      setTotal(count);
+      onTotalChange?.(count);
     } catch (e) {
       setError(e.message);
     }
-  }, [limit]);
+  }, [limit, onTotalChange]);
 
   useEffect(() => { load(); }, [load]);
 

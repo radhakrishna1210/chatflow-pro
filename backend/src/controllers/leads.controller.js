@@ -1,8 +1,21 @@
 import * as leadsService from '../services/leads.service.js';
 
 export async function list(req, res) {
-  const { status, ownerUserId, search, sort } = req.query;
-  const result = await leadsService.listLeads(req.params.workspaceId, { status, ownerUserId, search, sort }, req.user);
+  const { category, status, ownerUserId, search, sort, preset, awaitingTask, uncontacted } = req.query;
+  const result = await leadsService.listLeads(
+    req.params.workspaceId,
+    {
+      category,
+      status,
+      ownerUserId,
+      search,
+      sort,
+      preset,
+      awaitingTask: awaitingTask === 'true' || awaitingTask === true,
+      uncontacted: uncontacted === 'true' || uncontacted === true,
+    },
+    req.user
+  );
   res.json(result);
 }
 
@@ -29,6 +42,30 @@ export async function remove(req, res) {
 export async function bulkRemove(req, res) {
   const { ids } = req.body;
   const result = await leadsService.deleteLeads(req.params.workspaceId, ids, req.user);
+  res.json(result);
+}
+
+export async function bulkAssign(req, res) {
+  const { ids, ownerUserId } = req.body || {};
+  const result = await leadsService.bulkAssignLeads(req.params.workspaceId, ids, ownerUserId, req.user);
+  res.json(result);
+}
+
+export async function bulkStatus(req, res) {
+  const { ids, status } = req.body || {};
+  const result = await leadsService.bulkUpdateStatus(req.params.workspaceId, ids, status, req.user);
+  res.json(result);
+}
+
+export async function bulkCategory(req, res) {
+  const { ids, category } = req.body || {};
+  const result = await leadsService.bulkUpdateCategory(req.params.workspaceId, ids, category, req.user);
+  res.json(result);
+}
+
+export async function bulkTask(req, res) {
+  const { ids, title, dueDate, priority } = req.body || {};
+  const result = await leadsService.bulkCreateTask(req.params.workspaceId, ids, { title, dueDate, priority }, req.user.id);
   res.json(result);
 }
 

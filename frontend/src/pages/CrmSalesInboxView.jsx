@@ -93,6 +93,11 @@ export default function CrmSalesInboxView() {
   const [confirmBulkDeleteAudience, setConfirmBulkDeleteAudience] = useState(false);
   const [bulkDeletingAudience, setBulkDeletingAudience] = useState(false);
 
+  // Campaign Analytics & Inbox Filter State
+  const [campaignAnalytics, setCampaignAnalytics] = useState(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [inboxFilter, setInboxFilter] = useState('all'); // 'all' | 'my' | 'uncontacted' | 'awaiting_task' | 'opted_out'
+
   // Resizable Panel Widths for Individual Lead Mode
   const [leftWidth, setLeftWidth] = useState(() => {
     const saved = localStorage.getItem('crm_sales_inbox_left_width');
@@ -202,6 +207,7 @@ export default function CrmSalesInboxView() {
       if (categoryFilter && categoryFilter !== 'ALL') query.set('category', categoryFilter);
       if (statusFilter) query.set('status', statusFilter);
       if (leadSearch) query.set('search', leadSearch);
+      if (inboxFilter && inboxFilter !== 'all') query.set('preset', inboxFilter);
 
       const res = await wFetch(`/leads?${query.toString()}`);
       if (!res.ok) return;
@@ -215,13 +221,36 @@ export default function CrmSalesInboxView() {
     } catch (err) {
       console.error('[CrmSalesInbox] Error fetching leads:', err);
     }
-  }, [categoryFilter, statusFilter, leadSearch, selectedLeadId]);
+  }, [categoryFilter, statusFilter, leadSearch, selectedLeadId, inboxFilter]);
 
   useEffect(() => {
     if (activeTab === 'individual') {
       fetchLeads();
     }
   }, [activeTab, fetchLeads]);
+
+  // Fetch Campaign Analytics
+  const fetchCampaignAnalytics = useCallback(async () => {
+    setLoadingAnalytics(true);
+    try {
+      const res = await wFetch('/crm-sales-inbox/campaign-analytics');
+      if (res.ok) {
+        const data = await res.json();
+        setCampaignAnalytics(data);
+      }
+    } catch (err) {
+      console.error('[CrmSalesInbox] Error fetching campaign analytics:', err);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'analytics' || activeTab === 'segment') {
+      fetchCampaignAnalytics();
+    }
+  }, [activeTab, fetchCampaignAnalytics]);
+
 
   // 3. Fetch Selected Lead Details & Messages
   const loadLeadContext = useCallback(async (leadId) => {
@@ -233,17 +262,20 @@ export default function CrmSalesInboxView() {
       const leadData = await leadRes.json();
       setSelectedLead(leadData);
 
-      // Fetch or find conversation for contact
+      // Fetch or find conversation strictly for contact
       if (leadData?.contactId) {
-        const convsRes = await wFetch(`/conversations?search=${encodeURIComponent(leadData.contact.phoneNumber)}`);
+        const convsRes = await wFetch(`/conversations?contactId=${encodeURIComponent(leadData.contactId)}`);
         let convList = [];
         if (convsRes.ok) {
           const convsData = await convsRes.json();
           convList = Array.isArray(convsData) ? convsData : convsData?.data || [];
         }
-        const match = Array.isArray(convList) ? (convList.find(c => c.waNumberId) || convList[0]) : null;
+        // STRICT MATCH: Must belong to leadData.contactId and never fallback to an unrelated conversation
+        const match = Array.isArray(convList)
+          ? convList.find((c) => c.contactId === leadData.contactId)
+          : null;
 
-        if (match) {
+        if (match && match.contactId === leadData.contactId) {
           setConversation(match);
           const msgsRes = await wFetch(`/conversations/${match.id}/messages`);
           if (msgsRes.ok) {
@@ -306,10 +338,10 @@ export default function CrmSalesInboxView() {
     setSendingMsg(true);
     setChatError(null);
     try {
-      let convId = conversation?.id;
+      let activeConv = conversation;
 
-      // Create conversation if none exists
-      if (!convId) {
+      // Create or get conversation if none exists
+      if (!activeConv) {
         const newRes = await wFetch('/conversations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -319,15 +351,30 @@ export default function CrmSalesInboxView() {
           const errData = await newRes.json().catch(() => ({}));
           throw new Error(errData.error || 'Failed to create conversation');
         }
-        const newConv = await newRes.json();
-        convId = newConv.id;
-        setConversation(newConv);
+        const createdConv = await newRes.json();
+        activeConv = createdConv;
+        setConversation(createdConv);
       }
 
-      const res = await wFetch(`/conversations/${convId}/messages`, {
+      // CRITICAL RECIPIENT & OPT-OUT SAFETY CHECK
+      if (selectedLead.contact?.optedOut) {
+        throw new Error('This contact has opted out of communications. Outbound messages are blocked.');
+      }
+      if (activeConv.contactId !== selectedLead.contactId) {
+        throw new Error(`Recipient mismatch: conversation contact (${activeConv.contactId}) does not match selected lead (${selectedLead.contactId}). Message aborted.`);
+      }
+      if (activeConv.contact?.phoneNumber && selectedLead.contact?.phoneNumber && activeConv.contact.phoneNumber !== selectedLead.contact.phoneNumber) {
+        throw new Error(`Recipient phone mismatch: conversation phone (${activeConv.contact.phoneNumber}) does not match selected lead (${selectedLead.contact.phoneNumber}). Message aborted.`);
+      }
+
+      const res = await wFetch(`/conversations/${activeConv.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: messageText.trim() }),
+        body: JSON.stringify({
+          body: messageText.trim(),
+          contactId: selectedLead.contactId,
+          phoneNumber: selectedLead.contact?.phoneNumber,
+        }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -340,6 +387,8 @@ export default function CrmSalesInboxView() {
 
       setMessages((prev) => [...prev, sentMsg]);
       setMessageText('');
+      setChatError(null);
+      setWindowState({ open: true });
 
       // Refresh lead details to pick up updated category/score
       loadLeadContext(selectedLeadId);
@@ -350,8 +399,7 @@ export default function CrmSalesInboxView() {
         err.message?.toLowerCase().includes('not messaged you');
 
       if (isWindowErr) {
-        setChatError('This contact is outside WhatsApp\'s 24-hour reply window. Please send an approved template message to contact them.');
-        setShowTemplateModal(true);
+        setChatError('This contact is outside WhatsApp\'s 24-hour reply window according to Meta. Please send an approved template message to re-engage them.');
       } else {
         setChatError(err.message);
       }
@@ -360,22 +408,73 @@ export default function CrmSalesInboxView() {
     }
   };
 
+  const handleReopenWindow = async () => {
+    if (!conversation?.id) return;
+    try {
+      const res = await wFetch(`/conversations/${conversation.id}/reopen-window`, { method: 'POST' });
+      if (res.ok) {
+        const d = await res.json();
+        setWindowState(d.window || { open: true });
+        setChatError(null);
+      }
+    } catch (e) {
+      console.error('Failed to reopen window', e);
+    }
+  };
+
+  const handleSimulateInbound = async (text = 'Hii') => {
+    if (!conversation?.id) return;
+    try {
+      const res = await wFetch(`/conversations/${conversation.id}/inbound-simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: text }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        if (d.message) setMessages((prev) => [...prev, d.message]);
+        setWindowState(d.window || { open: true });
+        setChatError(null);
+        loadLeadContext(selectedLeadId);
+      }
+    } catch (e) {
+      console.error('Failed to simulate inbound message', e);
+    }
+  };
+
   // 6. Template Message Sending (Individual)
   const handleSendTemplate = async () => {
     if (!selectedTemplateId || !selectedLead) return;
     setSendingMsg(true);
+    setChatError(null);
     try {
-      let convId = conversation?.id;
-      if (!convId) {
+      let activeConv = conversation;
+
+      // Create or get conversation if none exists
+      if (!activeConv) {
         const newRes = await wFetch('/conversations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contactId: selectedLead.contactId }),
         });
-        if (!newRes.ok) throw new Error('Failed to create conversation');
-        const newConv = await newRes.json();
-        convId = newConv.id;
-        setConversation(newConv);
+        if (!newRes.ok) {
+          const errData = await newRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to create conversation');
+        }
+        const createdConv = await newRes.json();
+        activeConv = createdConv;
+        setConversation(createdConv);
+      }
+
+      // CRITICAL RECIPIENT & OPT-OUT SAFETY CHECK
+      if (selectedLead.contact?.optedOut) {
+        throw new Error('This contact has opted out of communications. Outbound templates are blocked.');
+      }
+      if (activeConv.contactId !== selectedLead.contactId) {
+        throw new Error(`Recipient mismatch: conversation contact (${activeConv.contactId}) does not match selected lead (${selectedLead.contactId}). Template aborted.`);
+      }
+      if (activeConv.contact?.phoneNumber && selectedLead.contact?.phoneNumber && activeConv.contact.phoneNumber !== selectedLead.contact.phoneNumber) {
+        throw new Error(`Recipient phone mismatch: conversation phone (${activeConv.contact.phoneNumber}) does not match selected lead (${selectedLead.contact.phoneNumber}). Template aborted.`);
       }
 
       const selObj = templates.find((t) => t.id === selectedTemplateId);
@@ -386,10 +485,15 @@ export default function CrmSalesInboxView() {
 
       const varsArray = Array.from({ length: reqCount }, (_, i) => templateVars[i] || (i === 0 ? selectedLead?.contact?.name || 'Customer' : ''));
 
-      const res = await wFetch(`/conversations/${convId}/template`, {
+      const res = await wFetch(`/conversations/${activeConv.id}/template`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId: selectedTemplateId, variables: varsArray }),
+        body: JSON.stringify({
+          templateId: selectedTemplateId,
+          variables: varsArray,
+          contactId: selectedLead.contactId,
+          phoneNumber: selectedLead.contact?.phoneNumber,
+        }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -454,6 +558,7 @@ export default function CrmSalesInboxView() {
       setLaunchSuccess(launchRes);
       fetchMetadata();
       fetchAudience();
+      fetchCampaignAnalytics();
     } catch (err) {
       alert(`Campaign launch failed: ${err.message}`);
     } finally {
@@ -622,7 +727,27 @@ export default function CrmSalesInboxView() {
             }}
           >
             <I n="target" s={15} />
-            Segment / Filter Mode
+            Segment Broadcast
+          </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            style={{
+              padding: '7px 14px',
+              borderRadius: 8,
+              border: 'none',
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: 'pointer',
+              background: activeTab === 'analytics' ? 'var(--primary)' : 'transparent',
+              color: activeTab === 'analytics' ? '#fff' : 'var(--t2)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <I n="barChart" s={15} />
+            Campaign Performance
           </button>
         </div>
       </div>
@@ -692,7 +817,7 @@ export default function CrmSalesInboxView() {
               />
             </div>
 
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap', flexShrink: 0 }}>
               {['ALL', 'HOT', 'WARM', 'COLD'].map((cat) => (
                 <button
                   key={cat}
@@ -709,6 +834,35 @@ export default function CrmSalesInboxView() {
                   }}
                 >
                   {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* QUICK THREAD / PIPELINE FILTER PILLS */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap', flexShrink: 0 }}>
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'my', label: 'My Leads' },
+                { id: 'uncontacted', label: 'Uncontacted' },
+                { id: 'awaiting_task', label: 'Pending Task' },
+                { id: 'opted_out', label: 'DNC / Opt-Out' },
+              ].map((pill) => (
+                <button
+                  key={pill.id}
+                  onClick={() => setInboxFilter(pill.id)}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    border: `1px solid ${inboxFilter === pill.id ? 'var(--primary)' : 'var(--bd)'}`,
+                    fontSize: 10.5,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    background: inboxFilter === pill.id ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                    color: inboxFilter === pill.id ? 'var(--primary)' : 'var(--t3)',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {pill.label}
                 </button>
               ))}
             </div>
@@ -735,8 +889,15 @@ export default function CrmSalesInboxView() {
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{l.contact?.name || l.contact?.phoneNumber}</span>
-                        <CategoryBadge category={l.category} />
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 }}>{l.contact?.name || l.contact?.phoneNumber}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          {l.contact?.optedOut && (
+                            <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 5px', borderRadius: 4, background: 'rgba(239, 68, 68, 0.15)', color: '#f87171' }}>
+                              DNC
+                            </span>
+                          )}
+                          <CategoryBadge category={l.category} />
+                        </div>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--t2)' }}>
                         <span>{l.contact?.phoneNumber}</span>
@@ -794,28 +955,50 @@ export default function CrmSalesInboxView() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    <Btn size="sm" variant="sec" onClick={() => setShowTemplateModal(true)}>
+                    <Btn size="sm" variant="sec" onClick={() => setShowTemplateModal(true)} disabled={selectedLead.contact?.optedOut}>
                       <I n="file" s={14} /> Send Template
                     </Btn>
                   </div>
                 </div>
 
+                {/* OPT-OUT NOTICE */}
+                {selectedLead.contact?.optedOut && (
+                  <div style={{ padding: '9px 14px', background: 'rgba(239, 68, 68, 0.15)', borderBottom: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>🛑 DO NOT CONTACT (OPTED OUT): This lead has opted out of WhatsApp messages. Outbound messages and templates are blocked.</span>
+                  </div>
+                )}
+
                 {/* 24-HOUR WINDOW NOTICE */}
-                {windowState && !windowState.open && (
-                  <div style={{ padding: '9px 14px', background: 'rgba(245, 158, 11, 0.12)', borderBottom: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                {!selectedLead.contact?.optedOut && windowState && !windowState.open && (
+                  <div style={{ padding: '9px 14px', background: 'rgba(245, 158, 11, 0.12)', borderBottom: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 8, flexWrap: 'wrap' }}>
                     <span>
-                      ⚡ <strong>WhatsApp 24h Window Closed:</strong> Contact has not messaged recently. Send an approved template message to contact them.
+                      ⚡ <strong>WhatsApp 24h Window:</strong> Meta requires customer activity within 24h for free-form replies. You can send a template, or type and send a custom message directly.
                     </span>
-                    <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
-                      Send Template
-                    </Btn>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
+                        <I n="file" s={12} /> Send Template
+                      </Btn>
+                      <Btn size="xs" variant="ghost" onClick={handleReopenWindow} title="Click to sync if the lead already messaged you on WhatsApp">
+                        🔄 Sync Window
+                      </Btn>
+                      <Btn size="xs" variant="ghost" onClick={() => handleSimulateInbound('Hii')} title="Simulate lead inbound reply in dev/test">
+                        💬 + Inbound "Hii"
+                      </Btn>
+                    </div>
                   </div>
                 )}
 
                 {/* CHAT ERROR BANNER */}
                 {chatError && (
-                  <div style={{ padding: '9px 14px', background: 'rgba(239, 68, 68, 0.12)', borderBottom: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-                    <span>⚠️ {chatError}</span>
+                  <div style={{ padding: '9px 14px', background: 'rgba(239, 68, 68, 0.12)', borderBottom: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span>⚠️ {chatError}</span>
+                      {chatError.toLowerCase().includes('template') && (
+                        <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
+                          Send Approved Template
+                        </Btn>
+                      )}
+                    </div>
                     <button onClick={() => setChatError(null)} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
                   </div>
                 )}
@@ -824,7 +1007,7 @@ export default function CrmSalesInboxView() {
                 <div style={{ flex: 1, minHeight: 0, padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg)' }}>
                   {messages.length === 0 ? (
                     <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>
-                      No message history with this lead yet. Start the conversation below.
+                      No message history with this lead yet. Send an approved template to initiate contact.
                     </div>
                   ) : (
                     messages.map((m) => {
@@ -857,13 +1040,14 @@ export default function CrmSalesInboxView() {
                 {/* COMPOSER */}
                 <div style={{ padding: 12, borderTop: '1px solid var(--bd)', display: 'flex', gap: 10, flexShrink: 0, background: 'var(--surf)' }}>
                   <FInput
-                    placeholder="Type WhatsApp message to lead..."
+                    placeholder={selectedLead.contact?.optedOut ? "Messaging disabled: contact has opted out." : "Type WhatsApp message to lead..."}
                     value={messageText}
                     onChange={(e) => setMessageText(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                    disabled={selectedLead.contact?.optedOut}
                     style={{ flex: 1 }}
                   />
-                  <Btn onClick={handleSendMessage} disabled={sendingMsg || !messageText.trim()}>
+                  <Btn onClick={handleSendMessage} disabled={sendingMsg || !messageText.trim() || selectedLead.contact?.optedOut}>
                     <I n="send" s={15} /> Send
                   </Btn>
                 </div>
@@ -1271,6 +1455,161 @@ export default function CrmSalesInboxView() {
               </table>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: CAMPAIGN PERFORMANCE ANALYTICS & TRACKING */}
+      {activeTab === 'analytics' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
+          {/* TOP STATS CARDS */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, flexShrink: 0 }}>
+            <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--card-shadow)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Target Audience
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--primary)', marginTop: 4 }}>
+                {campaignAnalytics?.summary?.totalAudience || 0}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 2 }}>Total Outbound Contacts</div>
+            </div>
+
+            <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--card-shadow)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Delivered
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--green)', marginTop: 4 }}>
+                {campaignAnalytics?.summary?.totalDelivered || 0}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--green)', marginTop: 2, fontWeight: 600 }}>
+                {campaignAnalytics?.summary?.overallDeliveryRate || 0}% Delivery Rate
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--card-shadow)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Read / Opened
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: '#38bdf8', marginTop: 4 }}>
+                {campaignAnalytics?.summary?.totalRead || 0}
+              </div>
+              <div style={{ fontSize: 11.5, color: '#38bdf8', marginTop: 2, fontWeight: 600 }}>
+                {campaignAnalytics?.summary?.overallReadRate || 0}% Read Rate
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--card-shadow)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Failed Messages
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: '#f87171', marginTop: 4 }}>
+                {campaignAnalytics?.summary?.totalFailed || 0}
+              </div>
+              <div style={{ fontSize: 11.5, color: '#f87171', marginTop: 2 }}>Invalid or unroutable</div>
+            </div>
+
+            <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--card-shadow)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Opted Out / Skipped
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: '#fbbf24', marginTop: 4 }}>
+                {campaignAnalytics?.summary?.totalOptedOut || 0}
+              </div>
+              <div style={{ fontSize: 11.5, color: '#fbbf24', marginTop: 2 }}>DNC Protected</div>
+            </div>
+          </div>
+
+          {/* CAMPAIGNS TABLE */}
+          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>
+                  Outbound Broadcast Campaigns Performance
+                </h3>
+                <p style={{ margin: '3px 0 0 0', fontSize: 12, color: 'var(--t2)' }}>
+                  Live delivery, read status, and opt-out tracking across outbound WhatsApp campaigns.
+                </p>
+              </div>
+              <Btn variant="sec" onClick={fetchCampaignAnalytics} disabled={loadingAnalytics}>
+                <I n="refresh" s={15} /> Refresh Data
+              </Btn>
+            </div>
+
+            <div style={{ overflowX: 'auto', maxHeight: '520px', overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--bd)', textAlign: 'left', color: 'var(--t2)', fontSize: 12 }}>
+                    <th style={{ padding: 10 }}>Campaign Name</th>
+                    <th style={{ padding: 10 }}>Status</th>
+                    <th style={{ padding: 10 }}>Audience</th>
+                    <th style={{ padding: 10 }}>Sent</th>
+                    <th style={{ padding: 10 }}>Delivered</th>
+                    <th style={{ padding: 10 }}>Read</th>
+                    <th style={{ padding: 10 }}>Failed</th>
+                    <th style={{ padding: 10 }}>Opted Out</th>
+                    <th style={{ padding: 10 }}>Launched</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingAnalytics ? (
+                    <tr>
+                      <td colSpan={9} style={{ padding: 30, textAlign: 'center', color: 'var(--t2)' }}>
+                        Loading broadcast analytics...
+                      </td>
+                    </tr>
+                  ) : !campaignAnalytics?.campaigns || campaignAnalytics.campaigns.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} style={{ padding: 30, textAlign: 'center', color: 'var(--t3)' }}>
+                        No broadcast campaigns found for this workspace. Launch a campaign from the Segment Broadcast mode to track results!
+                      </td>
+                    </tr>
+                  ) : (
+                    campaignAnalytics.campaigns.map((c) => (
+                      <tr key={c.id} style={{ borderBottom: '1px solid var(--bd)' }}>
+                        <td style={{ padding: 10, fontWeight: 600, color: 'var(--t1)' }}>{c.name}</td>
+                        <td style={{ padding: 10 }}>
+                          <StatusBadge
+                            label={c.status}
+                            tone={c.status === 'COMPLETED' ? 'green' : c.status === 'RUNNING' ? 'blue' : 'gray'}
+                          />
+                        </td>
+                        <td style={{ padding: 10, fontWeight: 700, color: 'var(--t1)' }}>{c.audience}</td>
+                        <td style={{ padding: 10, color: 'var(--t2)' }}>{c.sent}</td>
+                        <td style={{ padding: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--green)' }}>{c.delivered}</span>
+                            <span style={{ fontSize: 11, color: 'var(--green)', background: 'rgba(34, 197, 94, 0.1)', padding: '1px 6px', borderRadius: 4 }}>
+                              {c.deliveryRate}%
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 600, color: '#38bdf8' }}>{c.read}</span>
+                            <span style={{ fontSize: 11, color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', padding: '1px 6px', borderRadius: 4 }}>
+                              {c.readRate}%
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ padding: 10 }}>
+                          <span style={{ color: c.failed > 0 ? '#f87171' : 'var(--t3)', fontWeight: c.failed > 0 ? 700 : 400 }}>
+                            {c.failed}
+                          </span>
+                        </td>
+                        <td style={{ padding: 10 }}>
+                          <span style={{ color: c.optedOut > 0 ? '#fbbf24' : 'var(--t3)', fontWeight: c.optedOut > 0 ? 700 : 400 }}>
+                            {c.optedOut}
+                          </span>
+                        </td>
+                        <td style={{ padding: 10, color: 'var(--t2)', fontSize: 12 }}>
+                          {c.launchedAt ? new Date(c.launchedAt).toLocaleString() : c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '-'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

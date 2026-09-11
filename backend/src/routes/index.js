@@ -65,6 +65,10 @@ import agentRoutes from './agent.routes.js';
 import gamificationRoutes from './gamification.routes.js';
 import publicFormsRoutes from './publicForms.routes.js';
 import crmSalesInboxRoutes from './crmSalesInbox.routes.js';
+import leadDistributionRoutes from './leadDistribution.routes.js';
+import crmPermissionsRoutes from './crmPermissions.routes.js';
+import aiAgentsRoutes from './aiAgents.routes.js';
+import crmCustomizationRoutes from './crmCustomization.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 
 
@@ -147,7 +151,10 @@ ws.use('/campaigns', campaignsRoutes);
 ws.use('/contacts', contactsRoutes);
 ws.use('/clusters', clustersRoutes);
 ws.use('/leads', leadsRoutes);
+ws.use('/lead-distribution', leadDistributionRoutes);
 ws.use('/crm-sales-inbox', crmSalesInboxRoutes);
+ws.use('/crm-permissions', crmPermissionsRoutes);
+ws.use('/crm-customization', crmCustomizationRoutes);
 
 ws.use('/deals', dealsRoutes);
 ws.use('/tasks', tasksRoutes);
@@ -193,6 +200,7 @@ ws.use('/subscription', subscriptionRoutes);
 ws.use('/integrations', integrationsRoutes);
 ws.use('/support', supportRoutes);
 ws.use('/ai-agent', aiAgentRoutes);
+ws.use('/ai-agents', aiAgentsRoutes);
 ws.use('/intents', intentRoutes);
 ws.use('/invitations', invitationsRoutes);
 ws.use('/switch', workspaceSwitchRoutes);

@@ -165,3 +165,73 @@ export async function launchSegmentCampaign(workspaceId, { name, category, sourc
     },
   };
 }
+
+/**
+ * Get delivery, read, and failure analytics across CRM broadcast campaigns.
+ */
+export async function getSegmentCampaignAnalytics(workspaceId) {
+  const campaigns = await prisma.campaign.findMany({
+    where: {
+      workspaceId,
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 15,
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      totalContacts: true,
+      sent: true,
+      delivered: true,
+      read: true,
+      failed: true,
+      skipped: true,
+      createdAt: true,
+      launchedAt: true,
+      completedAt: true,
+    },
+  });
+
+  const enriched = campaigns.map((c) => {
+    const total = c.totalContacts || c.sent || 0;
+    const delivered = c.delivered || 0;
+    const read = c.read || 0;
+    const failed = c.failed || 0;
+    const optedOut = c.skipped || 0;
+
+    const deliveryRate = total > 0 ? parseFloat(((delivered / total) * 100).toFixed(1)) : 0;
+    const readRate = delivered > 0 ? parseFloat(((read / delivered) * 100).toFixed(1)) : 0;
+    const failureRate = total > 0 ? parseFloat(((failed / total) * 100).toFixed(1)) : 0;
+
+    return {
+      ...c,
+      audience: total,
+      deliveryRate,
+      readRate,
+      failureRate,
+      optedOut,
+    };
+  });
+
+  const totals = enriched.reduce((acc, cur) => {
+    acc.totalAudience += cur.audience;
+    acc.totalSent += cur.sent;
+    acc.totalDelivered += cur.delivered;
+    acc.totalRead += cur.read;
+    acc.totalFailed += cur.failed;
+    acc.totalOptedOut += cur.optedOut;
+    return acc;
+  }, { totalAudience: 0, totalSent: 0, totalDelivered: 0, totalRead: 0, totalFailed: 0, totalOptedOut: 0 });
+
+  const overallDeliveryRate = totals.totalAudience > 0 ? parseFloat(((totals.totalDelivered / totals.totalAudience) * 100).toFixed(1)) : 0;
+  const overallReadRate = totals.totalDelivered > 0 ? parseFloat(((totals.totalRead / totals.totalDelivered) * 100).toFixed(1)) : 0;
+
+  return {
+    campaigns: enriched,
+    summary: {
+      ...totals,
+      overallDeliveryRate,
+      overallReadRate,
+    },
+  };
+}

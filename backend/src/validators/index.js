@@ -551,7 +551,7 @@ export const leadSchemas = {
     title: z.string().trim().min(1, 'Deal title is required').max(160),
     value: z.coerce.number().nonnegative().optional().nullable(),
     currency: z.string().trim().length(3).optional(),
-    stage: z.enum(DEAL_STAGES).optional(),
+    stage: z.string().trim().min(1).max(50).optional(),
     expectedCloseDate: z.coerce.date().optional().nullable(),
     ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }),
@@ -613,7 +613,7 @@ export const pipelineStageSchemas = {
     isActive: z.boolean().optional(),
   }).strict(),
   reorder: z.object({
-    keys: z.array(z.enum(DEAL_STAGES)).min(1),
+    keys: z.array(z.string().trim().min(1).max(50)).min(1),
   }).strict(),
 };
 
@@ -773,7 +773,7 @@ export const dealSchemas = {
     title: z.string().trim().min(1, 'Deal title is required').max(160),
     value: z.coerce.number().nonnegative().optional().nullable(),
     currency: z.string().trim().length(3).optional(),
-    stage: z.enum(DEAL_STAGES).optional(),
+    stage: z.string().trim().min(1).max(50).optional(),
     ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     expectedCloseDate: z.coerce.date().optional().nullable(),
   }),
@@ -786,7 +786,7 @@ export const dealSchemas = {
     customFields: z.record(z.any()).nullable().optional(),
   }).strict(),
   stageUpdate: z.object({
-    stage: z.enum(DEAL_STAGES),
+    stage: z.string().trim().min(1).max(50),
     lostReason: z.union([z.string().trim().max(500), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }).strict(),
   lineItem: z.object(lineItemBase),

@@ -6,6 +6,7 @@ import { validateCrmCustomFields } from './customFields.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 import { scopeFilter } from './recordScope.service.js';
 import { awardXp, unlockAchievement } from './gamification.service.js';
+import { evaluateAndAssignLead } from './leadDistribution.service.js';
 
 const LEAD_INCLUDE = {
   contact: { select: { id: true, name: true, phoneNumber: true, email: true, tags: true, optedOut: true } },
@@ -15,7 +16,7 @@ const LEAD_INCLUDE = {
 // `user` carries the caller's identity and role. Record visibility is applied
 // here rather than in the controller so every path — list, get, and the
 // exports that reuse them — is scoped by the same rule.
-export async function listLeads(workspaceId, { category = '', status = '', ownerUserId = '', search = '', sort = 'score' } = {}, user = null) {
+export async function listLeads(workspaceId, { category = '', status = '', ownerUserId = '', search = '', sort = 'score', preset = '', awaitingTask = false, uncontacted = false } = {}, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const where = {
     workspaceId,
@@ -33,14 +34,50 @@ export async function listLeads(workspaceId, { category = '', status = '', owner
       },
     } : {}),
   };
+
+  if (preset === 'my' && user?.id) {
+    where.ownerUserId = user.id;
+  } else if (preset === 'hot') {
+    where.category = 'HOT';
+  } else if (preset === 'warm') {
+    where.category = 'WARM';
+  } else if (preset === 'cold') {
+    where.category = 'COLD';
+  } else if (preset === 'awaiting_task' || awaitingTask) {
+    where.tasks = { none: { status: 'PENDING' } };
+  } else if (preset === 'uncontacted' || uncontacted) {
+    where.crmActivities = { none: {} };
+  } else if (preset === 'opted_out') {
+    where.contact = { ...(where.contact || {}), optedOut: true };
+  }
+
   const orderBy = sort === 'newest' ? { createdAt: 'desc' } : [{ score: 'desc' }, { createdAt: 'desc' }];
   const [data, total] = await Promise.all([
-    prisma.lead.findMany({ where, include: LEAD_INCLUDE, orderBy }),
+    prisma.lead.findMany({
+      where,
+      include: {
+        ...LEAD_INCLUDE,
+        tasks: {
+          where: { status: 'PENDING' },
+          orderBy: { dueDate: 'asc' },
+          take: 1,
+          select: { id: true, title: true, dueDate: true, status: true },
+        },
+        crmActivities: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, type: true, createdAt: true, content: true },
+        },
+        _count: {
+          select: { tasks: true, crmActivities: true, deals: true },
+        },
+      },
+      orderBy,
+    }),
     prisma.lead.count({ where }),
   ]);
   return { data, total };
 }
-
 
 export async function getLead(workspaceId, id, user = null) {
   // An out-of-scope lead returns the same 404 as a non-existent one. A 403
@@ -52,6 +89,16 @@ export async function getLead(workspaceId, id, user = null) {
     include: {
       ...LEAD_INCLUDE,
       deals: { orderBy: { createdAt: 'desc' } },
+      tasks: { orderBy: { dueDate: 'asc' } },
+      crmActivities: {
+        include: { createdByUser: { select: { id: true, name: true, email: true } } },
+        orderBy: { createdAt: 'desc' },
+      },
+      LeadFormSubmission: {
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { id: true, answers: true, createdAt: true, form: { select: { name: true, slug: true } } },
+      },
     },
   });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
@@ -101,6 +148,15 @@ export async function createLead(workspaceId, body) {
 
   // Compute automatic lead category (HOT / WARM / COLD)
   const categorizedLead = await computeLeadCategory(workspaceId, lead.id).catch(() => lead);
+
+  // If not assigned explicitly, run automatic lead distribution rules
+  if (!lead.ownerUserId) {
+    const distResult = await evaluateAndAssignLead(workspaceId, lead.id).catch(() => null);
+    if (distResult?.assigned) {
+      categorizedLead.ownerUserId = distResult.ownerUserId;
+      categorizedLead.owner = { id: distResult.ownerUserId, name: distResult.ownerName, email: '' };
+    }
+  }
 
   // Fire-and-forget: an automation must never delay or fail the write that
   // triggered it.
@@ -204,6 +260,10 @@ export async function convertLead(workspaceId, id, body, userId) {
     }
 
     const stage = body.stage || 'QUALIFICATION';
+    const isCustomStage = !['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'].includes(stage);
+    const dbStage = isCustomStage ? 'QUALIFICATION' : stage;
+    const customFields = isCustomStage ? { stageKey: stage } : {};
+
     const deal = await tx.deal.create({
       data: {
         workspaceId,
@@ -212,14 +272,16 @@ export async function convertLead(workspaceId, id, body, userId) {
         title: body.title,
         value: body.value ?? null,
         currency: body.currency || 'INR',
-        stage,
+        stage: dbStage,
+        customFields,
         ownerUserId: body.ownerUserId ?? lead.ownerUserId ?? null,
         expectedCloseDate: body.expectedCloseDate ?? null,
       },
     });
 
+    const toStageDb = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'].includes(stage) ? stage : 'QUALIFICATION';
     await tx.dealStageHistory.create({
-      data: { workspaceId, dealId: deal.id, fromStage: null, toStage: stage, changedByUserId: userId ?? null },
+      data: { workspaceId, dealId: deal.id, fromStage: null, toStage: toStageDb, changedByUserId: userId ?? null },
     });
 
     await tx.lead.update({
@@ -227,6 +289,69 @@ export async function convertLead(workspaceId, id, body, userId) {
       data: { status: 'CONVERTED', convertedAt: new Date(), convertedDealId: deal.id },
     });
 
-    return deal;
+    return { ...deal, stage };
   });
 }
+
+export async function bulkAssignLeads(workspaceId, ids = [], ownerUserId = null, user = null) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    const e = new Error('At least one lead ID is required'); e.status = 400; throw e;
+  }
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const res = await prisma.lead.updateMany({
+    where: { id: { in: ids }, workspaceId, ...scope },
+    data: { ownerUserId: ownerUserId || null },
+  });
+  return { count: res.count };
+}
+
+export async function bulkUpdateStatus(workspaceId, ids = [], status, user = null) {
+  if (!Array.isArray(ids) || ids.length === 0 || !status) {
+    const e = new Error('Lead IDs and status are required'); e.status = 400; throw e;
+  }
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const res = await prisma.lead.updateMany({
+    where: { id: { in: ids }, workspaceId, ...scope },
+    data: { status },
+  });
+  return { count: res.count };
+}
+
+export async function bulkUpdateCategory(workspaceId, ids = [], category, user = null) {
+  if (!Array.isArray(ids) || ids.length === 0 || !category) {
+    const e = new Error('Lead IDs and category are required'); e.status = 400; throw e;
+  }
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const res = await prisma.lead.updateMany({
+    where: { id: { in: ids }, workspaceId, ...scope },
+    data: { category },
+  });
+  return { count: res.count };
+}
+
+export async function bulkCreateTask(workspaceId, ids = [], { title, dueDate = null, priority = 'NORMAL' } = {}, userId = null) {
+  if (!Array.isArray(ids) || ids.length === 0 || !title) {
+    const e = new Error('Lead IDs and task title are required'); e.status = 400; throw e;
+  }
+  const leads = await prisma.lead.findMany({
+    where: { id: { in: ids }, workspaceId },
+    select: { id: true, contactId: true, ownerUserId: true },
+  });
+  const createdTasks = [];
+  for (const l of leads) {
+    const task = await prisma.task.create({
+      data: {
+        workspaceId,
+        title,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        priority,
+        leadId: l.id,
+        contactId: l.contactId,
+        assignedToUserId: l.ownerUserId || userId,
+      },
+    });
+    createdTasks.push(task);
+  }
+  return { count: createdTasks.length };
+}
+

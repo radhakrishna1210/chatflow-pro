@@ -84,7 +84,15 @@ const NewTicket = ({ contacts, members, onClose, onCreated }) => {
   const [draft, setDraft] = useState({ subject: '', description: '', priority: 'NORMAL', category: '', contactId: '', ownerUserId: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [customCategories, setCustomCategories] = useState([]);
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
+
+  useEffect(() => {
+    wFetch('/crm-customization/ticket_customization')
+      .then(r => r.ok && r.json())
+      .then(d => { if (Array.isArray(d?.data?.categories)) setCustomCategories(d.data.categories); })
+      .catch(() => {});
+  }, []);
 
   const save = async () => {
     setSaving(true);
@@ -144,7 +152,28 @@ const NewTicket = ({ contacts, members, onClose, onCreated }) => {
           </div>
           <div>
             <FLabel>Category</FLabel>
-            <FInput value={draft.category} onChange={(e) => set({ category: e.target.value })} placeholder="Billing, Delivery…" disabled={saving} />
+            <FInput
+              list="ticket-custom-categories"
+              value={draft.category}
+              onChange={(e) => {
+                const val = e.target.value;
+                const matched = customCategories.find(c => c.name.toLowerCase() === val.toLowerCase());
+                if (matched?.priority && PRIORITIES.includes(matched.priority)) {
+                  set({ category: val, priority: matched.priority });
+                } else {
+                  set({ category: val });
+                }
+              }}
+              placeholder="Select or enter category…"
+              disabled={saving}
+            />
+            <datalist id="ticket-custom-categories">
+              {customCategories.map((c) => (
+                <option key={c.id || c.name} value={c.name}>
+                  {c.name} (SLA: {c.slaHours}h)
+                </option>
+              ))}
+            </datalist>
           </div>
         </div>
 

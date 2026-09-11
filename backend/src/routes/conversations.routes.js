@@ -9,6 +9,7 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/', conversationsController.list);
+router.post('/', conversationsController.createOrGet);
 router.get('/:id/messages', conversationsController.getMessages);
 router.get('/:id/context', conversationsController.context);
 router.post('/:id/suggest', conversationsController.suggest);
@@ -21,6 +22,8 @@ router.patch('/:id/status', conversationsController.setStatus);
 // trigger and, without this, only resolving the conversation undid it.
 router.patch('/:id/bot', conversationsController.setBot);
 router.post('/:id/messages', conversationsController.sendMessage);
+router.post('/:id/reopen-window', conversationsController.reopenWindow);
+router.post('/:id/inbound-simulate', conversationsController.simulateInbound);
 // Approved templates only, and permitted whether or not the window is open —
 // this is the documented way back into a conversation that has gone quiet.
 router.post('/:id/template', conversationsController.sendTemplate);

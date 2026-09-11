@@ -16,6 +16,7 @@ export const ImportExport = ({ entity, canImport = false, canExport = true, onIm
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [err, setErr] = useState(null);
+  const [maskPhone, setMaskPhone] = useState(false);
   const inputRef = useRef(null);
 
   const reset = () => { setPreview(null); setFile(null); setResult(null); setErr(null); };
@@ -23,7 +24,8 @@ export const ImportExport = ({ entity, canImport = false, canExport = true, onIm
   const exportCsv = async () => {
     setErr(null);
     try {
-      await wDownload(`/crm-data/export/${entity}`, `${entity}.csv`);
+      const qs = maskPhone ? '?maskPhone=true' : '';
+      await wDownload(`/crm-data/export/${entity}${qs}`, `${entity}.csv`);
     } catch (e) {
       setErr(e?.message || 'Could not export. Exporting requires an admin account.');
     }
@@ -77,16 +79,24 @@ export const ImportExport = ({ entity, canImport = false, canExport = true, onIm
 
   return (
     <>
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {canImport && (
           <Btn size="sm" variant="outline" onClick={() => { reset(); setOpen(true); }}>
             <I n="download" s={12} c="currentColor" /> Import
           </Btn>
         )}
         {canExport && (
-          <Btn size="sm" variant="ghost" onClick={exportCsv} title="Download as CSV">
-            Export
-          </Btn>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Btn size="sm" variant="ghost" onClick={exportCsv} title="Download as CSV">
+              Export
+            </Btn>
+            {entity === 'leads' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--t3)', cursor: 'pointer' }} title="Mask phone numbers for privacy/compliance">
+                <input type="checkbox" checked={maskPhone} onChange={e => setMaskPhone(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
+                Mask phones
+              </label>
+            )}
+          </div>
         )}
       </div>
 

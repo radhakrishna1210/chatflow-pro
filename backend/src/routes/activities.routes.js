@@ -10,7 +10,7 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/', activitiesController.list);
-router.post('/', authorize('CLIENT'), validate({ body: crmActivitySchemas.create }), activitiesController.create);
+router.post('/', authorize('AGENT'), validate({ body: crmActivitySchemas.create }), activitiesController.create);
 router.delete('/:id', authorize('CLIENT'), activitiesController.remove);
 
 export default router;
