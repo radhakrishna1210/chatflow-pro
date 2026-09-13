@@ -4,6 +4,53 @@ import { decrypt } from '../lib/encryption.js';
 import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.js';
 import { normalizeTemplateComponents, detectTemplateType, toMetaComponents, preserveInternalFields } from '../lib/templateStructure.js';
 import { storeAsset } from './templateImage.service.js';
+import { notifyWorkspace } from './notification.service.js';
+
+// Throttle map so auto-checks don't spam Meta Graph API
+// Key: `${workspaceId}:${waNumberId || 'all'}` -> timestamp of last sync
+const lastAutoSyncAt = new Map();
+const AUTO_SYNC_COOLDOWN_MS = 15 * 1000; // 15 seconds
+
+export async function autoSyncPendingTemplates(workspaceId, waNumberId) {
+  try {
+    const where = {
+      workspaceId,
+      status: 'PENDING',
+      metaTemplateId: { not: null },
+      ...(waNumberId ? { waNumberId } : {}),
+    };
+    const pendingCount = await prisma.template.count({ where });
+    if (pendingCount === 0) return;
+
+    // Check throttle
+    const key = `${workspaceId}:${waNumberId || 'all'}`;
+    const now = Date.now();
+    const last = lastAutoSyncAt.get(key) || 0;
+    if (now - last < AUTO_SYNC_COOLDOWN_MS) return;
+    lastAutoSyncAt.set(key, now);
+
+    if (waNumberId) {
+      await syncTemplatesFromMeta(workspaceId, waNumberId).catch((e) => {
+        console.warn(`[Template autoSync] Sync failed for waNumber ${waNumberId}:`, e.message);
+      });
+    } else {
+      const distinctNumbers = await prisma.template.findMany({
+        where,
+        select: { waNumberId: true },
+        distinct: ['waNumberId'],
+      });
+      for (const n of distinctNumbers) {
+        if (n.waNumberId) {
+          await syncTemplatesFromMeta(workspaceId, n.waNumberId).catch((e) => {
+            console.warn(`[Template autoSync] Sync failed for waNumber ${n.waNumberId}:`, e.message);
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Template autoSync] error:', err.message);
+  }
+}
 
 // Resolve which WhatsApp number a template operation targets. Templates are
 // private per number, so:
@@ -33,6 +80,10 @@ async function resolveWaNumber(workspaceId, waNumberId, { required = true } = {}
 // reference them still resolve, and so they can be restored.
 export async function listTemplates(workspaceId, waNumberId, { status = null } = {}) {
   const deletedOnly = String(status || '').toUpperCase() === 'DELETED';
+  if (!deletedOnly) {
+    // If any template is PENDING, auto-sync from Meta in the background/await if eligible
+    await autoSyncPendingTemplates(workspaceId, waNumberId);
+  }
   const where = {
     workspaceId,
     status: deletedOnly ? 'DELETED' : { not: 'DELETED' },
@@ -109,6 +160,21 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
         : payload;
       await prisma.template.update({ where: { id: existing.id }, data });
       updated++;
+      if (existing.status !== 'APPROVED' && payload.status === 'APPROVED') {
+        notifyWorkspace(workspaceId, {
+          type: 'TEMPLATE_APPROVED',
+          title: `Template "${payload.name}" was approved`,
+          body: 'It can now be used in campaigns.',
+          link: 'templates',
+        }).catch(() => {});
+      } else if (existing.status !== 'REJECTED' && payload.status === 'REJECTED') {
+        notifyWorkspace(workspaceId, {
+          type: 'TEMPLATE_REJECTED',
+          title: `Template "${payload.name}" was rejected by Meta`,
+          body: rejectedReason || 'Check template guidelines and edit to resubmit.',
+          link: 'templates',
+        }).catch(() => {});
+      }
     } else {
       await prisma.template.create({ data: { workspaceId, waNumberId: waNumber.id, ...payload } });
       created++;

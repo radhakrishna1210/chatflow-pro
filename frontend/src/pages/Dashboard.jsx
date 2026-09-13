@@ -2993,40 +2993,42 @@ const TemplatesView = () => {
     }
   };
 
-  const syncFromMeta = async () => {
+  const syncFromMeta = async (silent = false) => {
     if (numbers.length > 1 && !waNumberId) {
-      setSyncMsg({ error: 'Select which WhatsApp number to sync templates for first.' });
+      if (!silent) setSyncMsg({ error: 'Select which WhatsApp number to sync templates for first.' });
       return;
     }
-    setSyncing(true); setSyncMsg(null);
+    if (!silent) { setSyncing(true); setSyncMsg(null); }
     try {
       const res  = await wFetch('/templates/sync-from-meta', {
         method:'POST',
         body: JSON.stringify({ ...(waNumberId ? { waNumberId } : {}) }),
       });
       const data = await res.json();
-      if (!res.ok) { setSyncMsg({ error: data.error || 'Sync failed' }); return; }
-      setSyncMsg({ ok: true, created: data.created, updated: data.updated, removed: data.removed, total: data.total });
+      if (!res.ok) { if (!silent) setSyncMsg({ error: data.error || 'Sync failed' }); return; }
+      if (!silent) setSyncMsg({ ok: true, created: data.created, updated: data.updated, removed: data.removed, total: data.total });
       await loadTemplates();
     } catch (e) {
-      setSyncMsg({ error: e.message });
+      if (!silent) setSyncMsg({ error: e.message });
     } finally {
-      setSyncing(false);
+      if (!silent) setSyncing(false);
     }
   };
 
+  const hasPending = templates.some(t => t.status === 'PENDING');
+
   useEffect(() => {
     loadHasNumber();
-    // The initial fetch belongs to the view effect above, which runs on mount
-    // too — doing it here as well would race it.
-    // Poll every 20s so Meta status changes (APPROVED/REJECTED) surface even if
-    // the message_template_status_update webhook isn't subscribed.
+    // Poll every 12s if templates are awaiting Meta approval, or every 25s when idle,
+    // so status changes (PENDING → APPROVED / REJECTED) surface automatically without
+    // requiring manual "Sync from Meta" clicks.
+    const pollMs = hasPending ? 12000 : 25000;
     const interval = setInterval(() => {
       loadTemplates();
       if (tab === 'library') loadLibrary();
-    }, 20000);
+    }, pollMs);
     return () => clearInterval(interval);
-  }, []); // eslint-disable-line
+  }, [hasPending, tab]); // eslint-disable-line
 
   useEffect(() => {
     const onDataUpdated = (e) => {
