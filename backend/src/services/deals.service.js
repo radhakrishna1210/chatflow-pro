@@ -101,7 +101,7 @@ export async function createDeal(workspaceId, body, userId) {
       },
       include: DEAL_INCLUDE,
     });
-    const toStageDb = PRISMA_STAGE_VALUES.includes(requestedStage) ? requestedStage : 'QUALIFICATION';
+    const toStageDb = PRISMA_DEAL_STAGES.has(requestedStage) ? requestedStage : 'QUALIFICATION';
     await tx.dealStageHistory.create({
       data: { workspaceId, dealId: deal.id, fromStage: null, toStage: toStageDb, changedByUserId: userId ?? null },
     });
@@ -168,8 +168,8 @@ export async function updateDealStage(workspaceId, id, { stage, lostReason }, us
       include: DEAL_INCLUDE,
     });
 
-    const fromStageDb = PRISMA_STAGE_VALUES.includes(previousEffectiveStage) ? previousEffectiveStage : 'QUALIFICATION';
-    const toStageDb = PRISMA_STAGE_VALUES.includes(stage) ? stage : 'QUALIFICATION';
+    const fromStageDb = PRISMA_DEAL_STAGES.has(previousEffectiveStage) ? previousEffectiveStage : 'QUALIFICATION';
+    const toStageDb = PRISMA_DEAL_STAGES.has(stage) ? stage : 'QUALIFICATION';
 
     await tx.dealStageHistory.create({
       data: { workspaceId, dealId: id, fromStage: fromStageDb, toStage: toStageDb, changedByUserId: userId ?? null },

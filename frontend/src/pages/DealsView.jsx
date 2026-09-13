@@ -442,8 +442,9 @@ export default function DealsView({ initialTab }) {
     wFetch('/crm-customization/deal_setup')
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
-        if (d && Array.isArray(d.stages) && d.stages.length > 0) {
-          setStages(d.stages.map(s => ({
+        const rawStages = d?.data?.stages || d?.stages;
+        if (Array.isArray(rawStages) && rawStages.length > 0) {
+          setStages(rawStages.map(s => ({
             key: s.key,
             label: s.label || pretty(s.key),
             tone: STAGE_TONE[s.key] || 'blue',
