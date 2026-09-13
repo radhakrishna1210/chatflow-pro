@@ -42,6 +42,7 @@ export const TRIGGERS = {
 
 export const ACTIONS = {
   message: { needsValue: true, describe: (v) => `send "${v}"` },
+  template: { needsValue: true, describe: (v) => `send template "${v}"` },
   delay: { needsValue: true, describe: (v) => `wait ${v}` },
   tag: { needsValue: true, describe: (v) => `tag the contact "${v}"` },
   agent: { needsValue: false, describe: () => 'hand over to the AI agent' },
@@ -55,7 +56,7 @@ const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'];
 const DEAL_STAGES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
 
 // Matches parseDelayMs in the engine.
-const DELAY_RE = /^\s*\d+\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\s*$/i;
+const DELAY_RE = /^\s*\d+(\.\d+)?\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\s*$/i;
 
 const MAX_ACTIONS = 10;
 

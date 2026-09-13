@@ -11,21 +11,23 @@ import { evaluateCondition, skipCount, renderTemplate, tidy, CONDITION_SUBTYPES 
 
 const MAX_ACTIONS = 20;
 
-// "5 min" / "1 hour" / "1 day" / "Immediate" — the exact strings the builder's
-// delay dropdown emits, plus a tolerant numeric parse for AI-generated values.
+// "5 min" / "1 hour" / "1 day" / "10" / "10s" / "Immediate" — the strings the
+// builder emits or numeric inputs, defaulting to seconds for bare numbers.
 export function parseDelayMs(raw) {
   const text = String(raw || '').trim().toLowerCase();
   if (!text || text === 'immediate' || text === '0') return 0;
 
-  const match = text.match(/(\d+(?:\.\d+)?)\s*(second|sec|s|minute|min|m|hour|hr|h|day|d)/);
+  const match = text.match(/^(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d)?$/);
   if (!match) return 0;
 
   const amount = parseFloat(match[1]);
-  const unit = match[2];
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+
+  const unit = match[2] || 's';
   const perUnit =
-    /^(second|sec|s)$/.test(unit) ? 1000 :
-    /^(minute|min|m)$/.test(unit) ? 60_000 :
-    /^(hour|hr|h)$/.test(unit) ? 3_600_000 :
+    /^(seconds?|secs?|s)$/.test(unit) ? 1000 :
+    /^(minutes?|mins?|m)$/.test(unit) ? 60_000 :
+    /^(hours?|hrs?|h)$/.test(unit) ? 3_600_000 :
     86_400_000;
 
   // BullMQ delays are milliseconds in a 32-bit-ish range in practice; a week
@@ -103,7 +105,7 @@ const describeCondition = (node) => {
   return spec?.needsValue ? `${label} "${node.value ?? ''}"` : label;
 };
 
-async function actionMessage(run, node) {
+async function actionTemplate(run, node, preloadedTemplate = null) {
   if (!run.conversationId) return { result: 'skipped', detail: 'No conversation to reply to' };
 
   const conversation = await prisma.conversation.findUnique({
@@ -112,7 +114,71 @@ async function actionMessage(run, node) {
   });
   if (!conversation?.waNumberId) return { result: 'skipped', detail: 'Conversation has no connected number' };
 
-  // `{{name}}`, `{{custom.order_number}}` and anything the run has collected.
+  let template = preloadedTemplate;
+  if (!template) {
+    const val = String(node.value || '').trim();
+    template = await prisma.template.findFirst({
+      where: {
+        workspaceId: run.workspaceId,
+        status: 'APPROVED',
+        OR: [
+          { id: val },
+          { name: val },
+          { name: { equals: val, mode: 'insensitive' } },
+        ],
+      },
+    });
+  }
+
+  if (!template) {
+    return { result: 'failed', detail: `Template "${node.value}" not found or not approved` };
+  }
+
+  console.log(`[WorkflowEngine] Sending template "${template.name}" for run ${run.id} to ${conversation.contact?.phoneNumber}`);
+  const { sendTemplateMessage } = await import('./conversations.service.js');
+  const msg = await sendTemplateMessage(run.workspaceId, run.conversationId, null, {
+    templateId: template.id,
+    contactId: run.contactId || conversation.contactId,
+    phoneNumber: conversation.contact?.phoneNumber,
+  });
+
+  return {
+    result: 'sent',
+    detail: `Sent template: "${template.name}"`,
+    metaMessageId: msg?.metaMessageId,
+  };
+}
+
+async function actionMessage(run, node) {
+  if (!run.conversationId) return { result: 'skipped', detail: 'No conversation to reply to' };
+
+  // Check if node.value refers to an approved template in this workspace
+  const val = String(node.value || '').trim();
+  if (val && !val.includes('\n') && val.length <= 100) {
+    const template = await prisma.template.findFirst({
+      where: {
+        workspaceId: run.workspaceId,
+        status: 'APPROVED',
+        OR: [
+          { id: val },
+          { name: val },
+          { name: { equals: val, mode: 'insensitive' } },
+        ],
+      },
+    });
+    if (template) {
+      console.log(`[WorkflowEngine] Message step "${node.value}" matched approved template "${template.name}" (${template.id}); dispatching as template send.`);
+      return actionTemplate(run, node, template);
+    }
+  }
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: run.conversationId },
+    include: { contact: true },
+  });
+  if (!conversation?.waNumberId) return { result: 'skipped', detail: 'Conversation has no connected number' };
+
+  // `{{name}}`, `{{customer_name}}`, `{{custom.order_number}}` and anything the run has collected.
   // Without this every automated message was identical for every recipient.
   const body = tidy(renderTemplate(node.value, {
     contact: conversation.contact,
@@ -121,6 +187,7 @@ async function actionMessage(run, node) {
   }));
   if (!body) return { result: 'skipped', detail: 'Message was empty after filling in variables' };
 
+  console.log(`[WorkflowEngine] Sending automated reply for run ${run.id} to ${conversation.contact?.phoneNumber}: "${body.slice(0, 50)}..."`);
   const sent = await sendAutomatedReply({
     conversationId: conversation.id,
     waNumberId: conversation.waNumberId,
@@ -129,8 +196,8 @@ async function actionMessage(run, node) {
   });
 
   return sent
-    ? { result: 'sent', detail: `Sent: "${node.value}"` }
-    : { result: 'failed', detail: 'Meta rejected the send' };
+    ? { result: 'sent', detail: `Sent: "${body}"` }
+    : { result: 'failed', detail: 'Meta rejected the send or 24-hour customer window is closed' };
 }
 
 // Offer the customer tappable choices instead of asking them to type.
@@ -275,11 +342,17 @@ export async function advanceRun(runId) {
           // re-park on the same step and loop forever.
           data: { status: 'WAITING', cursor: i + 1, trace },
         });
-        // Imported lazily: the queue opens a Redis connection at import time,
-        // and the engine is also used by the request path, which must not
-        // depend on Redis being reachable just to run a delay-free workflow.
-        const { enqueueWorkflowResume } = await import('../queues/workflow.queue.js');
-        await enqueueWorkflowResume(run.id, i + 1, ms);
+        try {
+          const { enqueueWorkflowResume } = await import('../queues/workflow.queue.js');
+          await enqueueWorkflowResume(run.id, i + 1, ms);
+        } catch (queueErr) {
+          console.error(`[WorkflowEngine] Failed to enqueue resume for run ${run.id}:`, queueErr);
+          trace.push({ step: i, subtype: 'delay', detail: `Queue failed: ${queueErr.message}`, result: 'failed', at: new Date().toISOString() });
+          return prisma.workflowRun.update({
+            where: { id: run.id },
+            data: { status: 'FAILED', cursor: i, trace, error: queueErr.message, finishedAt: new Date() },
+          });
+        }
         return prisma.workflowRun.findUnique({ where: { id: run.id } });
       }
       trace.push({ step: i, subtype: 'delay', detail: 'Immediate', result: 'ok', at: new Date().toISOString() });
@@ -313,6 +386,7 @@ export async function advanceRun(runId) {
     let outcome;
     try {
       if (node.subtype === 'message') outcome = await actionMessage(run, node);
+      else if (node.subtype === 'template') outcome = await actionTemplate(run, node);
       else if (node.subtype === 'tag') outcome = await actionTag(run, node);
       else if (node.subtype === 'agent') outcome = await actionAgent(run, node);
       else if (node.subtype === 'buttons') outcome = await actionButtons(run, node);
@@ -366,7 +440,7 @@ export async function runWorkflowsForInbound(workspaceId, ctx) {
 // Steps that put a message in front of the customer. A 'buttons' step is a
 // message too, so a run that ends on one has replied and the inbound handler
 // must not add a welcome or AI answer on top of it.
-const REPLY_SUBTYPES = new Set(['message', 'buttons']);
+const REPLY_SUBTYPES = new Set(['message', 'buttons', 'template']);
 
 // True if the run actually sent something — lets the inbound handler decide
 // whether a further auto-reply would be a duplicate.
@@ -436,16 +510,28 @@ export async function listRuns(workspaceId, { workflowId, limit = 20 } = {}) {
 // Starts a named workflow directly, rather than by matching its trigger.
 //
 // Used by intent routing: a rule whose action is "run this workflow" names the
-// workflow by id, so the trigger-matching path in findMatchingWorkflows() does
+// workflow by id or name, so the trigger-matching path in findMatchingWorkflows() does
 // not apply. Returns null when the workflow is missing or inactive, so the
 // caller can fall through instead of silently doing nothing.
-export async function startRunForWorkflowId(workspaceId, workflowId, { conversationId, contactId, triggerMessage }) {
+export async function startRunForWorkflowId(workspaceId, workflowIdOrName, { conversationId, contactId, triggerMessage }) {
+  const target = String(workflowIdOrName || '').trim();
+  if (!target) return null;
+
   const workflow = await prisma.workflow.findFirst({
-    where: { id: workflowId, workspaceId, isActive: true },
+    where: {
+      workspaceId,
+      isActive: true,
+      OR: [
+        { id: target },
+        { name: target },
+        { name: { equals: target, mode: 'insensitive' } },
+      ],
+    },
   });
   if (!workflow) {
-    console.warn(`[WorkflowEngine] Workflow ${workflowId} not found or inactive — nothing started.`);
+    console.warn(`[WorkflowEngine] Workflow "${target}" not found or inactive in workspace ${workspaceId} — nothing started.`);
     return null;
   }
+  console.log(`[WorkflowEngine] Starting run for workflow "${workflow.name}" (${workflow.id}) in workspace ${workspaceId}`);
   return startRun(workflow, { workspaceId, conversationId, contactId, triggerMessage });
 }
