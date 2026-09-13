@@ -67,7 +67,18 @@ export function evaluateCondition(node, context = {}) {
 // defined by the workspace.
 function readContactValue(contact, key) {
   if (!contact || !key) return undefined;
-  const builtin = { name: contact.name, phone: contact.phoneNumber, phonenumber: contact.phoneNumber, email: contact.email };
+  const builtin = {
+    name: contact.name,
+    customer_name: contact.name,
+    customername: contact.name,
+    contact_name: contact.name,
+    contactname: contact.name,
+    first_name: contact.name,
+    firstname: contact.name,
+    phone: contact.phoneNumber,
+    phonenumber: contact.phoneNumber,
+    email: contact.email,
+  };
   const lower = key.toLowerCase();
   if (lower in builtin) return builtin[lower];
   const custom = contact.customFields && typeof contact.customFields === 'object' ? contact.customFields : {};

@@ -62,6 +62,10 @@ export async function simulateWorkflow(workspaceId, workflowId, sampleMessage = 
     return { workflowId, name: workflow.name, ran: false, reason: 'This workflow has no steps to run.', trace: [] };
   }
 
+  const msgText = typeof sampleMessage === 'string'
+    ? sampleMessage
+    : String(sampleMessage?.message || sampleMessage?.text || sampleMessage || '');
+
   const trigger = nodes.find((n) => n.type === 'trigger');
   const trace = [];
   let triggered = true;
@@ -69,11 +73,12 @@ export async function simulateWorkflow(workspaceId, workflowId, sampleMessage = 
 
   if (trigger) {
     if (trigger.subtype === 'keyword') {
-      const kw = String(trigger.value || '').toLowerCase();
-      triggered = kw ? sampleMessage.toLowerCase().includes(kw) : false;
+      const kw = String(trigger.value || '').trim();
+      const { keywordMatches } = await import('./automation.service.js');
+      triggered = kw ? keywordMatches(kw, msgText) : false;
       trace.push({
         step: 'trigger', subtype: 'keyword',
-        detail: kw ? `Match "${trigger.value}" against "${sampleMessage}"` : 'No keyword configured',
+        detail: kw ? `Match "${trigger.value}" against "${msgText}"` : 'No keyword configured',
         result: triggered ? 'matched' : 'no match',
       });
       if (!triggered) reason = `Sample message does not contain the keyword "${trigger.value}".`;
@@ -91,6 +96,7 @@ export async function simulateWorkflow(workspaceId, workflowId, sampleMessage = 
       let detail = node.value;
       let result = 'ok';
       if (node.subtype === 'message') detail = `Would send: "${node.value}"`;
+      else if (node.subtype === 'template') detail = `Would send template: "${node.value}"`;
       else if (node.subtype === 'delay') detail = `Would wait ${node.value || '0'}`;
       else if (node.subtype === 'tag') detail = `Would tag contact "${node.value}"`;
       else if (node.subtype === 'agent') detail = 'Would hand off to a human agent';

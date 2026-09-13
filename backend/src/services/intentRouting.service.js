@@ -25,13 +25,18 @@ const DEFAULT_THRESHOLD = 0.6;
  *   the message and nothing else should reply.
  */
 export async function routeByIntent({ workspaceId, conversationId, contact, waNumber, messageBody }) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { intentMatchThreshold: true, intentMatchingEnabled: true },
+  });
+  if (workspace?.intentMatchingEnabled === false) {
+    console.log(`[Intent] Intent matching is disabled for workspace ${workspaceId}`);
+    return null;
+  }
+
   const rules = await prisma.intentRule.findMany({ where: { workspaceId, isActive: true } });
   if (rules.length === 0) return null;
 
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { intentMatchThreshold: true },
-  });
   const threshold = workspace?.intentMatchThreshold ?? DEFAULT_THRESHOLD;
 
   const best = scoreIntent(messageBody, rules);
@@ -39,6 +44,7 @@ export async function routeByIntent({ workspaceId, conversationId, contact, waNu
     // Recorded either way: "what did my rules miss?" is the question the
     // accuracy chart exists to answer, and it cannot answer it from hits alone.
     if (best) {
+      console.log(`[Intent] Best match "${best.rule.name}" (${best.confidence.toFixed(2)}) below threshold (${threshold}) for: "${messageBody}"`);
       recordMatch(workspaceId, {
         intentRuleId: best.rule.id, outcome: 'below_threshold',
         confidence: best.confidence, sample: messageBody,
@@ -48,6 +54,7 @@ export async function routeByIntent({ workspaceId, conversationId, contact, waNu
   }
 
   const { rule, confidence } = best;
+  console.log(`[Intent] Matched intent rule "${rule.name}" (${rule.id}) with confidence ${confidence.toFixed(2)} >= ${threshold}`);
   recordMatch(workspaceId, {
     intentRuleId: rule.id, outcome: 'matched', confidence, sample: messageBody,
   }).catch(() => {});
@@ -78,15 +85,16 @@ export async function routeByIntent({ workspaceId, conversationId, contact, waNu
 
     case 'workflow': {
       if (!rule.actionTarget) return null;
+      console.log(`[Intent] Routing to workflow "${rule.actionTarget}" for workspace ${workspaceId}`);
       const { startRunForWorkflowId } = await import('./workflowEngine.service.js');
       const started = await startRunForWorkflowId(workspaceId, rule.actionTarget, {
-        conversationId, contactId: contact.id, triggerMessage: messageBody,
+        conversationId, contactId: contact?.id || null, triggerMessage: messageBody,
       }).catch((err) => {
         console.error(`[Intent] Workflow ${rule.actionTarget} failed to start:`, err.message);
         return null;
       });
       // The workflow owns the reply from here if it started; otherwise carry on.
-      return started ? { handled: true, rule, confidence } : null;
+      return started ? { handled: true, rule, confidence, run: started } : null;
     }
 
     // 'ai' — let the agent answer, but say what it is answering about. The

@@ -186,10 +186,16 @@ const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // with leading/trailing non-word characters, so the boundaries are asserted
 // with lookarounds against the word-character class instead.
 export function keywordMatches(keyword, messageBody) {
-  const kw = String(keyword || '').trim();
-  if (!kw) return false;
-  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegex(kw)}(?![\\p{L}\\p{N}_])`, 'iu');
-  return pattern.test(String(messageBody || ''));
+  const raw = String(keyword || '').trim();
+  if (!raw) return false;
+  const candidates = raw.split(/[\n,]+/).map((k) => k.trim()).filter(Boolean);
+  if (candidates.length === 0) return false;
+
+  const msg = String(messageBody || '');
+  return candidates.some((candidate) => {
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegex(candidate)}(?![\\p{L}\\p{N}_])`, 'iu');
+    return pattern.test(msg);
+  });
 }
 
 export async function findMatchingTrigger(workspaceId, messageBody) {
