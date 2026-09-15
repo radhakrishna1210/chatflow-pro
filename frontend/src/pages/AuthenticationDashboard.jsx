@@ -113,6 +113,65 @@ const Toggle = ({ checked, onChange, label }) => (
   </label>
 );
 
+const OverviewMetric = ({ icon, label, value, detail, tone = 'accent' }) => {
+  const palette = tone === 'success'
+    ? { bg: 'var(--sbg)', bd: 'var(--sbd)', c: 'var(--success)' }
+    : tone === 'warning'
+      ? { bg: 'rgba(245,158,11,.09)', bd: 'rgba(245,158,11,.24)', c: '#fbbf24' }
+      : { bg: 'var(--gbg)', bd: 'var(--gbd)', c: 'var(--green)' };
+
+  return (
+    <div style={{ padding: '15px 16px', borderRadius: 10, background: 'rgba(255,255,255,.018)', border: '1px solid var(--bd)', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{ width: 27, height: 27, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 7, background: palette.bg, border: `1px solid ${palette.bd}` }}>
+          <I n={icon} s={13} c={palette.c} />
+        </span>
+        <span style={{ fontFamily: mono, fontSize: 9.5, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--t3)' }}>{label}</span>
+      </div>
+      <p style={{ margin: 0, fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</p>
+      {detail && <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--t3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail}</p>}
+    </div>
+  );
+};
+
+const ReadinessItem = ({ ready, label, detail }) => (
+  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--bd)' }}>
+    <span style={{ width: 21, height: 21, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', flexShrink: 0, background: ready ? 'var(--sbg)' : 'rgba(245,158,11,.09)', border: `1px solid ${ready ? 'var(--sbd)' : 'rgba(245,158,11,.24)'}` }}>
+      <I n={ready ? 'check' : 'alertc'} s={11} c={ready ? 'var(--success)' : '#fbbf24'} />
+    </span>
+    <div>
+      <p style={{ margin: 0, color: 'var(--t1)', fontSize: 12.5, fontWeight: 700 }}>{label}</p>
+      <p style={{ margin: '2px 0 0', color: 'var(--t3)', fontSize: 11.5, lineHeight: 1.45 }}>{detail}</p>
+    </div>
+  </div>
+);
+
+const OtpFlow = () => (
+  <section style={{ ...card, padding: '20px 22px', background: 'linear-gradient(135deg, rgba(53,232,242,.07), rgba(157,107,255,.035)), var(--surf)' }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16 }}>
+      <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><I n="shield" s={15} c="var(--green)" /></div>
+      <div>
+        <p style={{ margin: 0, fontFamily: mono, fontSize: 9.5, fontWeight: 700, letterSpacing: '.1em', color: 'var(--green)', textTransform: 'uppercase' }}>Verification journey</p>
+        <p style={{ margin: '4px 0 0', color: 'var(--t2)', fontSize: 12.5, lineHeight: 1.5 }}>A concise view of the customer flow your configuration enables.</p>
+      </div>
+    </div>
+    <div className="rgrid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
+      {[
+        ['smartphone', 'Customer', 'Requests verification'],
+        ['key', 'WhatsApp OTP', 'A code is sent'],
+        ['lock', 'Code entry', 'Customer submits code'],
+        ['checkc', 'Verified', 'Access is confirmed'],
+      ].map(([icon, title, text], index) => (
+        <div key={title} style={{ position: 'relative', padding: '12px', borderRadius: 9, background: 'rgba(3,7,13,.34)', border: '1px solid var(--bd)' }}>
+          <I n={icon} s={14} c={index === 3 ? 'var(--success)' : 'var(--green)'} />
+          <p style={{ margin: '9px 0 2px', color: 'var(--t1)', fontSize: 12, fontWeight: 700 }}>{title}</p>
+          <p style={{ margin: 0, color: 'var(--t3)', fontSize: 10.5, lineHeight: 1.4 }}>{text}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+);
+
 // Copy button used both for the API key and every documentation code block.
 // Clicking it flips to a green "✓ Copied" state with a small toast, then
 // reverts on its own — the clipboard write itself is unchanged either way.
@@ -808,6 +867,7 @@ export default function AuthenticationDashboard() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: authPageBackground }}>
         <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '28px 32px', maxWidth: 900, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
           <div style={{ ...card, padding: '40px 24px', textAlign: 'center', fontSize: 13, color: 'var(--t2)' }}>
+            <div style={{ width: 26, height: 26, margin: '0 auto 12px', border: '2px solid var(--green)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
             Loading Authentication configuration…
           </div>
         </div>
@@ -831,6 +891,22 @@ export default function AuthenticationDashboard() {
       template => template.id === templateId
     );
 
+  const savedConfigurationReady = Boolean(
+    configuration?.waNumberId && configuration?.templateId
+  );
+
+  const selectionReady = Boolean(waNumberId && templateId);
+
+  const hasUnsavedChanges = Boolean(configuration) && (
+    enabled !== Boolean(configuration.enabled) ||
+    waNumberId !== (configuration.waNumberId || '') ||
+    templateId !== (configuration.templateId || '')
+  );
+
+  const configurationState = selectionReady
+    ? (enabled ? 'Ready to protect customers' : 'Configured, currently inactive')
+    : 'Configuration required';
+
   const rawKeyVisible = Boolean(apiKey && apiKey.length > 12);
 
   const keyDisplayValue = apiKey
@@ -848,11 +924,12 @@ export default function AuthenticationDashboard() {
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <MobileNavButton />
             <div>
+              <p style={{ margin: '0 0 6px', fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: '.11em', color: 'var(--green)', textTransform: 'uppercase' }}>WhatsApp authentication</p>
               <h1 style={{ margin: 0, fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 26, color: 'var(--t1)', letterSpacing: '-.02em' }}>
                 Authentication
               </h1>
               <p style={{ margin: '7px 0 0', fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>
-                Production WhatsApp OTP authentication for your application.
+                Secure WhatsApp OTP verification for your customers.
               </p>
             </div>
           </div>
@@ -889,6 +966,22 @@ export default function AuthenticationDashboard() {
 
         {activeTab === 'overview' && (
         <>
+        <section style={{ ...card, padding: '20px 22px', background: 'linear-gradient(135deg, rgba(53,232,242,.08), rgba(157,107,255,.04)), var(--surf)', borderColor: 'var(--gbd)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div>
+              <p style={{ margin: 0, fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: '.1em', color: 'var(--green)', textTransform: 'uppercase' }}>Authentication overview</p>
+              <h2 style={{ margin: '6px 0 0', fontSize: 18, fontWeight: 700, color: 'var(--t1)' }}>{configurationState}</h2>
+              <p style={{ margin: '5px 0 0', fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5 }}>Configure the number and approved template used for verification-code messages.</p>
+            </div>
+            {hasUnsavedChanges && <span style={{ padding: '5px 9px', borderRadius: 999, background: 'rgba(245,158,11,.09)', border: '1px solid rgba(245,158,11,.25)', color: '#fbbf24', fontSize: 11, fontWeight: 700 }}>Unsaved changes</span>}
+          </div>
+          <div className="rgrid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+            <OverviewMetric icon={enabled ? 'checkc' : 'clock'} label="Status" value={enabled ? 'Enabled' : 'Disabled'} detail={enabled ? 'Authentication is active' : 'Save to activate'} tone={enabled ? 'success' : 'warning'} />
+            <OverviewMetric icon="phone" label="WhatsApp number" value={selectedNumber ? formatPhone(selectedNumber.phoneNumber) : 'Not selected'} detail={selectedNumber?.displayName || (numbers.length ? 'Choose a connected number' : 'No numbers available')} tone={selectedNumber ? 'success' : 'warning'} />
+            <OverviewMetric icon="file" label="Authentication template" value={selectedTemplate?.name || 'Not selected'} detail={selectedTemplate?.language ? `${selectedTemplate.language} · Approved` : (templates.length ? 'Choose an approved template' : 'No templates available')} tone={selectedTemplate ? 'success' : 'warning'} />
+            <OverviewMetric icon="shield" label="Configuration" value={savedConfigurationReady ? 'Saved' : 'Incomplete'} detail={savedConfigurationReady ? 'Workspace-scoped setup' : 'Select both requirements'} tone={savedConfigurationReady ? 'success' : 'warning'} />
+          </div>
+        </section>
         {/* ── Configuration ── */}
         <section style={{ ...card, padding: '22px 24px' }}>
           <SectionHeader
@@ -900,11 +993,12 @@ export default function AuthenticationDashboard() {
 
           <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div>
-              <label style={{ display: 'block', marginBottom: 7, fontSize: 12, fontWeight: 600, color: 'var(--t2)' }}>
+              <label htmlFor="authentication-number" style={{ display: 'block', marginBottom: 7, fontSize: 12, fontWeight: 600, color: 'var(--t2)' }}>
                 WhatsApp Number
               </label>
 
               <select
+                id="authentication-number"
                 value={waNumberId}
                 onChange={event => setWaNumberId(event.target.value)}
                 style={selectFieldStyle}
@@ -926,6 +1020,13 @@ export default function AuthenticationDashboard() {
                 ))}
               </select>
 
+              {numbers.length === 0 && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 9, padding: '10px 11px', borderRadius: 8, background: 'rgba(245,158,11,.07)', border: '1px solid rgba(245,158,11,.18)' }}>
+                  <I n="alertc" s={13} c="#fbbf24" />
+                  <p style={{ margin: 0, color: '#fcd34d', fontSize: 11.5, lineHeight: 1.45 }}>No WhatsApp numbers are available. Connect a WhatsApp number before enabling Authentication.</p>
+                </div>
+              )}
+
               {selectedNumber && (
                 <div style={{ marginTop: 7, fontSize: 12, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 5 }}>
                   <I n="checkc" s={11} c="var(--success)" /> Selected WhatsApp number
@@ -935,7 +1036,7 @@ export default function AuthenticationDashboard() {
 
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 7 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t2)' }}>
+                <label htmlFor="authentication-template" style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--t2)' }}>
                   Authentication Template
                 </label>
                 <button
@@ -948,6 +1049,7 @@ export default function AuthenticationDashboard() {
               </div>
 
               <select
+                id="authentication-template"
                 value={templateId}
                 onChange={event => setTemplateId(event.target.value)}
                 style={selectFieldStyle}
@@ -968,6 +1070,16 @@ export default function AuthenticationDashboard() {
                   </option>
                 ))}
               </select>
+
+              {templates.length === 0 && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 9, padding: '10px 11px', borderRadius: 8, background: 'rgba(245,158,11,.07)', border: '1px solid rgba(245,158,11,.18)' }}>
+                  <I n="alertc" s={13} c="#fbbf24" />
+                  <div>
+                    <p style={{ margin: 0, color: '#fcd34d', fontSize: 11.5, lineHeight: 1.45 }}>No approved Authentication templates are available.</p>
+                    <button type="button" onClick={() => setActiveTab('templates')} style={{ marginTop: 4, padding: 0, border: 0, background: 'none', color: 'var(--green)', cursor: 'pointer', fontSize: 11.5, fontWeight: 700 }}>Create or manage templates</button>
+                  </div>
+                </div>
+              )}
 
               {selectedTemplate && (
                 <div style={{ marginTop: 7, fontSize: 12, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1003,6 +1115,16 @@ export default function AuthenticationDashboard() {
         </section>
 
         {/* ── Developer Integration ── */}
+        <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.15fr)', gap: 20 }}>
+          <section style={{ ...card, padding: '20px 22px' }}>
+            <SectionHeader icon="checkc" title="Authentication readiness" description="Complete these workspace requirements before sending verification codes." />
+            <ReadinessItem ready={numbers.length > 0} label="WhatsApp number connected" detail={numbers.length ? `${numbers.length} number${numbers.length === 1 ? '' : 's'} available to select` : 'Connect a WhatsApp number to continue'} />
+            <ReadinessItem ready={templates.length > 0} label="Approved template available" detail={templates.length ? `${templates.length} approved Authentication template${templates.length === 1 ? '' : 's'} available` : 'Create or sync an approved COPY_CODE template'} />
+            <ReadinessItem ready={savedConfigurationReady} label="Configuration saved" detail={savedConfigurationReady ? 'This workspace has a saved Authentication configuration' : 'Choose a number and template, then save'} />
+          </section>
+          <OtpFlow />
+        </div>
+
         <section style={{ ...card, padding: '22px 24px' }}>
           <SectionHeader
             icon="key"
