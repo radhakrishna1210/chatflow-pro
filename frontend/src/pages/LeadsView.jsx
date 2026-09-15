@@ -192,8 +192,9 @@ const ConvertModal = ({ lead, members, onClose, onConverted }) => {
     wFetch('/crm-customization/deal_setup')
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
-        if (d?.stages && Array.isArray(d.stages) && d.stages.length > 0) {
-          setStages(d.stages.map(s => ({ key: s.key, label: s.label || pretty(s.key) })));
+        const rawStages = d?.data?.stages || d?.stages;
+        if (rawStages && Array.isArray(rawStages) && rawStages.length > 0) {
+          setStages(rawStages.map(s => ({ key: s.key, label: s.label || pretty(s.key) })));
         }
       })
       .catch(() => {});

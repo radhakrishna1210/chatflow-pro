@@ -92,10 +92,11 @@ const HealthDot = ({ health, showScore = false }) => {
   );
 };
 
-const DealCard = ({ deal, onDragStart, onClick, dragging, onMoveStage }) => (
+const DealCard = ({ deal, onDragStart, onDragEnd, onClick, dragging, onMoveStage }) => (
   <div
     draggable
     onDragStart={onDragStart}
+    onDragEnd={onDragEnd}
     onClick={onClick}
     // The board is otherwise drag-only, which leaves it unusable by keyboard.
     // Enter opens the deal; Alt+Arrow moves it a stage without a mouse.
@@ -442,8 +443,9 @@ export default function DealsView({ initialTab }) {
     wFetch('/crm-customization/deal_setup')
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
-        if (d && Array.isArray(d.stages) && d.stages.length > 0) {
-          setStages(d.stages.map(s => ({
+        const rawStages = d?.data?.stages || d?.stages;
+        if (Array.isArray(rawStages) && rawStages.length > 0) {
+          setStages(rawStages.map(s => ({
             key: s.key,
             label: s.label || pretty(s.key),
             tone: STAGE_TONE[s.key] || 'blue',
@@ -561,12 +563,21 @@ export default function DealsView({ initialTab }) {
               const isOver = dragOverStage === stage;
               return (
                 <div key={stage}
-                  onDragOver={e => { e.preventDefault(); setDragOverStage(stage); }}
-                  onDragLeave={() => setDragOverStage(s => (s === stage ? null : s))}
+                  onDragOver={e => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverStage !== stage) setDragOverStage(stage);
+                  }}
+                  onDragLeave={e => {
+                    if (!e.currentTarget.contains(e.relatedTarget)) {
+                      setDragOverStage(null);
+                    }
+                  }}
                   onDrop={e => {
                     e.preventDefault();
-                    const id = e.dataTransfer.getData('text/plain');
-                    setDragOverStage(null); setDraggingId(null);
+                    const id = e.dataTransfer.getData('text/plain') || draggingId;
+                    setDragOverStage(null);
+                    setDraggingId(null);
                     if (id) moveTo(id, stage);
                   }}
                   style={{ width: 268, flexShrink: 0, display: 'flex', flexDirection: 'column',
@@ -587,7 +598,15 @@ export default function DealsView({ initialTab }) {
                   <div style={{ flex: 1, overflowY: 'auto', minHeight: 60 }}>
                     {items.map(d => (
                       <DealCard key={d.id} deal={d} dragging={draggingId === d.id}
-                        onDragStart={e => { e.dataTransfer.setData('text/plain', d.id); e.dataTransfer.effectAllowed = 'move'; setDraggingId(d.id); }}
+                        onDragStart={e => {
+                          e.dataTransfer.setData('text/plain', d.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDraggingId(d.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingId(null);
+                          setDragOverStage(null);
+                        }}
                         onClick={() => setOpenDealId(d.id)}
                         onMoveStage={nudgeStage} />
                     ))}
