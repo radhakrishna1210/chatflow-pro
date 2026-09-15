@@ -7,9 +7,7 @@ const globalForPrisma = globalThis;
 // e.g. in sandboxed CI environments where Prisma's native engines cannot be
 // downloaded. Production keeps the default native engine path.
 function buildClient() {
-  let dbUrl = (process.env.NODE_ENV === 'development' && process.env.DIRECT_URL)
-    ? process.env.DIRECT_URL
-    : (process.env.DATABASE_URL || process.env.DIRECT_URL);
+  let dbUrl = process.env.DATABASE_URL || process.env.DIRECT_URL;
 
   if (dbUrl && !dbUrl.includes('connection_limit')) {
     const sep = dbUrl.includes('?') ? '&' : '?';

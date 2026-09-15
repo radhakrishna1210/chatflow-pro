@@ -85,12 +85,19 @@ const NewTicket = ({ contacts, members, onClose, onCreated }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [customCategories, setCustomCategories] = useState([]);
+  const [defaultStageLabel, setDefaultStageLabel] = useState('Open');
   const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
 
   useEffect(() => {
     wFetch('/crm-customization/ticket_customization')
       .then(r => r.ok && r.json())
-      .then(d => { if (Array.isArray(d?.data?.categories)) setCustomCategories(d.data.categories); })
+      .then(d => {
+        if (Array.isArray(d?.data?.categories)) setCustomCategories(d.data.categories);
+        if (Array.isArray(d?.data?.stages)) {
+          const def = d.data.stages.find((s) => s.isDefault);
+          if (def) setDefaultStageLabel(def.label || def.key);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -188,6 +195,11 @@ const NewTicket = ({ contacts, members, onClose, onCreated }) => {
             <FSelect value={draft.ownerUserId} onChange={(e) => set({ ownerUserId: e.target.value })} placeholder="Unassigned" disabled={saving}
               options={members.map((m) => ({ value: m.userId ?? m.id, label: m.user?.name || m.user?.email || m.name || m.email || 'Member' }))} />
           </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--t3)', paddingTop: 4 }}>
+          <span>Initial status:</span>
+          <StatusBadge label={defaultStageLabel} tone={STATUS_TONE[defaultStageLabel.toUpperCase()] || 'blue'} />
         </div>
       </div>
     </Modal>

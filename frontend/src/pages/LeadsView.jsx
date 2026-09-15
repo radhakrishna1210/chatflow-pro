@@ -15,12 +15,32 @@ import { LeadDistributionModal } from '../components/LeadDistributionModal.jsx';
 import { LogInteractionModal } from '../components/LogInteractionModal.jsx';
 import { BulkTaskModal } from '../components/BulkTaskModal.jsx';
 
+const DEFAULT_LEAD_STAGES = [
+  { key: 'NEW', label: 'New Lead', color: '#3b82f6' },
+  { key: 'CONTACTED', label: 'Contacted', color: '#f59e0b' },
+  { key: 'QUALIFIED', label: 'Qualified', color: '#10b981' },
+  { key: 'UNQUALIFIED', label: 'Unqualified', color: '#ef4444' },
+  { key: 'NURTURING', label: 'Nurturing', color: '#8b5cf6' },
+];
+
 const STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST'];
 const STAGES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
 
 const STATUS_TONE = {
   NEW: 'blue', CONTACTED: 'violet', QUALIFIED: 'green',
   UNQUALIFIED: 'gray', CONVERTED: 'green', LOST: 'red',
+};
+
+const getStageLabel = (st, stages = []) => {
+  const list = stages.length > 0 ? stages : DEFAULT_LEAD_STAGES;
+  const found = list.find(s => s.key === st);
+  return found?.label || pretty(st);
+};
+
+const getStageColor = (st, stages = []) => {
+  const list = stages.length > 0 ? stages : DEFAULT_LEAD_STAGES;
+  const found = list.find(s => s.key === st);
+  return found?.color || null;
 };
 
 const PRESETS = [
@@ -81,7 +101,13 @@ const ScoreBreakdown = ({ factors }) => {
   );
 };
 
-const NewLeadModal = ({ onClose, onCreated }) => {
+const NewLeadModal = ({ onClose, onCreated, crmConfig }) => {
+  const criteria = crmConfig?.prospecting_criteria || {};
+  const sources = (crmConfig?.lead_sources?.sources || []).filter(s => s.isActive !== false);
+  const availableTags = crmConfig?.lead_tags?.tags || [];
+  const lifecycleStages = crmConfig?.lead_lifecycle?.stages?.length > 0 ? crmConfig.lead_lifecycle.stages : DEFAULT_LEAD_STAGES;
+  const defaultStage = lifecycleStages.find(s => s.isDefault)?.key || 'NEW';
+
   const [mode, setMode] = useState('existing');
   const [search, setSearch] = useState('');
   const [contacts, setContacts] = useState([]);
@@ -89,7 +115,14 @@ const NewLeadModal = ({ onClose, onCreated }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [source, setSource] = useState('');
+  const [company, setCompany] = useState('');
+  const [source, setSource] = useState(sources[0]?.key || '');
+  const [status, setStatus] = useState(defaultStage);
+  const [budget, setBudget] = useState('');
+  const [companySize, setCompanySize] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [checklistAnswers, setChecklistAnswers] = useState({});
+  const [selectedTags, setSelectedTags] = useState([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -103,14 +136,51 @@ const NewLeadModal = ({ onClose, onCreated }) => {
     return () => { cancelled = true; };
   }, [search, mode]);
 
+  const toggleTag = (tagName) => {
+    setSelectedTags(prev => prev.includes(tagName) ? prev.filter(t => t !== tagName) : [...prev, tagName]);
+  };
+
   const submit = async () => {
     setErr(null);
-    const body = mode === 'existing'
-      ? { contactId: selected, source: source || undefined }
-      : { name: name.trim(), phoneNumber: phone.trim(), email: email.trim() || undefined, source: source || undefined };
-    if (mode === 'existing' && !selected) { setErr('Select a contact'); return; }
-    if (mode === 'new' && !phone.trim()) { setErr('Phone number is required'); return; }
+    const isPhoneReq = criteria.requirePhone !== false;
+    const isEmailReq = Boolean(criteria.requireEmail);
+    const isCompanyReq = Boolean(criteria.requireCompany);
+
+    if (mode === 'new') {
+      if (isPhoneReq && !phone.trim()) { setErr('Phone number is required by prospecting criteria'); return; }
+      if (isEmailReq && !email.trim()) { setErr('Email is required by prospecting criteria'); return; }
+      if (isCompanyReq && !company.trim()) { setErr('Company name is required by prospecting criteria'); return; }
+    } else {
+      if (!selected) { setErr('Select a contact'); return; }
+    }
+
     setSaving(true);
+    const body = mode === 'existing'
+      ? {
+          contactId: selected,
+          source: source || undefined,
+          status: status || undefined,
+          company: company.trim() || undefined,
+          budget: budget ? Number(budget) : undefined,
+          companySize: companySize ? Number(companySize) : undefined,
+          industry: industry || undefined,
+          checklistAnswers: Object.keys(checklistAnswers).length > 0 ? checklistAnswers : undefined,
+          tags: selectedTags.length > 0 ? selectedTags : undefined,
+        }
+      : {
+          name: name.trim(),
+          phoneNumber: phone.trim(),
+          email: email.trim() || undefined,
+          company: company.trim() || undefined,
+          source: source || undefined,
+          status: status || undefined,
+          budget: budget ? Number(budget) : undefined,
+          companySize: companySize ? Number(companySize) : undefined,
+          industry: industry || undefined,
+          checklistAnswers: Object.keys(checklistAnswers).length > 0 ? checklistAnswers : undefined,
+          tags: selectedTags.length > 0 ? selectedTags : undefined,
+        };
+
     try {
       const res = await wFetch('/leads', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -125,54 +195,163 @@ const NewLeadModal = ({ onClose, onCreated }) => {
   };
 
   return (
-    <Modal title="New Lead" onClose={onClose} width={520}
+    <Modal title="New Lead" onClose={onClose} width={560}
       footer={<>
         <Btn variant="ghost" size="sm" onClick={onClose}>Cancel</Btn>
         <Btn size="sm" onClick={submit} disabled={saving}>{saving ? 'Creating…' : 'Create Lead'}</Btn>
       </>}>
       {err && <ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner>}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-        {[['existing', 'Existing contact'], ['new', 'New contact']].map(([id, label]) => (
-          <button key={id} onClick={() => setMode(id)}
-            style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-              background: mode === id ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
-              border: `1px solid ${mode === id ? 'var(--gbd)' : 'var(--bd)'}`,
-              color: mode === id ? 'var(--green)' : 'var(--t2)' }}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {mode === 'existing' ? (
-        <>
-          <FLabel>Search contacts</FLabel>
-          <FInput value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, phone or email" />
-          <div style={{ marginTop: 10, maxHeight: 240, overflowY: 'auto', border: '1px solid var(--bd)', borderRadius: 8 }}>
-            {contacts.length === 0 && <div style={{ padding: 14, fontSize: 12.5, color: 'var(--t3)' }}>No contacts found.</div>}
-            {contacts.map(c => (
-              <button key={c.id} onClick={() => setSelected(c.id)}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer', textAlign: 'left',
-                  background: selected === c.id ? 'var(--gbg)' : 'transparent', border: 'none', borderBottom: '1px solid var(--bd)' }}>
-                <Avatar name={c.name} size={28} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{c.name}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--t3)' }}>{c.phoneNumber}</div>
-                </div>
-                {selected === c.id && <span style={{ marginLeft: 'auto' }}><I n="check" s={15} c="var(--green)" /></span>}
-              </button>
-            ))}
-          </div>
-        </>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div><FLabel>Name</FLabel><FInput value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" /></div>
-          <div><FLabel required>Phone number</FLabel><FInput value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91 98765 43210" /></div>
-          <div><FLabel>Email</FLabel><FInput value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" /></div>
+      <div style={{ maxHeight: '68vh', overflowY: 'auto', paddingRight: 4, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[['existing', 'Existing contact'], ['new', 'New contact']].map(([id, label]) => (
+            <button key={id} onClick={() => setMode(id)}
+              style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                background: mode === id ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
+                border: `1px solid ${mode === id ? 'var(--gbd)' : 'var(--bd)'}`,
+                color: mode === id ? 'var(--green)' : 'var(--t2)' }}>
+              {label}
+            </button>
+          ))}
         </div>
-      )}
-      <div style={{ marginTop: 12 }}>
-        <FLabel>Source</FLabel>
-        <FInput value={source} onChange={e => setSource(e.target.value)} placeholder="Referral, website, campaign…" />
+
+        {mode === 'existing' ? (
+          <div>
+            <FLabel>Search contacts</FLabel>
+            <FInput value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, phone or email" />
+            <div style={{ marginTop: 10, maxHeight: 180, overflowY: 'auto', border: '1px solid var(--bd)', borderRadius: 8 }}>
+              {contacts.length === 0 && <div style={{ padding: 14, fontSize: 12.5, color: 'var(--t3)' }}>No contacts found.</div>}
+              {contacts.map(c => (
+                <button key={c.id} onClick={() => setSelected(c.id)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer', textAlign: 'left',
+                    background: selected === c.id ? 'var(--gbg)' : 'transparent', border: 'none', borderBottom: '1px solid var(--bd)' }}>
+                  <Avatar name={c.name} size={28} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{c.name}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--t3)' }}>{c.phoneNumber}</div>
+                  </div>
+                  {selected === c.id && <span style={{ marginLeft: 'auto' }}><I n="check" s={15} c="var(--green)" /></span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div><FLabel>Name</FLabel><FInput value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" /></div>
+            <div>
+              <FLabel required={criteria.requirePhone !== false}>Phone number</FLabel>
+              <FInput value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91 98765 43210" />
+            </div>
+            <div>
+              <FLabel required={Boolean(criteria.requireEmail)}>Email</FLabel>
+              <FInput value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" />
+            </div>
+            <div>
+              <FLabel required={Boolean(criteria.requireCompany)}>Company</FLabel>
+              <FInput value={company} onChange={e => setCompany(e.target.value)} placeholder="Acme Corp" />
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div>
+            <FLabel>Lead Source</FLabel>
+            {sources.length > 0 ? (
+              <FSelect
+                value={source}
+                onChange={e => setSource(e.target.value)}
+                placeholder="Select lead source…"
+                options={sources.map(s => ({ value: s.key, label: `${s.name} (${s.category || 'General'})` }))}
+              />
+            ) : (
+              <FInput value={source} onChange={e => setSource(e.target.value)} placeholder="Source" />
+            )}
+          </div>
+          <div>
+            <FLabel>Lifecycle Stage</FLabel>
+            <FSelect
+              value={status}
+              onChange={e => setStatus(e.target.value)}
+              options={lifecycleStages.map(s => ({ value: s.key, label: s.label }))}
+            />
+          </div>
+        </div>
+
+        {/* Prospecting Criteria Section */}
+        <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 8, padding: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <I n="target" s={13} c="var(--accent, #35e8f2)" /> Prospecting & Qualification Info
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+            <div>
+              <FLabel>Estimated Budget ({criteria.currency || '$'})</FLabel>
+              <FInput type="number" value={budget} onChange={e => setBudget(e.target.value)} placeholder={`Min ${criteria.currency || '$'}${criteria.minBudget || 0}`} />
+            </div>
+            <div>
+              <FLabel>Company Size (Employees)</FLabel>
+              <FInput type="number" value={companySize} onChange={e => setCompanySize(e.target.value)} placeholder={`Min ${criteria.companySizeMin || 1}`} />
+            </div>
+          </div>
+          {criteria.targetIndustries?.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <FLabel>Target Industry</FLabel>
+              <FSelect
+                value={industry}
+                onChange={e => setIndustry(e.target.value)}
+                placeholder="Select industry…"
+                options={criteria.targetIndustries.map(ind => ({ value: ind, label: ind }))}
+              />
+            </div>
+          )}
+          {criteria.checklist?.length > 0 && (
+            <div>
+              <FLabel>Qualification Checklist</FLabel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                {criteria.checklist.map(item => (
+                  <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--t2)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(checklistAnswers[item.id])}
+                      onChange={e => setChecklistAnswers(prev => ({ ...prev, [item.id]: e.target.checked }))}
+                      style={{ accentColor: 'var(--accent)' }}
+                    />
+                    <span>{item.question} {item.required && <span style={{ color: '#f87171' }}>*</span>}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Lead Tags Section */}
+        {availableTags.length > 0 && (
+          <div>
+            <FLabel>Lead Tags</FLabel>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+              {availableTags.map(tag => {
+                const isSelected = selectedTags.includes(tag.name);
+                return (
+                  <button
+                    key={tag.id || tag.name}
+                    type="button"
+                    onClick={() => toggleTag(tag.name)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: `1px solid ${isSelected ? (tag.color || 'var(--accent)') : 'var(--bd)'}`,
+                      background: isSelected ? (tag.color ? `${tag.color}33` : 'var(--gbg)') : 'rgba(255,255,255,0.02)',
+                      color: isSelected ? (tag.color || 'var(--green)') : 'var(--t3)',
+                    }}
+                  >
+                    {isSelected ? '✓ ' : '+ '}{tag.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -285,7 +464,7 @@ const DeleteConfirmModal = ({ count, onClose, onConfirmed, busy }) => (
 );
 
 // 360° Lead View Detail Component
-const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh }) => {
+const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfig }) => {
   const [tab, setTab] = useState('overview'); // 'overview' | 'engagements' | 'form_intent' | 'tasks' | 'notes'
   const [notes, setNotes] = useState(lead.notes || '');
   const [savingNotes, setSavingNotes] = useState(false);
@@ -297,8 +476,48 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh }) => {
   const [customDefs, setCustomDefs] = useState([]);
   const [customValues, setCustomValues] = useState(lead.customFields || {});
 
+  const lifecycleStages = crmConfig?.lead_lifecycle?.stages?.length > 0 ? crmConfig.lead_lifecycle.stages : DEFAULT_LEAD_STAGES;
+  const criteria = crmConfig?.prospecting_criteria || {};
+  const leadTagsConfig = crmConfig?.lead_tags?.tags || [];
+  const leadSourcesConfig = crmConfig?.lead_sources?.sources || [];
+
+  const [prospectingBudget, setProspectingBudget] = useState(lead.customFields?.prospecting?.budget ?? '');
+  const [prospectingCompanySize, setProspectingCompanySize] = useState(lead.customFields?.prospecting?.companySize ?? '');
+  const [prospectingIndustry, setProspectingIndustry] = useState(lead.customFields?.prospecting?.industry ?? '');
+  const [prospectingAnswers, setProspectingAnswers] = useState(lead.customFields?.prospecting?.answers ?? {});
+  const [savingProspecting, setSavingProspecting] = useState(false);
+
   useEffect(() => { setNotes(lead.notes || ''); setErr(null); }, [lead.id]);
   useEffect(() => { setCustomValues(lead.customFields || {}); }, [lead.id, lead.customFields]);
+  useEffect(() => {
+    setProspectingBudget(lead.customFields?.prospecting?.budget ?? '');
+    setProspectingCompanySize(lead.customFields?.prospecting?.companySize ?? '');
+    setProspectingIndustry(lead.customFields?.prospecting?.industry ?? '');
+    setProspectingAnswers(lead.customFields?.prospecting?.answers ?? {});
+  }, [lead.id, lead.customFields]);
+
+  const currentTags = Array.isArray(lead.contact?.tags) ? lead.contact.tags : [];
+  const handleRemoveTag = (tagName) => {
+    const updated = currentTags.filter(t => t !== tagName);
+    patch({ tags: updated });
+  };
+  const handleAddTag = (tagName) => {
+    if (!tagName || currentTags.includes(tagName)) return;
+    patch({ tags: [...currentTags, tagName] });
+  };
+
+  const saveProspecting = async () => {
+    setSavingProspecting(true);
+    await patch({
+      prospecting: {
+        budget: prospectingBudget !== '' ? Number(prospectingBudget) : undefined,
+        companySize: prospectingCompanySize !== '' ? Number(prospectingCompanySize) : undefined,
+        industry: prospectingIndustry || undefined,
+        answers: prospectingAnswers,
+      },
+    });
+    setSavingProspecting(false);
+  };
 
   useEffect(() => {
     wFetch('/custom-fields?entity=lead')
@@ -366,7 +585,33 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh }) => {
             <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: lead.category === 'HOT' ? 'rgba(239,68,68,0.15)' : lead.category === 'WARM' ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.15)', color: lead.category === 'HOT' ? '#f87171' : lead.category === 'WARM' ? '#fbbf24' : '#60a5fa' }}>
               {lead.category || 'COLD'}
             </span>
-            <StatusBadge label={pretty(lead.status)} tone={STATUS_TONE[lead.status]} />
+            <span style={{
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '2px 8px',
+              borderRadius: 4,
+              background: getStageColor(lead.status, lifecycleStages) ? `${getStageColor(lead.status, lifecycleStages)}25` : 'rgba(255,255,255,0.08)',
+              color: getStageColor(lead.status, lifecycleStages) || 'var(--t1)',
+              border: `1px solid ${getStageColor(lead.status, lifecycleStages) ? `${getStageColor(lead.status, lifecycleStages)}50` : 'var(--bd)'}`
+            }}>
+              {getStageLabel(lead.status, lifecycleStages)}
+            </span>
+            {currentTags.map(t => {
+              const def = leadTagsConfig.find(tc => tc.name === t);
+              return (
+                <span key={t} style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  background: def?.color ? `${def.color}22` : 'rgba(255,255,255,0.06)',
+                  color: def?.color || 'var(--t2)',
+                  border: `1px solid ${def?.color ? `${def.color}44` : 'var(--bd)'}`
+                }}>
+                  {t}
+                </span>
+              );
+            })}
             {c.optedOut && (
               <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
                 OPTED OUT / DNC
@@ -374,7 +619,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh }) => {
             )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--t3)' }}>
-            {c.phoneNumber}{c.email ? ` · ${c.email}` : ''}{lead.source ? ` · Source: ${lead.source}` : ''}
+            {c.phoneNumber}{c.email ? ` · ${c.email}` : ''}{lead.source ? ` · Source: ${leadSourcesConfig.find(s => s.key === lead.source)?.name || lead.source}` : ''}
           </div>
         </div>
 
@@ -508,7 +753,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh }) => {
               <FLabel>Status</FLabel>
               <FSelect value={lead.status} disabled={busy || isConverted}
                 onChange={e => patch({ status: e.target.value })}
-                options={STATUSES.map(s => ({ value: s, label: pretty(s) }))} />
+                options={lifecycleStages.map(s => ({ value: s.key, label: s.label }))} />
             </div>
             <div>
               <FLabel>Owner</FLabel>
@@ -516,6 +761,154 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh }) => {
                 onChange={e => patch({ ownerUserId: e.target.value || null })}
                 options={members.map(m => ({ value: m.user.id, label: m.user.name || m.user.email }))} />
             </div>
+          </div>
+
+          {/* Contact Tags Manager */}
+          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 8, padding: '14px 16px', marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <I n="tag" s={14} c="var(--accent, #35e8f2)" /> Contact Tags
+              </div>
+              {leadTagsConfig.filter(t => !currentTags.includes(t.name)).length > 0 && (
+                <select
+                  onChange={e => { if (e.target.value) { handleAddTag(e.target.value); e.target.value = ''; } }}
+                  defaultValue=""
+                  disabled={busy}
+                  style={{ background: '#111', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 11.5, padding: '3px 8px', borderRadius: 6, cursor: 'pointer' }}
+                >
+                  <option value="" disabled>+ Add Tag…</option>
+                  {leadTagsConfig.filter(t => !currentTags.includes(t.name)).map(t => (
+                    <option key={t.id || t.name} value={t.name}>{t.name} ({t.category || 'General'})</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            {currentTags.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--t3)' }}>No tags assigned to this contact.</div>
+            ) : (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {currentTags.map(t => {
+                  const def = leadTagsConfig.find(tc => tc.name === t);
+                  return (
+                    <span key={t} style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '3px 8px',
+                      borderRadius: 6,
+                      background: def?.color ? `${def.color}22` : 'rgba(255,255,255,0.06)',
+                      color: def?.color || 'var(--t1)',
+                      border: `1px solid ${def?.color ? `${def.color}44` : 'var(--bd)'}`
+                    }}>
+                      <span>{t}</span>
+                      <button
+                        onClick={() => handleRemoveTag(t)}
+                        disabled={busy}
+                        aria-label={`Remove ${t}`}
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', display: 'flex', opacity: 0.7 }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Prospecting & Qualification Card */}
+          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 8, padding: '16px 18px', marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <I n="target" s={16} c="var(--accent, #35e8f2)" />
+                <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--t1)' }}>
+                  Prospecting & Qualification
+                </span>
+                {lead.customFields?.qualification?.status ? (
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    background: lead.customFields.qualification.status === 'QUALIFIED' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                    color: lead.customFields.qualification.status === 'QUALIFIED' ? '#34d399' : '#f87171',
+                    border: `1px solid ${lead.customFields.qualification.status === 'QUALIFIED' ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`
+                  }}>
+                    {lead.customFields.qualification.status} ({lead.customFields.qualification.percentage ?? 0}%)
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--t3)' }}>Not Evaluated</span>
+                )}
+              </div>
+              <Btn variant="ghost" size="sm" onClick={saveProspecting} disabled={busy || savingProspecting}>
+                <I n="refresh" s={13} c="var(--t2)" /> {savingProspecting ? 'Saving…' : 'Save & Re-evaluate'}
+              </Btn>
+            </div>
+
+            {lead.customFields?.qualification?.criteriaChecks && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginBottom: 14 }}>
+                {Object.entries(lead.customFields.qualification.criteriaChecks).map(([k, passed]) => (
+                  <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, padding: '5px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--bd)' }}>
+                    <span style={{ color: passed ? 'var(--green)' : '#f87171', fontWeight: 700 }}>{passed ? '✓' : '✗'}</span>
+                    <span style={{ color: 'var(--t2)', textTransform: 'capitalize' }}>{k.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <div>
+                <FLabel>Estimated Budget ({criteria.currency || '$'})</FLabel>
+                <FInput
+                  type="number"
+                  value={prospectingBudget}
+                  onChange={e => setProspectingBudget(e.target.value)}
+                  placeholder={`Target: ${criteria.currency || '$'}${criteria.minBudget || 0}`}
+                />
+              </div>
+              <div>
+                <FLabel>Company Size (Employees)</FLabel>
+                <FInput
+                  type="number"
+                  value={prospectingCompanySize}
+                  onChange={e => setProspectingCompanySize(e.target.value)}
+                  placeholder={`Target: ${criteria.companySizeMin || 1}`}
+                />
+              </div>
+            </div>
+
+            {criteria.targetIndustries?.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <FLabel>Target Industry</FLabel>
+                <FSelect
+                  value={prospectingIndustry}
+                  onChange={e => setProspectingIndustry(e.target.value)}
+                  placeholder="Select industry…"
+                  options={criteria.targetIndustries.map(ind => ({ value: ind, label: ind }))}
+                />
+              </div>
+            )}
+
+            {criteria.checklist?.length > 0 && (
+              <div>
+                <FLabel>Qualification Checklist</FLabel>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                  {criteria.checklist.map(item => (
+                    <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--t2)', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(prospectingAnswers[item.id])}
+                        onChange={e => setChecklistAnswers(prev => ({ ...prev, [item.id]: e.target.checked }))}
+                        style={{ accentColor: 'var(--accent)' }}
+                      />
+                      <span>{item.question} {item.required && <span style={{ color: '#f87171' }}>*</span>}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 8, padding: '16px 18px', marginBottom: 18 }}>
@@ -755,15 +1148,22 @@ export default function LeadsView() {
   const [activeId, setActiveId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [members, setMembers] = useState([]);
+  const [crmConfig, setCrmConfig] = useState(null);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [status, setStatus] = useState('');
   const [owner, setOwner] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [tagFilter, setTagFilter] = useState('');
   const [preset, setPreset] = useState('all');
   const [sort, setSort] = useState('score');
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState(null);
+
+  const lifecycleStages = crmConfig?.lead_lifecycle?.stages?.length > 0 ? crmConfig.lead_lifecycle.stages : DEFAULT_LEAD_STAGES;
+  const configuredSources = crmConfig?.lead_sources?.sources || [];
+  const configuredTags = crmConfig?.lead_tags?.tags || [];
 
   // Selection & Bulk Actions
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -772,6 +1172,13 @@ export default function LeadsView() {
   const [showDistributionModal, setShowDistributionModal] = useState(false);
   const [bulkTaskModalOpen, setBulkTaskModalOpen] = useState(false);
 
+  useEffect(() => {
+    wFetch('/crm-customization')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.data) setCrmConfig(d.data); })
+      .catch(() => {});
+  }, []);
+
   const load = useCallback(() => {
     setLoading(true);
     const qs = new URLSearchParams();
@@ -779,6 +1186,8 @@ export default function LeadsView() {
     if (category) qs.set('category', category);
     if (status) qs.set('status', status);
     if (owner) qs.set('ownerUserId', owner);
+    if (sourceFilter) qs.set('source', sourceFilter);
+    if (tagFilter) qs.set('tag', tagFilter);
     if (preset && preset !== 'all') qs.set('preset', preset);
     qs.set('sort', sort);
     wFetch(`/leads?${qs}`)
@@ -786,7 +1195,7 @@ export default function LeadsView() {
       .then(d => setLeads(d.data ?? []))
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false));
-  }, [search, category, status, owner, preset, sort]);
+  }, [search, category, status, owner, sourceFilter, tagFilter, preset, sort]);
 
   const toggleSelect = (id, e) => {
     e.stopPropagation();
@@ -883,6 +1292,7 @@ export default function LeadsView() {
 
   const refreshDetail = () => {
     if (!activeId) return;
+    load();
     wFetch(`/leads/${activeId}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d) setDetail(d); })
@@ -1015,7 +1425,7 @@ export default function LeadsView() {
               style={{ background: '#111', border: '1px solid var(--bd)', color: '#fff', fontSize: 11.5, padding: '5px 8px', borderRadius: 6 }}
             >
               <option value="" disabled>Status…</option>
-              {STATUSES.map(s => <option key={s} value={s}>{pretty(s)}</option>)}
+              {lifecycleStages.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
 
             {/* Move Category */}
@@ -1072,7 +1482,7 @@ export default function LeadsView() {
               <FSelect value={category} onChange={e => setCategory(e.target.value)} placeholder="All categories"
                 options={[{ value: 'HOT', label: 'HOT 🔥' }, { value: 'WARM', label: 'WARM ⚡' }, { value: 'COLD', label: 'COLD ❄️' }]} />
               <FSelect value={status} onChange={e => setStatus(e.target.value)} placeholder="All statuses"
-                options={STATUSES.map(s => ({ value: s, label: pretty(s) }))} />
+                options={lifecycleStages.map(s => ({ value: s.key, label: s.label }))} />
             </div>
 
             <div style={{ display: 'flex', gap: 6 }}>
@@ -1082,15 +1492,24 @@ export default function LeadsView() {
                 options={members.map(m => ({ value: m.user.id, label: m.user.name || m.user.email }))} />
             </div>
 
+            <div style={{ display: 'flex', gap: 6 }}>
+              <FSelect value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} placeholder="All sources"
+                options={configuredSources.map(s => ({ value: s.key, label: s.name }))} />
+              <FSelect value={tagFilter} onChange={e => setTagFilter(e.target.value)} placeholder="All tags"
+                options={configuredTags.map(t => ({ value: t.name, label: `${t.name} (${t.category || 'General'})` }))} />
+            </div>
+
             <SavedViews
               entity="leads"
-              current={{ search, status, ownerUserId: owner, sort, category }}
+              current={{ search, status, ownerUserId: owner, sort, category, source: sourceFilter, tag: tagFilter }}
               onApply={(f) => {
                 setSearch(f.search ?? '');
                 setStatus(f.status ?? '');
                 setOwner(f.ownerUserId ?? '');
                 setCategory(f.category ?? '');
                 setSort(f.sort ?? 'score');
+                setSourceFilter(f.source ?? '');
+                setTagFilter(f.tag ?? '');
               }}
             />
           </div>
@@ -1152,14 +1571,51 @@ export default function LeadsView() {
                     </div>
 
                     <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
-                      <StatusBadge label={pretty(l.status)} tone={STATUS_TONE[l.status]} />
+                      <span style={{
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        background: getStageColor(l.status, lifecycleStages) ? `${getStageColor(l.status, lifecycleStages)}20` : 'rgba(255,255,255,0.06)',
+                        color: getStageColor(l.status, lifecycleStages) || 'var(--t1)',
+                        border: `1px solid ${getStageColor(l.status, lifecycleStages) ? `${getStageColor(l.status, lifecycleStages)}40` : 'var(--bd)'}`
+                      }}>
+                        {getStageLabel(l.status, lifecycleStages)}
+                      </span>
                       {l.category && (
                         <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: l.category === 'HOT' ? 'rgba(239,68,68,0.15)' : l.category === 'WARM' ? 'rgba(245,158,11,0.15)' : 'rgba(59,130,246,0.15)', color: l.category === 'HOT' ? '#f87171' : leadCategoryTone(l.category) }}>
                           {l.category}
                         </span>
                       )}
+                      {l.source && (
+                        <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: 'rgba(255,255,255,0.05)', color: 'var(--t3)', border: '1px solid var(--bd)' }}>
+                          {configuredSources.find(s => s.key === l.source)?.name || l.source}
+                        </span>
+                      )}
                       {l.owner && <span style={{ fontSize: 10.5, color: 'var(--t3)' }}>👤 {l.owner.name}</span>}
                     </div>
+
+                    {/* Contact Tags Pills */}
+                    {Array.isArray(l.contact?.tags) && l.contact.tags.length > 0 && (
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+                        {l.contact.tags.map(tagName => {
+                          const tagDef = configuredTags.find(t => t.name === tagName);
+                          return (
+                            <span key={tagName} style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: '1px 5px',
+                              borderRadius: 4,
+                              background: tagDef?.color ? `${tagDef.color}20` : 'rgba(255,255,255,0.06)',
+                              color: tagDef?.color || 'var(--t2)',
+                              border: `1px solid ${tagDef?.color ? `${tagDef.color}40` : 'var(--bd)'}`
+                            }}>
+                              {tagName}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     {/* Operational Next Task / Activity Indicator (Gap Analysis Part 1, Page 3; Part 2, Page 17) */}
                     {earliestTask ? (
@@ -1188,6 +1644,7 @@ export default function LeadsView() {
           <LeadDetail
             lead={detail}
             members={members}
+            crmConfig={crmConfig}
             onChanged={applyUpdate}
             onRefresh={refreshDetail}
             onConverted={() => {
@@ -1208,8 +1665,11 @@ export default function LeadsView() {
       </div>
 
       {creating && (
-        <NewLeadModal onClose={() => setCreating(false)}
-          onCreated={(lead) => { setCreating(false); load(); setActiveId(lead.id); }} />
+        <NewLeadModal
+          crmConfig={crmConfig}
+          onClose={() => setCreating(false)}
+          onCreated={(lead) => { setCreating(false); load(); setActiveId(lead.id); }}
+        />
       )}
 
       {showDistributionModal && (

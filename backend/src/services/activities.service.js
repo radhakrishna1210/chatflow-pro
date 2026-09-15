@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { resolveCrmReferences } from './crmReferences.js';
+import { autoGenerateOutcomeTask } from './crmCustomization.service.js';
 
 const ACTIVITY_INCLUDE = {
   createdByUser: {
@@ -111,8 +112,8 @@ export async function listActivities(workspaceId, {
       ...stageHistory.map(h => ({
         id: h.id,
         feedType: 'STAGE_CHANGE',
-        fromStage: h.fromStage,
-        toStage: h.toStage,
+        fromStage: h.fromStageKey || h.fromStage,
+        toStage: h.toStageKey || h.toStage,
         createdAt: h.changedAt,
         createdByUser: h.changedByUser,
       }))
@@ -221,7 +222,7 @@ export async function createActivity(workspaceId, body, userId) {
     content = JSON.stringify(meta);
   }
 
-  return prisma.crmActivity.create({
+  const activity = await prisma.crmActivity.create({
     data: {
       workspaceId,
       type: rawType,
@@ -233,6 +234,25 @@ export async function createActivity(workspaceId, body, userId) {
     },
     include: ACTIVITY_INCLUDE,
   });
+
+  const outcomeMatch = body.content?.match(/Outcome:\s*([^|]+)/i);
+  const outcome = body.outcome || outcomeMatch?.[1]?.trim() || null;
+  const sentimentMatch = body.content?.match(/Sentiment:\s*([^|]+)/i);
+  const sentiment = body.sentiment || sentimentMatch?.[1]?.trim() || null;
+
+  if (outcome && (rawType === 'CALL' || rawType === 'MEETING')) {
+    await autoGenerateOutcomeTask(workspaceId, {
+      type: rawType,
+      outcome,
+      sentiment,
+      leadId: refs.leadId ?? null,
+      dealId: refs.dealId ?? null,
+      contactId: refs.contactId ?? null,
+      userId,
+    }).catch((e) => console.error('[createActivity] autoGenerateOutcomeTask error:', e.message));
+  }
+
+  return activity;
 }
 
 

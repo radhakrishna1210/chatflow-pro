@@ -7,6 +7,116 @@ import { emitCrmEvent } from './workflowCrm.service.js';
 import { scopeFilter } from './recordScope.service.js';
 import { awardXp, unlockAchievement } from './gamification.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
+import { getSection } from './crmCustomization.service.js';
+
+export const PRISMA_LEAD_STATUSES = new Set(['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST']);
+
+/**
+ * Pure evaluator for prospecting qualification criteria against lead attributes.
+ */
+export function evaluateProspectingCriteria(criteriaConfig, info = {}) {
+  const {
+    budget = null,
+    companySize = null,
+    industry = '',
+    answers = {},
+  } = info;
+
+  const checks = [];
+  let score = 0;
+  let maxScore = 0;
+  let allRequiredPassed = true;
+
+  // 1. Budget check
+  if (criteriaConfig?.minBudget != null && Number(criteriaConfig.minBudget) > 0) {
+    maxScore += 25;
+    const min = Number(criteriaConfig.minBudget);
+    const leadBudget = budget != null && budget !== '' ? Number(budget) : null;
+    const passed = leadBudget !== null && leadBudget >= min;
+    if (!passed) allRequiredPassed = false;
+    else score += 25;
+    checks.push({
+      key: 'minBudget',
+      label: `Minimum Budget (${criteriaConfig.currency || 'USD'} ${min})`,
+      required: true,
+      passed,
+      value: leadBudget != null ? `${criteriaConfig.currency || 'USD'} ${leadBudget}` : 'Not provided',
+    });
+  }
+
+  // 2. Company size check
+  if (criteriaConfig?.companySizeMin != null && Number(criteriaConfig.companySizeMin) > 0) {
+    maxScore += 20;
+    const min = Number(criteriaConfig.companySizeMin);
+    const leadSize = companySize != null && companySize !== '' ? Number(companySize) : null;
+    const passed = leadSize !== null && leadSize >= min;
+    if (!passed) allRequiredPassed = false;
+    else score += 20;
+    checks.push({
+      key: 'companySizeMin',
+      label: `Minimum Company Size (${min} employees)`,
+      required: true,
+      passed,
+      value: leadSize != null ? `${leadSize} employees` : 'Not provided',
+    });
+  }
+
+  // 3. Target industries check
+  if (Array.isArray(criteriaConfig?.targetIndustries) && criteriaConfig.targetIndustries.length > 0) {
+    maxScore += 15;
+    const leadInd = String(industry || '').trim().toLowerCase();
+    const passed = Boolean(leadInd) && criteriaConfig.targetIndustries.some(
+      (ti) => ti.toLowerCase() === leadInd || leadInd.includes(ti.toLowerCase()) || ti.toLowerCase().includes(leadInd)
+    );
+    if (passed) score += 15;
+    checks.push({
+      key: 'targetIndustries',
+      label: 'Target Industry Match',
+      required: false,
+      passed,
+      value: industry || 'Not specified',
+    });
+  }
+
+  // 4. Checklist questions
+  if (Array.isArray(criteriaConfig?.checklist) && criteriaConfig.checklist.length > 0) {
+    for (const item of criteriaConfig.checklist) {
+      const weight = Number(item.weight) || 10;
+      maxScore += weight;
+      const ans = Boolean(answers[item.id] ?? answers[item.question]);
+      if (ans) {
+        score += weight;
+      } else if (item.required) {
+        allRequiredPassed = false;
+      }
+      checks.push({
+        key: item.id,
+        label: item.question,
+        required: Boolean(item.required),
+        passed: ans,
+        weight,
+      });
+    }
+  }
+
+  const finalScore = maxScore > 0 ? Math.round((score / maxScore) * 100) : 100;
+  const isQualified = allRequiredPassed && (maxScore === 0 || finalScore >= 50);
+
+  const criteriaChecks = {
+    budget: checks.find((c) => c.key === 'minBudget')?.passed ?? true,
+    companySize: checks.find((c) => c.key === 'companySizeMin')?.passed ?? true,
+    industry: checks.find((c) => c.key === 'targetIndustries')?.passed ?? true,
+  };
+
+  return {
+    score: finalScore,
+    isQualified,
+    status: isQualified ? 'QUALIFIED' : 'DISQUALIFIED',
+    checks,
+    criteriaChecks,
+    evaluatedAt: new Date(),
+  };
+}
 
 const LEAD_INCLUDE = {
   contact: { select: { id: true, name: true, phoneNumber: true, email: true, tags: true, optedOut: true } },
@@ -16,14 +126,15 @@ const LEAD_INCLUDE = {
 // `user` carries the caller's identity and role. Record visibility is applied
 // here rather than in the controller so every path — list, get, and the
 // exports that reuse them — is scoped by the same rule.
-export async function listLeads(workspaceId, { category = '', status = '', ownerUserId = '', search = '', sort = 'score', preset = '', awaitingTask = false, uncontacted = false } = {}, user = null) {
+export async function listLeads(workspaceId, { category = '', status = '', source = '', tag = '', ownerUserId = '', search = '', sort = 'score', preset = '', awaitingTask = false, uncontacted = false } = {}, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const where = {
     workspaceId,
     ...scope,
     ...(category ? { category } : {}),
-    ...(status ? { status } : {}),
     ...(ownerUserId ? { ownerUserId } : {}),
+    ...(source ? { source } : {}),
+    ...(tag ? { contact: { tags: { has: tag } } } : {}),
     ...(search ? {
       contact: {
         OR: [
@@ -34,6 +145,18 @@ export async function listLeads(workspaceId, { category = '', status = '', owner
       },
     } : {}),
   };
+
+  if (status) {
+    if (PRISMA_LEAD_STATUSES.has(status)) {
+      where.OR = [
+        { status, customFields: { equals: null } },
+        { customFields: { path: ['statusKey'], equals: status } },
+        { status, customFields: { path: ['statusKey'], equals: null } },
+      ];
+    } else {
+      where.customFields = { path: ['statusKey'], equals: status };
+    }
+  }
 
   if (preset === 'my' && user?.id) {
     where.ownerUserId = user.id;
@@ -76,7 +199,13 @@ export async function listLeads(workspaceId, { category = '', status = '', owner
     }),
     prisma.lead.count({ where }),
   ]);
-  return { data, total };
+  return {
+    data: data.map((l) => ({
+      ...l,
+      status: l.customFields?.statusKey || l.status,
+    })),
+    total,
+  };
 }
 
 export async function getLead(workspaceId, id, user = null) {
@@ -102,7 +231,7 @@ export async function getLead(workspaceId, id, user = null) {
     },
   });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
-  return lead;
+  return { ...lead, status: lead.customFields?.statusKey || lead.status };
 }
 
 // Accepts either an existing contactId, or name+phoneNumber to create the
@@ -110,6 +239,26 @@ export async function getLead(workspaceId, id, user = null) {
 // lead never carries its own copy of name/phone.
 export async function createLead(workspaceId, body) {
   let contactId = body.contactId;
+
+  // 1. Prospecting criteria validation
+  const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch(() => null);
+  if (criteriaConfig?.requirePhone && !body.phoneNumber && !contactId) {
+    const e = new Error('Phone number is required based on workspace prospecting criteria.');
+    e.status = 400;
+    throw e;
+  }
+  if (criteriaConfig?.requireEmail && !body.email && !contactId) {
+    const e = new Error('Email is required based on workspace prospecting criteria.');
+    e.status = 400;
+    throw e;
+  }
+  if (criteriaConfig?.requireCompany && !body.company && !body.prospecting?.company) {
+    const e = new Error('Company is required based on workspace prospecting criteria.');
+    e.status = 400;
+    throw e;
+  }
+
+  const initialTags = Array.isArray(body.tags) ? body.tags : [];
 
   if (!contactId) {
     if (!isValidPhone(body.phoneNumber)) {
@@ -120,15 +269,79 @@ export async function createLead(workspaceId, body) {
     contactId = existing
       ? existing.id
       : (await prisma.contact.create({
-          data: { workspaceId, name: body.name || phoneNumber, phoneNumber, email: body.email || null, tags: [] },
+          data: {
+            workspaceId,
+            name: body.name || phoneNumber,
+            phoneNumber,
+            email: body.email || null,
+            tags: initialTags,
+          },
         })).id;
   } else {
-    const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { id: true } });
+    const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { id: true, email: true, phoneNumber: true } });
     if (!contact) { const e = new Error('Contact not found'); e.status = 404; throw e; }
+    if (criteriaConfig?.requireEmail && !contact.email && !body.email) {
+      const e = new Error('Email is required based on workspace prospecting criteria.');
+      e.status = 400;
+      throw e;
+    }
+    if (initialTags.length > 0) {
+      await prisma.contact.update({
+        where: { id: contactId },
+        data: { tags: initialTags },
+      });
+    }
   }
 
   const duplicate = await prisma.lead.findUnique({ where: { contactId }, select: { id: true } });
   if (duplicate) { const e = new Error('This contact is already a lead'); e.status = 409; throw e; }
+
+  // 2. Lead Source validation
+  let canonicalSource = body.source ?? null;
+  if (canonicalSource) {
+    const sourceConfig = await getSection(workspaceId, 'lead_sources').catch(() => null);
+    const configuredSources = sourceConfig?.sources || [];
+    if (configuredSources.length > 0) {
+      const matched = configuredSources.find(
+        (s) => s.key === canonicalSource || s.name?.toLowerCase() === canonicalSource.toLowerCase() || s.key?.toLowerCase() === canonicalSource.toLowerCase()
+      );
+      if (matched) {
+        if (matched.isActive === false) {
+          const e = new Error(`Lead source "${matched.name || canonicalSource}" is disabled and cannot be selected.`);
+          e.status = 400;
+          throw e;
+        }
+        canonicalSource = matched.key;
+      } else {
+        const e = new Error(`Invalid lead source "${canonicalSource}". Please select from configured lead sources.`);
+        e.status = 400;
+        throw e;
+      }
+    }
+  }
+
+  // 3. Status & Custom Lifecycle resolution
+  const lifecycleConfig = await getSection(workspaceId, 'lead_lifecycle').catch(() => null);
+  const defaultStageKey = lifecycleConfig?.stages?.find((s) => s.isDefault)?.key || 'NEW';
+  const requestedStatus = body.status || defaultStageKey;
+  const isPrismaStatus = PRISMA_LEAD_STATUSES.has(requestedStatus);
+  const dbStatus = isPrismaStatus ? requestedStatus : 'NEW';
+
+  // 4. Prospecting Criteria evaluation
+  let customFields = typeof body.customFields === 'object' && body.customFields !== null ? { ...body.customFields } : {};
+  if (!isPrismaStatus) {
+    customFields.statusKey = requestedStatus;
+  }
+
+  const prospectingInfo = {
+    budget: body.budget ?? body.prospecting?.budget ?? null,
+    companySize: body.companySize ?? body.prospecting?.companySize ?? null,
+    industry: body.industry ?? body.prospecting?.industry ?? null,
+    answers: body.checklistAnswers ?? body.qualificationAnswers ?? body.prospecting?.answers ?? {},
+  };
+  const qualResult = evaluateProspectingCriteria(criteriaConfig, prospectingInfo);
+  customFields.prospecting = prospectingInfo;
+  customFields.qualification = qualResult;
 
   const { score, factors, computedAt } = await computeLeadScore(workspaceId, contactId);
 
@@ -136,9 +349,11 @@ export async function createLead(workspaceId, body) {
     data: {
       workspaceId,
       contactId,
-      source: body.source ?? null,
+      status: dbStatus,
+      source: canonicalSource,
       ownerUserId: body.ownerUserId ?? null,
       notes: body.notes ?? null,
+      customFields: Object.keys(customFields).length > 0 ? customFields : null,
       score,
       scoreFactors: factors,
       scoreComputedAt: computedAt,
@@ -161,37 +376,98 @@ export async function createLead(workspaceId, body) {
   // Fire-and-forget: an automation must never delay or fail the write that
   // triggered it.
   emitCrmEvent(workspaceId, 'lead_created', { leadId: lead.id, contactId, score });
-  return categorizedLead;
+  return {
+    ...categorizedLead,
+    contact: { ...lead.contact, ...categorizedLead.contact, tags: initialTags ?? lead.contact?.tags ?? [] },
+    customFields: lead.customFields,
+    status: lead.customFields?.statusKey || categorizedLead.status,
+  };
 }
 
 // `updates` arrives pre-whitelisted by the strict update validator, so
 // workspaceId/score/convertedDealId cannot be mass-assigned.
 export async function updateLead(workspaceId, id, updates, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true, status: true, customFields: true } });
+  const lead = await prisma.lead.findFirst({
+    where: { id, workspaceId, ...scope },
+    select: { id: true, status: true, customFields: true, contactId: true, ownerUserId: true },
+  });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
 
+  // Update tags on Contact if provided
+  if (Array.isArray(updates.tags)) {
+    await prisma.contact.update({
+      where: { id: lead.contactId },
+      data: { tags: updates.tags },
+    });
+  }
+
   const data = { ...updates };
-  // Custom fields are validated against the workspace's definitions and merged
-  // over what is already stored, so a partial update cannot wipe the rest.
-  const customFields = await validateCrmCustomFields(workspaceId, 'lead', updates.customFields, lead.customFields);
-  if (customFields === undefined) delete data.customFields;
-  else data.customFields = customFields;
+  delete data.tags;
+  delete data.prospecting;
+  delete data.budget;
+  delete data.companySize;
+  delete data.industry;
+  delete data.qualificationAnswers;
+  delete data.checklistAnswers;
+
+  // Custom fields handling
+  let customFields = await validateCrmCustomFields(workspaceId, 'lead', updates.customFields, lead.customFields);
+  if (customFields === undefined) {
+    customFields = typeof lead.customFields === 'object' && lead.customFields !== null ? { ...lead.customFields } : {};
+  } else {
+    customFields = typeof customFields === 'object' && customFields !== null ? { ...customFields } : {};
+  }
+
+  // Handle custom lifecycle status
+  if (updates.status) {
+    const isPrismaStatus = PRISMA_LEAD_STATUSES.has(updates.status);
+    if (isPrismaStatus) {
+      data.status = updates.status;
+      delete customFields.statusKey;
+    } else {
+      data.status = 'NEW';
+      customFields.statusKey = updates.status;
+    }
+  }
+
+  // Handle Prospecting evaluation on update
+  if (updates.prospecting || updates.budget !== undefined || updates.companySize !== undefined || updates.industry !== undefined || updates.qualificationAnswers) {
+    const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch(() => null);
+    const existingProspecting = customFields.prospecting || {};
+    const prospectingInfo = {
+      budget: updates.budget !== undefined ? updates.budget : (updates.prospecting?.budget !== undefined ? updates.prospecting.budget : existingProspecting.budget),
+      companySize: updates.companySize !== undefined ? updates.companySize : (updates.prospecting?.companySize !== undefined ? updates.prospecting.companySize : existingProspecting.companySize),
+      industry: updates.industry !== undefined ? updates.industry : (updates.prospecting?.industry !== undefined ? updates.prospecting.industry : existingProspecting.industry),
+      answers: updates.checklistAnswers || updates.qualificationAnswers || updates.prospecting?.answers || existingProspecting.answers || {},
+    };
+    const qualResult = evaluateProspectingCriteria(criteriaConfig, prospectingInfo);
+    customFields.prospecting = prospectingInfo;
+    customFields.qualification = qualResult;
+  }
+
+  data.customFields = Object.keys(customFields).length > 0 ? customFields : null;
 
   const updated = await prisma.lead.update({ where: { id }, data, include: LEAD_INCLUDE });
 
-  if (updates.status === 'QUALIFIED' && lead.status !== 'QUALIFIED' && updated.ownerUserId) {
+  const effectiveStatus = updated.customFields?.statusKey || updated.status;
+  const previousEffectiveStatus = lead.customFields?.statusKey || lead.status;
+
+  if (updates.status === 'QUALIFIED' && previousEffectiveStatus !== 'QUALIFIED' && updated.ownerUserId) {
     awardXp(workspaceId, updated.ownerUserId, 'qualified_lead', { recordType: 'lead', recordId: id })
       .then(() => unlockAchievement(workspaceId, updated.ownerUserId, 'first_qualified'))
       .catch((e) => console.error('[Gamification] award failed:', e.message));
   }
 
-  if (updates.status && updates.status !== lead.status) {
+  if (effectiveStatus !== previousEffectiveStatus) {
     emitCrmEvent(workspaceId, 'lead_status_changed', {
-      leadId: id, contactId: updated.contactId, status: updates.status, previousStatus: lead.status,
+      leadId: id, contactId: updated.contactId, status: effectiveStatus, previousStatus: previousEffectiveStatus,
     });
   }
-  return updated;
+  return {
+    ...updated,
+    status: effectiveStatus,
+  };
 }
 
 export async function deleteLead(workspaceId, id, user = null) {
