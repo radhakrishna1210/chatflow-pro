@@ -10,6 +10,9 @@ const CLOSED_STAGES = ['CLOSED_WON', 'CLOSED_LOST'];
 
 const PRISMA_DEAL_STAGES = new Set(['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST']);
 
+// Generous budget for multi-step interactive transactions over pooled/remote DB connections
+const TX_OPTS = { maxWait: 15_000, timeout: 30_000 };
+
 const DEAL_INCLUDE = {
   contact: { select: { id: true, name: true, phoneNumber: true, email: true } },
   owner: { select: { id: true, name: true, email: true } },
@@ -106,7 +109,7 @@ export async function createDeal(workspaceId, body, userId) {
       data: { workspaceId, dealId: deal.id, fromStage: null, toStage: toStageDb, changedByUserId: userId ?? null },
     });
     return { ...deal, stage: requestedStage };
-  });
+  }, TX_OPTS);
 }
 
 // Stage is deliberately not updatable here — it moves only through
@@ -176,7 +179,7 @@ export async function updateDealStage(workspaceId, id, { stage, lostReason }, us
     });
 
     return { ...updated, stage, previousStage: previousEffectiveStage };
-  });
+  }, TX_OPTS);
 
   // Rewarded on the outcome, not the activity: only entering CLOSED_WON pays,
   // and the dedupe key means re-closing the same deal cannot farm points.
