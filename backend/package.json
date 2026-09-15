@@ -7,11 +7,14 @@
     "node": ">=22 <23"
   },
   "scripts": {
+    "predev": "node scripts/ensure-prisma-client.js",
     "dev": "node --env-file=.env --watch src/server.js",
+    "prestart": "node scripts/ensure-prisma-client.js",
     "start": "node src/server.js",
-    "postinstall": "node scripts/prisma-cli.js generate && node scripts/render-build.js",
+    "postinstall": "node scripts/ensure-prisma-client.js && node scripts/render-build.js",
+    "prestart:prod": "node scripts/ensure-prisma-client.js",
     "start:prod": "node scripts/prisma-cli.js migrate deploy && node src/server.js",
-    "db:generate": "prisma generate",
+    "db:generate": "node scripts/ensure-prisma-client.js",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
@@ -38,11 +41,9 @@
     "passport-google-oauth20": "^2.0.0",
     "pdf-parse": "^2.4.5",
     "pg": "^8.22.0",
+    "prisma": "^5.14.0",
     "razorpay": "^2.9.8",
     "twilio": "^6.0.2",
     "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "prisma": "^5.14.0"
   }
 }

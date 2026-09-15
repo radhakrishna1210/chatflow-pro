@@ -3,7 +3,6 @@ import Landing from './pages/Landing.jsx';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import Dashboard from './pages/Dashboard.jsx';
-import AuthenticationDashboard from './pages/AuthenticationDashboard.jsx';
 import AuthCallback from './pages/AuthCallback.jsx';
 import WorkspaceSetup from './pages/WorkspaceSetup.jsx';
 import InviteAccept from './pages/InviteAccept.jsx';
@@ -289,27 +288,8 @@ function renderPage(path, nav, search) {
     }
 
     // ───────────────────────────────────────────────────────────────────────
-    // AUTHENTICATION DASHBOARD
-    //
-    // This is intentionally separate from Dashboard.jsx.
-    //
-    // /dashboard
-    //     → existing Dashboard.jsx
-    //
-    // /dashboard/authentication
-    //     → AuthenticationDashboard.jsx
-    //
-    // Therefore Authentication testing does not modify or interfere with
-    // the existing Dashboard functionality.
-    // ───────────────────────────────────────────────────────────────────────
-    if (path === '/dashboard/authentication') {
-      return (
-        <AuthenticationDashboard
-          onNav={nav}
-        />
-      );
-    }
-
+    // Authentication is rendered by Dashboard.jsx too, so it retains the
+    // same dashboard shell, sidebar state, and Templates-style module tabs.
     // All existing dashboard routes continue using Dashboard.jsx exactly
     // as before.
     return (

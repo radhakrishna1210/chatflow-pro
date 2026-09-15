@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { wFetch } from '../lib/api.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import MobileNavButton from '../components/MobileNavButton.jsx';
+import TemplateModuleTabs from '../components/TemplateModuleTabs.jsx';
 // The exact same template builder/editor, live preview and preview modal the
 // normal Templates page uses — reused here rather than a second
 // implementation, per the "Authentication is a self-contained module" rule.
@@ -38,15 +38,6 @@ function maskApiKey(key) {
 }
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
-
-// Authentication's own page background — deep navy/blue instead of the app's
-// default near-black, scoped to this page only (applied inline, not to the
-// shared --bg/--surf tokens every other page also uses). Cards above keep
-// using --surf as-is, which is lighter than this, so they stay clearly
-// visible without any card styling changing.
-const authPageBackground =
-  'radial-gradient(ellipse 900px 500px at 50% -10%, rgba(53,232,242,0.06), transparent 60%), ' +
-  'linear-gradient(165deg, #060a13 0%, #0a1119 45%, #05070d 100%)';
 
 const mono = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
@@ -616,7 +607,7 @@ const NewKeyModal = ({ apiKey, onClose }) => (
   </div>
 );
 
-export default function AuthenticationDashboard() {
+export default function AuthenticationDashboard({ header }) {
   const [activeTab, setActiveTab] = useState('overview');
 
   const [configuration, setConfiguration] =
@@ -864,8 +855,10 @@ export default function AuthenticationDashboard() {
 
   if (loading) {
     return (
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: authPageBackground }}>
-        <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '28px 32px', maxWidth: 900, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {header}
+        <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+          <TemplateModuleTabs active="authentication" />
           <div style={{ ...card, padding: '40px 24px', textAlign: 'center', fontSize: 13, color: 'var(--t2)' }}>
             <div style={{ width: 26, height: 26, margin: '0 auto 12px', border: '2px solid var(--green)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
             Loading Authentication configuration…
@@ -916,24 +909,12 @@ export default function AuthenticationDashboard() {
       : 'Not provisioned';
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: authPageBackground }}>
-      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 900, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-
-        {/* ── Header ── */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <MobileNavButton />
-            <div>
-              <p style={{ margin: '0 0 6px', fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: '.11em', color: 'var(--green)', textTransform: 'uppercase' }}>WhatsApp authentication</p>
-              <h1 style={{ margin: 0, fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 26, color: 'var(--t1)', letterSpacing: '-.02em' }}>
-                Authentication
-              </h1>
-              <p style={{ margin: '7px 0 0', fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>
-                Secure WhatsApp OTP verification for your customers.
-              </p>
-            </div>
-          </div>
-
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {header}
+      <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <TemplateModuleTabs active="authentication" />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>Configure the number and approved template used for verification-code messages.</p>
           <StatusPill enabled={enabled} />
         </div>
 

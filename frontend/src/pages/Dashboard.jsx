@@ -32,6 +32,7 @@ import PaymentsView from './PaymentsView.jsx';
 import LegalCenter from '../components/LegalCenter.jsx';
 import { LEGAL_DOCS } from '../lib/legalContent.js';
 import AuthenticationDashboard from './AuthenticationDashboard.jsx';
+import TemplateModuleTabs from '../components/TemplateModuleTabs.jsx';
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
 
@@ -2021,6 +2022,7 @@ const TemplatesView = () => {
             states belong here too — but not the healthy one, which would just
             be noise on a screen that is mostly authoring. */}
         <WalletStatusBanner hideWhenHealthy style={{ marginBottom: 16 }} />
+        <TemplateModuleTabs active="templates" />
         {/* Tab switcher */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--bd)' }}>
           {[
@@ -3027,7 +3029,7 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
       />
     );
     if (page === 'templates')  return <TemplatesView />;
-    if (page === 'authentication') return <AuthenticationDashboard />;
+    if (page === 'authentication') return <AuthenticationDashboard header={<DashHeader title="Authentication" subtitle="Secure WhatsApp OTP verification for your customers." />} />;
     if (page === 'widget')     return <WidgetsView />;
     if (page === 'contacts')   return <ContactsView />;
     if (page === 'automation')     return <AutomationView initialTab={initialSubTab || 'basic'} />;
