@@ -311,11 +311,11 @@ const TABS = [
 ];
 
 const TabBar = ({ active, onChange }) => (
-  <div style={{ display: 'inline-flex', padding: 4, gap: 4, border: '1px solid var(--bd)', borderRadius: 10, background: 'rgba(255,255,255,.02)' }}>
+  <div style={{ display: 'inline-flex', alignSelf: 'flex-start', flexShrink: 0, maxWidth: '100%', overflowX: 'auto', padding: 4, gap: 4, border: '1px solid var(--bd)', borderRadius: 10, background: 'rgba(255,255,255,.02)' }}>
     {TABS.map(t => {
       const on = active === t.id;
       return (
-        <button key={t.id} onClick={() => onChange(t.id)} style={{ border: 0, borderRadius: 7, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all .15s', color: on ? '#071015' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent', boxShadow: on ? '0 0 18px rgba(53,232,242,0.35)' : 'none' }}>
+        <button key={t.id} onClick={() => onChange(t.id)} style={{ flexShrink: 0, whiteSpace: 'nowrap', border: 0, borderRadius: 7, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all .15s', color: on ? '#071015' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent', boxShadow: on ? '0 0 18px rgba(53,232,242,0.35)' : 'none' }}>
           {t.label}
         </button>
       );

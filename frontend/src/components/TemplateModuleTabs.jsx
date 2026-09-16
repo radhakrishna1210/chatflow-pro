@@ -2,7 +2,7 @@ import { I } from './Icons.jsx';
 
 export default function TemplateModuleTabs({ active }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--bd)', overflowX: 'auto' }} role="tablist" aria-label="Template modules">
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--bd)', overflowX: 'auto', overflowY: 'hidden', flexShrink: 0, maxWidth: '100%' }} role="tablist" aria-label="Template modules">
       {[
         { id: 'templates', label: 'Templates', icon: 'file' },
         { id: 'authentication', label: 'Authentication', icon: 'shield' },
