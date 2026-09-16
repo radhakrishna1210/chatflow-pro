@@ -70,8 +70,7 @@ import crmPermissionsRoutes from './crmPermissions.routes.js';
 import aiAgentsRoutes from './aiAgents.routes.js';
 import crmCustomizationRoutes from './crmCustomization.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
-
-
+import authenticationConfigRoutes from '../authentication/authentication-config.routes.js';
 const router = Router();
 
 
@@ -180,6 +179,7 @@ ws.use('/conversations', conversationsRoutes);
 ws.use('/analytics', analyticsRoutes);
 ws.use('/automation', automationRoutes);
 ws.use('/settings', settingsRoutes);
+ws.use('/authentication', authenticationConfigRoutes);
 ws.use('/members', membersRoutes);
 ws.use('/api-keys', apiKeysRoutes);
 ws.use('/segments', segmentsRoutes);

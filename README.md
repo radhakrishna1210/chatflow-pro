@@ -76,12 +76,17 @@ spandan/
 ### Backend
 ```bash
 cd backend
-npm install --legacy-peer-deps
-cp .env.example .env          # there is no .env.example checked in — copy backend/.env.test as a starting template, or create one from §7
-npm run db:generate           # generate the Prisma client
+# Create backend/.env from the required-variable table in §7 before installation.
+npm install --legacy-peer-deps   # automatically generates Prisma Client from prisma/schema.prisma
 npm run db:migrate            # run/create migrations against DATABASE_URL
 npm run dev                   # node --watch, http://localhost:4000
 ```
+
+The backend's `postinstall` lifecycle hook generates Prisma Client automatically.
+`backend/.env` must be configured before installation so Prisma can validate the datasource;
+generation does not connect to the database.
+After pulling schema or dependency changes, run the normal `npm install` workflow
+again before starting the backend; no separate Prisma command is required.
 
 Other backend scripts:
 ```bash

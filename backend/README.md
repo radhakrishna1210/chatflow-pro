@@ -5,21 +5,23 @@ Node.js + Express 5 + Prisma + BullMQ backend for the Spandan WhatsApp Business 
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# 1. Create and fill in .env with the required local variables (see the root README)
+
+# 2. Install dependencies (automatically generates Prisma Client from prisma/schema.prisma)
 npm install --legacy-peer-deps
 
-# 2. Copy and fill in environment variables
-cp .env.example .env
-
-# 3. Generate Prisma client
-npm run db:generate
-
-# 4. Run database migrations
+# 3. Run database migrations
 npm run db:migrate
 
-# 5. Start the dev server
+# 4. Start the dev server
 npm run dev
 ```
+
+`npm install` runs the backend `postinstall` lifecycle hook, which generates
+Prisma Client through the repository wrapper. `.env` must be present first so
+Prisma can validate the datasource; generation does not connect to the database.
+After pulling schema or dependency changes, run the normal `npm install` workflow
+again before starting the backend.
 
 ## Requirements
 

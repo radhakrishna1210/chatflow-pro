@@ -65,11 +65,92 @@ export function campaignCtaWarnings(template, ctaLabel) {
   return [];
 }
 
-export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) {
+const campaignTypeFilter = (type) => {
+  if (type === 'authentication') return { template: { category: { equals: 'AUTHENTICATION', mode: 'insensitive' } } };
+  if (type === 'regular') return { NOT: { template: { category: { equals: 'AUTHENTICATION', mode: 'insensitive' } } } };
+  return {};
+};
+
+// This migration is the first point at which a campaign send could persist an
+// AuthenticationTransaction.campaignId. A campaign created before it finished
+// cannot be assigned historical OTP rows safely: those rows deliberately have
+// no campaign identity. Keep that provenance distinction explicit so unknown
+// historical verification metrics are never presented as zero.
+const AUTH_CAMPAIGN_LINK_MIGRATION = '20260907000000_campaign_authentication_analytics';
+let authenticationLinkStartedAt;
+
+async function getAuthenticationLinkStartedAt() {
+  if (authenticationLinkStartedAt !== undefined) return authenticationLinkStartedAt;
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT "finished_at"
+      FROM "_prisma_migrations"
+      WHERE "migration_name" = ${AUTH_CAMPAIGN_LINK_MIGRATION}
+        AND "finished_at" IS NOT NULL
+      ORDER BY "finished_at" DESC
+      LIMIT 1
+    `;
+    authenticationLinkStartedAt = rows[0]?.finished_at ?? null;
+  } catch (error) {
+    // Failing closed is safer than converting unverifiable historical data to
+    // zeros if a provider does not expose Prisma's migration table.
+    console.error('[CampaignAnalytics] Could not read Authentication linkage migration:', error.message);
+    authenticationLinkStartedAt = null;
+  }
+  return authenticationLinkStartedAt;
+}
+
+const hasUnavailableHistoricalAuthenticationMetrics = (campaign, hasLinkedTransactions, linkStartedAt) =>
+  !hasLinkedTransactions && (!linkStartedAt || campaign.createdAt < linkStartedAt);
+
+// A URL button opens the approved destination inside WhatsApp. Meta does not
+// send an inbound webhook for that action, so it cannot be honestly counted
+// without a destination URL that was approved as a ChatFlow tracking redirect.
+// Keep this description alongside the detail report so the UI can distinguish
+// "no clicks yet" from "this button type has no observable click event".
+const buttonTrackingInfo = (components) => {
+  const definitions = [];
+  const addButtons = (items, cardIndex = null) => {
+    (Array.isArray(items) ? items : []).forEach((button, buttonIndex) => {
+      definitions.push({
+        id: cardIndex === null ? `button-${buttonIndex}` : `card-${cardIndex}-button-${buttonIndex}`,
+        title: String(button?.text || '').trim() || `Button ${buttonIndex + 1}`,
+        type: String(button?.type || '').toUpperCase() || 'UNKNOWN',
+        cardIndex,
+        buttonIndex,
+      });
+    });
+  };
+
+  for (const component of Array.isArray(components) ? components : []) {
+    if (String(component?.type || '').toUpperCase() === 'BUTTONS') {
+      addButtons(component.buttons);
+    }
+    if (String(component?.type || '').toUpperCase() === 'CAROUSEL') {
+      (Array.isArray(component.cards) ? component.cards : []).forEach((card, cardIndex) => {
+        const buttons = (Array.isArray(card?.components) ? card.components : [])
+          .find((item) => String(item?.type || '').toUpperCase() === 'BUTTONS')?.buttons;
+        addButtons(buttons, cardIndex);
+      });
+    }
+  }
+
+  const hasUrlButtons = definitions.some((button) => button.type === 'URL');
+  return {
+    mode: hasUrlButtons ? 'UNAVAILABLE' : 'WEBHOOK',
+    reason: hasUrlButtons
+      ? 'This campaign uses WhatsApp URL buttons. WhatsApp opens those links directly and does not send ChatFlow a click webhook. Tracking requires a ChatFlow redirect URL to be approved in the template before it is sent.'
+      : null,
+    buttons: definitions,
+  };
+};
+
+export async function listCampaigns(workspaceId, { page = 1, limit = 20, type } = {}) {
   const skip = (page - 1) * limit;
+  const where = { workspaceId, ...campaignTypeFilter(type) };
   const [data, total] = await Promise.all([
     prisma.campaign.findMany({
-      where: { workspaceId },
+      where,
       skip,
       take: limit,
       orderBy: { createdAt: 'desc' },
@@ -78,14 +159,17 @@ export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) 
         waNumber: { select: { id: true, phoneNumber: true, displayName: true } },
       },
     }),
-    prisma.campaign.count({ where: { workspaceId } }),
+    prisma.campaign.count({ where }),
   ]);
 
   // The retry counters are per-recipient, so the list column has to be derived
   // rather than read off the campaign row. Two grouped counts over the page's
   // campaigns, not one query per row.
   const ids = data.map((c) => c.id);
-  const [retriedRows, retryingRows] = ids.length
+  const linkStartedAt = type === 'authentication'
+    ? await getAuthenticationLinkStartedAt()
+    : null;
+  const [retriedRows, retryingRows, authRows, acceptedRows] = ids.length
     ? await Promise.all([
         prisma.campaignRecipient.groupBy({
           by: ['campaignId'],
@@ -97,18 +181,60 @@ export async function listCampaigns(workspaceId, { page = 1, limit = 20 } = {}) 
           where: { campaignId: { in: ids }, status: 'RETRYING' },
           _count: { _all: true },
         }),
+        type === 'authentication'
+          ? prisma.authenticationTransaction.groupBy({
+              by: ['campaignId', 'status'],
+              where: { campaignId: { in: ids } },
+              _count: { _all: true },
+            })
+          : Promise.resolve([]),
+        type === 'authentication'
+          ? prisma.authenticationTransaction.groupBy({
+              by: ['campaignId'],
+              where: { campaignId: { in: ids }, metaMessageId: { not: null } },
+              _count: { _all: true },
+            })
+          : Promise.resolve([]),
       ])
-    : [[], []];
+    : [[], [], [], []];
 
   const retriedBy = new Map(retriedRows.map((r) => [r.campaignId, r._count._all]));
   const retryingBy = new Map(retryingRows.map((r) => [r.campaignId, r._count._all]));
+  const authenticationBy = new Map();
+  const acceptedBy = new Map(acceptedRows.map((row) => [row.campaignId, row._count._all]));
+  for (const row of authRows) {
+    const counts = authenticationBy.get(row.campaignId) || {};
+    counts[row.status] = row._count._all;
+    authenticationBy.set(row.campaignId, counts);
+  }
 
   return {
-    data: data.map((c) => ({
-      ...c,
-      retried: retriedBy.get(c.id) ?? 0,
-      retrying: retryingBy.get(c.id) ?? 0,
-    })),
+    data: data.map((c) => {
+      const authCounts = authenticationBy.get(c.id) || null;
+      const historicalUnknown = type === 'authentication'
+        && hasUnavailableHistoricalAuthenticationMetrics(c, Boolean(authCounts), linkStartedAt);
+      // Recipient delivery records remain campaign-scoped even for campaigns
+      // that predate OTP linkage, so OTP requests can still be reported there.
+      const totalRequests = authCounts
+        ? Object.values(authCounts).reduce((sum, value) => sum + value, 0)
+        : (c.sent ?? 0);
+      return {
+        ...c,
+        retried: retriedBy.get(c.id) ?? 0,
+        retrying: retryingBy.get(c.id) ?? 0,
+        ...(type === 'authentication' ? { authentication: {
+          totalRequests,
+          acceptedByWhatsApp: historicalUnknown ? null : (acceptedBy.get(c.id) ?? 0),
+          verified: historicalUnknown ? null : (authCounts?.VERIFIED || 0),
+          expired: historicalUnknown ? null : (authCounts?.EXPIRED || 0),
+          failed: historicalUnknown ? null : (authCounts?.FAILED || 0),
+          verificationRate: historicalUnknown || totalRequests === 0
+            ? null
+            : Number(((((authCounts?.VERIFIED || 0) / totalRequests) * 100)).toFixed(1)),
+          trackingAvailable: !historicalUnknown,
+        } } : {}),
+      };
+    }),
     total,
   };
 }
@@ -771,6 +897,36 @@ export async function getCampaign(workspaceId, campaignId) {
       select: { nextRetryAt: true },
     }),
   ]);
+  const isAuthentication = String(campaign.template?.category || '').toUpperCase() === 'AUTHENTICATION';
+  const buttonTracking = isAuthentication ? null : buttonTrackingInfo(campaign.template?.components);
+  const [replyRows, buttonRows, authStatusRows, acceptedByWhatsApp] = await Promise.all([
+    isAuthentication ? Promise.resolve([]) : prisma.message.groupBy({
+      by: ['campaignRecipientId'],
+      where: { direction: 'INBOUND', campaignRecipientId: { not: null }, campaignRecipient: { campaignId } },
+      _count: { _all: true },
+    }),
+    isAuthentication ? Promise.resolve([]) : prisma.message.groupBy({
+      by: ['body'],
+      where: { direction: 'INBOUND', type: { in: ['BUTTON', 'INTERACTIVE'] }, campaignRecipient: { campaignId } },
+      _count: { _all: true },
+      orderBy: { _count: { body: 'desc' } },
+    }),
+    isAuthentication ? prisma.authenticationTransaction.groupBy({
+      by: ['status'], where: { workspaceId, campaignId }, _count: { _all: true },
+    }) : Promise.resolve([]),
+    isAuthentication ? prisma.authenticationTransaction.count({
+      where: { workspaceId, campaignId, metaMessageId: { not: null } },
+    }) : Promise.resolve(null),
+  ]);
+  const authCounts = Object.fromEntries(authStatusRows.map((row) => [row.status, row._count._all]));
+  const delivered = (counts.DELIVERED || 0) + (counts.READ || 0);
+  const sent = (counts.SENT || 0) + delivered;
+  const linkStartedAt = isAuthentication ? await getAuthenticationLinkStartedAt() : null;
+  const historicalAuthenticationMetricsUnavailable = isAuthentication
+    && hasUnavailableHistoricalAuthenticationMetrics(campaign, authStatusRows.length > 0, linkStartedAt);
+  const totalRequests = authStatusRows.length > 0
+    ? authStatusRows.reduce((sum, row) => sum + row._count._all, 0)
+    : sent;
 
   return {
     ...campaign,
@@ -787,8 +943,8 @@ export async function getCampaign(workspaceId, campaignId) {
     retryPolicy: retryPolicySummary(campaign.retryConfig),
     report: {
       totalContacts: totalRecipients || campaign.totalContacts,
-      sent: (counts.SENT || 0) + (counts.DELIVERED || 0) + (counts.READ || 0),
-      delivered: (counts.DELIVERED || 0) + (counts.READ || 0),
+      sent,
+      delivered,
       read: counts.READ || 0,
       failed: counts.FAILED || 0,
       skipped: counts.SKIPPED || 0,
@@ -805,6 +961,28 @@ export async function getCampaign(workspaceId, campaignId) {
       walletBefore: campaign.walletBefore == null ? null : Number(campaign.walletBefore),
       walletAfter: campaign.walletAfter == null ? null : Number(campaign.walletAfter),
       refundAmount: campaign.refundAmount == null ? null : Number(campaign.refundAmount),
+      replies: isAuthentication ? null : replyRows.reduce((sum, row) => sum + row._count._all, 0),
+      // `replies` is the number of inbound reply events, so its rate must use
+      // that same event count rather than the number of distinct recipients.
+      replyRate: isAuthentication || sent === 0 ? null : Number(((replyRows.reduce((sum, row) => sum + row._count._all, 0) / sent) * 100).toFixed(1)),
+      // A static WhatsApp URL button has no click webhook. `null` means the
+      // metric is unobservable, which is materially different from zero.
+      totalClicks: isAuthentication || buttonTracking?.mode === 'UNAVAILABLE'
+        ? null
+        : buttonRows.reduce((sum, row) => sum + row._count._all, 0),
+      buttonClicks: isAuthentication ? [] : buttonRows.map((row) => ({ label: row.body || 'Button', clicks: row._count._all })),
+      buttonTracking,
+      authentication: isAuthentication ? {
+        totalRequests,
+        acceptedByWhatsApp: historicalAuthenticationMetricsUnavailable ? null : acceptedByWhatsApp,
+        verified: historicalAuthenticationMetricsUnavailable ? null : (authCounts.VERIFIED || 0),
+        expired: historicalAuthenticationMetricsUnavailable ? null : (authCounts.EXPIRED || 0),
+        failed: historicalAuthenticationMetricsUnavailable ? null : (authCounts.FAILED || 0),
+        verificationRate: historicalAuthenticationMetricsUnavailable || totalRequests === 0
+          ? null
+          : Number((((authCounts.VERIFIED || 0) / totalRequests) * 100).toFixed(1)),
+        trackingAvailable: !historicalAuthenticationMetricsUnavailable,
+      } : null,
     },
   };
 }
@@ -813,7 +991,10 @@ export async function getCampaign(workspaceId, campaignId) {
 // campaign's status before every single send, so pausing takes effect within
 // one message rather than at the end of the batch.
 export async function pauseCampaign(workspaceId, campaignId) {
-  const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, workspaceId },
+    include: { template: { select: { category: true } } },
+  });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
   if (!['RUNNING', 'SCHEDULED'].includes(campaign.status)) {
     const e = new Error(`Only a running or scheduled campaign can be paused — this one is ${campaign.status}.`);
@@ -821,6 +1002,12 @@ export async function pauseCampaign(workspaceId, campaignId) {
   }
 
   await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'PAUSED' } });
+  if (String(campaign.template?.category || '').toUpperCase() === 'AUTHENTICATION') {
+    await prisma.campaignRecipient.updateMany({
+      where: { campaignId, status: 'RETRYING' },
+      data: { status: 'PENDING', nextRetryAt: null, retryStatus: null },
+    });
+  }
 
   // A scheduled campaign has a delayed job waiting; drop it so it cannot fire
   // while paused. Resuming re-queues.
@@ -855,7 +1042,11 @@ export async function resumeCampaign(workspaceId, campaignId) {
   assertTemplateSendable(template);
 
   await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'RUNNING' } });
-  const job = await campaignQueue.add('send-campaign', { campaignId, workspaceId });
+  const isAuthentication = String(template?.category || '').toUpperCase() === 'AUTHENTICATION';
+  const job = await campaignQueue.add(
+    'send-campaign',
+    isAuthentication ? { campaignId, workspaceId, resume: true } : { campaignId, workspaceId },
+  );
   await prisma.campaign.update({ where: { id: campaignId }, data: { queueJobId: String(job.id) } });
 
   return { ok: true, status: 'RUNNING', remaining };

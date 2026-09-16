@@ -1548,7 +1548,10 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
 
   useEffect(() => {
     wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setNumbers(d); }).catch(()=>{});
-    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t=>t.status==='APPROVED'||t.status==='Approved')); }).catch(()=>{});
+    // Authentication templates are sent only through the Authentication API/OTP
+    // flow, not a normal campaign — excluded from this picker alongside the
+    // existing approved-status filter.
+    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t=>(t.status==='APPROVED'||t.status==='Approved') && t.category !== 'AUTHENTICATION')); }).catch(()=>{});
     // Deployed agents the campaign can be pointed at. One deployed agent is
     // preselected so enabling the step is a single click.
     wFetch('/ai-agent/agents').then(r=>r.ok&&r.json()).then(d=>{

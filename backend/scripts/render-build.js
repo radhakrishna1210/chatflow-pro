@@ -36,8 +36,9 @@ function run(cmd, args, cwd) {
 }
 
 // 1. Prisma client — the app cannot import @prisma/client without this.
-//    Goes through the wrapper so schema validation gets a DIRECT_URL.
-run(process.execPath, [path.join(backendDir, 'scripts/prisma-cli.js'), 'generate'], backendDir);
+//    The gate checks the actual generated runtime metadata and only generates
+//    when that client is missing or incompatible with this checkout.
+run(process.execPath, [path.join(backendDir, 'scripts/ensure-prisma-client.js')], backendDir);
 
 // 2. Frontend bundle, served by app.js at the same origin as the API.
 //    Skipped when dist/ is already present, so an explicit buildCommand that

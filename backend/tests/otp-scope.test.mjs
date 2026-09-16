@@ -30,17 +30,34 @@ const reset = () => {
 };
 reset();
 
+// Supports the where/data shapes verifyAuthenticationTransaction uses:
+// equality, { lt }, { gt } and { increment }.
+const matches = (r, where) => Object.entries(where).every(([k, v]) => {
+  if (v && typeof v === 'object' && !(v instanceof Date)) {
+    if ('lt' in v && !(r[k] < v.lt)) return false;
+    if ('gt' in v && !(r[k] > v.gt)) return false;
+    return true;
+  }
+  return r[k] === v;
+});
+const apply = (r, data) => {
+  for (const [k, v] of Object.entries(data)) {
+    r[k] = v && typeof v === 'object' && 'increment' in v ? r[k] + v.increment : v;
+  }
+  return r;
+};
+
 const prisma = {
   authenticationTransaction: {
-    findFirst: async ({ where }) => rows.find((r) =>
-      r.phone === where.phone &&
-      r.source === where.source &&
-      r.status === where.status &&
-      (where.workspaceId === undefined || r.workspaceId === where.workspaceId)
-    ) ?? null,
+    findFirst: async ({ where }) => rows.find((r) => matches(r, where)) ?? null,
+    findUnique: async ({ where }) => rows.find((r) => r.id === where.id) ?? null,
     update: async ({ where, data }) =>
-      Object.assign(rows.find((r) => r.id === where.id), data),
-    updateMany: async () => ({ count: 0 }),
+      apply(rows.find((r) => r.id === where.id), data),
+    updateMany: async ({ where, data }) => {
+      const hit = rows.filter((r) => matches(r, where));
+      hit.forEach((r) => apply(r, data));
+      return { count: hit.length };
+    },
   },
 };
 
