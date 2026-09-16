@@ -265,6 +265,8 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages 
     } finally { setPostingNote(false); }
   };
 
+  const stageLabel = (key) => stages.find((s) => s.key === key)?.label || pretty(key);
+
   return (
     <Modal title={deal ? deal.title : 'Deal'} onClose={onClose} width={560}
       footer={<>
@@ -314,7 +316,7 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages 
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, color: 'var(--t1)', fontWeight: 600 }}>
                     {a.feedType === 'STAGE_CHANGE' 
-                      ? (a.fromStage ? `${pretty(a.fromStage)} → ${pretty(a.toStage)}` : `Created in ${pretty(a.toStage)}`)
+                      ? (a.fromStage ? `${stageLabel(a.fromStage)} → ${stageLabel(a.toStage)}` : `Created in ${stageLabel(a.toStage)}`)
                       : 'Note added'}
                   </div>
                   {a.feedType === 'ACTIVITY' && (

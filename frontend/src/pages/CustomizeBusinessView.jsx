@@ -21,7 +21,6 @@ const TABS = [
   { id: 'visit_outcomes', label: 'Visit Outcomes', icon: 'users', desc: 'Field meeting dispositions & follow-ups' },
   { id: 'deal_setup', label: 'Deal Setup', icon: 'briefcase', desc: 'Stages, win probabilities & SLA days' },
   { id: 'ticket_customization', label: 'Tickets Customization', icon: 'alertc', desc: 'Ticket stages & category SLAs' },
-  { id: 'document_categories', label: 'Document Categories', icon: 'file', desc: 'Organization of legal, sales & KYC files' },
 ];
 
 export default function CustomizeBusinessView({ user, initialTab }) {
@@ -330,6 +329,7 @@ export default function CustomizeBusinessView({ user, initialTab }) {
               <DealModeTab
                 config={data.deal_mode}
                 onChange={updateActiveData}
+                dealStages={data.deal_setup?.stages}
               />
             )}
 
@@ -378,14 +378,6 @@ export default function CustomizeBusinessView({ user, initialTab }) {
                 onChange={updateActiveData}
                 subTab={ticketSubTab}
                 setSubTab={setTicketSubTab}
-                palette={COLOR_PALETTE}
-              />
-            )}
-
-            {activeTab === 'document_categories' && (
-              <DocumentCategoriesTab
-                config={data.document_categories}
-                onChange={updateActiveData}
                 palette={COLOR_PALETTE}
               />
             )}
@@ -929,7 +921,7 @@ function ProspectingCriteriaTab({ config = {}, onChange }) {
 /* =========================================================================
    TAB 3: DEAL MODE
    ========================================================================= */
-function DealModeTab({ config = {}, onChange }) {
+function DealModeTab({ config = {}, onChange, dealStages = [] }) {
   const mode = config.mode || 'FLEXIBLE';
   const autoTaskConfig = config.autoTaskConfig || {};
 
@@ -969,14 +961,16 @@ function DealModeTab({ config = {}, onChange }) {
     updateAutoTaskConfig('stageTaskTemplates', templates);
   };
 
-  const stagesList = [
-    { key: 'QUALIFICATION', label: 'Qualification' },
-    { key: 'NEEDS_ANALYSIS', label: 'Needs Analysis' },
-    { key: 'PROPOSAL', label: 'Proposal' },
-    { key: 'NEGOTIATION', label: 'Negotiation' },
-    { key: 'CLOSED_WON', label: 'Closed Won' },
-    { key: 'CLOSED_LOST', label: 'Closed Lost' },
-  ];
+  const stagesList = dealStages && dealStages.length > 0
+    ? dealStages.map(s => ({ key: s.key, label: s.label || s.key }))
+    : [
+        { key: 'QUALIFICATION', label: 'Qualification' },
+        { key: 'NEEDS_ANALYSIS', label: 'Needs Analysis' },
+        { key: 'PROPOSAL', label: 'Proposal' },
+        { key: 'NEGOTIATION', label: 'Negotiation' },
+        { key: 'CLOSED_WON', label: 'Closed Won' },
+        { key: 'CLOSED_LOST', label: 'Closed Lost' },
+      ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -1283,26 +1277,36 @@ function LeadSourcesTab({ config, onChange, onRequestDelete }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
   const [formData, setFormData] = useState({ name: '', key: '', category: 'Inbound', isActive: true, utmSource: '' });
+  const [sourceError, setSourceError] = useState(null);
 
   const sources = config?.sources || [];
 
   const handleOpenAdd = () => {
     setEditingIndex(null);
+    setSourceError(null);
     setFormData({ name: '', key: '', category: 'Inbound', isActive: true, utmSource: '' });
     setModalOpen(true);
   };
 
   const handleOpenEdit = (idx) => {
     setEditingIndex(idx);
+    setSourceError(null);
     setFormData({ ...sources[idx] });
     setModalOpen(true);
   };
 
   const handleSave = () => {
+    setSourceError(null);
     if (!formData.name.trim()) return;
     const sourceKey = formData.key.trim()
       ? formData.key.trim().toUpperCase().replace(/\s+/g, '_')
       : formData.name.trim().toUpperCase().replace(/\s+/g, '_');
+
+    const duplicate = sources.some((s, idx) => idx !== editingIndex && s.key?.toUpperCase() === sourceKey);
+    if (duplicate) {
+      setSourceError(`A source with identifier "${sourceKey}" already exists. Source identifiers must be unique.`);
+      return;
+    }
 
     const nextSources = [...sources];
     if (editingIndex !== null) {
@@ -1418,6 +1422,11 @@ function LeadSourcesTab({ config, onChange, onRequestDelete }) {
           onClose={() => setModalOpen(false)}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {sourceError && (
+              <div style={{ padding: '8px 12px', color: '#ef4444', background: 'rgba(239, 68, 68, 0.08)', borderRadius: 6, fontSize: 12.5, border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                {sourceError}
+              </div>
+            )}
             <div>
               <FLabel>Source Name *</FLabel>
               <FInput
@@ -2125,10 +2134,14 @@ function TicketCustomizationTab({ config, onChange, subTab, setSubTab, palette }
       onChange({ ...config, categories: nextCats });
     } else {
       if (!stageForm.label.trim()) return;
-      const nextStages = [...stages];
+      let nextStages = [...stages];
       const key = stageForm.key.trim()
         ? stageForm.key.trim().toUpperCase().replace(/\s+/g, '_')
         : stageForm.label.trim().toUpperCase().replace(/\s+/g, '_');
+
+      if (stageForm.isDefault) {
+        nextStages = nextStages.map((s) => ({ ...s, isDefault: false }));
+      }
 
       if (editingIndex !== null) {
         nextStages[editingIndex] = { ...stageForm, key };
@@ -2415,220 +2428,3 @@ function TicketCustomizationTab({ config, onChange, subTab, setSubTab, palette }
   );
 }
 
-/* =========================================================================
-   TAB 10: DOCUMENT CATEGORIES
-   ========================================================================= */
-function DocumentCategoriesTab({ config, onChange, palette }) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingIndex, setEditingIndex] = useState(null);
-  const [categoryName, setCategoryName] = useState('');
-  const [categoryColor, setCategoryColor] = useState(palette[0]);
-
-  // Inline subcategory input state per category
-  const [subInputs, setSubInputs] = useState({});
-
-  const categories = config?.categories || [];
-
-  const handleOpenAdd = () => {
-    setEditingIndex(null);
-    setCategoryName('');
-    setCategoryColor(palette[0]);
-    setModalOpen(true);
-  };
-
-  const handleOpenEdit = (idx) => {
-    setEditingIndex(idx);
-    setCategoryName(categories[idx].name);
-    setCategoryColor(categories[idx].color || palette[0]);
-    setModalOpen(true);
-  };
-
-  const handleSaveCategory = () => {
-    if (!categoryName.trim()) return;
-    const next = [...categories];
-    if (editingIndex !== null) {
-      next[editingIndex] = { ...next[editingIndex], name: categoryName.trim(), color: categoryColor };
-    } else {
-      next.push({
-        id: `doc_${Date.now()}`,
-        name: categoryName.trim(),
-        color: categoryColor,
-        subcategories: [],
-      });
-    }
-    onChange({ ...config, categories: next });
-    setModalOpen(false);
-  };
-
-  const handleDeleteCategory = (idx) => {
-    onChange({ ...config, categories: categories.filter((_, i) => i !== idx) });
-  };
-
-  const handleAddSubcategory = (catIdx) => {
-    const text = (subInputs[catIdx] || '').trim();
-    if (!text) return;
-    const next = [...categories];
-    const subcats = [...(next[catIdx].subcategories || [])];
-    if (!subcats.includes(text)) {
-      subcats.push(text);
-      next[catIdx].subcategories = subcats;
-      onChange({ ...config, categories: next });
-    }
-    setSubInputs({ ...subInputs, [catIdx]: '' });
-  };
-
-  const handleRemoveSubcategory = (catIdx, subIdx) => {
-    const next = [...categories];
-    next[catIdx].subcategories = next[catIdx].subcategories.filter((_, i) => i !== subIdx);
-    onChange({ ...config, categories: next });
-  };
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--t2)' }}>
-            Document Folders & Classification ({categories.length})
-          </span>
-          <p style={{ fontSize: 12, color: 'var(--t3)', margin: '2px 0 0 0' }}>
-            Structured document categories and sub-types for contracts, quotes, invoices, compliance and customer files.
-          </p>
-        </div>
-        <Btn variant="primary" onClick={handleOpenAdd} style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }}>
-          <I n="plus" s={14} /> Add Category
-        </Btn>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {categories.map((cat, catIdx) => (
-          <div
-            key={cat.id || catIdx}
-            style={{
-              background: 'var(--bg-subtle)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              padding: 16,
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ width: 12, height: 12, borderRadius: '50%', background: cat.color || '#3b82f6' }} />
-                <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{cat.name}</h4>
-                <span style={{ fontSize: 11, color: 'var(--t3)', background: 'var(--bg-surface)', padding: '2px 8px', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  {cat.subcategories?.length || 0} subcategories
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button onClick={() => handleOpenEdit(catIdx)} style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 4 }}>
-                  <I n="pencil" s={14} />
-                </button>
-                <button onClick={() => handleDeleteCategory(catIdx)} style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}>
-                  <I n="trash" s={14} />
-                </button>
-              </div>
-            </div>
-
-            {/* Subcategories chips */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-              {(cat.subcategories || []).map((sub, subIdx) => (
-                <span
-                  key={subIdx}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border)',
-                    color: 'var(--t1)',
-                  }}
-                >
-                  {sub}
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveSubcategory(catIdx, subIdx)}
-                    style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 0 }}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-
-            {/* Add subcategory input */}
-            <div style={{ display: 'flex', gap: 8, maxWidth: 360 }}>
-              <input
-                type="text"
-                value={subInputs[catIdx] || ''}
-                onChange={(e) => setSubInputs({ ...subInputs, [catIdx]: e.target.value })}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddSubcategory(catIdx); } }}
-                placeholder="Add subcategory (e.g. Master Services Agreement)..."
-                style={{
-                  flex: 1,
-                  padding: '6px 10px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-surface)',
-                  color: 'var(--t1)',
-                  fontSize: 12,
-                }}
-              />
-              <Btn variant="ghost" onClick={() => handleAddSubcategory(catIdx)} disabled={!(subInputs[catIdx] || '').trim()} style={{ fontSize: 12, padding: '4px 10px' }}>
-                Add
-              </Btn>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {modalOpen && (
-        <Modal
-          title={editingIndex !== null ? 'Edit Document Category' : 'Add Document Category'}
-          onClose={() => setModalOpen(false)}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <FLabel>Category Name *</FLabel>
-              <FInput
-                value={categoryName}
-                onChange={(e) => setCategoryName(e.target.value)}
-                placeholder="e.g. Technical & Security Compliance"
-              />
-            </div>
-
-            <div>
-              <FLabel>Color</FLabel>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-                {palette.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setCategoryColor(c)}
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: '50%',
-                      background: c,
-                      border: categoryColor === c ? '2px solid #fff' : '2px solid transparent',
-                      boxShadow: categoryColor === c ? '0 0 0 2px var(--accent)' : 'none',
-                      cursor: 'pointer',
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
-            <Btn variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Btn>
-            <Btn variant="primary" onClick={handleSaveCategory} disabled={!categoryName.trim()}>
-              Save Category
-            </Btn>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-}

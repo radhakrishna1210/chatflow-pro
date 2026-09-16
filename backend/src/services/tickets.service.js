@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { scopeFilter } from './recordScope.service.js';
 import { awardXp } from './gamification.service.js';
+import { getSection } from './crmCustomization.service.js';
 
 // Customer-facing support tickets.
 //
@@ -112,6 +113,22 @@ export async function createTicket(workspaceId, body) {
 
   const priority = body.priority || 'NORMAL';
 
+  const customConfig = await getSection(workspaceId, 'ticket_customization').catch(() => null);
+  const defaultStage = customConfig?.stages?.find((s) => s.isDefault)?.key;
+
+  const VALID_STATUSES = ['NEW', 'OPEN', 'WAITING', 'RESOLVED', 'CLOSED'];
+  let status = body.status;
+  if (!status) {
+    if (defaultStage) {
+      if (VALID_STATUSES.includes(defaultStage)) status = defaultStage;
+      else if (defaultStage === 'WAITING_ON_CUSTOMER') status = 'WAITING';
+      else if (defaultStage === 'IN_PROGRESS') status = 'OPEN';
+      else status = 'NEW';
+    } else {
+      status = 'NEW';
+    }
+  }
+
   return prisma.$transaction(async (tx) => {
     const ticketNumber = await nextTicketNumber(tx, workspaceId);
     return tx.crmTicket.create({
@@ -120,6 +137,7 @@ export async function createTicket(workspaceId, body) {
         ticketNumber,
         subject: body.subject,
         description: body.description ?? null,
+        status,
         priority,
         category: body.category ?? null,
         contactId: body.contactId ?? null,

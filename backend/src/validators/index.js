@@ -534,11 +534,19 @@ export const leadSchemas = {
     source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    status: z.string().trim().max(60).optional(),
+    company: z.union([z.string().trim().max(120), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    budget: z.coerce.number().optional(),
+    companySize: z.coerce.number().optional(),
+    industry: z.union([z.string().trim().max(100), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    checklistAnswers: z.record(z.any()).optional(),
+    tags: z.array(z.string().trim().max(50)).optional(),
+    prospecting: z.record(z.any()).optional(),
   }).refine((d) => d.contactId || (d.name && d.phoneNumber) || d.phoneNumber, {
     message: 'Provide contactId, or a phoneNumber to create the contact',
   }),
   update: z.object({
-    status: z.enum(LEAD_STATUSES).optional(),
+    status: z.string().trim().max(60).optional(),
     ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     source: z.union([z.string().trim().max(60), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     notes: z.union([z.string().trim().max(2000), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
@@ -546,6 +554,13 @@ export const leadSchemas = {
     // definitions in customFields.service.js, which is the only place that
     // knows what a given key is allowed to contain.
     customFields: z.record(z.any()).nullable().optional(),
+    tags: z.array(z.string().trim().max(50)).optional(),
+    prospecting: z.record(z.any()).optional(),
+    budget: z.coerce.number().optional(),
+    companySize: z.coerce.number().optional(),
+    industry: z.union([z.string().trim().max(100), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    company: z.union([z.string().trim().max(120), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
+    qualificationAnswers: z.record(z.any()).optional(),
   }).strict(),
   convert: z.object({
     title: z.string().trim().min(1, 'Deal title is required').max(160),

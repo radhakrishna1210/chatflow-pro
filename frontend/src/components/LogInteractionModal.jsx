@@ -83,6 +83,9 @@ export function LogInteractionModal({ lead, onClose, onLogged }) {
           leadId: lead.id,
           contactId: lead.contactId,
           content,
+          outcome,
+          sentiment,
+          duration,
         }),
       });
 
