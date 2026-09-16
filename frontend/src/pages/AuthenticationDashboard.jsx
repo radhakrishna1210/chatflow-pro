@@ -332,6 +332,10 @@ const AuthenticationAnalyticsPanel = () => {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [search, setSearch] = useState('');
+  const [dateRange, setDateRange] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [templateFilter, setTemplateFilter] = useState('all');
 
   useEffect(() => {
     let cancelled = false;
@@ -353,16 +357,78 @@ const AuthenticationAnalyticsPanel = () => {
 
   const metrics = usage?.metrics || {};
   const q = search.trim().toLowerCase();
-  const attempts = (usage?.recent || []).filter((attempt) => !q || [attempt.templateName, attempt.campaignName, attempt.source, attempt.status].some((value) => String(value || '').toLowerCase().includes(q)));
+  const recentAttempts = Array.isArray(usage?.recent)
+    ? usage.recent.filter((attempt) => attempt && typeof attempt === 'object')
+    : [];
+  const templates = [...new Set(recentAttempts.map((attempt) => attempt.templateName).filter(Boolean))];
+  const statuses = [...new Set(recentAttempts.map((attempt) => attempt.status).filter(Boolean))];
+  const sources = [...new Set(recentAttempts.map((attempt) => attempt.source).filter(Boolean))];
+  const dateStart = (() => {
+    if (dateRange === 'all') return null;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    if (dateRange === '7d') start.setDate(start.getDate() - 6);
+    if (dateRange === '30d') start.setDate(start.getDate() - 29);
+    return start;
+  })();
+  const attempts = recentAttempts.filter((attempt) => {
+    const createdAt = new Date(attempt.createdAt);
+    const matchesDate = !dateStart || (!Number.isNaN(createdAt.getTime()) && createdAt >= dateStart);
+    const matchesSearch = !q || [attempt.templateName, attempt.campaignName, attempt.source, attempt.status]
+      .some((value) => String(value || '').toLowerCase().includes(q));
+    return matchesDate
+      && matchesSearch
+      && (statusFilter === 'all' || attempt.status === statusFilter)
+      && (sourceFilter === 'all' || attempt.source === sourceFilter)
+      && (templateFilter === 'all' || attempt.templateName === templateFilter);
+  });
+  const metricValue = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+  const otpRequests = metricValue(metrics.otpRequests);
+  const verified = metricValue(metrics.verified);
+  const expired = metricValue(metrics.expired);
+  const failed = metricValue(metrics.failed);
+  const pending = [otpRequests, verified, expired, failed].every((value) => value !== null)
+    ? Math.max(0, otpRequests - verified - expired - failed)
+    : null;
+  const statusBreakdown = [
+    ['Verified', verified, 'var(--success)'],
+    ['Expired', expired, '#fbbf24'],
+    ['Failed', failed, '#fca5a5'],
+    ['Pending', pending, 'var(--t2)'],
+  ];
+  const sourceBreakdown = sources.map((source) => [
+    source === 'API' ? 'API' : 'Campaign',
+    recentAttempts.filter((attempt) => attempt.source === source).length,
+  ]);
 
   return (
     <>
-      <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search Authentication attempts…"
-        style={{ ...selectFieldStyle, cursor: 'text', maxWidth: 320, marginBottom: 16 }}
-      />
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search Authentication attempts…"
+          style={{ ...selectFieldStyle, cursor: 'text', maxWidth: 320, flex: '1 1 220px' }}
+        />
+        <select value={dateRange} onChange={(e) => setDateRange(e.target.value)} aria-label="Date range" style={{ ...selectFieldStyle, width: 'auto', minWidth: 130 }}>
+          <option value="all">All loaded</option>
+          <option value="today">Today</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Status" style={{ ...selectFieldStyle, width: 'auto', minWidth: 120 }}>
+          <option value="all">All statuses</option>
+          {statuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
+        </select>
+        <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} aria-label="Source" style={{ ...selectFieldStyle, width: 'auto', minWidth: 115 }}>
+          <option value="all">All sources</option>
+          {sources.map((source) => <option key={source} value={source}>{source === 'API' ? 'API' : 'Campaign'}</option>)}
+        </select>
+        <select value={templateFilter} onChange={(e) => setTemplateFilter(e.target.value)} aria-label="Template" style={{ ...selectFieldStyle, width: 'auto', minWidth: 140, maxWidth: 220 }}>
+          <option value="all">All templates</option>
+          {templates.map((template) => <option key={template} value={template}>{template}</option>)}
+        </select>
+      </div>
       <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
         {[
           ['OTP Requests', metrics.otpRequests], ['Accepted by WhatsApp', metrics.acceptedByWhatsApp], ['Delivered', metrics.delivered],
@@ -380,6 +446,30 @@ const AuthenticationAnalyticsPanel = () => {
           Delivery is unavailable for direct Authentication API sends because no delivery receipt is stored for their transaction records.
         </p>
       )}
+      <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 16 }}>
+        <div style={{ padding: '15px 16px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: '1px solid var(--bd)' }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Status breakdown</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
+            {statusBreakdown.map(([label, value, color]) => (
+              <div key={label} style={{ minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 11.5, color, fontWeight: 700 }}>{label}</p>
+                <p style={{ margin: '5px 0 0', fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 800, color: 'var(--t1)' }}>{value == null ? '—' : value.toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ padding: '15px 16px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: '1px solid var(--bd)' }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Source breakdown</p>
+          {sourceBreakdown.length === 0 ? (
+            <p style={{ margin: 0, fontSize: 12.5, color: 'var(--t3)' }}>No loaded attempts to break down.</p>
+          ) : (
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+              {sourceBreakdown.map(([label, value]) => <p key={label} style={{ margin: 0, fontSize: 12.5, color: 'var(--t2)' }}>{label}: <strong style={{ color: 'var(--t1)' }}>{value}</strong></p>)}
+            </div>
+          )}
+          <p style={{ margin: '9px 0 0', fontSize: 11, color: 'var(--t3)' }}>Based on the latest loaded attempts.</p>
+        </div>
+      </div>
       <div style={{ borderRadius: 10, padding: '16px 18px', background: 'rgba(0,0,0,0.35)', border: '1px solid var(--bd)', overflowX: 'auto' }}>
         <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Recent Authentication attempts</p>
         {attempts.length === 0 ? (
