@@ -9,6 +9,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+// Prisma formats (and reorders) schema.prisma while generating its embedded
+// inlineSchema; canonicalSchema compares the declarations, not their layout.
+import { canonicalSchema } from './prisma-schema-canonical.js';
 
 const backendDir = path.resolve(import.meta.dirname, '..');
 const schemaPath = path.join(backendDir, 'prisma', 'schema.prisma');
@@ -23,36 +26,6 @@ const STALE_LOCK_MS = 5 * 60_000;
 const require = createRequire(import.meta.url);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-// Prisma formats schema.prisma while generating its embedded inlineSchema.
-// Compare the schema language rather than formatting/comments, while retaining
-// all quoted text (defaults, native types, relation names, and URLs).
-function canonicalSchema(text) {
-  const source = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
-  let result = '';
-  let quoted = false;
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index];
-    if (quoted) {
-      result += char;
-      if (char === '\\') result += source[++index] || '';
-      else if (char === '"') quoted = false;
-      continue;
-    }
-    if (char === '"') { quoted = true; result += char; continue; }
-    if (char === '/' && source[index + 1] === '/') {
-      while (index < source.length && source[index] !== '\n') index += 1;
-      continue;
-    }
-    if (char === '/' && source[index + 1] === '*') {
-      index = source.indexOf('*/', index + 2);
-      if (index === -1) break;
-      index += 1;
-      continue;
-    }
-    if (!/\s/.test(char)) result += char;
-  }
-  return result;
-}
 
 function windowsEngineTemps() {
   if (process.platform !== 'win32' || !existsSync(generatedClientDir)) return [];
