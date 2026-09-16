@@ -1537,7 +1537,10 @@ model AuthenticationTransaction {
   source        String    @default("CHATFLOW")
   status        String    @default("PENDING")
   expiresAt     DateTime
-  metaMessageId String?
+  metaMessageId String?   @unique
+  // Set only from a Meta `delivered` or `read` status webhook. A Meta message
+  // id means acceptance, not delivery.
+  deliveredAt   DateTime?
   attempts      Int       @default(0)
   createdAt     DateTime  @default(now())
   verifiedAt    DateTime?

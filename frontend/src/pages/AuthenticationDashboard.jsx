@@ -331,6 +331,9 @@ const AuthenticationAnalyticsPanel = () => {
   const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
+  const [templateOptions, setTemplateOptions] = useState([]);
+  const [templateErr, setTemplateErr] = useState('');
+  const [templatesLoading, setTemplatesLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -341,6 +344,8 @@ const AuthenticationAnalyticsPanel = () => {
     let cancelled = false;
     setLoading(true);
     setErr('');
+    setTemplatesLoading(true);
+    setTemplateErr('');
     wFetch('/authentication/analytics')
       .then(async (res) => {
         const data = await res.json();
@@ -349,6 +354,19 @@ const AuthenticationAnalyticsPanel = () => {
       })
       .catch((e) => { if (!cancelled) setErr(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    wFetch('/templates')
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok || !Array.isArray(data)) throw new Error(getErrorMessage(data, 'Failed to load Authentication templates'));
+        if (!cancelled) {
+          const options = data
+            .filter((template) => template && template.category === 'AUTHENTICATION' && template.id && template.name)
+            .map((template) => ({ id: template.id, name: template.name }));
+          setTemplateOptions(options);
+        }
+      })
+      .catch((e) => { if (!cancelled) setTemplateErr(e.message); })
+      .finally(() => { if (!cancelled) setTemplatesLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
@@ -360,9 +378,8 @@ const AuthenticationAnalyticsPanel = () => {
   const recentAttempts = Array.isArray(usage?.recent)
     ? usage.recent.filter((attempt) => attempt && typeof attempt === 'object')
     : [];
-  const templates = [...new Set(recentAttempts.map((attempt) => attempt.templateName).filter(Boolean))];
-  const statuses = [...new Set(recentAttempts.map((attempt) => attempt.status).filter(Boolean))];
-  const sources = [...new Set(recentAttempts.map((attempt) => attempt.source).filter(Boolean))];
+  const statuses = ['VERIFIED', 'EXPIRED', 'FAILED', 'PENDING'];
+  const sources = ['API', 'CAMPAIGN'];
   const dateStart = (() => {
     if (dateRange === 'all') return null;
     const start = new Date();
@@ -380,25 +397,22 @@ const AuthenticationAnalyticsPanel = () => {
       && matchesSearch
       && (statusFilter === 'all' || attempt.status === statusFilter)
       && (sourceFilter === 'all' || attempt.source === sourceFilter)
-      && (templateFilter === 'all' || attempt.templateName === templateFilter);
+      && (templateFilter === 'all' || attempt.templateId === templateFilter);
   });
-  const metricValue = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
-  const otpRequests = metricValue(metrics.otpRequests);
-  const verified = metricValue(metrics.verified);
-  const expired = metricValue(metrics.expired);
-  const failed = metricValue(metrics.failed);
-  const pending = [otpRequests, verified, expired, failed].every((value) => value !== null)
-    ? Math.max(0, otpRequests - verified - expired - failed)
-    : null;
+  const hasActiveFilters = dateRange !== 'all' || statusFilter !== 'all' || sourceFilter !== 'all' || templateFilter !== 'all';
   const statusBreakdown = [
-    ['Verified', verified, 'var(--success)'],
-    ['Expired', expired, '#fbbf24'],
-    ['Failed', failed, '#fca5a5'],
-    ['Pending', pending, 'var(--t2)'],
-  ];
+    ['VERIFIED', 'Verified', 'var(--success)'],
+    ['EXPIRED', 'Expired', '#fbbf24'],
+    ['FAILED', 'Failed', '#fca5a5'],
+    ['PENDING', 'Pending', 'var(--t2)'],
+  ].map(([status, label, color]) => [
+    label,
+    attempts.filter((attempt) => attempt.status === status).length,
+    color,
+  ]);
   const sourceBreakdown = sources.map((source) => [
     source === 'API' ? 'API' : 'Campaign',
-    recentAttempts.filter((attempt) => attempt.source === source).length,
+    attempts.filter((attempt) => attempt.source === source).length,
   ]);
 
   return (
@@ -426,9 +440,11 @@ const AuthenticationAnalyticsPanel = () => {
         </select>
         <select value={templateFilter} onChange={(e) => setTemplateFilter(e.target.value)} aria-label="Template" style={{ ...selectFieldStyle, width: 'auto', minWidth: 140, maxWidth: 220 }}>
           <option value="all">All templates</option>
-          {templates.map((template) => <option key={template} value={template}>{template}</option>)}
+          {templatesLoading && <option disabled>Loading templates…</option>}
+          {templateOptions.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
         </select>
       </div>
+      {templateErr && <AlertBanner type="error">{templateErr}</AlertBanner>}
       <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
         {[
           ['OTP Requests', metrics.otpRequests], ['Accepted by WhatsApp', metrics.acceptedByWhatsApp], ['Delivered', metrics.delivered],
@@ -448,7 +464,7 @@ const AuthenticationAnalyticsPanel = () => {
       )}
       <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 16 }}>
         <div style={{ padding: '15px 16px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: '1px solid var(--bd)' }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Status breakdown</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Filtered attempt status breakdown</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
             {statusBreakdown.map(([label, value, color]) => (
               <div key={label} style={{ minWidth: 0 }}>
@@ -459,21 +475,17 @@ const AuthenticationAnalyticsPanel = () => {
           </div>
         </div>
         <div style={{ padding: '15px 16px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: '1px solid var(--bd)' }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Source breakdown</p>
-          {sourceBreakdown.length === 0 ? (
-            <p style={{ margin: 0, fontSize: 12.5, color: 'var(--t3)' }}>No loaded attempts to break down.</p>
-          ) : (
-            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-              {sourceBreakdown.map(([label, value]) => <p key={label} style={{ margin: 0, fontSize: 12.5, color: 'var(--t2)' }}>{label}: <strong style={{ color: 'var(--t1)' }}>{value}</strong></p>)}
-            </div>
-          )}
-          <p style={{ margin: '9px 0 0', fontSize: 11, color: 'var(--t3)' }}>Based on the latest loaded attempts.</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Filtered attempt source breakdown</p>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+            {sourceBreakdown.map(([label, value]) => <p key={label} style={{ margin: 0, fontSize: 12.5, color: 'var(--t2)' }}>{label}: <strong style={{ color: 'var(--t1)' }}>{value}</strong></p>)}
+          </div>
+          <p style={{ margin: '9px 0 0', fontSize: 11, color: 'var(--t3)' }}>Based on matching loaded attempts.</p>
         </div>
       </div>
       <div style={{ borderRadius: 10, padding: '16px 18px', background: 'rgba(0,0,0,0.35)', border: '1px solid var(--bd)', overflowX: 'auto' }}>
         <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Recent Authentication attempts</p>
         {attempts.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--t2)', padding: '16px 0' }}>{q ? 'No Authentication attempts match your search.' : 'No Authentication API or campaign OTP attempts yet.'}</p>
+          <p style={{ fontSize: 13, color: 'var(--t2)', padding: '16px 0' }}>{q || hasActiveFilters ? 'No Authentication attempts match your filters.' : 'No Authentication API or campaign OTP attempts yet.'}</p>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 650 }}>
             <thead>

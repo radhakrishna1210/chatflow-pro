@@ -855,9 +855,38 @@ async function scheduleDelayedResponse(workspace, conversationId) {
 }
 
 async function handleStatusUpdate(status) {
-  const metaMessageId = status.id;
-  const newStatus = status.status;
-  const eventTime = status.timestamp ? new Date(parseInt(status.timestamp, 10) * 1000) : new Date();
+  const metaMessageId = typeof status?.id === 'string' ? status.id : null;
+  if (!metaMessageId) return;
+
+  const newStatus = String(status?.status || '').toLowerCase();
+  const timestamp = Number(status?.timestamp);
+  const eventTime = Number.isFinite(timestamp) && timestamp > 0
+    ? new Date(timestamp * 1000)
+    : new Date();
+
+  // Authentication sends do not create a normal Message row, but they do keep
+  // Meta's id on AuthenticationTransaction. A `read` receipt also proves the
+  // message was delivered. The null guard makes replayed/out-of-order webhooks
+  // idempotent without treating Meta acceptance as delivery.
+  if (newStatus === 'delivered' || newStatus === 'read') {
+    const transactions = await prisma.authenticationTransaction.findMany({
+      where: { metaMessageId },
+      select: { id: true, deliveredAt: true },
+      take: 2,
+    });
+
+    // The database uniqueness constraint prevents this after migration. Keep
+    // the guard for legacy/corrupt data: never let one Meta receipt mark more
+    // than one OTP transaction as delivered.
+    if (transactions.length > 1) {
+      console.error(`[Authentication] Duplicate Meta message id "${metaMessageId}"; delivery receipt ignored.`);
+    } else if (transactions[0]?.deliveredAt == null) {
+      await prisma.authenticationTransaction.updateMany({
+        where: { id: transactions[0].id, deliveredAt: null },
+        data: { deliveredAt: eventTime },
+      });
+    }
+  }
 
   const message = await prisma.message.findUnique({
     where: { metaMessageId },

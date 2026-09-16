@@ -297,9 +297,8 @@ export async function updateAuthenticationConfiguration(
  *
  * AuthenticationTransaction is the source of truth here: direct API requests
  * intentionally have campaignId = NULL and must be visible alongside OTPs
- * issued by Authentication campaigns. A Meta message id proves acceptance,
- * not delivery, so delivery stays unavailable until a delivery receipt is
- * stored against AuthenticationTransaction.
+ * issued by Authentication campaigns. A Meta message id proves acceptance;
+ * a Meta delivery/read webhook sets deliveredAt separately.
  */
 export async function getAuthenticationUsage(workspaceId) {
   if (!workspaceId) {
@@ -307,7 +306,7 @@ export async function getAuthenticationUsage(workspaceId) {
   }
 
   const now = new Date();
-  const [statusRows, pendingExpired, acceptedByWhatsApp, recent] = await Promise.all([
+  const [statusRows, pendingExpired, acceptedByWhatsApp, delivered, recent] = await Promise.all([
     prisma.authenticationTransaction.groupBy({
       by: ['status'],
       where: { workspaceId },
@@ -320,6 +319,9 @@ export async function getAuthenticationUsage(workspaceId) {
     }),
     prisma.authenticationTransaction.count({
       where: { workspaceId, metaMessageId: { not: null } },
+    }),
+    prisma.authenticationTransaction.count({
+      where: { workspaceId, deliveredAt: { not: null } },
     }),
     prisma.authenticationTransaction.findMany({
       where: { workspaceId },
@@ -356,17 +358,16 @@ export async function getAuthenticationUsage(workspaceId) {
     metrics: {
       otpRequests,
       // Meta acceptance is useful operational data, but deliberately not
-      // labelled as delivery: a delivery webhook is not persisted for direct
-      // Authentication API sends.
+      // labelled as delivery. Only a delivery/read webhook sets deliveredAt.
       acceptedByWhatsApp,
-      delivered: null,
+      delivered,
       verified,
       expired: (counts.EXPIRED || 0) + pendingExpired,
       failed: counts.FAILED || 0,
       verificationRate: otpRequests > 0
         ? Number(((verified / otpRequests) * 100).toFixed(1))
         : null,
-      deliveryTrackingAvailable: false,
+      deliveryTrackingAvailable: true,
       cost: null,
     },
     recent: recent.map((transaction) => ({
