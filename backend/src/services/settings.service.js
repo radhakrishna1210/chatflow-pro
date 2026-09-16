@@ -27,6 +27,7 @@ export async function getSettings(workspaceId) {
       brandColor: true,
       brandLogoUrl: true,
       plan: true,
+      autoLeadFromReply: true,
     },
   });
   if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
@@ -56,6 +57,7 @@ const ALLOWED_SETTINGS_FIELDS = [
   'timezone',
   'brandColor',
   'brandLogoUrl',
+  'autoLeadFromReply',
 ];
 
 // A colour the UI can actually use. Anything else is rejected rather than

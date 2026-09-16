@@ -1,9 +1,26 @@
 import * as conversationsService from '../services/conversations.service.js';
 
 export async function list(req, res) {
-  const { page, limit } = req.query;
-  const result = await conversationsService.listConversations(req.params.workspaceId, { page: +page || 1, limit: +limit || 20 });
+  const { page, limit, contactId, search } = req.query;
+  const result = await conversationsService.listConversations(req.params.workspaceId, {
+    page: +page || 1,
+    limit: +limit || 20,
+    contactId: contactId ? String(contactId).trim() : null,
+    search: search ? String(search).trim() : '',
+  });
   res.json(result);
+}
+
+export async function createOrGet(req, res) {
+  const { contactId, waNumberId } = req.body || {};
+  if (!contactId) {
+    return res.status(400).json({ error: 'contactId is required' });
+  }
+  const conversation = await conversationsService.getOrCreateConversation(req.params.workspaceId, {
+    contactId: String(contactId).trim(),
+    waNumberId: waNumberId ? String(waNumberId).trim() : null,
+  });
+  res.status(200).json(conversation);
 }
 
 export async function getMessages(req, res) {
@@ -97,4 +114,12 @@ export function assign(req, res) {
 
 export function setStatus(req, res) {
   return handle(res, () => conversationsService.setConversationStatus(req.params.workspaceId, req.params.id, req.body?.status), 'Failed to update the conversation');
+}
+
+export function reopenWindow(req, res) {
+  return handle(res, () => conversationsService.reopenWindow(req.params.workspaceId, req.params.id), 'Failed to reopen 24h window');
+}
+
+export function simulateInbound(req, res) {
+  return handle(res, () => conversationsService.simulateInboundMessage(req.params.workspaceId, req.params.id, req.body || {}), 'Failed to simulate inbound message');
 }

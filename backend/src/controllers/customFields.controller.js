@@ -25,3 +25,20 @@ export async function deleteEvent(req, res) {
 export async function trackEvent(req, res) {
   res.json(await svc.recordCustomEvent(req.params.workspaceId, req.params.key, req.body?.payload ?? {}));
 }
+
+
+
+export async function list(req, res) {
+  res.json(await svc.listDefinitions(req.params.workspaceId, req.query.entity, {
+    includeInactive: req.query.includeInactive === 'true',
+  }));
+}
+export async function create(req, res) {
+  res.status(201).json(await svc.createDefinition(req.params.workspaceId, req.body));
+}
+export async function update(req, res) {
+  res.json(await svc.updateDefinition(req.params.workspaceId, req.params.id, req.body));
+}
+export async function remove(req, res) {
+  res.json(await svc.deleteDefinition(req.params.workspaceId, req.params.id));
+}

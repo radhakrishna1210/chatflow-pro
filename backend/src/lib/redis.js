@@ -34,6 +34,11 @@ export function logRedisError(label, err) {
   }
   lastLogged.set(key, { at: now, suppressed: 0 });
 
+  // Completely silence ECONNREFUSED spam in development mode
+  if (env.NODE_ENV === 'development' && msg.includes('ECONNREFUSED')) {
+    return;
+  }
+
   const repeat = prev?.suppressed ? ` (+${prev.suppressed} identical in the last ${LOG_INTERVAL_MS / 1000}s)` : '';
   console.error(`[Redis:${label}] ${msg}${repeat}`);
 
@@ -52,10 +57,11 @@ export function logRedisError(label, err) {
 // pick up again by themselves. Development gives up after a few attempts —
 // with no Redis running locally the endless reconnect loop buries every other
 // log line, and the server is designed to run degraded there anyway.
-const GIVE_UP_AFTER = 8;
+const GIVE_UP_AFTER = 0;
 function retryStrategy(times) {
   if (env.NODE_ENV !== 'production' && times > GIVE_UP_AFTER) {
-    if (times === GIVE_UP_AFTER + 1) {
+    // Suppress the "Gave up reconnecting" log if giving up immediately in dev
+    if (times === GIVE_UP_AFTER + 1 && GIVE_UP_AFTER > 0) {
       console.warn(`[Redis] Gave up reconnecting after ${GIVE_UP_AFTER} attempts (development). Restart the server once Redis is up.`);
     }
     return null; // stop retrying

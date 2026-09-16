@@ -4,6 +4,7 @@ import { Btn } from '../components/Btn.jsx';
 import { apiFetch } from '../lib/api.js';
 import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import ProgressPanel from '../components/ProgressPanel.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -617,6 +618,14 @@ export default function ProfileView() {
 
             <SectionCard icon="columns" title="Quick Links">
               <QuickLinksGrid currentPage="profile" />
+            </SectionCard>
+
+            {/* Progress lives on the profile rather than in the sidebar: it is
+                personal to the signed-in user, and there is no route to read
+                anyone else's, so a workspace-level nav item would misrepresent
+                what it is. */}
+            <SectionCard icon="target" title="Your Progress">
+              <ProgressPanel />
             </SectionCard>
 
             <div className="cf-profile-grid">

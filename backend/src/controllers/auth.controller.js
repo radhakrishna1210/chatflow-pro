@@ -55,11 +55,18 @@ export async function logout(req, res) {
 // logs, Referer leakage). Instead we stash the session under a short-lived
 // one-time code in Redis and redirect with only that code; the SPA exchanges
 // it via POST /auth/exchange.
+const memoryCodes = new Map();
+
 export async function googleCallback(req, res) {
   const session = req.user; // { accessToken, refreshToken, user, workspace }
   const code = randomBytes(32).toString('hex');
   try {
-    await redis.set(`oauth:code:${code}`, JSON.stringify(session), 'EX', 120);
+    if (redis.status === 'ready') {
+      await redis.set(`oauth:code:${code}`, JSON.stringify(session), 'EX', 120);
+    } else {
+      memoryCodes.set(code, JSON.stringify(session));
+      setTimeout(() => memoryCodes.delete(code), 120000);
+    }
     return res.redirect(`${env.CLIENT_URL}/auth/callback?code=${code}`);
   } catch (err) {
     console.error('[Google OAuth] Failed to store one-time code:', err.message);
@@ -73,8 +80,16 @@ export async function exchangeOneTimeCode(req, res) {
     return res.status(400).json({ error: 'Invalid code' });
   }
   const key = `oauth:code:${code}`;
-  const raw = await redis.get(key);
+  let raw = null;
+  
+  if (redis.status === 'ready') {
+    raw = await redis.get(key);
+    if (raw) await redis.del(key);
+  } else {
+    raw = memoryCodes.get(code);
+    memoryCodes.delete(code);
+  }
+  
   if (!raw) return res.status(400).json({ error: 'Code expired or already used' });
-  await redis.del(key); // single use
   res.json(JSON.parse(raw));
 }

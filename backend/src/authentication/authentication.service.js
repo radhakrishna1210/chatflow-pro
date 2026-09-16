@@ -376,9 +376,9 @@ export async function verifyAuthenticationOtp(
     throw error;
   }
 
-  return verifyAuthenticationTransaction(
+  return verifyAuthenticationTransaction({
     workspaceId,
-    recipient,
-    normalizedCode
-  );
+    phone: recipient,
+    code: normalizedCode,
+  });
 }

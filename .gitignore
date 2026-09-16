@@ -10,9 +10,21 @@ backend/node_modules/
 backend/.env
 backend/.env.production
 backend/.env.vps
+# Backups and local overrides of env files hold real credentials just as the
+# originals do. backend/.env.bak was untracked but committable, and contained a
+# live connection string for a shared database — see OPEN-009.
+.env.bak
+*.env.bak
+backend/.env.*
+!backend/.env.example
 
 # Build output
 frontend/dist/
+
+# Generated test artifacts — traces, screenshots and HTML reports are rebuilt
+# on every run and should never be version controlled.
+playwright-report/
+test-results/
 frontend/build/
 
 # Prisma
@@ -57,3 +69,8 @@ git_output.txt
 
 # Ad-hoc probe scripts written while debugging; never part of the app.
 backend/*_tmp.mjs
+# Throwaway debug scripts and stray SQL. These are scratch work, not source —
+# they were committed once by a broad `git add -A` and removed again.
+backend/query*.js
+backend/migration.sql
+open-chrome-profile.mjs

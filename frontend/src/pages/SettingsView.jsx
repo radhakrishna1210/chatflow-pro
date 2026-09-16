@@ -6,6 +6,8 @@ import { wFetch, wDownload } from '../lib/api.js';
 import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
 import BlockedNumbers from '../components/BlockedNumbers.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { TeamsAdmin } from '../components/TeamsAdmin.jsx';
+import { LeadCaptureSetting } from '../components/LeadCaptureSetting.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
@@ -703,6 +705,18 @@ export default function SettingsView() {
           )}
         </SectionCard>
         )}
+
+        {/* ── Lead capture ── */}
+        <SectionCard icon="target" title="Lead Capture">
+          <LeadCaptureSetting isAdmin={isAdmin} />
+        </SectionCard>
+
+        {/* ── Teams & record visibility ──
+            Sits directly after Team Members: that section decides who is in the
+            workspace, this one decides who can see whose records. */}
+        <SectionCard icon="users" title="Teams & Record Visibility">
+          <TeamsAdmin isAdmin={isAdmin} />
+        </SectionCard>
 
         {/* ── Blocked Numbers (opt-outs) ── */}
         {tab === 'security' && <BlockedNumbers isAdmin={isAdmin} />}

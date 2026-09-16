@@ -76,7 +76,7 @@ export async function verifyGeminiKey(apiKey, model = env.GEMINI_MODEL) {
 
 // A degraded/slow Gemini response previously had no ceiling and could hold
 // a request (e.g. onboarding chat) open indefinitely.
-const GEMINI_TIMEOUT_MS = 20000;
+const GEMINI_TIMEOUT_MS = 10000;
 
 // Ollama is only reached when Gemini isn't configured or errors, so it's
 // already the fallback path — a local model taking 20-30s+ to generate on
@@ -132,7 +132,7 @@ function isTransient(err) {
     || /UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED|overloaded|high demand|try again later/i.test(m);
 }
 
-const RETRY_DELAYS_MS = [400, 1200];
+const RETRY_DELAYS_MS = [400];
 
 // One attempt against one model.
 async function generateOnce(ai, model, contents, json) {

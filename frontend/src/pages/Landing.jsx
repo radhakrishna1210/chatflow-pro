@@ -12,6 +12,7 @@ import {
   // Aliased: `CTA` is already the name of the closing section's component.
   CTA as CTA_COPY,
 } from '../../../backend/src/data/siteContent.js';
+import { MarketingFaq, MarketingFeatures, MarketingIntegrations, MarketingSecurity } from '../components/MarketingFaq.jsx';
 
 // ─── Landing page ────────────────────────────────────────────────────────────
 //
@@ -540,6 +541,7 @@ const Faq = () => {
     </section>
   );
 };
+
 
 // ─── features ────────────────────────────────────────────────────────────────
 
@@ -1094,12 +1096,23 @@ export default function Landing({ onNav }) {
       <Reactor />
       <Playground />
       <Features />
-      <AutomationLab />
+<AutomationLab />
+{/* <Features/> above covers the messaging half. This covers the CRM half —
+          leads, pipeline, forecasting, gamification — which the SoftwareApplication
+          featureList in index.html claims, so it has to be on the page (§81).
+          Each card leads with a standalone answer an engine can quote (§78). */}
+      <MarketingFeatures />
       <UseCases />
       <PlatformMap />
       <CostCalculator />
       <Pricing onNav={onNav} />
-      <Faq />
+      {/* Sourced from src/content/marketing.js, which is also what the JSON-LD
+          in index.html describes — §81 requires the structured data to match
+          what is actually on the page. The previous FAQ kept all but one
+          answer out of the DOM, which §77 warns against. */}
+      <MarketingIntegrations />
+      <MarketingSecurity />
+      <MarketingFaq />
       <CTA onNav={onNav} />
       <MarketingFooter onNav={onNav} />
     </div>

@@ -10,3 +10,5 @@ export const campaignQueue = new Queue('campaigns', {
     removeOnFail: 50,
   },
 });
+
+campaignQueue.on('error', () => {});

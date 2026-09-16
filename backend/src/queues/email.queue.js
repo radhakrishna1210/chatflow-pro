@@ -10,3 +10,5 @@ export const emailQueue = new Queue('emails', {
     removeOnFail: 50,
   },
 });
+
+emailQueue.on('error', () => {});

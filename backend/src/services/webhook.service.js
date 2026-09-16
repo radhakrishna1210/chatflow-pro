@@ -10,6 +10,7 @@ import { handleFormInbound, cancelOpenSubmission, hasOpenSubmission } from './wh
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import { isWithinBusinessHours, describeBusinessHours } from './businessHours.service.js';
 import { matchOptOutKeyword, recordOptOut, isFlowControlKeyword } from './optout.service.js';
+import { captureReplyAsLead } from './campaignLeads.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { parseInboundMessage, carriesCustomerText } from './inboundMessage.js';
 import { emitWebhook } from './outgoingWebhook.service.js';
@@ -400,6 +401,24 @@ async function handleInboundMessage(value, msg) {
 
   const workspaceId = waNumber.workspaceId;
 
+  // Immediately exit active sequence cadences with exitOnReply enabled
+  await prisma.sequenceEnrollment.updateMany({
+    where: {
+      workspaceId,
+      contactId: contact.id,
+      status: { in: ['ACTIVE', 'WAITING'] },
+      sequence: { exitOnReply: true },
+    },
+    data: {
+      status: 'EXITED',
+      exitReason: 'Contact replied',
+      nextRunAt: null,
+      completedAt: new Date(),
+    },
+  }).catch((err) => {
+    console.error('[Inbound] Failed to auto-exit sequence enrollments:', err.message);
+  });
+
   // Tell the customer's own system. This is the event an integration is most
   // likely to want, and until now nothing was ever dispatched.
   emitWebhook(workspaceId, 'message.received', {
@@ -473,6 +492,12 @@ async function handleInboundMessage(value, msg) {
     }
     return;
   }
+
+  // A reply to a campaign becomes a lead, if the workspace opted in. Placed
+  // after the opt-out return above, so someone who has just asked to be left
+  // alone is never turned into a prospect. Fire-and-forget: a CRM write must
+  // never cost the platform an inbound message.
+  captureReplyAsLead(workspaceId, contact.id);
 
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },

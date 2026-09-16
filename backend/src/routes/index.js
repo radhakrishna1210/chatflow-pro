@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import authRoutes from './auth.routes.js';
+import oauthRoutes from './oauth.routes.js';
 import authenticationRoutes from '../authentication/authentication.routes.js';
 import publicRoutes from './public.routes.js';
 import whatsappRoutes from './whatsapp.routes.js';
@@ -7,6 +8,11 @@ import templatesRoutes from './templates.routes.js';
 import campaignsRoutes from './campaigns.routes.js';
 import contactsRoutes from './contacts.routes.js';
 import clustersRoutes from './clusters.routes.js';
+import leadsRoutes from './leads.routes.js';
+import dealsRoutes from './deals.routes.js';
+import tasksRoutes from './tasks.routes.js';
+import activitiesRoutes from './activities.routes.js';
+import crmAnalyticsRoutes from './crm-analytics.routes.js';
 import conversationsRoutes from './conversations.routes.js';
 import analyticsRoutes from './analytics.routes.js';
 import automationRoutes from './automation.routes.js';
@@ -40,11 +46,33 @@ import workspaceSwitchRoutes from './workspaceSwitch.routes.js';
 import usersRoutes from './users.routes.js';
 import notificationsRoutes from './notifications.routes.js';
 import optOutRoutes from './optout.routes.js';
-import customFieldsRoutes from './customFields.routes.js';
 import assistantRoutes from './assistant.routes.js';
+import searchRoutes from './search.routes.js';
+import savedViewsRoutes from './savedViews.routes.js';
+import pipelineStagesRoutes from './pipelineStages.routes.js';
+import forecastRoutes from './forecast.routes.js';
+import productsRoutes from './products.routes.js';
+import quotesRoutes from './quotes.routes.js';
+import crmDataRoutes from './crmData.routes.js';
+import customFieldsRoutes from './customFields.routes.js';
+import sequencesRoutes from './sequences.routes.js';
+import teamsRoutes from './teams.routes.js';
+import leadFormsRoutes from './leadForms.routes.js';
+import ticketsRoutes from './tickets.routes.js';
+import insightsRoutes from './insights.routes.js';
+import copilotRoutes from './copilot.routes.js';
+import agentRoutes from './agent.routes.js';
+import gamificationRoutes from './gamification.routes.js';
+import publicFormsRoutes from './publicForms.routes.js';
+import crmSalesInboxRoutes from './crmSalesInbox.routes.js';
+import leadDistributionRoutes from './leadDistribution.routes.js';
+import crmPermissionsRoutes from './crmPermissions.routes.js';
+import aiAgentsRoutes from './aiAgents.routes.js';
+import crmCustomizationRoutes from './crmCustomization.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import authenticationConfigRoutes from '../authentication/authentication-config.routes.js';
 const router = Router();
+
 
 router.get('/health', (req, res) =>
   res.json({
@@ -68,6 +96,12 @@ router.get('/pricing', (req, res) =>
 // -----------------------------------------------------------------------------
 
 router.use('/auth', authRoutes);
+
+// ChatFlow as an OAuth authorization server: another application sends a user
+// here to approve access, and receives a scoped ApiKey rather than the user
+// copying one out of Settings. Public — an authorization request arrives as a
+// browser navigation, and the token exchange authenticates with a client secret.
+router.use('/oauth', oauthRoutes);
 
 // WhatsApp Authentication OTP API.
 // Uses API-key authentication and authentication:send scope.
@@ -101,6 +135,8 @@ router.use('/notifications', notificationsRoutes);
 router.use('/integrations/oauth', oauthCallbackRouter);
 
 router.use('/invitations', publicInvitationsRouter);
+// Public lead-capture forms: no session, workspace named in the URL.
+router.use('/forms', publicFormsRoutes);
 
 // -----------------------------------------------------------------------------
 // Workspace-scoped routes
@@ -113,6 +149,32 @@ ws.use('/templates', templatesRoutes);
 ws.use('/campaigns', campaignsRoutes);
 ws.use('/contacts', contactsRoutes);
 ws.use('/clusters', clustersRoutes);
+ws.use('/leads', leadsRoutes);
+ws.use('/lead-distribution', leadDistributionRoutes);
+ws.use('/crm-sales-inbox', crmSalesInboxRoutes);
+ws.use('/crm-permissions', crmPermissionsRoutes);
+ws.use('/crm-customization', crmCustomizationRoutes);
+
+ws.use('/deals', dealsRoutes);
+ws.use('/tasks', tasksRoutes);
+ws.use('/activities', activitiesRoutes);
+ws.use('/crm-analytics', crmAnalyticsRoutes);
+ws.use('/search', searchRoutes);
+ws.use('/saved-views', savedViewsRoutes);
+ws.use('/pipeline-stages', pipelineStagesRoutes);
+ws.use('/forecast', forecastRoutes);
+ws.use('/products', productsRoutes);
+ws.use('/quotes', quotesRoutes);
+ws.use('/crm-data', crmDataRoutes);
+ws.use('/custom-fields', customFieldsRoutes);
+ws.use('/sequences', sequencesRoutes);
+ws.use('/teams', teamsRoutes);
+ws.use('/lead-forms', leadFormsRoutes);
+ws.use('/tickets', ticketsRoutes);
+ws.use('/insights', insightsRoutes);
+ws.use('/copilot', copilotRoutes);
+ws.use('/agent', agentRoutes);
+ws.use('/progress', gamificationRoutes);
 ws.use('/conversations', conversationsRoutes);
 ws.use('/analytics', analyticsRoutes);
 ws.use('/automation', automationRoutes);
@@ -138,6 +200,7 @@ ws.use('/subscription', subscriptionRoutes);
 ws.use('/integrations', integrationsRoutes);
 ws.use('/support', supportRoutes);
 ws.use('/ai-agent', aiAgentRoutes);
+ws.use('/ai-agents', aiAgentsRoutes);
 ws.use('/intents', intentRoutes);
 ws.use('/invitations', invitationsRoutes);
 ws.use('/switch', workspaceSwitchRoutes);

@@ -1,0 +1,24 @@
+{
+  "name": "chatflow-pro",
+  "version": "1.0.0",
+  "description": "A full-stack, multi-tenant WhatsApp Business messaging platform — conversations (inbox), bulk campaigns, contacts/segments, message templates, automation workflows, analytics, a wallet/billing ledger, and platform-level super-admin tools. Built with Node.js/Express on the backend and React (Vite, no router library — custom history-based router) on the frontend, backed by PostgreSQL, Redis/BullMQ, and the Meta WhatsApp Business (Cloud API) platform.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/radhakrishna1210/chatflow-pro.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/radhakrishna1210/chatflow-pro/issues"
+  },
+  "homepage": "https://github.com/radhakrishna1210/chatflow-pro#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}
