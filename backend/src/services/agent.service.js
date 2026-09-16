@@ -55,7 +55,7 @@ export async function claimDue(workerId, { limit = 5, now = new Date() } = {}) {
     });
 
     return tx.agentTask.findMany({ where: { id: { in: ids } } });
-  });
+  }, { timeout: 15000, maxWait: 10000 });
 }
 
 // Live work carries this key; finished work carries NULL. The unique index on
@@ -66,13 +66,23 @@ const activeKeyFor = (kind, targetType, targetId) => `${kind}:${targetType}:${ta
 /** Books work, collapsing duplicates onto the existing live row. */
 export async function enqueue(workspaceId, { kind, targetType, targetId, reason = null, runAfter = new Date() }) {
   const activeKey = activeKeyFor(kind, targetType, targetId);
+
+  // Check if task already exists with activeKey to avoid triggering unique constraint errors on sweeps
+  const existing = await prisma.agentTask.findFirst({
+    where: { workspaceId, activeKey },
+    select: { id: true },
+  });
+  if (existing) {
+    return existing;
+  }
+
   try {
     return await prisma.agentTask.create({
       data: { workspaceId, kind, targetType, targetId, reason, runAfter, activeKey },
     });
   } catch (err) {
-    // P2002 means this record already has this work queued, which is the
-    // desired outcome rather than an error.
+    // P2002 means this record already has this work queued (concurrent race),
+    // which is the desired outcome rather than an unhandled error.
     if (err.code === 'P2002') {
       return prisma.agentTask.findFirst({ where: { workspaceId, activeKey }, select: { id: true } });
     }
