@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -215,8 +215,10 @@ export default function CrmSalesInboxView() {
       const list = Array.isArray(data) ? data : data?.data || [];
       setLeads(list);
 
-      if (list.length > 0 && !selectedLeadId) {
-        setSelectedLeadId(list[0].id);
+      if (list.length > 0) {
+        if (!selectedLeadId || !list.some((l) => l.id === selectedLeadId)) {
+          setSelectedLeadId(list[0].id);
+        }
       }
     } catch (err) {
       console.error('[CrmSalesInbox] Error fetching leads:', err);
@@ -305,6 +307,39 @@ export default function CrmSalesInboxView() {
     }
   }, [selectedLeadId, activeTab, loadLeadContext]);
 
+  const messagesEndRef = useRef(null);
+
+  // Auto-scroll to bottom of conversation
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages.length, selectedLeadId]);
+
+  // Periodic polling for active conversation messages & window state
+  useEffect(() => {
+    if (!conversation?.id || activeTab !== 'individual') return;
+    let stopped = false;
+    const pollMessages = async () => {
+      try {
+        const res = await wFetch(`/conversations/${conversation.id}/messages`);
+        if (stopped || !res.ok) return;
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : data?.messages || data?.data || [];
+        if (Array.isArray(list)) {
+          setMessages(list);
+        }
+        if (!Array.isArray(data) && data?.window) {
+          setWindowState(data.window);
+        }
+      } catch {
+        // silent background poll
+      }
+    };
+    const interval = setInterval(pollMessages, 4000);
+    return () => { stopped = true; clearInterval(interval); };
+  }, [conversation?.id, activeTab]);
+
   // 4. Fetch Segment Audience Review
   const fetchAudience = useCallback(async () => {
     setLoadingAudience(true);
@@ -340,8 +375,8 @@ export default function CrmSalesInboxView() {
     try {
       let activeConv = conversation;
 
-      // Create or get conversation if none exists
-      if (!activeConv) {
+      // Create or get conversation if none exists or contact mismatch
+      if (!activeConv || activeConv.contactId !== selectedLead.contactId) {
         const newRes = await wFetch('/conversations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -363,7 +398,9 @@ export default function CrmSalesInboxView() {
       if (activeConv.contactId !== selectedLead.contactId) {
         throw new Error(`Recipient mismatch: conversation contact (${activeConv.contactId}) does not match selected lead (${selectedLead.contactId}). Message aborted.`);
       }
-      if (activeConv.contact?.phoneNumber && selectedLead.contact?.phoneNumber && activeConv.contact.phoneNumber !== selectedLead.contact.phoneNumber) {
+      const convPhone = (activeConv.contact?.phoneNumber || '').replace(/\D/g, '');
+      const leadPhone = (selectedLead.contact?.phoneNumber || '').replace(/\D/g, '');
+      if (convPhone && leadPhone && convPhone !== leadPhone) {
         throw new Error(`Recipient phone mismatch: conversation phone (${activeConv.contact.phoneNumber}) does not match selected lead (${selectedLead.contact.phoneNumber}). Message aborted.`);
       }
 
@@ -399,7 +436,7 @@ export default function CrmSalesInboxView() {
         err.message?.toLowerCase().includes('not messaged you');
 
       if (isWindowErr) {
-        setChatError('This contact is outside WhatsApp\'s 24-hour reply window according to Meta. Please send an approved template message to re-engage them.');
+        setChatError('This contact is outside WhatsApp\'s 24-hour reply window according to Meta. Please send an approved template message to re-engage them, or sync the window if they have messaged you.');
       } else {
         setChatError(err.message);
       }
@@ -450,8 +487,8 @@ export default function CrmSalesInboxView() {
     try {
       let activeConv = conversation;
 
-      // Create or get conversation if none exists
-      if (!activeConv) {
+      // Create or get conversation if none exists or contact mismatch
+      if (!activeConv || activeConv.contactId !== selectedLead.contactId) {
         const newRes = await wFetch('/conversations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -473,7 +510,9 @@ export default function CrmSalesInboxView() {
       if (activeConv.contactId !== selectedLead.contactId) {
         throw new Error(`Recipient mismatch: conversation contact (${activeConv.contactId}) does not match selected lead (${selectedLead.contactId}). Template aborted.`);
       }
-      if (activeConv.contact?.phoneNumber && selectedLead.contact?.phoneNumber && activeConv.contact.phoneNumber !== selectedLead.contact.phoneNumber) {
+      const convPhone = (activeConv.contact?.phoneNumber || '').replace(/\D/g, '');
+      const leadPhone = (selectedLead.contact?.phoneNumber || '').replace(/\D/g, '');
+      if (convPhone && leadPhone && convPhone !== leadPhone) {
         throw new Error(`Recipient phone mismatch: conversation phone (${activeConv.contact.phoneNumber}) does not match selected lead (${selectedLead.contact.phoneNumber}). Template aborted.`);
       }
 
@@ -998,6 +1037,11 @@ export default function CrmSalesInboxView() {
                           Send Approved Template
                         </Btn>
                       )}
+                      {(chatError.toLowerCase().includes('window') || chatError.toLowerCase().includes('24-hour')) && (
+                        <Btn size="xs" variant="ghost" onClick={handleReopenWindow} title="Click to sync if the lead messaged you on WhatsApp">
+                          🔄 Sync Window
+                        </Btn>
+                      )}
                     </div>
                     <button onClick={() => setChatError(null)} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
                   </div>
@@ -1010,30 +1054,33 @@ export default function CrmSalesInboxView() {
                       No message history with this lead yet. Send an approved template to initiate contact.
                     </div>
                   ) : (
-                    messages.map((m) => {
-                      const isOutbound = m.direction === 'OUTBOUND';
-                      return (
-                        <div
-                          key={m.id}
-                          style={{
-                            alignSelf: isOutbound ? 'flex-end' : 'flex-start',
-                            maxWidth: '75%',
-                            padding: '9px 13px',
-                            borderRadius: 12,
-                            background: isOutbound ? 'var(--primary)' : 'var(--surf)',
-                            color: isOutbound ? '#fff' : 'var(--t1)',
-                            border: isOutbound ? 'none' : '1px solid var(--bd)',
-                            fontSize: 13,
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                          }}
-                        >
-                          <div>{m.body}</div>
-                          <div style={{ fontSize: 10, opacity: 0.7, textAlign: 'right', marginTop: 4 }}>
-                            {new Date(m.sentAt || m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <>
+                      {messages.map((m) => {
+                        const isOutbound = m.direction === 'OUTBOUND';
+                        return (
+                          <div
+                            key={m.id}
+                            style={{
+                              alignSelf: isOutbound ? 'flex-end' : 'flex-start',
+                              maxWidth: '75%',
+                              padding: '9px 13px',
+                              borderRadius: 12,
+                              background: isOutbound ? 'var(--primary)' : 'var(--surf)',
+                              color: isOutbound ? '#fff' : 'var(--t1)',
+                              border: isOutbound ? 'none' : '1px solid var(--bd)',
+                              fontSize: 13,
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                            }}
+                          >
+                            <div>{m.body}</div>
+                            <div style={{ fontSize: 10, opacity: 0.7, textAlign: 'right', marginTop: 4 }}>
+                              {new Date(m.sentAt || m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })
+                        );
+                      })}
+                      <div ref={messagesEndRef} />
+                    </>
                   )}
                 </div>
 

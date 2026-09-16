@@ -4,7 +4,7 @@ import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage, sendWhatsAppMessage } from '../lib/meta.js';
 import { getWindowState, outsideWindowError, windowStateFrom, describeWindow } from './messagingWindow.js';
 import { consumeMessageCredit, releaseMessageCredit } from './subscription.service.js';
-import { assertNotOptedOut } from './optout.service.js';
+import { assertNotOptedOut, normalizePhone } from './optout.service.js';
 import { countVariables, buildTextComponents, buildButtonComponents, contactVariableResolver } from '../lib/templateParams.js';
 import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
@@ -16,11 +16,22 @@ export async function listConversations(workspaceId, { page = 1, limit = 20, con
     where.contactId = contactId;
   } else if (search && search.trim()) {
     const q = search.trim();
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const digits = q.replace(/\D/g, '');
+    const conditions = [
+      { name: { contains: q, mode: 'insensitive' } },
+      { phoneNumber: { contains: q } },
+      { email: { contains: q, mode: 'insensitive' } },
+    ];
+    for (const token of tokens) {
+      conditions.push({ name: { contains: token, mode: 'insensitive' } });
+      conditions.push({ email: { contains: token, mode: 'insensitive' } });
+    }
+    if (digits.length >= 3) {
+      conditions.push({ phoneNumber: { contains: digits } });
+    }
     where.contact = {
-      OR: [
-        { name: { contains: q, mode: 'insensitive' } },
-        { phoneNumber: { contains: q } },
-      ],
+      OR: conditions,
     };
   }
 
@@ -194,7 +205,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     const e = new Error('Recipient mismatch: conversation contact does not match the target contact');
     e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
   }
-  if (phoneNumber && conversation.contact.phoneNumber !== phoneNumber) {
+  if (phoneNumber && normalizePhone(conversation.contact.phoneNumber) !== normalizePhone(phoneNumber)) {
     const e = new Error('Recipient mismatch: conversation phone number does not match the target contact');
     e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
   }
@@ -389,7 +400,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     const e = new Error('Recipient mismatch: conversation contact does not match the target contact');
     e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
   }
-  if (phoneNumber && conversation.contact.phoneNumber !== phoneNumber) {
+  if (phoneNumber && normalizePhone(conversation.contact.phoneNumber) !== normalizePhone(phoneNumber)) {
     const e = new Error('Recipient mismatch: conversation phone number does not match the target contact');
     e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
   }

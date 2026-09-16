@@ -135,13 +135,26 @@ export async function listLeads(workspaceId, { category = '', status = '', sourc
     ...(ownerUserId ? { ownerUserId } : {}),
     ...(source ? { source } : {}),
     ...(tag ? { contact: { tags: { has: tag } } } : {}),
-    ...(search ? {
+    ...(search && String(search).trim() ? {
       contact: {
-        OR: [
-          { name: { contains: search, mode: 'insensitive' } },
-          { phoneNumber: { contains: search } },
-          { email: { contains: search, mode: 'insensitive' } },
-        ],
+        OR: (() => {
+          const q = String(search).trim();
+          const tokens = q.split(/\s+/).filter(Boolean);
+          const digits = q.replace(/\D/g, '');
+          const conditions = [
+            { name: { contains: q, mode: 'insensitive' } },
+            { phoneNumber: { contains: q } },
+            { email: { contains: q, mode: 'insensitive' } },
+          ];
+          for (const token of tokens) {
+            conditions.push({ name: { contains: token, mode: 'insensitive' } });
+            conditions.push({ email: { contains: token, mode: 'insensitive' } });
+          }
+          if (digits.length >= 3) {
+            conditions.push({ phoneNumber: { contains: digits } });
+          }
+          return conditions;
+        })(),
       },
     } : {}),
   };
