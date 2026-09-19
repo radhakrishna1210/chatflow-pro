@@ -110,13 +110,28 @@ export const updateTemplate = async (req, res, next) => {
 
 export const executeWorkflow = async (req, res, next) => {
   try {
-    const { workspaceId, id: userId } = req.user;
-    await assertMembership(userId, workspaceId);
     const { workflowId, sampleMessage } = req.body;
     if (!workflowId) return res.status(400).json({ error: 'workflowId is required' });
+
+    // Find the workflow to get its workspaceId
+    const wf = await prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: { id: true, workspaceId: true },
+    });
+
+    const targetWorkspaceId = wf?.workspaceId || req.user?.workspaceId;
+    if (!targetWorkspaceId) {
+      return res.status(404).json({ error: 'Workflow not found' });
+    }
+
+    const { id: userId, superAdmin } = req.user;
+    if (!superAdmin) {
+      await assertMembership(userId, targetWorkspaceId);
+    }
+
     // Runs a real interpretation of the workflow's nodes and returns an honest
     // trace — no more canned "success" for empty/nonsensical workflows.
-    const result = await simulateWorkflow(workspaceId, workflowId, sampleMessage || 'Hi');
+    const result = await simulateWorkflow(targetWorkspaceId, workflowId, sampleMessage || 'Hi');
     res.json(result);
   } catch (error) {
     next(error);
