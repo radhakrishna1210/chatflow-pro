@@ -119,6 +119,9 @@ export async function reorderStages(workspaceId, keys) {
   if (new Set(keys).size !== keys.length) {
     const e = new Error('Duplicate stages in ordering'); e.status = 400; throw e;
   }
+  if (keys.length !== existing.length) {
+    const e = new Error('All stages must be present in the reordering'); e.status = 400; throw e;
+  }
 
   await prisma.$transaction(
     keys.map((key, i) =>

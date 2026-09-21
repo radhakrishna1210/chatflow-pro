@@ -61,6 +61,18 @@ async function actionTask(run, node) {
     return { result: 'skipped', detail: 'Nothing to attach the task to' };
   }
 
+  if (!run.workspaceId) {
+    return { result: 'skipped', detail: 'No workspace attached to run' };
+  }
+
+  const ws = await prisma.workspace.findUnique({
+    where: { id: run.workspaceId },
+    select: { id: true },
+  });
+  if (!ws) {
+    return { result: 'skipped', detail: 'Workspace does not exist' };
+  }
+
   await prisma.task.create({
     data: {
       workspaceId: run.workspaceId,
@@ -180,7 +192,7 @@ export async function runWorkflowsForCrmEvent(workspaceId, event, payload = {}, 
         dealId: payload.dealId ?? null,
         triggerMessage: `CRM event: ${event}`,
       });
-      runs.push(await advanceRun(run.id));
+      if (run) runs.push(run);
     } catch (err) {
       console.error(`[Workflow] CRM workflow ${workflow.id} failed on "${event}":`, err.message);
     }

@@ -204,6 +204,19 @@ export async function getSection(workspaceId, sectionKey) {
     return syncDealSetupWithPipelineStages(workspaceId, record.filters);
   }
 
+  if (sectionKey === 'lead_sources' && Array.isArray(record.filters?.sources)) {
+    const seen = new Set();
+    const unique = [];
+    for (const src of record.filters.sources) {
+      const k = String(src.key || '').trim().toUpperCase();
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        unique.push({ ...src, key: k });
+      }
+    }
+    return { ...record.filters, sources: unique };
+  }
+
   return record.filters;
 }
 
@@ -255,6 +268,19 @@ export async function getAllCustomizations(workspaceId) {
   }
 
   result.deal_setup = await syncDealSetupWithPipelineStages(workspaceId, result.deal_setup);
+
+  if (result.lead_sources && Array.isArray(result.lead_sources.sources)) {
+    const seen = new Set();
+    const unique = [];
+    for (const src of result.lead_sources.sources) {
+      const k = String(src.key || '').trim().toUpperCase();
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        unique.push({ ...src, key: k });
+      }
+    }
+    result.lead_sources.sources = unique;
+  }
 
   return result;
 }

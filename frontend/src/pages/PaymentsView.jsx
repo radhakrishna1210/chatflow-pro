@@ -104,10 +104,23 @@ export default function PaymentsView({ initialTab } = {}) {
   // Add-ons. The catalogue, the prices and which ones are active all come from
   // the server — they used to be four hardcoded price strings in this file
   // with a boolean in localStorage standing in for a purchase, which is why the
-  // price shown could never match what a gateway charged.
   const [addonState, setAddonState] = useState({ addons: [], currency: 'INR' });
   const [addonBusy, setAddonBusy] = useState(null);
   const rechargeInputRef = useRef(null);
+  const activeRzpRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      try {
+        if (activeRzpRef.current?.close) {
+          activeRzpRef.current.close();
+        }
+      } catch {}
+      if (typeof document !== 'undefined') {
+        document.querySelectorAll('.razorpay-container').forEach(el => el.remove());
+      }
+    };
+  }, []);
   const [addonError, setAddonError] = useState('');
   const [addonMessage, setAddonMessage] = useState('');
 
@@ -256,8 +269,9 @@ export default function PaymentsView({ initialTab } = {}) {
             setRechargeStatus('');
           }
         },
-        modal: { ondismiss: () => setRechargeStatus('') },
+        modal: { ondismiss: () => { activeRzpRef.current = null; setRechargeStatus(''); } },
       });
+      activeRzpRef.current = rzp;
       rzp.on('payment.failed', (resp) => {
         setRechargeError(resp.error?.description || 'Payment failed');
         setRechargeStatus('');
@@ -317,8 +331,9 @@ export default function PaymentsView({ initialTab } = {}) {
             setCheckoutPlanId(null);
           }
         },
-        modal: { ondismiss: () => setCheckoutPlanId(null) },
+        modal: { ondismiss: () => { activeRzpRef.current = null; setCheckoutPlanId(null); } },
       });
+      activeRzpRef.current = rzp;
       rzp.on('payment.failed', (resp) => {
         setCheckoutError(resp.error?.description || 'Payment failed');
         setCheckoutPlanId(null);
@@ -419,8 +434,9 @@ export default function PaymentsView({ initialTab } = {}) {
             setAddonBusy(null);
           }
         },
-        modal: { ondismiss: () => setAddonBusy(null) },
+        modal: { ondismiss: () => { activeRzpRef.current = null; setAddonBusy(null); } },
       });
+      activeRzpRef.current = rzp;
       rzp.on('payment.failed', (resp) => {
         setAddonError(resp.error?.description || 'Payment failed');
         setAddonBusy(null);
