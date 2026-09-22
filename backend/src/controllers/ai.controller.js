@@ -110,7 +110,7 @@ export const updateTemplate = async (req, res, next) => {
 
 export const executeWorkflow = async (req, res, next) => {
   try {
-    const { workflowId, sampleMessage } = req.body;
+    const { workflowId, sampleMessage, replies } = req.body;
     if (!workflowId) return res.status(400).json({ error: 'workflowId is required' });
 
     // Find the workflow to get its workspaceId
@@ -131,7 +131,7 @@ export const executeWorkflow = async (req, res, next) => {
 
     // Runs a real interpretation of the workflow's nodes and returns an honest
     // trace — no more canned "success" for empty/nonsensical workflows.
-    const result = await simulateWorkflow(targetWorkspaceId, workflowId, sampleMessage || 'Hi');
+    const result = await simulateWorkflow(targetWorkspaceId, workflowId, sampleMessage || 'Hi', { replies });
     res.json(result);
   } catch (error) {
     next(error);

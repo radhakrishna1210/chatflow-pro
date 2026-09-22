@@ -5,7 +5,7 @@ import { handleCampaignAiInbound, parseCampaignCtaPayload } from './campaignAi.s
 import { queueTemplateApprovedEmail, queueTemplateRejectedEmail } from './email.service.js';
 import { handleRecipientFailure } from './retry.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
-import { runWorkflowsForInbound, runWillSendMessage, cancelActiveRuns, hasActiveRun } from './workflowEngine.service.js';
+import { runWorkflowsForInbound, runWillSendMessage, cancelActiveRuns, hasActiveRun, resumeAwaitingRun } from './workflowEngine.service.js';
 import { handleFormInbound, cancelOpenSubmission, hasOpenSubmission } from './whatsappForms.service.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import { isWithinBusinessHours, describeBusinessHours } from './businessHours.service.js';
@@ -632,9 +632,12 @@ async function handleInboundMessage(value, msg) {
 
   // 1. Workflows. Previously the Workflows tab saved rows that nothing ever
   //    read; the engine now runs the matching workflow's steps for real.
+  //    A run waiting on this customer's answer takes the message first — they
+  //    are replying to its question, not starting something new.
   let workflowWillReply = false;
   try {
-    const runs = await runWorkflowsForInbound(workspaceId, {
+    const resumed = await resumeAwaitingRun(workspaceId, conversation.id, messageBody);
+    const runs = resumed ? [resumed] : await runWorkflowsForInbound(workspaceId, {
       event: 'message',
       messageBody,
       isNewContact,

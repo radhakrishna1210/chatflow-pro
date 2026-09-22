@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateGraph, describeGraph, TRIGGERS, ACTIONS } from './workflowCompiler.service.js';
+import { validateGraph, describeGraph, TRIGGERS, ACTIONS, CONDITIONS, __testing } from './workflowCompiler.service.js';
 
 // The compiler's job is not to produce a graph — it is to refuse a graph the
 // engine cannot run.
@@ -80,7 +80,7 @@ test('a score trigger needs a number', () => {
 });
 
 test('more steps than the engine runs is refused rather than truncated', () => {
-  const many = Array.from({ length: 11 }, (_, i) => action('message', `m${i}`));
+  const many = Array.from({ length: __testing.MAX_ACTIONS + 1 }, (_, i) => action('message', `m${i}`));
   assert.throws(() => validateGraph([trigger('welcome'), ...many]), /engine runs at most/);
 });
 
@@ -120,8 +120,51 @@ test('the read-back is a sentence, not JSON', () => {
 test('every declared subtype can describe itself', () => {
   // A subtype added to the table without a describe() would render as a raw
   // identifier in the confirmation the person reads before activating.
-  for (const [name, spec] of Object.entries({ ...TRIGGERS, ...ACTIONS })) {
+  for (const [name, spec] of Object.entries({ ...TRIGGERS, ...ACTIONS, ...CONDITIONS })) {
     assert.equal(typeof spec.describe, 'function', `${name} has no describe()`);
     assert.ok(spec.describe('x').length > 0, `${name} describes as empty`);
   }
+});
+
+const condition = (subtype, value, skipIfFalse = 1) => ({ type: 'condition', subtype, value, skipIfFalse });
+
+test('conditions survive validation in place, with their skip counts', () => {
+  // They used to be dropped silently, so every branch ran for every customer.
+  const { nodes } = validateGraph([
+    trigger('keyword', 'help'),
+    action('buttons', 'How can we help? | Track order | Support'),
+    action('wait_reply', ''),
+    condition('equals', 'Track order', 1),
+    action('message', 'Send your order ID'),
+    condition('equals', 'Support', 1),
+    action('agent', ''),
+  ]);
+  assert.deepEqual(nodes.map((n) => n.type), ['trigger', 'action', 'action', 'condition', 'action', 'condition', 'action']);
+  assert.equal(nodes[3].skipIfFalse, 1);
+});
+
+test('buttons straight into a condition gets a wait for the reply, with a warning', () => {
+  const { nodes, warnings } = validateGraph([
+    trigger('keyword', 'help'),
+    action('buttons', 'Pick one | A | B'),
+    condition('equals', 'A'),
+    action('message', 'You chose A'),
+  ]);
+  assert.equal(nodes[2].subtype, 'wait_reply');
+  assert.match(warnings.join(' '), /wait for their reply/);
+});
+
+test('a condition that skips past the end, or an unknown condition, is refused', () => {
+  assert.throws(
+    () => validateGraph([trigger('welcome'), condition('contains', 'x', 3), action('message', 'y')]),
+    /must skip between 1 and 1/,
+  );
+  assert.throws(
+    () => validateGraph([trigger('welcome'), condition('sounds_angry', 'x'), action('message', 'y')]),
+    /not a condition the engine can check/,
+  );
+});
+
+test('buttons without options are refused', () => {
+  assert.throws(() => validateGraph([trigger('welcome'), action('buttons', 'Just a question')]), /Option A/);
 });

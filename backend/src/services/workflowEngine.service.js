@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { keywordMatches } from './automation.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { evaluateCondition, skipCount, renderTemplate, tidy, CONDITION_SUBTYPES } from './workflowConditions.js';
+import { INTERACTIVE_LIMITS } from '../lib/meta.js';
 
 // The Workflows tab used to be a drawing surface: workflows were saved,
 // toggled active, and never executed by anything. This is the interpreter that
@@ -34,6 +35,64 @@ export function parseDelayMs(raw) {
   // is far beyond any sane automation delay and keeps jobs from being parked
   // effectively forever by a typo like "999 days".
   return Math.min(amount * perUnit, 7 * 86_400_000);
+}
+
+// ── Waiting for the customer's reply ───────────────────────────────────────
+//
+// A workflow could send a question or a set of buttons, but had no way to hear
+// the answer: the run finished the moment the question went out, and the tap
+// came back as an unrelated inbound message. A `wait_reply` step parks the run
+// until the customer's next message, which then becomes the message the
+// following conditions test and — when the step names one — a {{variable}}.
+//
+// The marker lives in `variables` rather than a new status so the existing
+// WAITING lifecycle (cancel, hasActiveRun, the delay worker) covers it without
+// a schema migration.
+
+const AWAIT_KEY = '__awaitingReply';
+const LAST_OPTIONS_KEY = '__lastOptions';
+
+// Past WhatsApp's 24-hour window no free-form follow-up could be sent anyway,
+// so a reply after that starts afresh instead of resuming a stale flow.
+export const REPLY_TIMEOUT_MS = 24 * 3_600_000;
+
+const variablesOf = (run) => (run?.variables && typeof run.variables === 'object' && !Array.isArray(run.variables)
+  ? { ...run.variables }
+  : {});
+
+export const isAwaitingReply = (run) => Boolean(variablesOf(run)[AWAIT_KEY]);
+
+// "Save reply as: Order ID" → "order_id", usable as {{order_id}}.
+const variableName = (raw) => String(raw ?? '').trim().toLowerCase()
+  .replace(/^\{\{\s*|\s*\}\}$/g, '')
+  .replace(/[^a-z0-9_.]+/g, '_')
+  .replace(/^_+|_+$/g, '');
+
+// Turns what the customer sent back into the option they meant. A tapped
+// button arrives as its title clipped to Meta's limit (20 chars for a button,
+// 24 for a list row), so "Talk to our support team" comes back truncated and a
+// `Message is exactly` condition written against the full label would never
+// match. Typing the option's number or its text in any case counts too — on
+// WhatsApp people often answer a menu by typing rather than tapping.
+export function resolveReply(reply, options = []) {
+  const text = String(reply ?? '').trim();
+  const labels = (Array.isArray(options) ? options : []).map((o) => String(o ?? '').trim()).filter(Boolean);
+  if (!text || labels.length === 0) return text;
+
+  const lower = text.toLowerCase();
+  const exact = labels.find((o) => o.toLowerCase() === lower);
+  if (exact) return exact;
+
+  const clipped = labels.find((o) => [INTERACTIVE_LIMITS.buttonTitleChars, INTERACTIVE_LIMITS.rowTitleChars]
+    .some((max) => o.slice(0, max).trim().toLowerCase() === lower));
+  if (clipped) return clipped;
+
+  const number = text.match(/^(\d{1,2})[.)]?$/);
+  if (number) {
+    const picked = labels[Number(number[1]) - 1];
+    if (picked) return picked;
+  }
+  return text;
 }
 
 const triggerOf = (nodes) => (Array.isArray(nodes) ? nodes : []).find((n) => n?.type === 'trigger');
@@ -241,9 +300,11 @@ async function actionButtons(run, node) {
     options,
   });
 
+  // `options` is not kept in the trace; advanceRun lifts it into the run's
+  // variables so a following wait_reply step can map the reply back to it.
   return sent
-    ? { result: 'sent', detail: `Asked "${body}" with ${options.length} option(s)` }
-    : { result: 'failed', detail: 'Meta rejected the send' };
+    ? { result: 'sent', detail: `Asked "${body}" with ${options.length} option(s)`, options }
+    : { result: 'failed', detail: 'Meta rejected the send or 24-hour customer window is closed' };
 }
 
 async function actionTag(run, node) {
@@ -319,18 +380,62 @@ export async function startRun(workflow, { workspaceId, conversationId, contactI
 // Executes action steps from the run's cursor. A delay step parks the run
 // (status WAITING) and schedules a resume; everything else runs inline. Called
 // both on trigger and by the workflow worker after a delay elapses.
-export async function advanceRun(runId) {
-  const run = await prisma.workflowRun.findUnique({ where: { id: runId } });
-  if (!run) return null;
+//
+// `reply` is passed only when the customer has answered a wait_reply step; a
+// run parked on one is otherwise left alone, so a stray delay job or retry
+// cannot march it past the question without an answer.
+export async function advanceRun(runId, { reply } = {}) {
+  const stored = await prisma.workflowRun.findUnique({ where: { id: runId } });
+  if (!stored) return null;
   // COMPLETED also covers a run cancelled mid-flight, so a delayed resume that
   // fires after the customer said "stop" finds the run closed and does nothing.
-  if (run.status === 'COMPLETED' || run.status === 'FAILED') return run;
+  if (stored.status === 'COMPLETED' || stored.status === 'FAILED') return stored;
 
-  const actions = actionsOf(run.nodes);
-  const trace = Array.isArray(run.trace) ? [...run.trace] : [];
+  const variables = variablesOf(stored);
+  const awaiting = variables[AWAIT_KEY];
+  if (awaiting && reply === undefined) return stored;
+
+  const actions = actionsOf(stored.nodes);
+  const trace = Array.isArray(stored.trace) ? [...stored.trace] : [];
+
+  // The executors read the run's message and variables, so they are handed this
+  // working copy rather than the stored row.
+  const run = { ...stored, variables };
+  if (awaiting) {
+    const answer = resolveReply(reply, awaiting.options);
+    delete variables[AWAIT_KEY];
+    variables.last_reply = answer;
+    if (awaiting.saveAs) variables[awaiting.saveAs] = answer;
+    run.triggerMessage = answer;
+    trace.push({
+      step: stored.cursor - 1,
+      subtype: 'reply',
+      detail: `Customer replied "${answer}"${awaiting.saveAs ? ` (saved as {{${awaiting.saveAs}}})` : ''}`,
+      result: 'ok',
+      at: new Date().toISOString(),
+    });
+  }
 
   for (let i = run.cursor; i < actions.length; i += 1) {
     const node = actions[i];
+
+    if (node.subtype === 'wait_reply') {
+      const saveAs = variableName(node.value);
+      // The options answer only this wait. Left in place, a later "How many
+      // people?" answered with "2" would be read as option 2 of the menu.
+      const options = Array.isArray(variables[LAST_OPTIONS_KEY]) ? variables[LAST_OPTIONS_KEY] : [];
+      delete variables[LAST_OPTIONS_KEY];
+      variables[AWAIT_KEY] = {
+        since: new Date().toISOString(),
+        ...(saveAs ? { saveAs } : {}),
+        options,
+      };
+      trace.push({ step: i, subtype: 'wait_reply', detail: 'Waiting for the customer to reply', result: 'waiting', at: new Date().toISOString() });
+      return prisma.workflowRun.update({
+        where: { id: run.id },
+        data: { status: 'WAITING', cursor: i + 1, trace, variables, triggerMessage: run.triggerMessage },
+      });
+    }
 
     if (node.subtype === 'delay') {
       const ms = parseDelayMs(node.value);
@@ -340,7 +445,7 @@ export async function advanceRun(runId) {
           where: { id: run.id },
           // Resume *after* this delay node, so a re-entrant worker can't
           // re-park on the same step and loop forever.
-          data: { status: 'WAITING', cursor: i + 1, trace },
+          data: { status: 'WAITING', cursor: i + 1, trace, variables, triggerMessage: run.triggerMessage },
         });
         try {
           const { enqueueWorkflowResume } = await import('../queues/workflow.queue.js');
@@ -350,7 +455,7 @@ export async function advanceRun(runId) {
           trace.push({ step: i, subtype: 'delay', detail: `Queue failed: ${queueErr.message}`, result: 'failed', at: new Date().toISOString() });
           return prisma.workflowRun.update({
             where: { id: run.id },
-            data: { status: 'FAILED', cursor: i, trace, error: queueErr.message, finishedAt: new Date() },
+            data: { status: 'FAILED', cursor: i, trace, variables, error: queueErr.message, finishedAt: new Date() },
           });
         }
         return prisma.workflowRun.findUnique({ where: { id: run.id } });
@@ -399,16 +504,21 @@ export async function advanceRun(runId) {
       trace.push({ step: i, subtype: node.subtype, detail: err.message, result: 'failed', at: new Date().toISOString() });
       return prisma.workflowRun.update({
         where: { id: run.id },
-        data: { status: 'FAILED', cursor: i, trace, error: err.message, finishedAt: new Date() },
+        data: { status: 'FAILED', cursor: i, trace, variables, error: err.message, finishedAt: new Date() },
       });
     }
 
-    trace.push({ step: i, subtype: node.subtype, ...outcome, at: new Date().toISOString() });
+    const { options: offered, ...recorded } = outcome;
+    // A new question replaces the menu the customer is answering; any other
+    // message sent after the buttons means the reply is to that, not to them.
+    if (Array.isArray(offered)) variables[LAST_OPTIONS_KEY] = offered;
+    else if (REPLY_SUBTYPES.has(node.subtype) && recorded.result === 'sent') delete variables[LAST_OPTIONS_KEY];
+    trace.push({ step: i, subtype: node.subtype, ...recorded, at: new Date().toISOString() });
   }
 
   return prisma.workflowRun.update({
     where: { id: run.id },
-    data: { status: 'COMPLETED', cursor: actions.length, trace, finishedAt: new Date() },
+    data: { status: 'COMPLETED', cursor: actions.length, trace, variables, triggerMessage: run.triggerMessage, finishedAt: new Date() },
   });
 }
 
@@ -444,9 +554,14 @@ const REPLY_SUBTYPES = new Set(['message', 'buttons', 'template']);
 
 // True if the run actually sent something — lets the inbound handler decide
 // whether a further auto-reply would be a duplicate.
+//
+// Only what was sent since the customer's latest reply counts: a resumed run's
+// trace still holds the question it asked before waiting, and counting that
+// would suppress the fallbacks for a reply the run then says nothing to.
 export function runSentMessage(run) {
   const trace = Array.isArray(run?.trace) ? run.trace : [];
-  return trace.some((t) => REPLY_SUBTYPES.has(t.subtype) && t.result === 'sent');
+  const lastReply = trace.map((t) => t.subtype).lastIndexOf('reply');
+  return trace.slice(lastReply + 1).some((t) => REPLY_SUBTYPES.has(t.subtype) && t.result === 'sent');
 }
 
 // A workflow that is still WAITING on a delay before its first message will
@@ -456,7 +571,52 @@ export function runWillSendMessage(run) {
   if (!run) return false;
   if (runSentMessage(run)) return true;
   if (run.status !== 'WAITING') return false;
+  // Parked on the customer: nothing further is sent until they answer.
+  if (isAwaitingReply(run)) return false;
   return actionsOf(run.nodes).slice(run.cursor).some((n) => REPLY_SUBTYPES.has(n.subtype));
+}
+
+// Hands an inbound message to a run on this conversation that is waiting for
+// the customer's reply. Called before trigger matching: someone answering a
+// workflow's question is continuing that conversation, not starting a new one,
+// even when the answer happens to contain another workflow's keyword.
+//
+// Returns the advanced run, or null when nothing was waiting (or the wait had
+// expired, in which case the run is closed and the message is treated as new).
+export async function resumeAwaitingRun(workspaceId, conversationId, reply) {
+  if (!conversationId) return null;
+
+  const waiting = await prisma.workflowRun.findMany({
+    where: { workspaceId, conversationId, status: 'WAITING' },
+    orderBy: { startedAt: 'desc' },
+  });
+  const [run, ...stale] = waiting.filter(isAwaitingReply);
+  if (!run) return null;
+
+  // Only one run can own the conversation's next message; an older one still
+  // waiting would otherwise pick up the reply after this one is done.
+  for (const old of stale) {
+    await closeRun(old, 'Superseded by a newer workflow waiting on this conversation');
+  }
+
+  const since = Date.parse(variablesOf(run)[AWAIT_KEY]?.since);
+  if (Number.isFinite(since) && Date.now() - since > REPLY_TIMEOUT_MS) {
+    await closeRun(run, 'No reply within 24 hours');
+    return null;
+  }
+
+  return advanceRun(run.id, { reply: String(reply ?? '') });
+}
+
+async function closeRun(run, reason) {
+  const trace = Array.isArray(run.trace) ? [...run.trace] : [];
+  trace.push({ step: run.cursor, subtype: 'cancelled', detail: reason, result: 'cancelled', at: new Date().toISOString() });
+  const variables = variablesOf(run);
+  delete variables[AWAIT_KEY];
+  await prisma.workflowRun.update({
+    where: { id: run.id },
+    data: { status: 'COMPLETED', trace, variables, finishedAt: new Date() },
+  }).catch((err) => console.error(`[WorkflowEngine] Could not close run ${run.id}:`, err.message));
 }
 
 // Stops every in-flight run on a conversation.
