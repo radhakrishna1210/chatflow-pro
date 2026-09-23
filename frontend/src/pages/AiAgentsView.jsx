@@ -371,15 +371,20 @@ export default function AiAgentsView({ user, initialTab }) {
       {/* ── TOP HEADER ── */}
       <div
         style={{
+          minHeight: 58,
+          borderBottom: '1px solid var(--bd)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '20px 24px',
-          borderBottom: '1px solid var(--bd)',
+          padding: '10px 24px',
+          flexShrink: 0,
+          background: 'var(--surf)',
+          flexWrap: 'wrap',
+          gap: 12,
         }}
       >
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--t1)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 17, fontWeight: 700, margin: 0, color: 'var(--t1)', display: 'flex', alignItems: 'center', gap: 10 }}>
             <span>AI Chatbots & Agents</span>
             <span
               style={{

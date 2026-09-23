@@ -713,21 +713,21 @@ export default function CrmSalesInboxView() {
   }
 
   return (
-    <div style={{ padding: '16px 20px', width: '100%', height: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
-      {/* HEADER & NAVIGATION */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--t1)', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <I n="messageSquare" s={24} c="var(--primary)" />
-            CRM Sales Inbox
-          </h1>
-          <p style={{ fontSize: 12.5, color: 'var(--t2)', margin: '3px 0 0 0' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%', overflow: 'hidden' }}>
+      {/* Top Header Bar */}
+      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <I n="messageSquare" s={18} c="var(--accent, #35e8f2)" />
+            <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 17, fontWeight: 700, color: 'var(--t1)' }}>CRM Sales Inbox</span>
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--t3)' }}>
             Message specific CRM leads or target dynamically segmented lead audiences via WhatsApp bulk campaigns.
-          </p>
+          </span>
         </div>
 
         {/* TAB SWITCHER */}
-        <div style={{ display: 'flex', background: 'var(--surf)', padding: 4, borderRadius: 10, border: '1px solid var(--bd)' }}>
+        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', padding: 3, borderRadius: 8, border: '1px solid var(--bd)' }}>
           <button
             onClick={() => setActiveTab('individual')}
             style={{
@@ -791,7 +791,8 @@ export default function CrmSalesInboxView() {
         </div>
       </div>
 
-      {/* METRICS & CATEGORY BUCKETS OVERVIEW */}
+      <div style={{ padding: '16px 20px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
+        {/* METRICS & CATEGORY BUCKETS OVERVIEW */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16, flexShrink: 0 }}>
         {[
           { key: 'HOT', label: 'HOT Leads', count: segments.categories?.HOT || 0, color: '#f87171', bg: 'rgba(239, 68, 68, 0.08)' },
@@ -1921,6 +1922,7 @@ export default function CrmSalesInboxView() {
           </div>
         </Modal>
       )}
+      </div>
     </div>
   );
 }

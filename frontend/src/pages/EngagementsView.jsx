@@ -267,11 +267,14 @@ export default function EngagementsView({ user, initialTab }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
-      {/* ── TOP PAGE HEADER (Chatflow Pro Standard) ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid var(--bd)' }}>
+      {/* ── TOP PAGE HEADER ── */}
+      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: 'var(--t1)' }}>Engagements</h1>
-          <p style={{ margin: '4px 0 0', color: 'var(--t2)', fontSize: 13 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Engagements</span>
+            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{counts.ALL || 0}</span>
+          </div>
+          <p style={{ margin: '2px 0 0', color: 'var(--t3)', fontSize: 11.5 }}>
             Track and manage customer calls, video meetings, messages, and visits.
           </p>
         </div>

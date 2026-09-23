@@ -183,17 +183,18 @@ export function CrmDashboardView({ user }) {
   const urgentCount = urgentActionsTotal + tasks.length;
 
   return (
-    <div style={{ padding: '28px 36px', maxWidth: 1240, margin: '0 auto', fontFamily: 'Inter, sans-serif' }}>
-      
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', margin: '0 0 6px 0', letterSpacing: '-0.02em' }}>
-            CRM Management & Analytics
-          </h1>
-          <p style={{ color: 'var(--t2)', fontSize: 13, margin: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      {/* Top Header Bar */}
+      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 28px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>
+              CRM Management &amp; Analytics
+            </span>
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--t3)' }}>
             Executive visibility across leads, deal conversion, sales engagement, and custom reports.
-          </p>
+          </span>
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -297,8 +298,10 @@ export function CrmDashboardView({ user }) {
         </div>
       </div>
 
-      {/* Primary Dashboard Navigation Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 28, gap: 24 }}>
+      {/* Main Content Area - Full width space utilization */}
+      <div style={{ padding: '24px 28px', width: '100%', boxSizing: 'border-box', fontFamily: 'Inter, sans-serif' }}>
+        {/* Primary Dashboard Navigation Tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 28, gap: 24 }}>
         <button
           onClick={() => setActiveTab('overview')}
           style={{
@@ -1057,6 +1060,7 @@ export function CrmDashboardView({ user }) {
       {showHealthModal && (
         <CrmIntegrationHealthModal onClose={() => setShowHealthModal(false)} />
       )}
+      </div>
     </div>
   );
 }

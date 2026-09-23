@@ -150,7 +150,7 @@ export default function CustomizeBusinessView({ user, initialTab }) {
   const activeMeta = TABS.find((t) => t.id === activeTab) || TABS[0];
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1400, margin: '0 auto', color: 'var(--t1)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto', color: 'var(--t1)' }}>
       {/* Toast alert */}
       {toast && (
         <div
@@ -176,31 +176,31 @@ export default function CustomizeBusinessView({ user, initialTab }) {
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 8,
-                background: 'rgba(59, 130, 246, 0.15)',
-                color: 'var(--accent, #3b82f6)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <I n="sliders" s={20} />
-            </div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>
-              Customize Your Business
-            </h1>
+      {/* Top Header Bar */}
+      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              background: 'rgba(59, 130, 246, 0.15)',
+              color: 'var(--accent, #3b82f6)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <I n="sliders" s={18} />
           </div>
-          <p style={{ margin: '6px 0 0 46px', fontSize: 13, color: 'var(--t3)' }}>
-            Configure CRM pipeline lifecycle, qualification rules, deal automation modes, tags, outcome dispositions, and SLAs.
-          </p>
+          <div>
+            <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 17, fontWeight: 700, color: 'var(--t1)' }}>
+              Customize Your Business
+            </span>
+            <p style={{ margin: '1px 0 0', fontSize: 11.5, color: 'var(--t3)' }}>
+              Configure CRM pipeline lifecycle, qualification rules, deal automation modes, tags, outcome dispositions, and SLAs.
+            </p>
+          </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -244,6 +244,8 @@ export default function CustomizeBusinessView({ user, initialTab }) {
           </Btn>
         </div>
       </div>
+
+      <div style={{ padding: '24px 32px', width: '100%', boxSizing: 'border-box' }}>
 
       {/* Tab Navigation Pill Bar */}
       <div
@@ -423,6 +425,7 @@ export default function CustomizeBusinessView({ user, initialTab }) {
           </div>
         </Modal>
       )}
+      </div>
     </div>
   );
 }

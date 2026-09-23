@@ -154,11 +154,11 @@ export const ForecastView = ({ user }) => {
   const totals = data?.totals;
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto' }}>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Forecast</div>
-          <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>
+          <div style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 2 }}>
             Weighted by stage probability. Only deals with an expected close date in the period are counted.
           </div>
         </div>
