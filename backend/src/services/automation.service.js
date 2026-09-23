@@ -18,8 +18,19 @@ function getAi() {
   return _ai;
 }
 
-const ALLOWED_TRIGGER_SUBTYPES = new Set(['keyword', 'welcome', 'missed']);
-const ALLOWED_ACTION_SUBTYPES = new Set(['message', 'delay', 'tag', 'agent']);
+// What a generated workflow may use: the conversation steps the engine runs.
+// `missed` is left out on purpose — nothing delivers a missed-call event to the
+// engine, so a workflow built on it would save, look fine and never fire.
+const ALLOWED_TRIGGER_SUBTYPES = new Set(['keyword', 'welcome']);
+const ALLOWED_ACTION_SUBTYPES = new Set(['message', 'buttons', 'wait_reply', 'delay', 'tag', 'agent']);
+const ALLOWED_CONDITION_SUBTYPES = new Set(['contains', 'equals', 'is_new_contact', 'has_tag']);
+const CONDITION_NEEDS_VALUE = new Set(['contains', 'equals', 'has_tag']);
+const MAX_PREVIEW_STEPS = 16;
+// The builder's "otherwise skip" dropdown offers 1–5.
+const MAX_SKIP = 5;
+const DELAY_RE = /^\s*\d+(\.\d+)?\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hr|hrs|hours?|d|days?)?\s*$/i;
+
+const DEFAULT_REPLY = 'Thanks for reaching out. Our team will help you shortly.';
 
 function createStep(index, type, subtype, value) {
   return {
@@ -30,31 +41,97 @@ function createStep(index, type, subtype, value) {
   };
 }
 
+// Turns whatever the model returned into steps the engine will actually run.
+//
+// Anything it cannot place is dropped rather than coerced: this used to turn
+// every non-trigger step into an action and every unknown subtype into
+// "message", so a condition such as `contains "yes"` was saved as a step that
+// *sent the customer the word "yes"*.
 function cleanWorkflowPreview(raw, prompt) {
   const name = String(raw?.name || '').trim().slice(0, 80) || 'AI Generated Workflow';
-  const sourceSteps = Array.isArray(raw?.nodes) ? raw.nodes : Array.isArray(raw?.steps) ? raw.steps : [];
-  const steps = sourceSteps
-    .map((step, index) => {
-      const type = step?.type === 'trigger' ? 'trigger' : 'action';
-      const subtype = String(step?.subtype || '').trim().toLowerCase();
-      const allowed = type === 'trigger' ? ALLOWED_TRIGGER_SUBTYPES : ALLOWED_ACTION_SUBTYPES;
-      const fallbackSubtype = type === 'trigger' ? 'keyword' : 'message';
-      const safeSubtype = allowed.has(subtype) ? subtype : fallbackSubtype;
-      const fallbackValue = type === 'trigger' ? inferKeyword(prompt) : 'Thanks for reaching out. Our team will help you shortly.';
-      return createStep(index + 1, type, safeSubtype, step?.value || fallbackValue);
-    })
-    .filter((step) => step.value || step.subtype !== 'keyword');
+  const source = Array.isArray(raw?.nodes) ? raw.nodes : Array.isArray(raw?.steps) ? raw.steps : [];
+  const text = (v) => String(v ?? '').trim();
 
-  if (!steps.some((step) => step.type === 'trigger')) {
-    steps.unshift(createStep(1, 'trigger', 'keyword', inferKeyword(prompt)));
+  const rawTrigger = source.find((n) => n?.type === 'trigger');
+  let triggerSubtype = text(rawTrigger?.subtype).toLowerCase();
+  if (!ALLOWED_TRIGGER_SUBTYPES.has(triggerSubtype)) triggerSubtype = 'keyword';
+  const trigger = {
+    type: 'trigger',
+    subtype: triggerSubtype,
+    value: triggerSubtype === 'keyword' ? (text(rawTrigger?.value) || inferKeyword(prompt)).toUpperCase() : '',
+  };
+
+  const steps = [];
+  for (const node of source) {
+    if (!node || node.type === 'trigger') continue;
+    const subtype = text(node.subtype).toLowerCase();
+    const value = text(node.value);
+
+    if (node.type === 'condition' || ALLOWED_CONDITION_SUBTYPES.has(subtype)) {
+      if (!ALLOWED_CONDITION_SUBTYPES.has(subtype)) continue;
+      if (CONDITION_NEEDS_VALUE.has(subtype) && !value) continue;
+      const skip = Math.floor(Number(node.skipIfFalse ?? node.skip ?? 1));
+      steps.push({ type: 'condition', subtype, value, skipIfFalse: Number.isFinite(skip) && skip > 0 ? skip : 1 });
+      continue;
+    }
+
+    if (subtype === 'buttons') {
+      const parts = value.split('|').map((p) => p.trim()).filter(Boolean);
+      const options = Array.isArray(node.options) ? node.options.map(text).filter(Boolean) : parts.slice(1);
+      if (parts[0] && options.length > 0) {
+        steps.push({ type: 'action', subtype: 'buttons', value: [parts[0], ...options.slice(0, 10)].join(' | ') });
+      } else if (parts[0]) {
+        steps.push({ type: 'action', subtype: 'message', value: parts[0] });
+      }
+      continue;
+    }
+    if (subtype === 'wait_reply') {
+      steps.push({ type: 'action', subtype, value });
+      continue;
+    }
+    if (subtype === 'delay') {
+      steps.push({ type: 'action', subtype, value: DELAY_RE.test(value) ? value : '5 min' });
+      continue;
+    }
+    if (subtype === 'agent') {
+      steps.push({ type: 'action', subtype, value });
+      continue;
+    }
+    if (ALLOWED_ACTION_SUBTYPES.has(subtype)) {
+      if (value) steps.push({ type: 'action', subtype, value });
+      continue;
+    }
+    // A message under another name ("send_message", "reply"). Kept narrow on
+    // purpose: "send_email" carries an address, not something to say.
+    if (value && /^(send_?)?(message|text|reply|msg|whatsapp)$/.test(subtype)) {
+      steps.push({ type: 'action', subtype: 'message', value });
+    }
   }
-  if (!steps.some((step) => step.type === 'action')) {
-    steps.push(createStep(steps.length + 1, 'action', 'message', 'Thanks for reaching out. Our team will help you shortly.'));
+
+  // Buttons followed straight by a condition would test the *trigger* message,
+  // not the customer's choice — the run must stop and wait for the tap first.
+  for (let i = 0; i < steps.length - 1; i += 1) {
+    if (steps[i].subtype === 'buttons' && steps[i + 1].type === 'condition') {
+      steps.splice(i + 1, 0, { type: 'action', subtype: 'wait_reply', value: '' });
+    }
   }
+
+  // A condition with nothing after it guards nothing.
+  while (steps.length && steps.at(-1).type === 'condition') steps.pop();
+  if (!steps.some((s) => s.type === 'action' && s.subtype !== 'wait_reply' && s.subtype !== 'delay')) {
+    steps.push({ type: 'action', subtype: 'message', value: DEFAULT_REPLY });
+  }
+
+  const kept = steps.slice(0, MAX_PREVIEW_STEPS - 1);
+  // A skip count must stay inside the workflow, or "otherwise skip 4" at the
+  // second-to-last step silently means "otherwise stop".
+  kept.forEach((s, i) => {
+    if (s.type === 'condition') s.skipIfFalse = Math.max(1, Math.min(s.skipIfFalse, MAX_SKIP, kept.length - i - 1));
+  });
 
   return {
     name,
-    nodes: steps.slice(0, 8).map((step, index) => ({ ...step, id: `step_${index + 1}` })),
+    nodes: [trigger, ...kept].map((step, index) => ({ id: `step_${index + 1}`, ...step })),
     edges: [],
   };
 }
@@ -326,14 +403,42 @@ export async function generateWorkflowPreview(workspaceId, prompt) {
     return { ...fallbackWorkflowPreview(cleanPrompt), provider: 'fallback', fallbackReason: 'no_key' };
   }
 
-  const systemPrompt = `Convert a plain-English WhatsApp automation request into JSON only.
-Allowed step schema:
-{"name":"short workflow name","nodes":[{"type":"trigger","subtype":"keyword|welcome|missed","value":"keyword or trigger value"},{"type":"action","subtype":"message|delay|tag|agent","value":"message, delay, tag, or agent"}],"edges":[]}
+  const systemPrompt = `Convert a plain-English WhatsApp automation request into a chat workflow. Return JSON only, no markdown:
+{"name":"short workflow name","nodes":[ ...steps in order... ],"edges":[]}
+
+The steps run top to bottom in a WhatsApp chat with one customer.
+
+Trigger (exactly one, first):
+- {"type":"trigger","subtype":"keyword","value":"ORDER, TRACK, DELIVERY"}  fires when the customer's message contains any of the comma-separated words. Give 2-4 words/short phrases customers would really type.
+- {"type":"trigger","subtype":"welcome","value":""}  fires on a brand-new contact's first message.
+
+Actions:
+- {"type":"action","subtype":"message","value":"text"}  send a message. {{name}} inserts the customer's name; {{order_id}} inserts a reply saved earlier.
+- {"type":"action","subtype":"buttons","value":"Question? | Option A | Option B | Option C"}  send tappable options. Max 3 options (up to 10 becomes a list); each option at most 20 characters.
+- {"type":"action","subtype":"wait_reply","value":"order_id"}  pause until the customer replies. value (optional) saves the reply as a variable. Put one after every question or buttons step whose answer matters.
+- {"type":"action","subtype":"delay","value":"5 min"}  wait a fixed time ("30 min", "2 hours", "1 day").
+- {"type":"action","subtype":"tag","value":"VIP"}  tag the contact.
+- {"type":"action","subtype":"agent","value":""}  hand the chat to a human on the team. No automated messages follow, so put it last.
+
+Conditions (branching): {"type":"condition","subtype":"equals|contains|has_tag|is_new_contact","value":"...","skipIfFalse":N}
+Checks the latest customer message (after a wait_reply, that is their reply). If false, the next N steps are skipped. To branch on a button choice, use one "equals" condition per option, each followed by that option's steps, with skipIfFalse = the number of steps in that branch.
+
+Example — "ask if they want to track an order or talk to support":
+[{"type":"trigger","subtype":"keyword","value":"HELP, SUPPORT"},
+ {"type":"action","subtype":"buttons","value":"Hi {{name}}! How can we help? | Track my order | Talk to support"},
+ {"type":"action","subtype":"wait_reply","value":""},
+ {"type":"condition","subtype":"equals","value":"Track my order","skipIfFalse":3},
+ {"type":"action","subtype":"message","value":"Please send your order ID."},
+ {"type":"action","subtype":"wait_reply","value":"order_id"},
+ {"type":"action","subtype":"message","value":"Thanks! We're checking order {{order_id}} and will update you shortly."},
+ {"type":"condition","subtype":"equals","value":"Talk to support","skipIfFalse":2},
+ {"type":"action","subtype":"message","value":"Connecting you to our team now."},
+ {"type":"action","subtype":"agent","value":""}]
+
 Rules:
-- Return valid JSON only, no markdown.
-- Include exactly one trigger as the first node.
-- Use at most 6 nodes.
-- Use concise customer-facing message text.
+- Use only the subtypes above. At most 15 steps after the trigger.
+- Keep messages short and friendly, written for WhatsApp.
+- When the request asks the customer something, wait for the answer before acting on it.
 - If no clear trigger exists, use keyword HELP.`;
 
   try {
@@ -357,3 +462,5 @@ Rules:
     return { ...fallbackWorkflowPreview(cleanPrompt), provider: 'fallback', fallbackReason: 'error' };
   }
 }
+
+export const __testing = { cleanWorkflowPreview };

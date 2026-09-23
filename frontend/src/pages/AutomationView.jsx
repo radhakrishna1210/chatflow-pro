@@ -730,6 +730,8 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
       setError('Add at least one action — a workflow with only a trigger does nothing.');
       return;
     }
+    const chatError = chatFlowError(steps);
+    if (chatError) { setError(chatError); return; }
     setError('');
     setSaving(true);
 
@@ -763,7 +765,9 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
   // defaults to the workflow's own keyword and is editable.
   const openSim = w => {
     const trigger = (w.nodes || []).find(n => n.type === 'trigger');
-    setSimulating({ id: w.id, sample: trigger?.subtype === 'keyword' ? (trigger.value || 'Hi') : 'Hi', result: null, busy: false });
+    // A keyword trigger may list alternatives ("ORDER, TRACK"); the first one is a valid sample.
+    const sample = trigger?.subtype === 'keyword' ? (String(trigger.value || '').split(',')[0].trim() || 'Hi') : 'Hi';
+    setSimulating({ id: w.id, sample, replies: '', result: null, busy: false });
   };
 
   const runSimulation = async () => {
@@ -771,7 +775,11 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
     try {
       const res = await apiFetch('/api/v1/ai/workflow/execute', {
         method: 'POST',
-        body: JSON.stringify({ workflowId: simulating.id, sampleMessage: simulating.sample }),
+        body: JSON.stringify({
+          workflowId: simulating.id,
+          sampleMessage: simulating.sample,
+          replies: String(simulating.replies || '').split('|').map(r => r.trim()).filter(Boolean),
+        }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setSimulating(s => ({ ...s, busy:false, result:{ error: d.error || 'Simulation failed' } })); return; }
@@ -820,6 +828,8 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
 
   const saveAiPreview = async () => {
     if (!aiPreview?.name || !Array.isArray(aiPreview.nodes)) { setAiError('Generate a workflow preview before saving.'); return; }
+    const chatError = chatFlowError(aiPreview.nodes);
+    if (chatError) { setAiError(chatError); return; }
     setAiSaving(true); setAiError('');
     const r = await wJson('/workflows', {
       method: 'POST',
@@ -1063,6 +1073,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
               onSimulate={() => openSim(w)}
               sim={simulating?.id === w.id ? simulating : null}
               onSimChange={sample => setSimulating(s => ({ ...s, sample }))}
+              onSimRepliesChange={replies => setSimulating(s => ({ ...s, replies }))}
               onSimRun={runSimulation} onSimClose={() => setSimulating(null)} />
           ))}
         </div>
@@ -1118,7 +1129,14 @@ const TRIGGER_SUBTYPES = [
 ];
 
 const ACTION_SUBTYPES = [
-  ['message', 'Send message'], ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent'],
+  ['message', 'Send message'],
+  // Tappable choices on WhatsApp, written "Question | Option A | Option B".
+  ['buttons', 'Ask with buttons'],
+  // Pauses the run until the customer answers; conditions below it test the
+  // answer, and a name here saves it as {{name}} for later messages.
+  ['wait_reply', 'Wait for reply'],
+  ['template', 'Send approved template'],
+  ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent'],
   ['task', 'CRM: Create task'],
   ['lead_status', 'CRM: Set lead status'],
   ['owner', 'CRM: Assign owner'],
@@ -1179,6 +1197,7 @@ const PALETTE = [
 const NODE_ICON = {
   keyword: 'key', welcome: 'user', missed: 'phone',
   message: 'send', buttons: 'check', delay: 'clock', tag: 'file', agent: 'users',
+  wait_reply: 'msg', template: 'file',
 };
 
 // Auto-layout: a single column, in execution order. A node that has been
@@ -1329,17 +1348,22 @@ const DEFAULT_STEP_VALUE = {
   lead_status: '', deal_stage: '',
   score_above: '70',
   message: 'Thanks for reaching out. Our team will help you shortly.',
+  buttons: 'How can we help? | Track my order | Talk to support',
+  wait_reply: '', template: '',
   delay: '1 hour',
   tag: '', agent: '',
   task: '', owner: '', sequence: '',
+  contains: '', equals: '', is_new_contact: '', has_tag: '', field_equals: '', field_set: '',
 };
 
 export function applyStepChange(step, fields) {
   const next = { ...step, ...fields };
 
   if (fields.type && fields.type !== step.type) {
-    next.subtype = fields.type === 'trigger' ? 'keyword' : 'message';
+    next.subtype = fields.type === 'trigger' ? 'keyword' : fields.type === 'condition' ? 'equals' : 'message';
     next.value = DEFAULT_STEP_VALUE[next.subtype];
+    if (fields.type === 'condition') next.skipIfFalse = next.skipIfFalse ?? 1;
+    else delete next.skipIfFalse;
     return next;
   }
   if (fields.subtype && fields.subtype !== step.subtype) {
@@ -1363,10 +1387,11 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
           style={{ ...selectStyle, background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(53,232,242,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', fontWeight:700, textTransform:'uppercase', fontSize:11 }}>
           <option value="trigger" style={{ background:'#0a0b0e' }}>Trigger</option>
           <option value="action" style={{ background:'#0a0b0e' }}>Action</option>
+          <option value="condition" style={{ background:'#0a0b0e' }}>Condition</option>
         </select>
       ) : (
         <span style={{ background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(53,232,242,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', border:`1px solid ${isTrigger ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, padding:'3px 9px', borderRadius:6, fontSize:11, fontWeight:700 }}>
-          {isTrigger ? 'TRIGGER' : 'ACTION'}
+          {isTrigger ? 'TRIGGER' : isCondition ? 'IF' : 'ACTION'}
         </span>
       )}
 
@@ -1376,7 +1401,7 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
 
       {step.subtype === 'delay' ? (
         <select value={step.value} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, minWidth:130 }}>
-          {['Immediate', '5 min', '1 hour', '1 day'].map(v => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{v}</option>)}
+          {[...new Set(['Immediate', '5 min', '1 hour', '1 day', step.value].filter(Boolean))].map(v => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{v}</option>)}
         </select>
 ) : NO_CONFIG_SUBTYPES.includes(step.subtype) ? (
         <span style={{ fontSize:12, color:'var(--t3)', flex:1 }}>No configuration needed</span>
@@ -1401,7 +1426,9 @@ placeholder={
             : step.subtype === 'field_set' ? 'field name, e.g. order_number'
             : isCondition ? 'text to look for'
             : step.subtype === 'tag' ? 'e.g. VIP'
-            : step.subtype === 'buttons' ? 'Question | Option A | Option B'
+            : step.subtype === 'buttons' ? 'Question | Option A | Option B (max 20 chars each)'
+            : step.subtype === 'wait_reply' ? 'Save reply as (optional), e.g. order_id'
+            : step.subtype === 'template' ? 'Approved template name'
             : step.subtype === 'agent' ? 'Agent name or email'
             : 'Message text — use {{name}} or {{custom.order_number}}'
           }
@@ -1429,12 +1456,47 @@ placeholder={
   );
 };
 
+// Mistakes that save fine and then do nothing on WhatsApp. Buttons followed
+// straight by a condition test the message that *started* the workflow, not
+// the option the customer taps, so every branch but the first silently skips.
+export function chatFlowError(steps) {
+  const list = (steps || []).filter(s => s.type !== 'trigger');
+  for (let i = 0; i < list.length; i += 1) {
+    const s = list[i];
+    if (s.subtype === 'buttons') {
+      const opts = String(s.value || '').split('|').map(x => x.trim()).filter(Boolean).slice(1);
+      if (opts.length === 0) return `Step "${stepLabel(s)}" needs options — write it as "Question | Option A | Option B".`;
+      if (list[i + 1]?.type === 'condition') {
+        return 'Add a "Wait for reply" step right after the buttons, so the conditions below check which option the customer tapped.';
+      }
+    }
+    if (s.type === 'condition') {
+      if (CONDITION_NEEDS_VALUE.has(s.subtype) && !String(s.value || '').trim()) return `The condition "${stepLabel(s)}" needs a value.`;
+      if (i + 1 >= list.length) return 'A condition is the last step, so it guards nothing — add the steps it should control after it.';
+    }
+    if (s.subtype === 'template' && !String(s.value || '').trim()) return 'The template step needs the name of an approved template.';
+  }
+  return '';
+}
+
 const stepLabel = (step) => {
   switch (step.subtype) {
     case 'keyword': return `Keyword: ${step.value}`;
     case 'welcome': return 'New contact';
     case 'missed':  return 'Missed call';
     case 'message': return `Send: "${step.value}"`;
+    case 'buttons': {
+      const [q, ...opts] = String(step.value || '').split('|').map(x => x.trim()).filter(Boolean);
+      return `Ask: "${q || ''}" [${opts.join(' / ')}]`;
+    }
+    case 'wait_reply': return step.value ? `Wait for reply → {{${step.value}}}` : 'Wait for reply';
+    case 'template': return `Template: ${step.value}`;
+    case 'contains': return `If message contains "${step.value}"`;
+    case 'equals':   return `If message is "${step.value}"`;
+    case 'is_new_contact': return 'If new contact';
+    case 'has_tag':  return `If tagged "${step.value}"`;
+    case 'field_equals': return `If ${step.value}`;
+    case 'field_set': return `If ${step.value} is set`;
     case 'delay':   return `Wait: ${step.value}`;
     case 'tag':     return `Tag: ${step.value}`;
     case 'agent':   return `Assign: ${step.value}`;
@@ -1449,7 +1511,8 @@ const stepLabel = (step) => {
   }
 };
 
-const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulate, sim, onSimChange, onSimRun, onSimClose }) => {
+const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulate, sim, onSimChange, onSimRepliesChange, onSimRun, onSimClose }) => {
+  const waitsForReply = (Array.isArray(w.nodes) ? w.nodes : []).some(n => n.subtype === 'wait_reply');
   const [showRuns, setShowRuns] = useState(false);
 
   return (
@@ -1506,6 +1569,11 @@ const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulat
               placeholder="Type what a customer would send…" style={{ ...inputStyle, flex:1, minWidth:220 }} />
             <Btn size="sm" onClick={onSimRun} disabled={sim.busy}>{sim.busy ? 'Running…' : 'Run test'}</Btn>
           </div>
+          {waitsForReply && (
+            <input value={sim.replies || ''} onChange={e => onSimRepliesChange(e.target.value)}
+              placeholder="Customer's replies, in order, separated by | — e.g. Track my order | 12345"
+              style={{ ...inputStyle, width:'100%' }} />
+          )}
           <p style={{ fontSize:11, color:'var(--t3)', margin:0 }}>Simulation only — no messages are actually sent.</p>
 
           {sim.result?.error && <Banner tone="error">{sim.result.error}</Banner>}
@@ -1518,7 +1586,7 @@ const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulat
                 <div key={i} style={{ fontSize:12, color:'var(--t2)', display:'flex', gap:8, paddingLeft:4 }}>
                   <span style={{ color:'var(--t3)', minWidth:56 }}>{t.step}</span>
                   <span style={{ flex:1 }}>{t.detail}</span>
-                  <span style={{ color: t.result === 'no match' || t.result === 'skipped' ? '#f87171' : 'var(--green)' }}>{t.result}</span>
+                  <span style={{ color: t.result === 'no match' || t.result === 'skipped' || String(t.result).startsWith('no') ? '#f87171' : t.result === 'waiting' ? '#f59e0b' : 'var(--green)' }}>{t.result}</span>
                 </div>
               ))}
             </div>
