@@ -633,17 +633,22 @@ export default function LeadFormsView() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: '32px 40px', flex: 1, overflowY: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      {/* Top Header */}
+      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 22, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Lead forms</h1>
-          <p style={{ fontSize: 13, color: 'var(--t3)', maxWidth: 620, lineHeight: 1.55 }}>
-            Public forms that create leads. Submissions are recorded whether or not a lead results, so
-            “it is live but nothing is arriving” is answerable.
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Lead Forms</span>
+            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{forms.length}</span>
+          </div>
+          <p style={{ fontSize: 11.5, color: 'var(--t3)', margin: '2px 0 0 0' }}>
+            Public forms that create leads. Submissions are recorded whether or not a lead results.
           </p>
         </div>
-        <Btn size="sm" onClick={() => setEditing('new')}><I n="plus" s={14} /> New form</Btn>
+        <Btn size="sm" onClick={() => setEditing('new')}><I n="plus" s={14} c="#060A10" /> New form</Btn>
       </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: '24px 32px', flex: 1 }}>
 
       {error && <ErrorBanner onDismiss={() => setError(null)}>{error}</ErrorBanner>}
 
@@ -710,6 +715,7 @@ export default function LeadFormsView() {
           onChanged={refreshDetail}
         />
       )}
+      </div>
     </div>
   );
 }

@@ -195,6 +195,20 @@ export default function SiteAssistant() {
     }
   };
 
+  const isCrm = (() => {
+    const p = typeof window !== 'undefined' ? window.location.pathname : '';
+    if (!p.startsWith('/dashboard')) return false;
+    const sub = p.replace(/^\/dashboard\/?/, '').split('/')[0] || '';
+    const CRM_SECTIONS = new Set([
+      'crm-overview', 'crm-sales-inbox', 'ai-chatbots', 'leads', 'deals',
+      'tasks', 'engagements', 'forecast', 'products', 'quotes',
+      'sequences', 'lead-forms', 'tickets', 'customize-business',
+    ]);
+    return CRM_SECTIONS.has(sub);
+  })();
+
+  if (isCrm) return null;
+
   if (!open) {
     return (
       <button

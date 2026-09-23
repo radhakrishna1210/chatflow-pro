@@ -53,7 +53,6 @@ import PaymentsView from './PaymentsView.jsx';
 import LegalCenter from '../components/LegalCenter.jsx';
 import { LEGAL_DOCS } from '../lib/legalContent.js';
 import AuthenticationDashboard from './AuthenticationDashboard.jsx';
-import TemplateModuleTabs from '../components/TemplateModuleTabs.jsx';
 import ResourceCenter from './ResourceCenter.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
@@ -2005,7 +2004,6 @@ const TemplatesView = () => {
             states belong here too — but not the healthy one, which would just
             be noise on a screen that is mostly authoring. */}
         <WalletStatusBanner hideWhenHealthy style={{ marginBottom: 16 }} />
-        <TemplateModuleTabs active="templates" />
         {/* Tab switcher */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--bd)' }}>
           {[
@@ -2974,6 +2972,23 @@ function pathFromSection(section, subTab) {
   return subTab ? `${path}?tab=${encodeURIComponent(subTab)}` : path;
 }
 
+export const CRM_TAB_IDS = new Set([
+  'crm-overview',
+  'crm-sales-inbox',
+  'ai-chatbots',
+  'leads',
+  'deals',
+  'tasks',
+  'engagements',
+  'forecast',
+  'products',
+  'quotes',
+  'sequences',
+  'lead-forms',
+  'tickets',
+  'customize-business',
+]);
+
 export default function Dashboard({ onNav, routePath, routeSearch }) {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const token = localStorage.getItem('accessToken');
@@ -2983,6 +2998,12 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
   const [copilotOpen, setCopilotOpen] = useState(false);
 
   const page = sectionFromPath(routePath ?? window.location.pathname, user);
+  const isCrmTab = CRM_TAB_IDS.has(page);
+
+  useEffect(() => {
+    if (!isCrmTab) setCopilotOpen(false);
+  }, [isCrmTab]);
+
   const setPage = (p, subTab) => {
     if (!p) return;
     const target = pathFromSection(p, subTab);
@@ -3178,15 +3199,14 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
       {mobile && <MobileTabBar page={page} setPage={setPage} user={user} />}
 <CommandPalette />
 
-      {/* Reachable from anywhere in the dashboard, because the question you
-          want to ask it rarely arrives while you are on the right screen. */}
-      {!copilotOpen && (
+      {/* Reachable from CRM tabs */}
+      {isCrmTab && !copilotOpen && (
         <button
           onClick={() => setCopilotOpen(true)}
           aria-label="Ask your CRM"
           className="m-lift"
           style={{
-            position: 'fixed', right: 22, bottom: 90, zIndex: 90,
+            position: 'fixed', right: 22, bottom: 22, zIndex: 90,
             display: 'inline-flex', alignItems: 'center', gap: 8,
             padding: '11px 16px', borderRadius: 999, cursor: 'pointer',
             background: 'var(--green)', color: '#060A10', border: 'none',
@@ -3197,7 +3217,7 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
           <I n="spark" s={15} c="#060A10" /> Ask your CRM
         </button>
       )}
-      {copilotOpen && <Copilot onClose={() => setCopilotOpen(false)} />}
+      {isCrmTab && copilotOpen && <Copilot onClose={() => setCopilotOpen(false)} />}
     </div>
   );
 }

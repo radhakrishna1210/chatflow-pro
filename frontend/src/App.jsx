@@ -241,13 +241,33 @@ export default function App() {
     search
   );
 
-  // The website assistant rides above every screen, so a question that occurs
-  // to someone on the pricing page is still answerable once they are inside
-  // the dashboard. It is withheld from /auth/callback, which is a redirect in
-  // progress rather than a page anyone reads — and from /oauth/consent, which is
-  // a security decision that should have nothing floating over it, and which is
-  // often a small popup where a chat widget would cover the buttons outright.
-  const bareScreen = path === '/auth/callback' || path === '/oauth/consent';
+  const isCrmPath = (p) => {
+    if (!p || !p.startsWith('/dashboard')) return false;
+    const sub = p.replace(/^\/dashboard\/?/, '').split('/')[0] || '';
+    const CRM_SECTIONS = new Set([
+      'crm-overview',
+      'crm-sales-inbox',
+      'ai-chatbots',
+      'leads',
+      'deals',
+      'tasks',
+      'engagements',
+      'forecast',
+      'products',
+      'quotes',
+      'sequences',
+      'lead-forms',
+      'tickets',
+      'customize-business',
+    ]);
+    return CRM_SECTIONS.has(sub);
+  };
+
+  // The website assistant rides above general screens, but is withheld from:
+  // - /auth/callback (redirect in progress)
+  // - /oauth/consent (security decision)
+  // - CRM tabs (which have their own dedicated "Ask your CRM" copilot)
+  const bareScreen = path === '/auth/callback' || path === '/oauth/consent' || isCrmPath(path);
   return (
     <>
       {page}

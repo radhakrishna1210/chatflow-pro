@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { wFetch } from '../lib/api.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import TemplateModuleTabs from '../components/TemplateModuleTabs.jsx';
 // The exact same template builder/editor, live preview and preview modal the
 // normal Templates page uses — reused here rather than a second
 // implementation, per the "Authentication is a self-contained module" rule.
@@ -960,7 +959,6 @@ export default function AuthenticationDashboard({ header }) {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {header}
         <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
-          <TemplateModuleTabs active="authentication" />
           <div style={{ ...card, padding: '40px 24px', textAlign: 'center', fontSize: 13, color: 'var(--t2)' }}>
             <div style={{ width: 26, height: 26, margin: '0 auto 12px', border: '2px solid var(--green)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
             Loading Authentication configuration…
@@ -1014,7 +1012,6 @@ export default function AuthenticationDashboard({ header }) {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {header}
       <div className="dash-page" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <TemplateModuleTabs active="authentication" />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>Configure the number and approved template used for verification-code messages.</p>
           <StatusPill enabled={enabled} />

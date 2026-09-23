@@ -105,11 +105,12 @@ export default function TasksView() {
   };
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: '32px 40px', flex: 1, overflowY: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--t1)' }}>Tasks</h1>
-          <p style={{ margin: '4px 0 0', color: 'var(--t2)', fontSize: 13.5 }}>Manage follow-ups, calls, and action items.</p>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      {/* Top Header */}
+      <div style={{ minHeight: 58, height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', flexShrink: 0, background: 'var(--surf)' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Tasks</span>
+          <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{tasks.length} tasks</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ display: 'flex', background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 2, border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -127,11 +128,13 @@ export default function TasksView() {
               </button>
             ))}
           </div>
-          <Btn onClick={() => setShowNew(true)}>
-            <I n="plus" s={14} /> New Task
+          <Btn size="sm" onClick={() => setShowNew(true)}>
+            <I n="plus" s={14} c="#060A10" /> New Task
           </Btn>
         </div>
       </div>
+
+      <div style={{ padding: '24px', flex: 1 }}>
 
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13.5 }}>
@@ -210,6 +213,7 @@ export default function TasksView() {
           }}
         />
       )}
+      </div>
     </div>
   );
 }

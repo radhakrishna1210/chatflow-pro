@@ -406,17 +406,22 @@ export default function TicketsView() {
   const overdueInView = useMemo(() => tickets.filter((t) => t.isOverdue).length, [tickets]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '32px 40px', flex: 1, overflowY: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      {/* Top Header */}
+      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 22, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Support tickets</h1>
-          <p style={{ fontSize: 13, color: 'var(--t3)', maxWidth: 600, lineHeight: 1.55 }}>
-            Customer issues with a response target by priority. The queue is sorted by urgency, then
-            by whichever is closest to missing its deadline.
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Support Tickets</span>
+            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{tickets.length}</span>
+          </div>
+          <p style={{ fontSize: 11.5, color: 'var(--t3)', margin: '2px 0 0 0' }}>
+            Customer issues with a response target by priority. Sorted by urgency and deadline.
           </p>
         </div>
-        <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} /> New ticket</Btn>
+        <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New ticket</Btn>
       </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '24px 32px', flex: 1 }}>
 
       {error && <ErrorBanner onDismiss={() => setError(null)}>{error}</ErrorBanner>}
 
@@ -500,6 +505,7 @@ export default function TicketsView() {
           onChanged={refresh}
         />
       )}
+      </div>
     </div>
   );
 }
