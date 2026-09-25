@@ -2,7 +2,7 @@ import { Worker } from 'bullmq';
 import { createBullConnection, logRedisError } from '../lib/redis.js';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
-import { advanceRun } from '../services/workflowEngine.service.js';
+import { advanceRun, sendReplyReminder } from '../services/workflowEngine.service.js';
 import { sendAutomatedReply } from '../services/outbound.service.js';
 
 async function processResume(job) {
@@ -58,8 +58,15 @@ async function processDelayedResponse(job) {
   console.log(`[WorkflowWorker] Sent delayed-response reply on ${conversationId}`);
 }
 
+async function processReplyReminder(job) {
+  const { runId, cursor } = job.data;
+  const outcome = await sendReplyReminder(runId, cursor);
+  console.log(`[WorkflowWorker] Reply reminder for run ${runId}: ${outcome.sent ? 'sent' : `skipped — ${outcome.reason ?? 'send failed'}`}`);
+}
+
 async function processJob(job) {
   if (job.name === 'resume') return processResume(job);
+  if (job.name === 'reply-reminder') return processReplyReminder(job);
   if (job.name === 'delayed-response') return processDelayedResponse(job);
   console.warn(`[WorkflowWorker] Unknown job name "${job.name}" — ignoring.`);
 }

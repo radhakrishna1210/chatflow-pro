@@ -910,7 +910,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
             {aiPreview?.provider === 'fallback' && (
               <Banner tone="warn">
                 {aiPreview.fallbackReason === 'error'
-                  ? 'Gemini could not be reached — this preview came from the built-in template generator.'
+                  ? `Gemini could not be reached — this preview came from the built-in template generator.${aiPreview.fallbackError ? ` (${aiPreview.fallbackError})` : ''}`
                   : 'No Gemini key on the server — this preview came from the built-in template generator.'}
               </Banner>
             )}
@@ -1369,6 +1369,8 @@ export function applyStepChange(step, fields) {
   if (fields.subtype && fields.subtype !== step.subtype) {
     next.value = DEFAULT_STEP_VALUE[fields.subtype] ?? '';
   }
+  // A reminder belongs to a "Wait for reply" step only.
+  if (next.subtype !== 'wait_reply') { delete next.remindAfter; delete next.reminder; }
   return next;
 }
 
@@ -1436,6 +1438,25 @@ placeholder={
           style={{ ...selectStyle, flex:1, minWidth:200, color: isTrigger && step.subtype === 'keyword' ? 'var(--green)' : 'var(--t1)', fontFamily: isTrigger && step.subtype === 'keyword' ? 'monospace' : 'inherit' }} />
       )}
 
+      {/* A nudge for a customer who goes quiet mid-question. Both fields are
+          needed; with either blank no reminder is sent. */}
+      {step.subtype === 'wait_reply' && (
+        <div style={{ display:'flex', alignItems:'center', gap:6, flexBasis:'100%', paddingLeft:62, flexWrap:'wrap' }}>
+          <span style={{ fontSize:11.5, color:'var(--t2)', whiteSpace:'nowrap' }}>If no reply, remind after</span>
+          <select value={step.remindAfter || ''} onChange={e => onChange({ remindAfter: e.target.value })}
+            style={{ ...selectStyle, padding:'5px 8px', minWidth:0 }}>
+            {[...new Set(['', '5 min', '15 min', '1 hour', '4 hours', step.remindAfter].filter(v => v !== undefined))].map(v => (
+              <option key={v || 'none'} value={v} style={{ background:'#0a0b0e' }}>{v || 'Never'}</option>
+            ))}
+          </select>
+          {step.remindAfter && (
+            <input value={step.reminder || ''} onChange={e => onChange({ reminder: e.target.value })}
+              placeholder="Reminder text, e.g. Just checking in — could you send your order ID?"
+              style={{ ...selectStyle, flex:1, minWidth:200 }} />
+          )}
+        </div>
+      )}
+
       {/* What a condition guards. Steps below it are skipped when the answer is
           no, which is how a branch is expressed without a graph editor. */}
       {isCondition && (
@@ -1475,6 +1496,7 @@ export function chatFlowError(steps) {
       if (i + 1 >= list.length) return 'A condition is the last step, so it guards nothing — add the steps it should control after it.';
     }
     if (s.subtype === 'template' && !String(s.value || '').trim()) return 'The template step needs the name of an approved template.';
+    if (s.subtype === 'wait_reply' && s.remindAfter && !String(s.reminder || '').trim()) return 'Write the reminder text for the "Wait for reply" step, or set its reminder to Never.';
   }
   return '';
 }
@@ -1489,7 +1511,10 @@ const stepLabel = (step) => {
       const [q, ...opts] = String(step.value || '').split('|').map(x => x.trim()).filter(Boolean);
       return `Ask: "${q || ''}" [${opts.join(' / ')}]`;
     }
-    case 'wait_reply': return step.value ? `Wait for reply → {{${step.value}}}` : 'Wait for reply';
+    case 'wait_reply': {
+      const base = step.value ? `Wait for reply → {{${step.value}}}` : 'Wait for reply';
+      return step.remindAfter && step.reminder ? `${base} (remind after ${step.remindAfter})` : base;
+    }
     case 'template': return `Template: ${step.value}`;
     case 'contains': return `If message contains "${step.value}"`;
     case 'equals':   return `If message is "${step.value}"`;
@@ -1609,6 +1634,9 @@ const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulat
                 {run.triggerMessage ? `“${run.triggerMessage}”` : '—'}
               </span>
               <span style={{ fontSize:11, color:'var(--t3)' }}>{new Date(run.startedAt).toLocaleString()}</span>
+              {run.error && (
+                <span style={{ flexBasis:'100%', fontSize:11.5, color:'#f87171' }}>{run.error}</span>
+              )}
             </div>
           ))}
         </div>

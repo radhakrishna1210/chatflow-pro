@@ -58,7 +58,7 @@ function cleanWorkflowPreview(raw, prompt) {
   const trigger = {
     type: 'trigger',
     subtype: triggerSubtype,
-    value: triggerSubtype === 'keyword' ? (text(rawTrigger?.value) || inferKeyword(prompt)).toUpperCase() : '',
+    value: triggerSubtype === 'keyword' ? triggerKeywords(rawTrigger?.value, prompt) : '',
   };
 
   const steps = [];
@@ -86,7 +86,13 @@ function cleanWorkflowPreview(raw, prompt) {
       continue;
     }
     if (subtype === 'wait_reply') {
-      steps.push({ type: 'action', subtype, value });
+      // "If they don't answer in 5 minutes, remind them" — kept only when both
+      // the delay and the text are usable, so a half-specified reminder cannot
+      // send an empty message.
+      const remindAfter = text(node.remindAfter);
+      const reminder = text(node.reminder);
+      const remind = remindAfter && reminder && DELAY_RE.test(remindAfter) ? { remindAfter, reminder } : {};
+      steps.push({ type: 'action', subtype, value, ...remind });
       continue;
     }
     if (subtype === 'delay') {
@@ -136,17 +142,44 @@ function cleanWorkflowPreview(raw, prompt) {
   };
 }
 
+// Topics the built-in generator recognises: the words that identify the topic
+// in a request, and the keywords the trigger listens for. A trigger is only as
+// good as its keyword list — "I need to return my order" never contains
+// "REFUND" — so each topic carries the phrasings customers actually use.
+const KEYWORD_TOPICS = [
+  { detect: ['ORDER', 'SHIP', 'DELIVERY', 'TRACK'], keywords: 'ORDER, TRACK, DELIVERY' },
+  { detect: ['REFUND', 'RETURN', 'MONEY BACK'], keywords: 'REFUND, RETURN, MONEY BACK' },
+  { detect: ['PRICE', 'PRICING', 'COST', 'QUOTE'], keywords: 'PRICE, PRICING, COST, QUOTE' },
+  { detect: ['DEMO', 'BOOK', 'CALL', 'MEETING'], keywords: 'DEMO, BOOK A CALL, MEETING' },
+  { detect: ['HELP', 'SUPPORT', 'ISSUE', 'PROBLEM'], keywords: 'HELP, SUPPORT' },
+];
+const GENERIC_KEYWORD = 'HELP';
+
+// The topic named *earliest* in the request is what starts the workflow: in
+// "when a customer asks for a refund, ask for their order ID" the trigger is the
+// refund, and "order" is only something the flow asks for later. Picking the
+// first topic in table order made every such request fire on ORDER instead.
 function inferKeyword(prompt) {
   const upper = String(prompt || '').toUpperCase();
-  const pairs = [
-    ['ORDER', ['ORDER', 'SHIP', 'DELIVERY', 'TRACK']],
-    ['REFUND', ['REFUND', 'RETURN', 'CANCEL']],
-    ['PRICE', ['PRICE', 'PRICING', 'COST', 'QUOTE']],
-    ['DEMO', ['DEMO', 'BOOK', 'CALL', 'MEETING']],
-    ['HELP', ['HELP', 'SUPPORT', 'ISSUE', 'PROBLEM']],
-  ];
-  const match = pairs.find(([, words]) => words.some((word) => upper.includes(word)));
-  return match ? match[0] : 'HELP';
+  let best = null;
+  for (const topic of KEYWORD_TOPICS) {
+    for (const word of topic.detect) {
+      const at = upper.search(new RegExp(`(?<![A-Z])${word}`));
+      if (at >= 0 && (!best || at < best.at)) best = { at, keywords: topic.keywords };
+    }
+  }
+  return best ? best.keywords : GENERIC_KEYWORD;
+}
+
+// The model is told to fall back to HELP when a request names no trigger. When
+// it does that for a request that plainly does name one, the workflow saves
+// fine and then never fires on the messages it was described for.
+function triggerKeywords(modelValue, prompt) {
+  const value = String(modelValue ?? '').trim().toUpperCase();
+  const inferred = inferKeyword(prompt);
+  if (!value) return inferred;
+  if (value === GENERIC_KEYWORD && inferred !== GENERIC_KEYWORD && !inferred.startsWith(`${GENERIC_KEYWORD},`)) return inferred;
+  return value;
 }
 
 function fallbackWorkflowPreview(prompt) {
@@ -409,16 +442,17 @@ export async function generateWorkflowPreview(workspaceId, prompt) {
 The steps run top to bottom in a WhatsApp chat with one customer.
 
 Trigger (exactly one, first):
-- {"type":"trigger","subtype":"keyword","value":"ORDER, TRACK, DELIVERY"}  fires when the customer's message contains any of the comma-separated words. Give 2-4 words/short phrases customers would really type.
+- {"type":"trigger","subtype":"keyword","value":"ORDER, TRACK, DELIVERY"}  fires when the customer's message contains any of the comma-separated words (whole words, any case). Give 3-6 words/short phrases covering the different ways customers really phrase it, including synonyms (e.g. for delivery: "ORDER, TRACK, DELIVERY, WHERE IS MY PARCEL"). The keywords must describe what the customer's first message is about, not something the workflow asks for later.
 - {"type":"trigger","subtype":"welcome","value":""}  fires on a brand-new contact's first message.
 
 Actions:
 - {"type":"action","subtype":"message","value":"text"}  send a message. {{name}} inserts the customer's name; {{order_id}} inserts a reply saved earlier.
 - {"type":"action","subtype":"buttons","value":"Question? | Option A | Option B | Option C"}  send tappable options. Max 3 options (up to 10 becomes a list); each option at most 20 characters.
 - {"type":"action","subtype":"wait_reply","value":"order_id"}  pause until the customer replies. value (optional) saves the reply as a variable. Put one after every question or buttons step whose answer matters.
+  To chase a customer who does not answer, add "remindAfter":"5 min","reminder":"Just checking in — could you send your order ID?" to the wait_reply. Do not use a delay step for this.
 - {"type":"action","subtype":"delay","value":"5 min"}  wait a fixed time ("30 min", "2 hours", "1 day").
 - {"type":"action","subtype":"tag","value":"VIP"}  tag the contact.
-- {"type":"action","subtype":"agent","value":""}  hand the chat to a human on the team. No automated messages follow, so put it last.
+- {"type":"action","subtype":"agent","value":""}  hand the chat to a human on the team. The bot sends nothing after it, so it ends that branch.
 
 Conditions (branching): {"type":"condition","subtype":"equals|contains|has_tag|is_new_contact","value":"...","skipIfFalse":N}
 Checks the latest customer message (after a wait_reply, that is their reply). If false, the next N steps are skipped. To branch on a button choice, use one "equals" condition per option, each followed by that option's steps, with skipIfFalse = the number of steps in that branch.
@@ -441,26 +475,47 @@ Rules:
 - When the request asks the customer something, wait for the answer before acting on it.
 - If no clear trigger exists, use keyword HELP.`;
 
-  try {
-    const response = await getAi().models.generateContent({
-      model: env.GEMINI_MODEL,
-      contents: `${systemPrompt}\n\nUser request: ${cleanPrompt}`,
-      config: {
-        temperature: 0.3,
-        responseMimeType: "application/json",
-      },
-    });
-
-    const text = response.text;
-
-    return {
-      ...cleanWorkflowPreview(parseGeminiJson(text), cleanPrompt),
-      provider: "gemini",
-    };
-  } catch (err) {
-    console.error('[Automation] Gemini workflow preview error:', err);
-    return { ...fallbackWorkflowPreview(cleanPrompt), provider: 'fallback', fallbackReason: 'error' };
+  // The configured model first, then the fallback model. A retired model id
+  // answers 404 on every call, and with no second choice every "Create with
+  // AI" request quietly became the built-in keyword template instead.
+  const models = [...new Set([env.GEMINI_MODEL, env.GEMINI_FALLBACK_MODEL].filter(Boolean))];
+  let lastErr = null;
+  // Flash answers 503 "high demand" often enough to matter; one short retry per
+  // model clears most of them (the same policy as lib/llm.js).
+  const busy = (err) => /\b(503|500|504)\b|UNAVAILABLE|overloaded|high demand/i.test(String(err?.message || ''));
+  const attempts = models.flatMap((model) => [model, model]);
+  for (let a = 0; a < attempts.length; a += 1) {
+    const model = attempts[a];
+    // The second attempt at a model is only worth making when it was busy.
+    if (a % 2 === 1 && !busy(lastErr)) continue;
+    if (a % 2 === 1) await new Promise((r) => setTimeout(r, 800));
+    try {
+      const response = await getAi().models.generateContent({
+        model,
+        contents: `${systemPrompt}\n\nUser request: ${cleanPrompt}`,
+        config: {
+          temperature: 0.3,
+          responseMimeType: "application/json",
+        },
+      });
+      if (model !== env.GEMINI_MODEL) {
+        console.warn(`[Automation] Workflow preview answered by fallback model "${model}" — "${env.GEMINI_MODEL}" failed: ${lastErr?.message?.slice(0, 200)}`);
+      }
+      return {
+        ...cleanWorkflowPreview(parseGeminiJson(response.text), cleanPrompt),
+        provider: "gemini",
+      };
+    } catch (err) {
+      lastErr = err;
+      console.error(`[Automation] Gemini workflow preview error (model ${model}):`, err?.message || err);
+    }
   }
+  return {
+    ...fallbackWorkflowPreview(cleanPrompt),
+    provider: 'fallback',
+    fallbackReason: 'error',
+    fallbackError: String(lastErr?.message || '').slice(0, 300),
+  };
 }
 
-export const __testing = { cleanWorkflowPreview };
+export const __testing = { cleanWorkflowPreview, inferKeyword, fallbackWorkflowPreview };

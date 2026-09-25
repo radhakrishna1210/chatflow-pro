@@ -232,7 +232,13 @@ async function handleInboundMessage(value, msg) {
   // Every inbound shape Meta sends, not just the four that used to be handled
   // (see services/inboundMessage.js). Media, location and contact cards were
   // previously stored as an empty body with no trace of the attachment.
-  const parsed = parseInboundMessage(msg);
+  let parsed;
+  try {
+    parsed = parseInboundMessage(msg);
+  } catch (err) {
+    console.error(`[Inbound] PARSE FAILED — message ${msg?.id} (type=${msg?.type}) from=${fromPhone}: ${err.message}`);
+    return;
+  }
   const messageBody = parsed.body;
 
   // Tapping a template quick-reply delivers the payload the send attached to
@@ -384,8 +390,10 @@ async function handleInboundMessage(value, msg) {
       console.log(`[Inbound] Duplicate delivery of ${msg.id} — already processed, ignoring.`);
       return;
     }
+    console.error(`[Inbound] STORE FAILED — could not save message ${msg.id} to conversation ${conversation.id}: ${err.message}`);
     throw err;
   }
+  console.log(`[Inbound] Message stored: ${msg.id} → conversation ${conversation.id}`);
 
   await prisma.conversation.update({
     where: { id: conversation.id },
@@ -636,7 +644,9 @@ async function handleInboundMessage(value, msg) {
   //    are replying to its question, not starting something new.
   let workflowWillReply = false;
   try {
+    console.log(`[Automation] Checking active workflows for conversation ${conversation.id} (workspace ${workspaceId})`);
     const resumed = await resumeAwaitingRun(workspaceId, conversation.id, messageBody);
+    if (resumed) console.log(`[Automation] Reply resumed waiting run ${resumed.id} → ${resumed.status}`);
     const runs = resumed ? [resumed] : await runWorkflowsForInbound(workspaceId, {
       event: 'message',
       messageBody,
@@ -661,6 +671,11 @@ async function handleInboundMessage(value, msg) {
   if (customerText && !workflowWillReply) {
     const reason = escalationReason(messageBody, workspace?.escalationRules);
     if (reason) {
+      // Logged loudly: this sends the customer nothing and suppresses every
+      // automation on the thread from here on, so a workflow meant for this
+      // message whose trigger did not match looks exactly like "no reply".
+      console.log(`[Inbound] Escalation rule claimed "${messageBody.slice(0, 80)}" (${reason}) — no workflow matched; `
+        + 'conversation handed to a person and automation paused on it.');
       await escalateToHuman({ workspaceId, conversationId: conversation.id, contact, reason });
       await scheduleDelayedResponse(workspace, conversation.id);
       return;
