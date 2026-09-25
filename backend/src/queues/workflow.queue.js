@@ -1,8 +1,10 @@
 import { Queue } from 'bullmq';
 import { createBullConnection } from '../lib/redis.js';
 
-// Carries two kinds of deferred automation work:
+// Carries three kinds of deferred automation work:
 //  - `resume`: a workflow run parked on a delay step
+//  - `reply-reminder`: a nudge for a customer who has not answered a
+//    wait_reply step within its `remindAfter`
 //  - `delayed-response`: the "Delayed Response Message" basic automation,
 //    which must check N minutes later whether a human ever replied
 export const workflowQueue = new Queue('workflows', {
@@ -57,4 +59,11 @@ export async function enqueueWorkflowResume(runId, cursor, delayMs) {
 // by the caller's try/catch in webhook.service.js and only logged.
 export async function enqueueDelayedResponseCheck(conversationId, delayMs) {
   return addReplacing('delayed-response', jobKey('delayed', conversationId), { conversationId }, delayMs);
+}
+
+// "Remind them if they haven't answered in 5 minutes" on a wait_reply step.
+// Keyed by run and cursor like a resume, so re-parking on the same step
+// replaces the timer rather than stacking a second reminder.
+export async function enqueueReplyReminder(runId, cursor, delayMs) {
+  return addReplacing('reply-reminder', jobKey('remind', runId, cursor), { runId, cursor }, delayMs);
 }

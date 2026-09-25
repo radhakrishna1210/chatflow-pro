@@ -95,6 +95,7 @@ export async function sendAutomatedReply({ conversationId, waNumberId, toPhone, 
     return null;
   }
   if (!result) return null;
+  console.log(`[Outbound] Sent to ${toPhone} via ${waNumber.metaPhoneNumberId} — wamid=${result?.messages?.[0]?.id ?? '?'}`);
 
   // The inbox renders message.body, so the options are recorded with it —
   // otherwise the agent reading the thread sees the question and no sign of

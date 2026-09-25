@@ -128,11 +128,23 @@ export async function findMatchingWorkflows(workspaceId, ctx) {
     orderBy: { createdAt: 'asc' },
   });
 
-  return workflows
+  const matched = workflows
     .map((w) => ({ workflow: w, trigger: triggerOf(w.nodes) }))
     .filter(({ trigger }) => triggerFires(trigger, ctx))
     .sort((a, b) => String(b.trigger?.value || '').length - String(a.trigger?.value || '').length)
     .map(({ workflow }) => workflow);
+
+  // "Why didn't my workflow reply?" is almost always a trigger that does not
+  // match what the customer typed, so say which triggers were tried.
+  if (matched.length === 0) {
+    const tried = workflows.map((w) => {
+      const t = triggerOf(w.nodes);
+      return `"${w.name}" (${t?.subtype ?? 'no trigger'}${t?.value ? `: ${t.value}` : ''})`;
+    });
+    console.log(`[Automation] No active workflow matched "${String(ctx?.messageBody ?? '').slice(0, 80)}" `
+      + `in workspace ${workspaceId} — checked ${workflows.length}${tried.length ? `: ${tried.join(', ')}` : ''}`);
+  }
+  return matched;
 }
 
 // ── Action executors ───────────────────────────────────────────────────────
@@ -374,8 +386,31 @@ export async function startRun(workflow, { workspaceId, conversationId, contactI
       cursor: 0,
     },
   });
+  console.log(`[Workflow] Execution started: ${run.id} — workflow "${workflow.name}" (${workflow.id}), conversation ${conversationId ?? '—'}`);
   return advanceRun(run.id);
 }
+
+// Has a person taken this conversation over since the run started? An `agent`
+// step does exactly that, and so can someone in the inbox while a run sits on
+// a delay. Either way the bot must stop talking: the inbound handler already
+// suppresses automation on a handed-off thread, and a run that kept sending
+// after its own handoff step answered a refund request with both "received"
+// and "cannot be processed".
+async function handedOffSince(run) {
+  if (!run.conversationId) return false;
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: run.conversationId },
+    select: { humanHandoffAt: true },
+  });
+  const at = conversation?.humanHandoffAt;
+  return Boolean(at && run.startedAt && new Date(at) >= new Date(run.startedAt));
+}
+
+const traceFailures = (trace) => trace.filter((t) => t?.result === 'failed');
+const describeFailures = (failures) => failures
+  .map((t) => `Step ${Number(t.step) + 1} (${t.subtype}): ${t.detail}`)
+  .join('; ')
+  .slice(0, 1000);
 
 // Executes action steps from the run's cursor. A delay step parks the run
 // (status WAITING) and schedules a resume; everything else runs inline. Called
@@ -416,10 +451,30 @@ export async function advanceRun(runId, { reply } = {}) {
     });
   }
 
+  let handedOff = await handedOffSince(run);
+  // The last customer-facing step that failed since the customer last spoke.
+  // Waiting for an answer to a question that never arrived would swallow their
+  // next, unrelated message as the "answer".
+  let undelivered = null;
+
   for (let i = run.cursor; i < actions.length; i += 1) {
     const node = actions[i];
+    console.log(`[Workflow] Executing node ${i + 1}/${actions.length} (${node.type}:${node.subtype}) for run ${run.id}`);
+
+    if (handedOff && (REPLY_SUBTYPES.has(node.subtype) || node.subtype === 'wait_reply')) {
+      trace.push({ step: i, subtype: node.subtype, detail: 'Skipped — the conversation was handed to a person', result: 'skipped', at: new Date().toISOString() });
+      continue;
+    }
 
     if (node.subtype === 'wait_reply') {
+      if (undelivered) {
+        const error = `Step ${Number(undelivered.step) + 1} (${undelivered.subtype}) was not delivered, so there is nothing to wait for: ${undelivered.detail}`;
+        console.error(`[Workflow] Run ${run.id} failed — ${error}`);
+        return prisma.workflowRun.update({
+          where: { id: run.id },
+          data: { status: 'FAILED', cursor: i, trace, variables, triggerMessage: run.triggerMessage, error, finishedAt: new Date() },
+        });
+      }
       const saveAs = variableName(node.value);
       // The options answer only this wait. Left in place, a later "How many
       // people?" answered with "2" would be read as option 2 of the menu.
@@ -430,11 +485,33 @@ export async function advanceRun(runId, { reply } = {}) {
         ...(saveAs ? { saveAs } : {}),
         options,
       };
-      trace.push({ step: i, subtype: 'wait_reply', detail: 'Waiting for the customer to reply', result: 'waiting', at: new Date().toISOString() });
-      return prisma.workflowRun.update({
+      const remindMs = node.reminder ? parseDelayMs(node.remindAfter) : 0;
+      trace.push({
+        step: i,
+        subtype: 'wait_reply',
+        detail: `Waiting for the customer to reply${remindMs > 0 ? ` (reminder after ${node.remindAfter})` : ''}`,
+        result: 'waiting',
+        at: new Date().toISOString(),
+      });
+      const parked = await prisma.workflowRun.update({
         where: { id: run.id },
         data: { status: 'WAITING', cursor: i + 1, trace, variables, triggerMessage: run.triggerMessage },
       });
+      if (remindMs > 0) {
+        // A reminder that cannot be scheduled costs the customer a nudge, not
+        // the conversation: the run keeps waiting, and the trace says why no
+        // reminder will come.
+        try {
+          const { enqueueReplyReminder } = await import('../queues/workflow.queue.js');
+          await enqueueReplyReminder(run.id, i + 1, remindMs);
+        } catch (queueErr) {
+          console.error(`[WorkflowEngine] Could not schedule the reply reminder for run ${run.id}:`, queueErr);
+          trace.push({ step: i, subtype: 'reminder', detail: `Reminder not scheduled: ${queueErr.message}`, result: 'failed', at: new Date().toISOString() });
+          return prisma.workflowRun.update({ where: { id: run.id }, data: { trace } });
+        }
+      }
+      console.log(`[Workflow] Run ${run.id} waiting for the customer's reply at step ${i + 1}`);
+      return parked;
     }
 
     if (node.subtype === 'delay') {
@@ -514,12 +591,89 @@ export async function advanceRun(runId, { reply } = {}) {
     if (Array.isArray(offered)) variables[LAST_OPTIONS_KEY] = offered;
     else if (REPLY_SUBTYPES.has(node.subtype) && recorded.result === 'sent') delete variables[LAST_OPTIONS_KEY];
     trace.push({ step: i, subtype: node.subtype, ...recorded, at: new Date().toISOString() });
+
+    if (REPLY_SUBTYPES.has(node.subtype)) {
+      if (recorded.result === 'sent') undelivered = null;
+      else if (recorded.result === 'failed') undelivered = { step: i, subtype: node.subtype, detail: recorded.detail };
+    }
+    if (recorded.result === 'failed') {
+      console.error(`[Workflow] Run ${run.id} step ${i + 1} (${node.subtype}) failed: ${recorded.detail}`);
+    } else if (REPLY_SUBTYPES.has(node.subtype)) {
+      console.log(`[Workflow] Run ${run.id} step ${i + 1} ${recorded.result}: ${recorded.detail}`);
+    }
+    if (node.subtype === 'agent' && recorded.result === 'ok') handedOff = true;
   }
 
+  // A run whose message never reached the customer did not do its job, and
+  // reporting it COMPLETED is what made "the workflow ran but nobody got
+  // anything" impossible to tell apart from success in the run history. The
+  // remaining steps still ran — a handoff after a failed send is exactly when a
+  // person is needed — but the run is recorded as FAILED with the reason.
+  const failures = traceFailures(trace);
+  const status = failures.length ? 'FAILED' : 'COMPLETED';
+  const error = failures.length ? describeFailures(failures) : null;
+  console.log(`[Workflow] Execution ${status === 'FAILED' ? 'finished with errors' : 'completed'}: ${run.id}${error ? ` — ${error}` : ''}`);
   return prisma.workflowRun.update({
     where: { id: run.id },
-    data: { status: 'COMPLETED', cursor: actions.length, trace, variables, triggerMessage: run.triggerMessage, finishedAt: new Date() },
+    data: { status, cursor: actions.length, trace, variables, triggerMessage: run.triggerMessage, finishedAt: new Date(), ...(error ? { error } : {}) },
   });
+}
+
+// Fired by the workflow worker `remindAfter` after a wait_reply parked. Sends
+// the step's reminder only if the run is still parked on that same wait: an
+// answer, a cancel, a handoff or a later wait all make it stale.
+export async function sendReplyReminder(runId, cursor) {
+  const run = await prisma.workflowRun.findUnique({ where: { id: runId } });
+  if (!run || run.status !== 'WAITING' || run.cursor !== cursor || !isAwaitingReply(run)) {
+    return { sent: false, reason: 'The run is no longer waiting on this step' };
+  }
+
+  const node = actionsOf(run.nodes)[cursor - 1];
+  if (node?.subtype !== 'wait_reply' || !node.reminder) {
+    return { sent: false, reason: 'The step has no reminder configured' };
+  }
+  const variables = variablesOf(run);
+  if (variables[AWAIT_KEY]?.reminded) return { sent: false, reason: 'Already reminded' };
+  if (await handedOffSince(run)) return { sent: false, reason: 'The conversation was handed to a person' };
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: run.conversationId },
+    include: { contact: true },
+  });
+  if (!conversation?.waNumberId) return { sent: false, reason: 'Conversation has no connected number' };
+
+  const body = tidy(renderTemplate(node.reminder, {
+    contact: conversation.contact,
+    variables,
+    messageBody: run.triggerMessage ?? '',
+  }));
+  const sent = body
+    ? await sendAutomatedReply({
+        conversationId: conversation.id,
+        waNumberId: conversation.waNumberId,
+        toPhone: conversation.contact.phoneNumber,
+        body,
+      })
+    : null;
+
+  // Re-read before writing: the customer may have answered while the send was
+  // in flight, and that answer's advance must not be overwritten.
+  const latest = await prisma.workflowRun.findUnique({ where: { id: runId } });
+  if (!latest || latest.status !== 'WAITING' || latest.cursor !== cursor) return { sent: Boolean(sent) };
+
+  const latestVars = variablesOf(latest);
+  if (latestVars[AWAIT_KEY]) latestVars[AWAIT_KEY] = { ...latestVars[AWAIT_KEY], reminded: true };
+  const trace = Array.isArray(latest.trace) ? [...latest.trace] : [];
+  trace.push({
+    step: cursor - 1,
+    subtype: 'reminder',
+    detail: sent ? `Sent reminder: "${body}"` : 'Reminder could not be sent (Meta rejected it or the 24-hour window closed)',
+    result: sent ? 'sent' : 'failed',
+    at: new Date().toISOString(),
+  });
+  await prisma.workflowRun.update({ where: { id: runId }, data: { trace, variables: latestVars } });
+  console.log(`[Workflow] Reply reminder for run ${runId}: ${sent ? 'sent' : 'not sent'}`);
+  return { sent: Boolean(sent) };
 }
 
 // Entry point from the inbound handler. Returns the runs it started so the
@@ -533,6 +687,8 @@ export async function runWorkflowsForInbound(workspaceId, ctx) {
   // Only the most specific matching workflow runs. Firing every match would
   // send a customer several unrelated replies to one message.
   const workflow = workflows[0];
+  console.log(`[Automation] Workflow matched: "${workflow.name}" (${workflow.id})`
+    + (workflows.length > 1 ? ` — ${workflows.length - 1} other match(es) not run` : ''));
   try {
     const run = await startRun(workflow, {
       workspaceId,

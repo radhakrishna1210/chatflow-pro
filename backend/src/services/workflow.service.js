@@ -107,9 +107,16 @@ export async function simulateWorkflow(workspaceId, workflowId, sampleMessage = 
     const steps = nodes.filter((n) => n.type === 'action' || n.type === 'condition');
     let current = msgText;
     let lastOptions = [];
+    // Mirrors the engine: once a step hands the chat to a person, the bot
+    // sends nothing more on that run.
+    let handedOff = false;
 
     for (let i = 0; i < steps.length; i += 1) {
       const node = steps[i];
+      if (handedOff && ['message', 'buttons', 'template', 'wait_reply'].includes(node.subtype)) {
+        trace.push({ step: 'action', subtype: node.subtype, detail: 'Skipped — the chat was handed to a person', result: 'skipped' });
+        continue;
+      }
       if (node.type === 'condition') {
         const held = evaluateCondition(node, { messageBody: current, isNewContact: false, contact: null });
         const skip = skipCount(node);
@@ -128,6 +135,7 @@ export async function simulateWorkflow(workspaceId, workflowId, sampleMessage = 
           trace.push({
             step: 'action', subtype: 'wait_reply',
             detail: 'Would wait for the customer to reply'
+              + (node.reminder && node.remindAfter ? ` (reminding them after ${node.remindAfter}: "${node.reminder}")` : '')
               + (pendingReplies ? ` — the remaining ${pendingReplies} step(s) run on their answer` : ''),
             result: 'waiting',
           });
@@ -157,7 +165,7 @@ export async function simulateWorkflow(workspaceId, workflowId, sampleMessage = 
       }
       else if (node.subtype === 'delay') detail = `Would wait ${node.value || '0'}`;
       else if (node.subtype === 'tag') detail = `Would tag contact "${node.value}"`;
-      else if (node.subtype === 'agent') detail = 'Would hand off to a human agent';
+      else if (node.subtype === 'agent') { detail = 'Would hand off to a human agent'; handedOff = true; }
       else if (node.subtype === 'task') detail = `Would create task "${node.value}"`;
       else if (node.subtype === 'lead_status') detail = `Would set lead status to ${node.value}`;
       else if (node.subtype === 'owner') detail = `Would assign owner "${node.value}"`;

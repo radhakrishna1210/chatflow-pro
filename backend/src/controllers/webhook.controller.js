@@ -37,10 +37,10 @@ export async function receive(req, res) {
     return res.status(401).json({ error: 'Signature verification error' });
   }
 
-  console.log('[Webhook] Signature OK. Payload preview:', JSON.stringify(req.body).slice(0, 400));
+  console.log('[Webhook] Signature verified. Payload preview:', JSON.stringify(req.body).slice(0, 400));
   res.status(200).json({ status: 'ok' });
 
   processWebhook(req.body).catch((err) => {
-    console.error('[Webhook] Processing error:', err);
+    console.error('[Webhook] Processing error — message not fully handled:', err);
   });
 }
