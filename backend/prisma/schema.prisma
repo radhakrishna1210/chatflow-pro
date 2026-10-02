@@ -162,6 +162,7 @@ model Workspace {
   integrations                WorkspaceIntegration[]
   supportTickets               SupportTicket[]
   subscription                 Subscription?
+  billingProfile               WorkspaceBillingProfile?
   usageCounters                UsageCounter[]
   invitations                  Invitation[]
   clusters                     Cluster[]
@@ -885,6 +886,19 @@ model Invoice {
   status      String    @default("PAID")
   reference   String? // gateway payment id, for reconciliation
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// Business details printed on the workspace's invoices (Payments → Billing).
+model WorkspaceBillingProfile {
+  id           String    @id @default(cuid())
+  workspaceId  String    @unique
+  businessName String?
+  email        String?
+  address      String?
+  taxId        String? // GSTIN or other tax registration
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 // One row per gateway payment applied to a workspace. The unique paymentId is

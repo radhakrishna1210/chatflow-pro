@@ -194,17 +194,20 @@ export default function PaymentsView({ initialTab } = {}) {
     loadWallet();
     window._reloadWallet = loadWallet;
 
-    // 2. Billing details (still local until a billing backend exists)
-    const savedBilling = localStorage.getItem('ChatFlow Pro_billing_details');
-    if (savedBilling) {
-      try {
-        const parsed = JSON.parse(savedBilling);
-        setBizName(parsed.bizName || '');
-        setBizEmail(parsed.bizEmail || '');
-        setBizAddress(parsed.bizAddress || '');
-        setGstNum(parsed.gstNum || '');
-      } catch {}
-    }
+    // 2. Billing details, stored per workspace on the server. The old
+    // browser-only copy is dropped: it never reached invoices and leaked to
+    // whoever signed in next on the same machine.
+    try { localStorage.removeItem('ChatFlow Pro_billing_details'); } catch {}
+    wFetch('/subscription/billing-profile')
+      .then(r => (r.ok ? r.json() : null))
+      .then(p => {
+        if (!p) return;
+        setBizName(p.businessName || '');
+        setBizEmail(p.email || '');
+        setBizAddress(p.address || '');
+        setGstNum(p.taxId || '');
+      })
+      .catch(() => {});
 
     loadAddons();
 
@@ -384,11 +387,28 @@ export default function PaymentsView({ initialTab } = {}) {
     }
   };
 
-  const handleSaveBilling = () => {
-    const data = { bizName, bizEmail, bizAddress, gstNum };
-    localStorage.setItem('ChatFlow Pro_billing_details', JSON.stringify(data));
-    setSaveStatus('success');
-    setTimeout(() => setSaveStatus(''), 2000);
+  const [billingError, setBillingError] = useState('');
+  const handleSaveBilling = async () => {
+    if (saveStatus === 'saving') return;
+    setBillingError('');
+    setSaveStatus('saving');
+    try {
+      const res = await wFetch('/subscription/billing-profile', {
+        method: 'PUT',
+        body: JSON.stringify({ businessName: bizName, email: bizEmail, address: bizAddress, taxId: gstNum }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      setBizName(data.businessName || '');
+      setBizEmail(data.email || '');
+      setBizAddress(data.address || '');
+      setGstNum(data.taxId || '');
+      setSaveStatus('success');
+      setTimeout(() => setSaveStatus(''), 2000);
+    } catch (e) {
+      setBillingError(e.message || 'Could not save billing details');
+      setSaveStatus('');
+    }
   };
 
   // The "Add Money" buttons on the wallet banners jump here. Switching to the
@@ -680,9 +700,13 @@ export default function PaymentsView({ initialTab } = {}) {
         </div>
       </div>
 
+      {billingError && (
+        <p style={{ fontSize: 12.5, color: '#f87171' }}>{billingError}</p>
+      )}
+
       {isAdmin && <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--bd)', paddingTop: 16 }}>
-        <Btn onClick={handleSaveBilling} style={{ boxShadow: 'var(--glow)' }}>
-          {saveStatus === 'success' ? 'Details Saved!' : 'Save Details'}
+        <Btn onClick={handleSaveBilling} disabled={saveStatus === 'saving'} style={{ boxShadow: 'var(--glow)' }}>
+          {saveStatus === 'success' ? 'Details Saved!' : saveStatus === 'saving' ? 'Saving…' : 'Save Details'}
         </Btn>
       </div>}
       </div>

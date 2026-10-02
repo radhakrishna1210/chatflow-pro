@@ -5,6 +5,7 @@ import {
 } from '../services/subscription.service.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import * as addons from '../services/addons.service.js';
+import * as billingProfile from '../services/billingProfile.service.js';
 
 export async function getSummary(req, res) {
   const workspaceId = req.params.workspaceId;
@@ -67,6 +68,14 @@ export async function updateSubscription(req, res) {
 // POST /subscription/renew — pay an overdue or expired renewal from the wallet now.
 export async function renewNow(req, res) {
   res.json(await renewSubscriptionNow(req.params.workspaceId));
+}
+
+export async function getBillingProfile(req, res) {
+  res.json(await billingProfile.getBillingProfile(req.params.workspaceId));
+}
+
+export async function saveBillingProfile(req, res) {
+  res.json(await billingProfile.saveBillingProfile(req.params.workspaceId, req.body));
 }
 
 // ─── Add-ons ─────────────────────────────────────────────────────────────────
