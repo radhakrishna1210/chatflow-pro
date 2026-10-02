@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 
 // Keeps Tab/Shift+Tab cycling within a modal instead of escaping to the page
-// behind it, and auto-focuses the first focusable element when it opens.
+// behind it, and moves focus into it when it opens — unless something inside
+// already took focus (an autoFocus input), which is the better target.
 export const useFocusTrap = (containerRef, isActive) => {
   useEffect(() => {
     if (!isActive || !containerRef.current) return;
@@ -9,8 +10,6 @@ export const useFocusTrap = (containerRef, isActive) => {
     const focusable = () => container.querySelectorAll(
       'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])'
     );
-    const first = () => { const els = focusable(); return els[0]; };
-    const last  = () => { const els = focusable(); return els[els.length - 1]; };
     const onKeyDown = (e) => {
       if (e.key !== 'Tab') return;
       const els = focusable();
@@ -22,8 +21,11 @@ export const useFocusTrap = (containerRef, isActive) => {
       }
     };
     container.addEventListener('keydown', onKeyDown);
-    // Auto-focus first focusable element when trap activates.
-    requestAnimationFrame(() => { const f = first(); if (f) f.focus(); });
-    return () => container.removeEventListener('keydown', onKeyDown);
+    const raf = requestAnimationFrame(() => {
+      if (container.contains(document.activeElement)) return;
+      const f = focusable()[0];
+      if (f) f.focus();
+    });
+    return () => { cancelAnimationFrame(raf); container.removeEventListener('keydown', onKeyDown); };
   }, [isActive, containerRef]);
 };
