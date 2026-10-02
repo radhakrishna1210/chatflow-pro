@@ -2,6 +2,7 @@ import { parse } from 'csv-parse/sync';
 import { prisma } from '../lib/prisma.js';
 import { normalizePhone, isValidPhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
+import { assertContactCapacity } from './subscription.service.js';
 
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST'];
 
@@ -162,6 +163,8 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
       notes: mapping.notes ? String(record[mapping.notes] || '').trim() || null : null,
     });
   }
+
+  await assertContactCapacity(workspaceId, { phoneNumbers: candidates.map((c) => c.phoneNumber) });
 
   let contactsCreated = 0;
   let leadsCreated = 0;

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { assertContactCapacity } from './subscription.service.js';
 
 // List all segments for a workspace. Contacts are capped per segment and a
 // _count is included, so a 10k-contact segment no longer ships 10k rows on
@@ -80,6 +81,7 @@ export async function addContactToSegment(workspaceId, segmentId, contactData) {
         await prisma.contact.update({ where: { id: existing.id }, data: { name: contactData.name } });
       }
     } else {
+      await assertContactCapacity(workspaceId);
       const newContact = await prisma.contact.create({ data: { workspaceId, name: contactData.name || null, phoneNumber, email: contactData.email || null, tags: contactData.tags || [] } });
       contactId = newContact.id;
     }

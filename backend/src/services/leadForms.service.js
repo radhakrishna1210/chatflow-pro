@@ -4,6 +4,7 @@ import { isValidPhone, normalizePhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
+import { hasContactCapacity } from './subscription.service.js';
 
 
 // Public lead-capture forms.
@@ -280,6 +281,10 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   }
 
   if (!contact) {
+    if (!(await hasContactCapacity(workspaceId))) {
+      await record('REJECTED', 'Plan contact limit reached');
+      return { ok: true, message: form.successMessage };
+    }
     contact = await prisma.contact.create({
       data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [] },
     });

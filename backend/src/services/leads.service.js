@@ -8,6 +8,7 @@ import { scopeFilter } from './recordScope.service.js';
 import { awardXp, unlockAchievement } from './gamification.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { getSection } from './crmCustomization.service.js';
+import { assertContactCapacity } from './subscription.service.js';
 
 export const PRISMA_LEAD_STATUSES = new Set(['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST']);
 
@@ -279,6 +280,7 @@ export async function createLead(workspaceId, body) {
     }
     const phoneNumber = normalizePhone(body.phoneNumber);
     const existing = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
+    if (!existing) await assertContactCapacity(workspaceId);
     contactId = existing
       ? existing.id
       : (await prisma.contact.create({

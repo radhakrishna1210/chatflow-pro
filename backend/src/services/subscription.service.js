@@ -198,6 +198,38 @@ export async function assertWithinLimit(workspaceId, kind, { additional = 1, mes
   }
 }
 
+// The single plan contact-limit gate for every path that creates CRM contacts
+// (contacts, leads, lead forms, imports, segments). Pass `phoneNumbers` for a
+// batch: only numbers not already in the workspace count against the limit.
+export async function assertContactCapacity(workspaceId, { phoneNumbers = null, message } = {}) {
+  let additional = 1;
+  if (Array.isArray(phoneNumbers)) {
+    const unique = [...new Set(phoneNumbers.filter(Boolean))];
+    if (unique.length === 0) return;
+    const existing = await prisma.contact.count({ where: { workspaceId, phoneNumber: { in: unique } } });
+    additional = unique.length - existing;
+    if (additional <= 0) return;
+  }
+  await assertWithinLimit(workspaceId, 'contact', {
+    additional,
+    message: message ?? (additional > 1
+      ? `This would add ${additional} new contacts, which exceeds your plan's contact limit. Upgrade your plan or reduce the import size.`
+      : undefined),
+  });
+}
+
+// Non-throwing form for callers that must not fail the request (e.g. a public
+// lead form records a rejected submission instead).
+export async function hasContactCapacity(workspaceId) {
+  try {
+    await assertContactCapacity(workspaceId);
+    return true;
+  } catch (err) {
+    if (err.code === 'PLAN_LIMIT_REACHED') return false;
+    throw err;
+  }
+}
+
 export async function hasFeature(workspaceId, flag) {
   const { plan } = await getActiveSubscription(workspaceId);
   return !!plan.features?.[flag];
