@@ -155,11 +155,12 @@ const OWNER_SEAT = 1;
 
 // `ignoreInvitationId` excludes the invitation currently being accepted: it is
 // still PENDING at check time, and the member row it becomes must not be
-// counted twice.
-async function countTeamSeats(workspaceId, { ignoreInvitationId = null } = {}) {
+// counted twice. `db` lets a caller count inside its own transaction (one that
+// holds the workspace row lock, see invitations.service.js).
+async function countTeamSeats(workspaceId, { ignoreInvitationId = null, db = prisma } = {}) {
   const [members, pendingInvites] = await Promise.all([
-    prisma.workspaceMember.count({ where: { workspaceId } }),
-    prisma.invitation.count({
+    db.workspaceMember.count({ where: { workspaceId } }),
+    db.invitation.count({
       where: {
         workspaceId,
         status: 'PENDING',
