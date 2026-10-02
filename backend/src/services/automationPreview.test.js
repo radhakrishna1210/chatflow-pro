@@ -101,3 +101,12 @@ test('a wait_reply keeps a reminder only when both the delay and the text are us
   assert.equal(nodes[4].remindAfter, undefined);
   assert.equal(nodes[5].remindAfter, undefined);
 });
+
+test('what the generator produces passes the save-time workflow validation', async () => {
+  const { workflowNodesSchema } = await import('../validators/workflowNodes.js');
+  for (const prompt of ['When someone asks about a refund, ask for their order ID then hand to support', 'track my order', 'hello']) {
+    const preview = __testing.fallbackWorkflowPreview(prompt);
+    const parsed = workflowNodesSchema.safeParse(preview.nodes);
+    assert.equal(parsed.success, true, `${prompt}: ${parsed.error?.issues?.[0]?.message}`);
+  }
+});

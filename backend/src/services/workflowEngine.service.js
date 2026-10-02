@@ -3,14 +3,14 @@ import { keywordMatches } from './automation.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { evaluateCondition, skipCount, renderTemplate, tidy, CONDITION_SUBTYPES } from './workflowConditions.js';
 import { INTERACTIVE_LIMITS } from '../lib/meta.js';
+// One limit for the save-time validator and the runtime.
+import { MAX_ACTIONS } from './workflowGraph.js';
 
 // The Workflows tab used to be a drawing surface: workflows were saved,
 // toggled active, and never executed by anything. This is the interpreter that
 // makes them real. It runs the same node shape the builder produces —
 // { id, type: 'trigger'|'action', subtype, value } — because that's what's
 // already persisted in Workflow.nodes for every existing workspace.
-
-const MAX_ACTIONS = 20;
 
 const ACTIVE_STATUSES = ['RUNNING', 'WAITING'];
 

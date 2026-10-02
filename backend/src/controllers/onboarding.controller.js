@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { llmText, llmJson } from '../lib/llm.js';
 import { generateTemplateDraft } from '../services/templateAi.service.js';
 import { createWorkflow } from '../services/workflow.service.js';
+import { generateWorkflowPreview } from '../services/automation.service.js';
 import { hasFeature } from '../services/subscription.service.js';
 
 // ─── Intent detection ─────────────────────────────────────────────────────────
@@ -57,87 +58,6 @@ function draftToComponents(draft) {
   components.push(body);
   if (draft.footer) components.push({ type: 'FOOTER', text: draft.footer });
   return components;
-}
-
-// Generate a WhatsApp template body from the user's real prompt. Falls back to a
-// context-aware (not generic) draft when no LLM is configured.
-async function generateTemplateBody(prompt) {
-  const system = `You are an expert WhatsApp copywriter. Write ONE concise, friendly, high-converting WhatsApp template body for the user's use case. Use {{1}} for the recipient's name and {{2}}, {{3}} for other dynamic values where natural. Reply with ONLY the message text — no quotes, no explanations.`;
-  const body = await llmText(`Write a WhatsApp template for: ${prompt}`, system);
-  if (body) return body.replace(/^["']|["']$/g, '').trim();
-
-  // Deterministic, prompt-aware fallback (no LLM available).
-  const p = prompt.toLowerCase();
-  if (p.includes('cart') || p.includes('abandon'))
-    return 'Hi {{1}}, you left items in your cart! Complete your order now and use code {{2}} for a special discount. Reply STOP to opt out.';
-  if (p.includes('diwali') || p.includes('sale') || p.includes('offer') || p.includes('discount'))
-    return 'Hi {{1}}! 🎉 Our special sale is live — get {{2}} off your favourites. Shop now: {{3}}. Reply STOP to opt out.';
-  if (p.includes('appointment') || p.includes('reminder') || p.includes('booking'))
-    return 'Hi {{1}}, this is a reminder for your appointment on {{2}} at {{3}}. Reply CONFIRM to confirm or CANCEL to reschedule.';
-  if (p.includes('welcome') || p.includes('onboard'))
-    return 'Welcome, {{1}}! 👋 Thanks for joining us. We\'re here to help — reply to this message any time with questions.';
-  if (p.includes('order') || p.includes('shipping') || p.includes('delivery'))
-    return 'Hi {{1}}, your order {{2}} has been {{3}}! Track it here: {{4}}. Thank you for shopping with us.';
-  return `Hi {{1}}, ${prompt.trim()}. Reply STOP to opt out.`;
-}
-
-// The only subtypes workflowEngine understands. Anything else is saved as an
-// ACTIVE workflow that can never fire — triggerFires() returns false for an
-// unknown trigger subtype, and an unknown action is skipped at run time — so
-// the model's output is clamped to these rather than trusted.
-const ALLOWED_TRIGGER_SUBTYPES = new Set(['keyword', 'welcome', 'missed']);
-const ALLOWED_ACTION_SUBTYPES = new Set(['message', 'delay', 'tag', 'agent']);
-
-// Build a workflow (trigger + action steps) from the user's description.
-async function generateWorkflowSpec(prompt) {
-  const system = `Design a simple WhatsApp automation as JSON: {"name": string, "nodes": [{"type":"trigger"|"action","subtype":string,"value":string}]}.
-trigger subtypes: keyword, welcome, missed. action subtypes: message, delay, tag, agent.
-Use those subtype words exactly — no other values are accepted.
-A "keyword" trigger's value is ONE uppercase word a customer would actually send (HELP, BOOK, PRICE); "welcome" and "missed" take an empty value.
-Start with exactly one trigger, then 1-3 actions. Reply with ONLY the JSON.`;
-  const spec = await llmJson(`Automation for: ${prompt}`, system);
-  const nodes = Array.isArray(spec?.nodes) ? spec.nodes : [];
-
-  // A trigger with no action after it isn't a workflow, so fall through to the
-  // deterministic build rather than saving a stub.
-  const triggerRaw = nodes.find((n) => n?.type === 'trigger');
-  const actionsRaw = nodes.filter((n) => n?.type !== 'trigger');
-  if (triggerRaw && actionsRaw.length) {
-    let triggerSubtype = String(triggerRaw.subtype || 'keyword').toLowerCase();
-    if (!ALLOWED_TRIGGER_SUBTYPES.has(triggerSubtype)) triggerSubtype = 'keyword';
-
-    const built = [{
-      id: 'step_1',
-      type: 'trigger',
-      subtype: triggerSubtype,
-      value: triggerSubtype === 'keyword'
-        ? (String(triggerRaw.value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20)
-           || prompt.match(/\b([a-z]{3,})\b/i)?.[1]?.toUpperCase() || 'HELP')
-        : '',
-    }];
-
-    for (const n of actionsRaw) {
-      if (built.length >= 5) break;
-      let subtype = String(n?.subtype || 'message').toLowerCase();
-      if (!ALLOWED_ACTION_SUBTYPES.has(subtype)) subtype = 'message';
-      const value = String(n?.value || '').trim().slice(0, 900);
-      if (!value) continue;
-      built.push({ id: `step_${built.length + 1}`, type: 'action', subtype, value });
-    }
-
-    if (built.length >= 2) return { name: String(spec.name || 'AI Workflow').slice(0, 80), nodes: built };
-  }
-
-  // Deterministic fallback: keyword trigger → auto reply.
-  const kw = (prompt.match(/\b([a-z]{3,})\b/i)?.[1] || 'hello').toUpperCase();
-  const body = await generateTemplateBody(prompt);
-  return {
-    name: `${kw} auto-reply`.slice(0, 80),
-    nodes: [
-      { id: 'step_1', type: 'trigger', subtype: 'keyword', value: kw },
-      { id: 'step_2', type: 'action', subtype: 'message', value: body },
-    ],
-  };
 }
 
 // ─── Campaign planning ────────────────────────────────────────────────────────
@@ -241,16 +161,33 @@ export const chatWithAi = async (req, res) => {
       const intent = await detectIntent(text);
 
       if (intent === 'CREATE_WORKFLOW') {
-        // Build a REAL workflow via the workflow service — no fake success.
-        const spec = await generateWorkflowSpec(text);
-        const wf = await createWorkflow(workspaceId, { name: spec.name, nodes: spec.nodes, edges: [], isActive: true });
+        // Built by the same generator as Automation → Workflows → Create with
+        // AI, and saved inactive: a workflow messages customers, so it starts
+        // only once someone has read its steps and switched it on.
+        const spec = await generateWorkflowPreview(workspaceId, text);
+        if (!Array.isArray(spec?.nodes)) {
+          responseText = 'To build automations from a website, open Automation → Workflows → Create with AI and paste the URL there.';
+          state = { step: 'IDLE' };
+          await save();
+          return res.json({ content: responseText, card });
+        }
+        let wf;
+        try {
+          wf = await createWorkflow(workspaceId, { name: spec.name || 'AI workflow', nodes: spec.nodes, isActive: false });
+        } catch (err) {
+          if (err.status !== 400) throw err;
+          responseText = `I could not build that automation: ${err.message} Try describing it differently, or build it in Automation → Workflows.`;
+          state = { step: 'IDLE' };
+          await save();
+          return res.json({ content: responseText, card });
+        }
         const triggerStep = spec.nodes.find((n) => n.type === 'trigger');
         // This used to also register a shadow AutomationTrigger, because the
         // Workflows tab was inert and a workflow alone would never have fired.
         // The inbound handler runs workflows directly now, so the duplicate is
         // gone — it would only have made the workflow harder to edit later.
-        responseText = `Done — I built the "${wf.name}" automation and activated it. ${triggerStep?.subtype === 'keyword' ? `When someone messages "${triggerStep.value}", it will reply automatically.` : 'You can review and edit it under Automation → Workflows.'}`;
-        card = { title: 'Workflow Created', icon: '⚙️', details: { name: wf.name, steps: spec.nodes.length, status: 'ACTIVE' } };
+        responseText = `Done — I built the "${wf.name}" automation as a draft. Review it under Automation → Workflows and switch it on when it looks right${triggerStep?.subtype === 'keyword' ? ` — it will then reply when someone messages "${triggerStep.value}"` : ''}.`;
+        card = { title: 'Workflow Drafted', icon: '⚙️', details: { name: wf.name, steps: spec.nodes.length, status: 'INACTIVE' } };
         state = { step: 'IDLE' };
         await save();
         return res.json({ content: responseText, card });
