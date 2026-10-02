@@ -281,13 +281,26 @@ export function toolCatalogue() {
  * calls, so it is the place where "the model asked to write" has to fail
  * closed, regardless of what the loop believes it is doing.
  */
+// The model never sees the person's user id, so it writes "me" where one is
+// wanted; this swaps it for the real id of whoever is asking.
+export function resolveMe(args, user) {
+  if (!args || typeof args !== 'object' || !user?.id) return args;
+  const out = { ...args };
+  for (const [key, value] of Object.entries(out)) {
+    if (/userid$|^ownerid$/i.test(key) && typeof value === 'string' && value.trim().toLowerCase() === 'me') {
+      out[key] = user.id;
+    }
+  }
+  return out;
+}
+
 export async function runReadTool(name, { workspaceId, user, args = {} }) {
   const tool = TOOLS[name];
   if (!tool) throw Object.assign(new Error(`Unknown tool "${name}"`), { status: 400 });
   if (tool.kind !== 'read') {
     throw Object.assign(new Error(`"${name}" changes data and cannot be run without confirmation`), { status: 403 });
   }
-  return tool.run({ workspaceId, user, args });
+  return tool.run({ workspaceId, user, args: resolveMe(args, user) });
 }
 
 /**
@@ -300,5 +313,5 @@ export async function runWriteTool(name, { workspaceId, user, args = {} }) {
   if (tool.kind !== 'write') {
     throw Object.assign(new Error(`"${name}" is not a write tool`), { status: 400 });
   }
-  return tool.execute({ workspaceId, user, args });
+  return tool.execute({ workspaceId, user, args: resolveMe(args, user) });
 }

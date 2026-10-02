@@ -134,6 +134,11 @@ model Workspace {
   suspended       Boolean @default(false)
   suspendedReason String?
 
+  // Whether the autonomous CRM agent (agent.worker sweep/tick) may book and
+  // work tasks in this workspace. Defaults on, which is how it behaved before
+  // the switch existed.
+  autonomousAgentEnabled Boolean @default(true)
+
   walletBalance Decimal @default(0) @db.Decimal(12, 2)
 
   // What one campaign message costs this workspace, in the wallet's currency

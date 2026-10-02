@@ -85,8 +85,13 @@ const Pill = ({ children, tone = 'green' }) => (
 // ── SUB-TABS ──
 // Tabs promoted to first-class sidebar destinations (see NAV_GROUPS in
 // Dashboard.jsx). Keep in step with the routes there.
+//
+// 'wa-agent' is deliberately not listed: /dashboard/ai-agent renders the AI
+// Agents studio, not this tab, so routing the tab there made the WhatsApp AI
+// Agent (the only screen with deploy and knowledge upload) unreachable from
+// navigation. It stays at /dashboard/automation?tab=wa-agent, which the studio
+// links to.
 const TAB_ROUTES = {
-  'wa-agent':  '/dashboard/ai-agent',
   'ai-intent': '/dashboard/intent-matching',
 };
 
@@ -2077,7 +2082,7 @@ const CAMPAIGN_TONE = {
 const AGENT_SECTIONS = [
   { id: 'identity',    icon: 'user',   label: 'Identity',          kicker: 'Identity & tone',        blurb: 'How the agent introduces itself and speaks to customers.' },
   { id: 'purpose',     icon: 'spark',  label: 'Purpose',           kicker: 'What it is for',         blurb: 'The job this agent exists to do. Given to the model as standing context.' },
-  { id: 'knowledge',   icon: 'db',     label: 'Knowledge',         kicker: 'Knowledge sources',      blurb: 'What the agent is allowed to know. It answers only from these.' },
+  { id: 'knowledge',   icon: 'db',     label: 'Knowledge',         kicker: 'Knowledge sources',      blurb: 'What the agent knows. It answers from the notes and documents added here.' },
   { id: 'instructions',icon: 'note',   label: 'Instructions',      kicker: 'Answering rules',        blurb: 'How to answer — length, formatting, what to do when unsure.' },
   { id: 'campaign',    icon: 'send',   label: 'Campaign awareness',kicker: 'Campaigns using it',     blurb: 'Where this agent is attached, and what it answers about there.' },
   { id: 'escalation',  icon: 'wflow',  label: 'Escalation',        kicker: 'Escalation & handoff',   blurb: 'When the agent steps back and brings in a human.' },
@@ -2161,11 +2166,10 @@ const WhatsAppAIAgentTab = () => {
   }), []);
   useEffect(() => { load(); }, [load]);
 
-  // Structured knowledge sources are the workspace's one corpus — the same
-  // rows the website widget indexes. Surfacing them here rather than giving the
-  // agent a private second knowledge base is deliberate: two corpora that
-  // disagree is how an agent and a widget end up quoting different return
-  // policies.
+  // Structured knowledge sources are the rows the website widget indexes. They
+  // are listed here so the corpus is visible in one place, but the WhatsApp
+  // agent's replies do not retrieve from them yet (only the notes column), and
+  // the panel says so.
   const loadSources = useCallback(() => wJson('/widgets/knowledge').then(r => {
     if (r.ok && Array.isArray(r.data)) setSources(r.data);
   }), []);
@@ -2410,15 +2414,17 @@ const WhatsAppAIAgentTab = () => {
               <div>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:10, flexWrap:'wrap' }}>
                   <span style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:'var(--t3)' }}>
-                    Connected sources · {sources.length}
+                    Website widget sources · {sources.length}
                   </span>
                 </div>
 
-                {sources.length === 0 && (
-                  <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.6, marginBottom:12 }}>
-                    Nothing connected yet. Add your website, product pages or a policy page and the agent can answer from them.
-                  </p>
-                )}
+                {/* The WhatsApp agent's prompt is built from the notes below
+                    only; nothing retrieves from these indexed sources yet, so
+                    they are labelled for what they actually feed. */}
+                <p style={{ fontSize:12, color:'#fbbf24', lineHeight:1.6, marginBottom:12 }}>
+                  These sources feed the website widget assistant. The WhatsApp AI agent does not read them yet — put the facts it
+                  needs in the notes below, or upload a document there.
+                </p>
 
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                   {sources.map(src => {
@@ -2454,9 +2460,6 @@ const WhatsAppAIAgentTab = () => {
                     {addingSource ? 'Reading…' : 'Add source'}
                   </Btn>
                 </div>
-                <p style={{ fontSize:11, color:'var(--t3)', marginTop:7, lineHeight:1.5 }}>
-                  Shared with the website widget — one corpus, so the agent and the widget can never quote different policies.
-                </p>
               </div>
 
               {/* The inline base stays: it is what short, hand-written facts
@@ -2557,19 +2560,13 @@ const WhatsAppAIAgentTab = () => {
 
           {section === 'escalation' && (
             <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
-              <div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8, flexWrap: 'wrap', rowGap: 10 }}>
-                  <label htmlFor="esc-threshold" style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>Confidence threshold for handoff</label>
-                  <span style={{ fontFamily:'var(--mono)', fontSize:14, fontWeight:700, color:'var(--accent)' }}>{Math.round(escThreshold * 100)}%</span>
-                </div>
-                <input id="esc-threshold" type="range" min="0.3" max="0.95" step="0.05" value={escThreshold}
-                  onChange={e => setEscThreshold(parseFloat(e.target.value))}
-                  style={{ width:'100%', accentColor:'var(--green)' }} />
-                <p style={{ fontSize:12, color:'var(--t2)', marginTop:9, lineHeight:1.6 }}>
-                  Below {Math.round(escThreshold * 100)}% confidence, or on any of the intents below, the agent stops answering
-                  and hands the conversation to a human in the shared inbox.
-                </p>
-              </div>
+              {/* A confidence-threshold slider used to sit here. The agent
+                  produces no confidence score, so the stored threshold was
+                  never read; only the rules below decide a handoff. */}
+              <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.6 }}>
+                When a message matches any rule switched on below, the agent stops answering and hands the conversation to a
+                human in the shared inbox.
+              </p>
 
               <div>
                 <div style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:'var(--t3)', marginBottom:10 }}>Always escalate on</div>

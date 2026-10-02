@@ -52,11 +52,15 @@ const normaliseEscalationRules = (value) => {
 // weights say what actually breaks an answer: an agent with no knowledge source
 // invents things, an agent that is never deployed answers nobody. Purpose and
 // instructions are polish by comparison.
-function readiness({ ws, knowledgeSourceCount, intentRuleCount }) {
+//
+// Knowledge counts only what the agent is actually given: the aiAgentKnowledge
+// notes (typed or uploaded). Indexed KnowledgeSource rows feed the website
+// widget, not this agent's prompt, so they do not make it "ready".
+export function readiness({ ws, intentRuleCount }) {
   const checks = [
     { id: 'identity',     label: 'Give the agent a name and a persona',        weight: 15, done: !!(ws.aiAgentName || '').trim() && (ws.aiAgentPrompt || '').trim().length > 30 },
     { id: 'purpose',      label: 'Describe what the agent is for',             weight: 10, done: (ws.aiAgentPurpose || '').trim().length > 10 },
-    { id: 'knowledge',    label: 'Connect at least one knowledge source',      weight: 25, done: knowledgeSourceCount > 0 || (ws.aiAgentKnowledge || '').trim().length > 40 },
+    { id: 'knowledge',    label: 'Add knowledge notes or upload a document',   weight: 25, done: (ws.aiAgentKnowledge || '').trim().length > 40 },
     { id: 'instructions', label: 'Add answering instructions',                 weight: 10, done: (ws.aiAgentInstructions || '').trim().length > 10 },
     { id: 'routing',      label: 'Add an intent so routing is not guesswork',  weight: 10, done: intentRuleCount > 0 },
     { id: 'escalation',   label: 'Choose when a human takes over',             weight: 10, done: ws.escalationRules != null },
@@ -141,7 +145,7 @@ export async function getAgentConfig(workspaceId) {
     llmAvailable: llmAvailable(),
     knowledgeSourceCount,
     intentRuleCount,
-    readiness: readiness({ ws, knowledgeSourceCount, intentRuleCount }),
+    readiness: readiness({ ws, intentRuleCount }),
   };
 }
 
