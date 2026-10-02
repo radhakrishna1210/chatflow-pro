@@ -78,6 +78,11 @@ const envSchema = z.object({
   // another worker reclaims it. Lower it if faster recovery matters more than
   // request volume.
   WORKER_STALLED_INTERVAL_MS: z.coerce.number().default(300_000),
+  // Whether this process runs the BullMQ workers, repeatable schedules, boot
+  // recovery/backfills and the billing sweep. Every deployment that shares a
+  // database must agree on exactly one owner, or scheduled campaigns, renewals
+  // and agent ticks run once per deployment (DEPLOY.md, "One worker owner").
+  RUN_WORKERS: z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1'),
 
   CAMPAIGN_BATCH_SIZE: z.coerce.number().default(50),
   CAMPAIGN_WORKER_CONCURRENCY: z.coerce.number().default(2),

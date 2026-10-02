@@ -42,6 +42,14 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
+      # Background-work owner. This Postgres is shared with the Hostinger VPS
+      # (deploy-vps.sh), and each stack that runs workers re-queues scheduled
+      # campaigns, runs the billing sweep and ticks the agent on its own.
+      # Exactly ONE stack may run them: set "false" on the other one, and give
+      # both the same REDIS_URL so jobs the non-owner enqueues still get
+      # processed. "true" here keeps the behaviour from before the flag.
+      - key: RUN_WORKERS
+        value: "true"
       - key: PORT
         value: "10000" # Render's default injected port
 

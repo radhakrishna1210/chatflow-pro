@@ -159,6 +159,21 @@ refresh.
 
 ## Things that will bite you
 
+**One worker owner per database (`RUN_WORKERS`).** Render (`render.yaml`) and the
+Hostinger VPS (`deploy-vps.sh`) both point at the same Postgres. A process with
+`RUN_WORKERS=true` (the default) starts every BullMQ worker, registers the
+repeatable schedules, re-queues scheduled campaigns and pending retries, runs
+the plan upsert/subscription backfill and the billing-cycle sweep. Two such
+processes on one database means double campaign recovery, double renewal
+sweeps and double agent ticks — BullMQ's job-id dedupe only works inside one
+Redis. **Decision for the operator:** pick the stack that owns background work,
+keep `RUN_WORKERS=true` there and set `RUN_WORKERS=false` on the other (the
+`render.yaml` env var, or the `RUN_WORKERS` default at the top of
+`deploy-vps.sh`, which overrides `backend/.env`). Then point **both** stacks at
+the owner's `REDIS_URL`, otherwise the jobs the other stack enqueues (campaign
+launches, invite e-mails, workflow resumes) land in a Redis no worker reads.
+Simplest of all is to retire one of the stacks.
+
 **Don't put the queues back on a per-request-billed Redis.** This deploy ran on
 Upstash first and its 500K/month cap was exhausted (`ERR max requests limit
 exceeded`), which stopped campaigns, emails, and the billing sweep while the API

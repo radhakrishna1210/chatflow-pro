@@ -254,7 +254,9 @@ async function main() {
     // Before anything reads a credential: platform keys stored in the database
     // override the environment, and every client below is built from `env`.
     await loadPlatformSettings();
-    await initializeSubscriptions();
+    // The plan upsert and subscription backfill write to the shared database,
+    // so only the process that owns background work runs them.
+    if (env.RUN_WORKERS) await initializeSubscriptions();
   } catch (err) {
     console.error('[DB] Post-connect initialization failed:', err.message);
   }
@@ -265,9 +267,11 @@ async function main() {
   // the only reader and it degrades to lexical search on a partial index.
   // Holding the listen() call behind it would delay every other route on a
   // slow or rate-limited embedding provider.
-  syncSiteKnowledge().catch((err) => {
-    console.error('[siteKnowledge] initial index sync failed:', err.message);
-  });
+  if (env.RUN_WORKERS) {
+    syncSiteKnowledge().catch((err) => {
+      console.error('[siteKnowledge] initial index sync failed:', err.message);
+    });
+  }
 
   // Redis backs every queue, so production must not start without it — a
   // server that accepts campaign launches it can never process is worse than
@@ -299,7 +303,11 @@ async function main() {
     console.warn('');
   }
 
-  if (redisReady) {
+  if (!env.RUN_WORKERS) {
+    console.log('[Worker] RUN_WORKERS=false — workers, schedules, recovery and sweeps are left to the owning deployment.');
+  }
+
+  if (redisReady && env.RUN_WORKERS) {
     campaignWorker = startCampaignWorker();
     console.log('[Worker] Campaign worker started');
     emailWorker = startEmailWorker();
@@ -357,13 +365,15 @@ async function main() {
   // Run the overdue-subscription sweep once immediately on boot, so cycles
   // missed while the server was down are caught up without waiting for the
   // next 02:00 tick — mirrors recoverScheduledCampaigns() above.
-  try {
-    const result = await runBillingCycleSweep();
-    if (result.processed > 0) {
-      console.log(`[Recovery] Billing cycle sweep: processed=${result.processed} renewed=${result.renewed} cancelled=${result.cancelled} failed=${result.failed}`);
+  if (env.RUN_WORKERS) {
+    try {
+      const result = await runBillingCycleSweep();
+      if (result.processed > 0) {
+        console.log(`[Recovery] Billing cycle sweep: processed=${result.processed} renewed=${result.renewed} cancelled=${result.cancelled} failed=${result.failed}`);
+      }
+    } catch (err) {
+      console.error('[Recovery] Billing cycle sweep failed:', err.message);
     }
-  } catch (err) {
-    console.error('[Recovery] Billing cycle sweep failed:', err.message);
   }
 
   httpServer = app.listen(env.PORT, () => {
