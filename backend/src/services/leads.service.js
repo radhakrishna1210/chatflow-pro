@@ -4,7 +4,7 @@ import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { validateCrmCustomFields } from './customFields.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
-import { scopeFilter } from './recordScope.service.js';
+import { scopeFilter, withScope } from './recordScope.service.js';
 import { awardXp, unlockAchievement } from './gamification.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { getSection } from './crmCustomization.service.js';
@@ -128,9 +128,8 @@ const LEAD_INCLUDE = {
 // exports that reuse them — is scoped by the same rule.
 export async function listLeads(workspaceId, { category = '', status = '', source = '', tag = '', ownerUserId = '', search = '', sort = 'score', preset = '', awaitingTask = false, uncontacted = false } = {}, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const where = {
+  const filters = {
     workspaceId,
-    ...scope,
     ...(category ? { category } : {}),
     ...(ownerUserId ? { ownerUserId } : {}),
     ...(source ? { source } : {}),
@@ -161,31 +160,35 @@ export async function listLeads(workspaceId, { category = '', status = '', sourc
 
   if (status) {
     if (PRISMA_LEAD_STATUSES.has(status)) {
-      where.OR = [
+      filters.OR = [
         { status, customFields: { equals: null } },
         { customFields: { path: ['statusKey'], equals: status } },
         { status, customFields: { path: ['statusKey'], equals: null } },
       ];
     } else {
-      where.customFields = { path: ['statusKey'], equals: status };
+      filters.customFields = { path: ['statusKey'], equals: status };
     }
   }
 
   if (preset === 'my' && user?.id) {
-    where.ownerUserId = user.id;
+    filters.ownerUserId = user.id;
   } else if (preset === 'hot') {
-    where.category = 'HOT';
+    filters.category = 'HOT';
   } else if (preset === 'warm') {
-    where.category = 'WARM';
+    filters.category = 'WARM';
   } else if (preset === 'cold') {
-    where.category = 'COLD';
+    filters.category = 'COLD';
   } else if (preset === 'awaiting_task' || awaitingTask) {
-    where.tasks = { none: { status: 'PENDING' } };
+    filters.tasks = { none: { status: 'PENDING' } };
   } else if (preset === 'uncontacted' || uncontacted) {
-    where.crmActivities = { none: {} };
+    filters.crmActivities = { none: {} };
   } else if (preset === 'opted_out') {
-    where.contact = { ...(where.contact || {}), optedOut: true };
+    filters.contact = { ...(filters.contact || {}), optedOut: true };
   }
+
+  // Scope goes in last and under AND: the status filter above sets `OR`,
+  // which used to overwrite the scope fragment and list every lead.
+  const where = withScope(filters, scope);
 
   const orderBy = sort === 'newest' ? { createdAt: 'desc' } : [{ score: 'desc' }, { createdAt: 'desc' }];
   const [data, total] = await Promise.all([

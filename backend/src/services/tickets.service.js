@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { scopeFilter } from './recordScope.service.js';
+import { scopeFilter, withScope } from './recordScope.service.js';
 import { awardXp } from './gamification.service.js';
 import { getSection } from './crmCustomization.service.js';
 
@@ -65,13 +65,12 @@ function viewFilter(view, userId) {
 
 export async function listTickets(workspaceId, { view = 'open', status = '', priority = '' } = {}, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const where = {
+  const where = withScope({
     workspaceId,
-    ...scope,
     ...viewFilter(view, user?.id),
     ...(status ? { status } : {}),
     ...(priority ? { priority } : {}),
-  };
+  }, scope);
 
   const [data, total] = await Promise.all([
     prisma.crmTicket.findMany({
@@ -228,14 +227,14 @@ export async function deleteTicket(workspaceId, id, user = null) {
 // the list can never disagree about what "overdue" means.
 export async function ticketCounts(workspaceId, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const base = { workspaceId, ...scope };
+  const base = { workspaceId };
 
   const [open, mine, unassigned, overdue, all] = await Promise.all([
-    prisma.crmTicket.count({ where: { ...base, ...viewFilter('open') } }),
-    prisma.crmTicket.count({ where: { ...base, ...viewFilter('mine', user?.id) } }),
-    prisma.crmTicket.count({ where: { ...base, ...viewFilter('unassigned') } }),
-    prisma.crmTicket.count({ where: { ...base, ...viewFilter('overdue') } }),
-    prisma.crmTicket.count({ where: base }),
+    prisma.crmTicket.count({ where: withScope({ ...base, ...viewFilter('open') }, scope) }),
+    prisma.crmTicket.count({ where: withScope({ ...base, ...viewFilter('mine', user?.id) }, scope) }),
+    prisma.crmTicket.count({ where: withScope({ ...base, ...viewFilter('unassigned') }, scope) }),
+    prisma.crmTicket.count({ where: withScope({ ...base, ...viewFilter('overdue') }, scope) }),
+    prisma.crmTicket.count({ where: withScope(base, scope) }),
   ]);
 
   return { open, mine, unassigned, overdue, all };

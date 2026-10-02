@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 
-// Record-level visibility for leads, deals and tasks.
+// Record-level visibility for leads, deals, tasks, tickets and everything
+// hanging off them (activities, line items, reports, segment audiences).
 //
 // §45 requires this to be enforced on the server, never by hiding UI. Every
 // list and every fetch-by-id runs through the same `where` fragment, so a
@@ -84,6 +85,29 @@ export async function scopeFilter(workspaceId, user, { ownerField = 'ownerUserId
 }
 
 /**
+ * ANDs a scope fragment into a `where`. The fragment is itself an `OR`, so
+ * spreading it beside a filter that also sets `OR` (a status or stage filter,
+ * a search) lets the filter silently replace it. Under `AND` nothing written to
+ * the rest of the `where` — before or after — can drop it.
+ */
+export function withScope(where, scope) {
+  if (!scope || Object.keys(scope).length === 0) return where;
+  const and = where.AND === undefined ? [] : Array.isArray(where.AND) ? where.AND : [where.AND];
+  return { ...where, AND: [...and, scope] };
+}
+
+/**
+ * `where` restricted to what `user` may see. A null user marks an internal
+ * caller (workflow engine, background job) and leaves `where` unscoped — the
+ * same convention every service already followed with `user ? scopeFilter : {}`.
+ * Route handlers must always pass `req.user`.
+ */
+export async function scopedWhere(workspaceId, user, where, { ownerField = 'ownerUserId' } = {}) {
+  if (!user) return where;
+  return withScope(where, await scopeFilter(workspaceId, user, { ownerField }));
+}
+
+/**
  * Throws 404 — not 403 — when a record exists but is out of scope.
  *
  * A 403 would confirm the record exists, letting someone enumerate ids to map
@@ -92,7 +116,7 @@ export async function scopeFilter(workspaceId, user, { ownerField = 'ownerUserId
 export async function assertInScope(workspaceId, user, model, id, { ownerField = 'ownerUserId' } = {}) {
   const filter = await scopeFilter(workspaceId, user, { ownerField });
   const found = await prisma[model].findFirst({
-    where: { id, workspaceId, ...filter },
+    where: withScope({ id, workspaceId }, filter),
     select: { id: true },
   });
   if (!found) {

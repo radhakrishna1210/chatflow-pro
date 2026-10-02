@@ -7,7 +7,7 @@ export async function list(req, res) {
 }
 
 export async function get(req, res) {
-  const result = await tasksService.getTask(req.params.workspaceId, req.params.id);
+  const result = await tasksService.getTask(req.params.workspaceId, req.params.id, req.user);
   res.json(result);
 }
 
@@ -17,11 +17,11 @@ export async function create(req, res) {
 }
 
 export async function update(req, res) {
-  const result = await tasksService.updateTask(req.params.workspaceId, req.params.id, req.body);
+  const result = await tasksService.updateTask(req.params.workspaceId, req.params.id, req.body, req.user);
   res.json(result);
 }
 
 export async function remove(req, res) {
-  await tasksService.deleteTask(req.params.workspaceId, req.params.id);
+  await tasksService.deleteTask(req.params.workspaceId, req.params.id, req.user);
   res.status(204).send();
 }
