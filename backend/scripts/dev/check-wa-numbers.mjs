@@ -1,4 +1,5 @@
-import { prisma } from "./src/lib/prisma.js";
+import '../require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
+import { prisma } from "../../src/lib/prisma.js";
 
 const rows = await prisma.waNumber.findMany({
   select: {

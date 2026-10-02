@@ -1157,7 +1157,7 @@ Their contents have not been invented or inferred.
 
 Searched every `.js`, `.jsx` and `.md` file for `paymentSummary`,
 `payment_summary` and `PaymentSummary`. The only match is inside
-`frontend/MS_Prompt.md` — the specification text itself.
+`docs/MS_Prompt.md` — the specification text itself.
 
 **No payment-summary contract exists in this codebase**, so there is no producer
 or consumer pair to verify and no rename regression to guard against. The

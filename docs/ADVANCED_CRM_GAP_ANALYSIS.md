@@ -1,7 +1,7 @@
 # Advanced CRM — Gap Analysis
 
 Companion to `ADVANCED_CRM_EXISTING_FEATURES.md`. Every capability named in
-`frontend/MS_Prompt.md`, with what exists today and what building it would actually take.
+`docs/MS_Prompt.md`, with what exists today and what building it would actually take.
 
 Effort key: **S** ≈ 1 day · **M** ≈ 2–4 days · **L** ≈ 1–2 weeks · **XL** ≈ 3+ weeks
 
