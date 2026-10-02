@@ -798,6 +798,22 @@ const reportConfig = z.object({
     source: z.string().trim().max(100).optional(),
   }).default({}),
 });
+const segmentFilters = {
+  category: z.enum(['HOT', 'WARM', 'COLD', 'ALL', '']).optional(),
+  source: z.string().trim().max(100).optional(),
+  // Custom lifecycle keys are valid statuses, so this stays a bounded string.
+  status: z.string().trim().max(50).optional(),
+};
+export const crmSalesInboxSchemas = {
+  audience: z.object({ ...segmentFilters, search: z.string().trim().max(100).optional() }),
+  launch: z.object({
+    ...segmentFilters,
+    name: z.string().trim().max(120).optional(),
+    templateId: id,
+    waNumberId: id,
+  }),
+};
+
 export const reportSchemas = {
   query: reportConfig.extend({
     range: z.enum(['7d', '30d', '90d', 'this_month', 'all']).default('30d'),
