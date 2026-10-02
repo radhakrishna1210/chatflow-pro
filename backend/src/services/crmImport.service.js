@@ -2,6 +2,7 @@ import { parse } from 'csv-parse/sync';
 import { prisma } from '../lib/prisma.js';
 import { normalizePhone, isValidPhone } from './contacts.service.js';
 import { getSection } from './crmCustomization.service.js';
+import { assertContactCapacity } from './subscription.service.js';
 
 // CONVERTED is left out on purpose: a converted lead points at the deal it
 // became, and an import cannot create that deal.
@@ -211,6 +212,8 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
       notes: mapping.notes ? String(record[mapping.notes] || '').trim() || null : null,
     });
   }
+
+  await assertContactCapacity(workspaceId, { phoneNumbers: candidates.map((c) => c.phoneNumber) });
 
   let contactsCreated = 0;
   let leadsCreated = 0;

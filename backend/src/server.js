@@ -74,8 +74,8 @@ async function initializeSubscriptions() {
       // the 2x ratio Free already carried against the paid tiers. Basic and
       // Growth leave this null and are charged cost (lib/messagePricing.js).
       overageRates: { MARKETING: 2.18, UTILITY: 0.32, AUTHENTICATION: 0.26 },
-      // Keep in sync with scripts/seed-plans.js — this list is upserted on
-      // every boot, so a change made only there would be overwritten.
+      // Keep in sync with scripts/seed-plans.js. Only used to create a plan
+      // that is missing; existing rows (and super-admin edits) are left alone.
       features: { automation: true, workflows: true },
     },
     // Basic carries the former Pro limits and features; Growth carries the
@@ -94,7 +94,7 @@ async function initializeSubscriptions() {
       overageRatePerMsg: 0.01,
       // null = charge cost: the shared per-category rates.
       overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true },
     },
     {
       key: 'GROWTH',
@@ -109,7 +109,7 @@ async function initializeSubscriptions() {
       apiKeyLimit: null,
       overageRatePerMsg: 0.008,
       overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true },
     },
   ];
 
@@ -126,13 +126,15 @@ async function initializeSubscriptions() {
     const planByKey = new Map();
     for (const plan of PLANS) {
       const { key, ...data } = plan;
+      // Insert-if-missing: overwriting here reverted every super-admin plan
+      // edit on each restart. Re-seed deliberately with seed-plans.js --force.
       const result = await prisma.plan.upsert({
         where: { key },
-        update: data,
+        update: {},
         create: { key, ...data },
       });
       planByKey.set(result.key, result);
-      console.log(`[Init] Upserted plan: ${result.key}`);
+      console.log(`[Init] Ensured plan: ${result.key}`);
     }
 
     const freePlan = planByKey.get('FREE');

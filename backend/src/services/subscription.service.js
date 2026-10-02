@@ -3,6 +3,7 @@ import { debit, credit } from './wallet.service.js';
 import { overageRateFor } from '../lib/messagePricing.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
 import { env } from '../config/env.js';
+import { applyGatewayPaymentOnce } from './gatewayPayment.service.js';
 
 // Returns the workspace's subscription + plan + the UsageCounter for the
 // subscription's current billing cycle, creating the counter if it doesn't
@@ -50,6 +51,7 @@ export async function getActiveSubscription(workspaceId) {
 // that carries no template — an inbox reply — and the plan's flat
 // overageRatePerMsg is used instead.
 export async function consumeMessageCredit(workspaceId, { reason = 'Message send', prepaid = false, messageCategory = null } = {}) {
+  if (prepaid) return consumePrepaidCredit(workspaceId);
   return prisma.$transaction(async (tx) => {
     const subscription = await tx.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
     if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
@@ -97,6 +99,12 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
     // the charge tracks what the send actually costs. `amount` is returned so
     // releaseMessageCredit can give back exactly what was taken.
     const amount = overageRateFor(plan, messageCategory);
+    // A plan configured with a zero overage rate makes over-quota sends free;
+    // debit() rejects a zero amount, which would otherwise fail the send.
+    if (!(amount > 0)) {
+      await tx.usageCounter.update({ where: periodKey, data: { messagesUsed: { increment: 1 } } });
+      return { ok: true, source: 'QUOTA', remaining: 0 };
+    }
     const result = await debit(workspaceId, amount, { reason, category: 'USAGE' }, tx);
     if (!result.ok) return { ok: false, code: 'QUOTA_AND_WALLET_EXHAUSTED' };
     return { ok: true, source: 'WALLET', newBalance: result.balance, amount };
@@ -104,6 +112,28 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
     // message and can take a row lock on the wallet, so it needs more than
     // Prisma's default 5s budget against a pooled remote database.
   }, { maxWait: 15_000, timeout: 30_000 });
+}
+
+// A prepaid (campaign) send never touches the wallet and is never refused for
+// quota, so it only has to meter usage: one atomic increment, no interactive
+// transaction. This runs once per campaign recipient, where the transaction's
+// extra round trips against a remote pooled Postgres added up.
+async function consumePrepaidCredit(workspaceId) {
+  const subscription = await prisma.subscription.findUnique({
+    where: { workspaceId },
+    select: { status: true, currentPeriodStart: true, currentPeriodEnd: true },
+  });
+  if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
+  if (!['ACTIVE', 'PAST_DUE'].includes(subscription.status)) {
+    return { ok: false, code: 'SUBSCRIPTION_INACTIVE' };
+  }
+  const { currentPeriodStart: periodStart, currentPeriodEnd: periodEnd } = subscription;
+  await prisma.usageCounter.upsert({
+    where: { workspaceId_periodStart: { workspaceId, periodStart } },
+    update: { messagesUsed: { increment: 1 } },
+    create: { workspaceId, periodStart, periodEnd, messagesUsed: 1 },
+  });
+  return { ok: true, source: 'PREPAID' };
 }
 
 // Gives back a credit taken by consumeMessageCredit() when the send it was
@@ -115,7 +145,20 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
 // `source` is the value consumeMessageCredit returned: QUOTA and PREPAID both
 // incremented the usage counter, WALLET did not (it debited the overage rate
 // instead) and so is refunded in money rather than in quota.
-export async function releaseMessageCredit(workspaceId, { source, amount: charged = null, messageCategory = null, reason = 'Refund for failed message send' } = {}) {
+//
+// Never throws: callers run it on a failure path and several discard its
+// errors, so a failed release is logged here with enough context to reconcile
+// by hand rather than vanishing.
+export async function releaseMessageCredit(workspaceId, opts = {}) {
+  try {
+    return await releaseMessageCreditUnsafe(workspaceId, opts);
+  } catch (err) {
+    console.error(`[Subscription] Releasing ${opts.source} credit failed for ${workspaceId} (amount ${opts.amount ?? 'n/a'}):`, err.message);
+    return { released: false, source: opts.source, error: err.message };
+  }
+}
+
+async function releaseMessageCreditUnsafe(workspaceId, { source, amount: charged = null, messageCategory = null, reason = 'Refund for failed message send' } = {}) {
   if (!source) return { released: false };
 
   if (source === 'WALLET') {
@@ -129,9 +172,8 @@ export async function releaseMessageCredit(workspaceId, { source, amount: charge
       ? Number(charged)
       : overageRateFor(subscription.plan, messageCategory);
     if (!(amount > 0)) return { released: false };
-    const result = await credit(workspaceId, amount, { reason, category: 'REFUND', gateway: 'system' })
-      .catch((err) => { console.error(`[Subscription] Overage refund failed for ${workspaceId}:`, err.message); return null; });
-    return { released: !!result, source, amount };
+    await credit(workspaceId, amount, { reason, category: 'REFUND', gateway: 'system' });
+    return { released: true, source, amount };
   }
 
   const subscription = await prisma.subscription.findUnique({ where: { workspaceId } });
@@ -198,6 +240,38 @@ export async function assertWithinLimit(workspaceId, kind, { additional = 1, mes
   }
 }
 
+// The single plan contact-limit gate for every path that creates CRM contacts
+// (contacts, leads, lead forms, imports, segments). Pass `phoneNumbers` for a
+// batch: only numbers not already in the workspace count against the limit.
+export async function assertContactCapacity(workspaceId, { phoneNumbers = null, message } = {}) {
+  let additional = 1;
+  if (Array.isArray(phoneNumbers)) {
+    const unique = [...new Set(phoneNumbers.filter(Boolean))];
+    if (unique.length === 0) return;
+    const existing = await prisma.contact.count({ where: { workspaceId, phoneNumber: { in: unique } } });
+    additional = unique.length - existing;
+    if (additional <= 0) return;
+  }
+  await assertWithinLimit(workspaceId, 'contact', {
+    additional,
+    message: message ?? (additional > 1
+      ? `This would add ${additional} new contacts, which exceeds your plan's contact limit. Upgrade your plan or reduce the import size.`
+      : undefined),
+  });
+}
+
+// Non-throwing form for callers that must not fail the request (e.g. a public
+// lead form records a rejected submission instead).
+export async function hasContactCapacity(workspaceId) {
+  try {
+    await assertContactCapacity(workspaceId);
+    return true;
+  } catch (err) {
+    if (err.code === 'PLAN_LIMIT_REACHED') return false;
+    throw err;
+  }
+}
+
 export async function hasFeature(workspaceId, flag) {
   const { plan } = await getActiveSubscription(workspaceId);
   return !!plan.features?.[flag];
@@ -242,7 +316,7 @@ export async function createCheckoutOrder(workspaceId, planId, cycle = 'monthly'
     receipt: `sub_${workspaceId.slice(-12)}_${Date.now().toString(36)}`,
     // `cycle` rides along so verifyCheckoutPayment sets a period length that
     // matches what was actually paid for, rather than trusting the client.
-    notes: { workspaceId, planId: plan.id, cycle: billingCycle },
+    notes: { workspaceId, type: 'plan', planId: plan.id, cycle: billingCycle },
   }).catch(normalizeRazorpayError);
 
   return {
@@ -271,55 +345,67 @@ export async function verifyCheckoutPayment(workspaceId, { orderId, paymentId, s
 
   const client = getRazorpayClient();
   const order = await client.orders.fetch(orderId).catch(normalizeRazorpayError);
-  if (order.notes?.workspaceId !== workspaceId) {
+  if (order.notes?.workspaceId !== workspaceId || !order.notes?.planId) {
     const e = new Error('This payment does not belong to your workspace'); e.status = 403; throw e;
   }
 
+  return applyCheckoutPayment(workspaceId, order, paymentId, 'VERIFY');
+}
+
+// Applies a captured plan payment exactly once — from the verify call above or
+// the Razorpay webhook. The claim, invoice and plan change commit together, so
+// two concurrent verifies (or verify + webhook) cannot both apply it.
+export async function applyCheckoutPayment(workspaceId, order, paymentId, source = 'VERIFY') {
   const plan = await prisma.plan.findUnique({ where: { id: order.notes?.planId } });
   if (!plan) { const e = new Error('Plan for this payment could not be found'); e.status = 404; throw e; }
+  const summary = { key: plan.key, name: plan.name };
+  const cycle = order.notes?.cycle === 'quarterly' ? 'quarterly' : 'monthly';
+  const amount = Number(order.amount) / 100;
 
-  const subscription = await prisma.subscription.findUnique({ where: { workspaceId } });
-  if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
+  const { duplicate, result } = await applyGatewayPaymentOnce(
+    { workspaceId, paymentId, orderId: order.id, kind: 'PLAN', amount, currency: order.currency, source },
+    async (tx) => {
+      const subscription = await tx.subscription.findUnique({ where: { workspaceId } });
+      if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
 
-  // Idempotency guard: a replayed verify call (network retry, double-click)
-  // for the same Razorpay payment must not apply the plan change twice.
-  const existingInvoice = await prisma.invoice.findFirst({ where: { workspaceId, reference: paymentId } });
-  if (existingInvoice) {
-    return { applied: 'already_processed', plan: { key: plan.key, name: plan.name } };
-  }
+      // A payment applied before GatewayPayment existed is recognised by its invoice.
+      const legacy = await tx.invoice.findFirst({ where: { workspaceId, reference: paymentId } });
+      if (legacy) return 'already_processed';
 
-  // The charge happened regardless of when the plan itself takes effect.
-  await prisma.invoice.create({
-    data: {
-      workspaceId,
-      invoiceDate: new Date(),
-      description: `${plan.name} plan subscription (${order.notes?.cycle === 'quarterly' ? 'quarterly' : 'monthly'})`,
-      amount: Number(order.amount) / 100,
-      currency: order.currency,
-      status: 'PAID',
-      reference: paymentId,
+      await tx.invoice.create({
+        data: {
+          workspaceId,
+          invoiceDate: new Date(),
+          description: `${plan.name} plan subscription (${cycle})`,
+          amount,
+          currency: order.currency,
+          status: 'PAID',
+          reference: paymentId,
+        },
+      });
+
+      // Cycle length comes from the order's own notes, so a quarterly purchase
+      // gets a 90-day period. runBillingCycleSweep() rolls forward by whatever
+      // this period's length is, so quarterly renewals stay quarterly.
+      const cycleDays = cycle === 'quarterly' ? 90 : 30;
+      const periodStart = new Date();
+      const periodEnd = new Date(periodStart.getTime() + cycleDays * 24 * 60 * 60 * 1000);
+      await tx.subscription.update({
+        where: { workspaceId },
+        data: {
+          planId: plan.id, pendingPlanId: null, status: 'ACTIVE', cancelAtPeriodEnd: false,
+          currentPeriodStart: periodStart, currentPeriodEnd: periodEnd, billingCycle: cycle,
+        },
+      });
+      await tx.usageCounter.upsert({
+        where: { workspaceId_periodStart: { workspaceId, periodStart } },
+        update: {},
+        create: { workspaceId, periodStart, periodEnd, messagesUsed: 0 },
+      });
+      return 'immediately';
     },
-  });
-
-  // Cycle length comes from the order's own notes, so a quarterly purchase
-  // gets a 90-day period. runBillingCycleSweep() rolls forward by whatever
-  // this period's length is, so quarterly renewals stay quarterly.
-  const cycleDays = order.notes?.cycle === 'quarterly' ? 90 : 30;
-  const periodStart = new Date();
-  const periodEnd = new Date(periodStart.getTime() + cycleDays * 24 * 60 * 60 * 1000);
-  await prisma.subscription.update({
-    where: { workspaceId },
-    data: {
-      planId: plan.id, pendingPlanId: null, status: 'ACTIVE', cancelAtPeriodEnd: false,
-      currentPeriodStart: periodStart, currentPeriodEnd: periodEnd,
-    },
-  });
-  await prisma.usageCounter.upsert({
-    where: { workspaceId_periodStart: { workspaceId, periodStart } },
-    update: {},
-    create: { workspaceId, periodStart, periodEnd, messagesUsed: 0 },
-  });
-  return { applied: 'immediately', plan: { key: plan.key, name: plan.name } };
+  );
+  return { applied: duplicate ? 'already_processed' : result, plan: summary };
 }
 
 // Billing-cycle reset (README §12.6). Finds ACTIVE subscriptions whose cycle
@@ -351,14 +437,23 @@ const RENEWAL_GRACE_DAYS = 3;
 const QUARTERLY_MIN_DAYS = 80;
 
 // What this subscription owes for its next period, and which cycle it is on.
-function renewalCharge(subscription, plan) {
-  const cycleMs = subscription.currentPeriodEnd.getTime() - subscription.currentPeriodStart.getTime();
-  const cycleDays = Math.round(cycleMs / 86_400_000);
-  const quarterly = cycleDays >= QUARTERLY_MIN_DAYS && plan.priceQuarterly != null;
+// `billingCycle` is stored at checkout; rows from before it existed fall back
+// to inferring the cycle from the current period's length.
+export function renewalCharge(subscription, plan) {
+  const periodMs = subscription.currentPeriodEnd.getTime() - subscription.currentPeriodStart.getTime();
+  const stored = subscription.billingCycle === 'quarterly' || subscription.billingCycle === 'monthly'
+    ? subscription.billingCycle
+    : null;
+  const quarterly = plan.priceQuarterly != null && (stored
+    ? stored === 'quarterly'
+    : Math.round(periodMs / 86_400_000) >= QUARTERLY_MIN_DAYS);
   const amount = Number(quarterly ? plan.priceQuarterly : plan.priceMonthly) || 0;
+  // A stored cycle rolls by its nominal length, so a manually extended period
+  // is not billed or rolled as if it were the cycle.
+  const cycleMs = stored ? (quarterly ? 90 : 30) * 86_400_000 : periodMs;
   return {
     amount,
-    cycleDays,
+    cycleDays: Math.round(cycleMs / 86_400_000),
     cycle: quarterly ? 'quarterly' : 'monthly',
     // Guards a malformed row with a zero-length cycle, which would otherwise
     // roll the period to exactly where it already is and be swept forever.
@@ -366,12 +461,149 @@ function renewalCharge(subscription, plan) {
   };
 }
 
-export async function runBillingCycleSweep(now = new Date()) {
+// Plan limits a workspace must already fit before it can be scheduled onto a
+// smaller plan; otherwise the switch would leave it over its limits.
+async function assertFitsPlan(workspaceId, plan) {
+  for (const kind of ['contact', 'member', 'apiKey']) {
+    const config = LIMIT_KINDS[kind];
+    const limit = plan[config.field];
+    if (limit === null || limit === undefined) continue;
+    const count = await config.count(workspaceId);
+    if (count > limit) {
+      const e = new Error(`The ${plan.name} plan allows up to ${limit} ${config.label}; this workspace has ${count}. Remove some before switching.`);
+      e.status = 409;
+      e.code = 'PLAN_LIMIT_REACHED';
+      throw e;
+    }
+  }
+}
+
+const subscriptionState = (sub) => ({
+  status: sub.status,
+  currentPeriodEnd: sub.currentPeriodEnd,
+  cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+  pendingPlan: sub.pendingPlan ? { key: sub.pendingPlan.key, name: sub.pendingPlan.name } : null,
+});
+
+// Customer-initiated changes that take effect at the end of the paid period
+// (README §12.5). Upgrades are not handled here: they are paid for and start
+// immediately through checkout. Pass exactly one of:
+//   planId            — schedule a switch to a plan that costs no more than the
+//                       current one (null, or the current plan, clears it)
+//   cancelAtPeriodEnd — true stops renewal at period end; false undoes that
+export async function scheduleSubscriptionChange(workspaceId, { planId, cancelAtPeriodEnd } = {}) {
+  const sub = await prisma.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
+  if (!sub) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
+  if (!['ACTIVE', 'PAST_DUE'].includes(sub.status)) {
+    const e = new Error('Only an active subscription can be changed. Renew or buy a plan first.'); e.status = 409; throw e;
+  }
+
+  const data = {};
+  if (cancelAtPeriodEnd !== undefined) {
+    if (cancelAtPeriodEnd && !(Number(sub.plan.priceMonthly) > 0)) {
+      const e = new Error('The Free plan has no renewal to cancel.'); e.status = 400; throw e;
+    }
+    data.cancelAtPeriodEnd = !!cancelAtPeriodEnd;
+    if (cancelAtPeriodEnd) data.pendingPlanId = null;
+  } else if (planId === null || planId === sub.planId) {
+    data.pendingPlanId = null;
+  } else {
+    const target = await prisma.plan.findFirst({ where: { id: planId, isActive: true } });
+    if (!target) { const e = new Error('Plan not found'); e.status = 404; throw e; }
+    if (Number(target.priceMonthly) > Number(sub.plan.priceMonthly)) {
+      const e = new Error('Upgrades start immediately — buy the plan from the plan list instead.'); e.status = 400; throw e;
+    }
+    await assertFitsPlan(workspaceId, target);
+    data.pendingPlanId = target.id;
+    data.cancelAtPeriodEnd = false;
+  }
+
+  const updated = await prisma.subscription.update({
+    where: { workspaceId }, data, include: { pendingPlan: true },
+  });
+  return subscriptionState(updated);
+}
+
+// Retries an overdue renewal right away instead of waiting for the nightly
+// sweep — e.g. straight after a wallet top-up. A no-op unless PAST_DUE and due.
+export async function retryPastDueRenewal(workspaceId, now = new Date()) {
+  const sub = await prisma.subscription.findUnique({ where: { workspaceId }, select: { status: true, currentPeriodEnd: true } });
+  if (!sub || sub.status !== 'PAST_DUE' || sub.currentPeriodEnd > now) return null;
+  return runBillingCycleSweep(now, { workspaceId });
+}
+
+// "Renew now" from the Payments screen, paid from the wallet. PAST_DUE retries
+// the overdue renewal; EXPIRED starts a fresh period from now on the plan the
+// workspace was on (or was scheduled to move to).
+export async function renewSubscriptionNow(workspaceId, now = new Date()) {
+  const sub = await prisma.subscription.findUnique({ where: { workspaceId } });
+  if (!sub) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
+
+  if (sub.status === 'PAST_DUE') {
+    await retryPastDueRenewal(workspaceId, now);
+  } else if (sub.status === 'EXPIRED') {
+    await prisma.$transaction(async (tx) => {
+      const fresh = await tx.subscription.findUnique({ where: { workspaceId }, include: { plan: true, pendingPlan: true } });
+      if (!fresh || fresh.status !== 'EXPIRED') return;
+      const plan = fresh.pendingPlan ?? fresh.plan;
+      const { amount, cycle, cycleMs } = renewalCharge(fresh, plan);
+      // Keyed on the expired period, so a double-click charges once.
+      const key = `sub_restore_${fresh.id}_${fresh.currentPeriodEnd.getTime()}`;
+      if (amount > 0) {
+        const charge = await debit(workspaceId, amount, {
+          reason: `${plan.name} subscription (${cycle})`, reference: fresh.id, category: 'SUBSCRIPTION', idempotencyKey: key,
+        }, tx);
+        if (!charge.ok) {
+          const e = new Error(`Renewal costs ${formatMoney(amount)} but the wallet holds ${formatMoney(charge.balance)}. Top up and try again.`);
+          e.status = 402; e.code = 'INSUFFICIENT_BALANCE'; e.expose = true;
+          throw e;
+        }
+        if (!charge.alreadyProcessed) {
+          await tx.invoice.create({
+            data: {
+              workspaceId, invoiceDate: now, description: `${plan.name} plan, ${cycle} renewal`,
+              amount, currency: plan.currency || 'INR', status: 'PAID', reference: key,
+            },
+          });
+        }
+      }
+      const periodEnd = new Date(now.getTime() + cycleMs);
+      await tx.subscription.update({
+        where: { id: fresh.id },
+        data: {
+          planId: plan.id, pendingPlanId: null, status: 'ACTIVE', cancelAtPeriodEnd: false,
+          currentPeriodStart: now, currentPeriodEnd: periodEnd,
+        },
+      });
+      await tx.usageCounter.upsert({
+        where: { workspaceId_periodStart: { workspaceId, periodStart: now } },
+        update: {},
+        create: { workspaceId, periodStart: now, periodEnd, messagesUsed: 0 },
+      });
+    }, { maxWait: 15_000, timeout: 30_000 });
+  } else {
+    const e = new Error('This subscription does not need renewing.'); e.status = 409; throw e;
+  }
+
+  const after = await prisma.subscription.findUnique({ where: { workspaceId }, include: { pendingPlan: true } });
+  if (after.status !== 'ACTIVE') {
+    const e = new Error('The renewal could not be collected from the wallet. Top up and try again.');
+    e.status = 402; e.code = 'INSUFFICIENT_BALANCE'; e.expose = true;
+    throw e;
+  }
+  return subscriptionState(after);
+}
+
+// `workspaceId` scopes the sweep to one workspace (an immediate retry).
+export async function runBillingCycleSweep(now = new Date(), { workspaceId = null } = {}) {
   // PAST_DUE is included so a failed charge is retried on the next sweep. This
   // selected ACTIVE only, which — once renewal can fail at all — would leave a
   // past-due subscription never looked at again: neither charged nor expired.
   const due = await prisma.subscription.findMany({
-    where: { status: { in: ['ACTIVE', 'PAST_DUE'] }, currentPeriodEnd: { lte: now } },
+    where: {
+      status: { in: ['ACTIVE', 'PAST_DUE'] }, currentPeriodEnd: { lte: now },
+      ...(workspaceId ? { workspaceId } : {}),
+    },
     include: { plan: true, pendingPlan: true },
   });
 

@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Invoice" ALTER COLUMN "amount" SET DATA TYPE DECIMAL(12,2),
+ALTER COLUMN "currency" SET DEFAULT 'INR';
+

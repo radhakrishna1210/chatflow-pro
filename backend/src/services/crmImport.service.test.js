@@ -51,6 +51,8 @@ test.before(async () => {
       enqueueImportFollowUp: async (workspaceId, leadIds, opts) => { followUps.push({ workspaceId, leadIds, opts }); },
     },
   });
+  // The plan contact limit has its own tests in subscription.service.test.js.
+  mock.module('./subscription.service.js', { namedExports: { assertContactCapacity: async () => {} } });
   svc = await import('./crmImport.service.js');
 });
 

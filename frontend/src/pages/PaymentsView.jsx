@@ -138,6 +138,32 @@ export default function PaymentsView({ initialTab } = {}) {
     .then(d => { if (d) setSubscription(d); })
     .catch(() => {});
 
+  // Downgrades and cancellations take effect at the end of the paid period
+  // (PATCH /subscription); "Renew now" pays an overdue/expired renewal from
+  // the wallet. Both reuse the checkout message/error banners.
+  const [planActionBusy, setPlanActionBusy] = useState(false);
+  const runPlanAction = async (path, opts, successMessage) => {
+    if (planActionBusy) return;
+    setCheckoutError(''); setCheckoutMessage(''); setPlanActionBusy(true);
+    try {
+      const res = await wFetch(path, opts);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      setCheckoutMessage(successMessage);
+      loadSubscription();
+      if (window._reloadWallet) window._reloadWallet();
+      wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch(() => {});
+    } catch (e) {
+      setCheckoutError(e.message || 'Could not update the subscription');
+    } finally {
+      setPlanActionBusy(false);
+    }
+  };
+  const scheduleChange = (body, message) =>
+    runPlanAction('/subscription', { method: 'PATCH', body: JSON.stringify(body) }, message);
+  const renewFromWallet = () =>
+    runPlanAction('/subscription/renew', { method: 'POST' }, 'Subscription renewed from your wallet.');
+
   // Invoices list
   const [invoices, setInvoices] = useState([]);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
@@ -175,17 +201,20 @@ export default function PaymentsView({ initialTab } = {}) {
     loadWallet();
     window._reloadWallet = loadWallet;
 
-    // 2. Billing details (still local until a billing backend exists)
-    const savedBilling = localStorage.getItem('ChatFlow Pro_billing_details');
-    if (savedBilling) {
-      try {
-        const parsed = JSON.parse(savedBilling);
-        setBizName(parsed.bizName || '');
-        setBizEmail(parsed.bizEmail || '');
-        setBizAddress(parsed.bizAddress || '');
-        setGstNum(parsed.gstNum || '');
-      } catch {}
-    }
+    // 2. Billing details, stored per workspace on the server. The old
+    // browser-only copy is dropped: it never reached invoices and leaked to
+    // whoever signed in next on the same machine.
+    try { localStorage.removeItem('ChatFlow Pro_billing_details'); } catch {}
+    wFetch('/subscription/billing-profile')
+      .then(r => (r.ok ? r.json() : null))
+      .then(p => {
+        if (!p) return;
+        setBizName(p.businessName || '');
+        setBizEmail(p.email || '');
+        setBizAddress(p.address || '');
+        setGstNum(p.taxId || '');
+      })
+      .catch(() => {});
 
     loadAddons();
 
@@ -359,11 +388,28 @@ export default function PaymentsView({ initialTab } = {}) {
     }
   };
 
-  const handleSaveBilling = () => {
-    const data = { bizName, bizEmail, bizAddress, gstNum };
-    localStorage.setItem('ChatFlow Pro_billing_details', JSON.stringify(data));
-    setSaveStatus('success');
-    setTimeout(() => setSaveStatus(''), 2000);
+  const [billingError, setBillingError] = useState('');
+  const handleSaveBilling = async () => {
+    if (saveStatus === 'saving') return;
+    setBillingError('');
+    setSaveStatus('saving');
+    try {
+      const res = await wFetch('/subscription/billing-profile', {
+        method: 'PUT',
+        body: JSON.stringify({ businessName: bizName, email: bizEmail, address: bizAddress, taxId: gstNum }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      setBizName(data.businessName || '');
+      setBizEmail(data.email || '');
+      setBizAddress(data.address || '');
+      setGstNum(data.taxId || '');
+      setSaveStatus('success');
+      setTimeout(() => setSaveStatus(''), 2000);
+    } catch (e) {
+      setBillingError(e.message || 'Could not save billing details');
+      setSaveStatus('');
+    }
   };
 
   // The "Add Money" buttons on the wallet banners jump here. Switching to the
@@ -655,9 +701,13 @@ export default function PaymentsView({ initialTab } = {}) {
         </div>
       </div>
 
+      {billingError && (
+        <p style={{ fontSize: 12.5, color: '#f87171' }}>{billingError}</p>
+      )}
+
       {isAdmin && <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--bd)', paddingTop: 16 }}>
-        <Btn onClick={handleSaveBilling} style={{ boxShadow: 'var(--glow)' }}>
-          {saveStatus === 'success' ? 'Details Saved!' : 'Save Details'}
+        <Btn onClick={handleSaveBilling} disabled={saveStatus === 'saving'} style={{ boxShadow: 'var(--glow)' }}>
+          {saveStatus === 'success' ? 'Details Saved!' : saveStatus === 'saving' ? 'Saving…' : 'Save Details'}
         </Btn>
       </div>}
       </div>
@@ -701,12 +751,53 @@ export default function PaymentsView({ initialTab } = {}) {
             )}
           </div>
 
+          {(subscription?.status === 'PAST_DUE' || subscription?.status === 'EXPIRED') && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '12px 14px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <I n="alertt" s={14} c="#f87171" />
+              <span style={{ fontSize: 12, color: '#f87171', flex: 1, minWidth: 200 }}>
+                {subscription.status === 'PAST_DUE'
+                  ? 'Your last renewal could not be charged to the wallet. Top up and renew within the grace period to keep the workspace running.'
+                  : 'Your subscription has expired and the workspace is locked. Top up the wallet and renew to restore access.'}
+              </span>
+              {isAdmin && (
+                <Btn variant="primary" disabled={planActionBusy} onClick={renewFromWallet}>
+                  {planActionBusy ? 'Working…' : 'Renew now from wallet'}
+                </Btn>
+              )}
+            </div>
+          )}
+
           {subscription?.pendingPlan && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
               <I n="alertc" s={14} c="#fbbf24" />
-              <span style={{ fontSize: 12, color: '#fbbf24' }}>
+              <span style={{ fontSize: 12, color: '#fbbf24', flex: 1 }}>
                 Switching to <strong>{subscription.pendingPlan.name}</strong> at the start of your next billing cycle.
               </span>
+              {isAdmin && (
+                <button type="button" disabled={planActionBusy} onClick={() => scheduleChange({ planId: null }, 'Scheduled plan change removed.')}
+                  style={{ background: 'none', border: 'none', color: '#fbbf24', fontSize: 12, fontWeight: 600, textDecoration: 'underline', cursor: 'pointer' }}>
+                  Keep current plan
+                </button>
+              )}
+            </div>
+          )}
+
+          {isAdmin && isActive && Number(subscription?.plan?.priceMonthly) > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              {subscription.cancelAtPeriodEnd ? (
+                <Btn variant="outline" disabled={planActionBusy} onClick={() => scheduleChange({ cancelAtPeriodEnd: false }, 'Your subscription will renew as normal.')}>
+                  Resume renewal
+                </Btn>
+              ) : (
+                <Btn variant="outline" disabled={planActionBusy}
+                  onClick={() => {
+                    if (window.confirm('Cancel at the end of this billing period? The workspace will be locked once the period ends. To keep using it for free, switch to the Free plan instead.')) {
+                      scheduleChange({ cancelAtPeriodEnd: true }, 'Your subscription will end at the close of this billing period.');
+                    }
+                  }}>
+                  Cancel at period end
+                </Btn>
+              )}
             </div>
           )}
 
@@ -766,6 +857,11 @@ export default function PaymentsView({ initialTab } = {}) {
               const isCurrent = plan.key === currentKey;
               const isPending = subscription?.pendingPlan?.key === plan.key;
               const isFree = Number(plan.priceMonthly) === 0;
+              // Cheaper plans are scheduled for the next renewal (no proration);
+              // upgrades are bought and start immediately.
+              const isDowngrade = !isCurrent && subscription?.plan != null
+                && Number(plan.priceMonthly) < Number(subscription.plan.priceMonthly);
+              const canSchedule = ['ACTIVE', 'PAST_DUE'].includes(subscription?.status);
               const busy = checkoutPlanId === plan.id;
               // Quarterly pricing is optional per plan — fall back to monthly
               // rather than showing a blank price.
@@ -812,12 +908,14 @@ export default function PaymentsView({ initialTab } = {}) {
                   <MessagePricing rates={plan.messagePricing} compact />
                   {isAdmin ? (
                     <Btn
-                      variant={isCurrent ? 'outline' : 'primary'}
-                      disabled={isCurrent || isPending || busy || (isFree && !isCurrent)}
-                      onClick={() => handleBuyPlan(plan)}
+                      variant={isCurrent || isDowngrade ? 'outline' : 'primary'}
+                      disabled={isCurrent || isPending || busy || (isDowngrade && (planActionBusy || !canSchedule)) || (isFree && !isDowngrade)}
+                      onClick={() => (isDowngrade
+                        ? scheduleChange({ planId: plan.id }, `Switching to ${plan.name} at your next renewal.`)
+                        : handleBuyPlan(plan))}
                       style={{ width: '100%', justifyContent: 'center', marginTop: 4 }}
                     >
-                      {isCurrent ? 'Current Plan' : isPending ? 'Scheduled' : busy ? 'Processing…' : isFree ? 'Contact support to downgrade' : 'Buy Now'}
+                      {isCurrent ? 'Current Plan' : isPending ? 'Scheduled' : busy ? 'Processing…' : isDowngrade ? 'Switch at renewal' : 'Buy Now'}
                     </Btn>
                   ) : isCurrent ? (
                     <div style={{ width: '100%', textAlign: 'center', marginTop: 4, padding: '9px 0', borderRadius: 8, border: '1px solid var(--gbd)', background: 'var(--gbg)', color: 'var(--green)', fontSize: 13, fontWeight: 600 }}>
@@ -873,7 +971,7 @@ export default function PaymentsView({ initialTab } = {}) {
                     <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.description}</p>
                     {addon.active && addon.currentPeriodEnd && (
                       <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
-                        {addon.status === 'CANCELLED' ? 'Ends' : 'Renews'} {new Date(addon.currentPeriodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {addon.status === 'CANCELLED' ? 'Ends' : 'Active until'} {new Date(addon.currentPeriodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     )}
                   </div>
@@ -885,11 +983,19 @@ export default function PaymentsView({ initialTab } = {}) {
                       {addon.unavailableReason}
                     </div>
                   ) : isAdmin ? (
+                    addon.canExtend ? (
+                      // One-off 30-day packs: nothing renews them, so the last
+                      // week offers an extension on top of the time left.
+                      <Btn variant="primary" disabled={busy} onClick={() => buyAddon(addon)} style={{ width: '100%' }}>
+                        {busy ? 'Working…' : 'Extend 30 days'}
+                      </Btn>
+                    ) : (
                     <Btn variant={addon.active ? 'outline' : 'primary'} disabled={busy}
                       onClick={() => (addon.active ? cancelAddon(addon) : buyAddon(addon))}
                       style={{ width: '100%', borderColor: addon.active ? '#f8717144' : 'var(--bd)', color: addon.active ? '#f87171' : '#0a0b0e' }}>
                       {busy ? 'Working…' : addon.active ? (addon.status === 'CANCELLED' ? 'Cancelled' : 'Cancel Add-on') : 'Add to Plan'}
                     </Btn>
+                    )
                   ) : (
                     <div style={{ width: '100%', textAlign: 'center', padding: '9px 0', borderRadius: 8, border: '1px solid var(--bd)', color: 'var(--t3)', fontSize: 12 }}>
                       {addon.active ? 'Included' : 'Not included'}

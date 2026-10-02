@@ -1,6 +1,8 @@
 import { prisma } from '../lib/prisma.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
 import { env } from '../config/env.js';
+import { applyGatewayPaymentOnce } from './gatewayPayment.service.js';
+import { overageRateFor } from '../lib/messagePricing.js';
 
 const MAX_RECHARGE = 100000;
 
@@ -53,6 +55,16 @@ export function walletStatus(balance, costPerMessage) {
   return { status: 'HEALTHY', threshold, messagesRemaining: cost > 0 ? Math.floor(bal / cost) : null };
 }
 
+// The per-message rate wallet health is measured in: what a marketing
+// template costs on this workspace's plan (lib/messagePricing.js), the same
+// function overage billing uses. Workspace.costPerMessage only prices a
+// template with no recognised category, so it is just the fallback here.
+async function statusRate(workspaceId, fallback) {
+  const sub = await prisma.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
+  const rate = sub?.plan ? overageRateFor(sub.plan, 'MARKETING') : 0;
+  return rate > 0 ? rate : Number(fallback) || 0;
+}
+
 export async function getWallet(workspaceId) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -66,7 +78,7 @@ export async function getWallet(workspaceId) {
   });
   const balance = Number(ws.walletBalance);
   const costPerMessage = Number(ws.costPerMessage);
-  const health = walletStatus(balance, costPerMessage);
+  const health = walletStatus(balance, await statusRate(workspaceId, costPerMessage));
   return {
     balance,
     costPerMessage,
@@ -243,33 +255,56 @@ export async function verifyTopupPayment(workspaceId, { orderId, paymentId, sign
     const e = new Error('This payment does not belong to your workspace'); e.status = 403; throw e;
   }
 
+  return applyTopupPayment(workspaceId, order, paymentId, 'VERIFY');
+}
+
+// Credits a captured top-up exactly once, whether it arrives from the verify
+// call above or the Razorpay webhook. `order` is the gateway's own order (its
+// amount is what was charged). The credit and its invoice commit together, so
+// a paid recharge can no longer end up without an invoice record.
+export async function applyTopupPayment(workspaceId, order, paymentId, source = 'VERIFY') {
   const amt = money(Number(order.amount) / 100);
-  // Idempotency is enforced by the unique key rather than a pre-check, so a
-  // duplicate gateway callback, a network retry and a double-clicked verify
-  // all converge on the one original credit.
-  const result = await credit(workspaceId, amt, {
-    reason: 'Wallet recharge (Razorpay)',
-    reference: paymentId,
-    category: 'RECHARGE',
-    gateway: 'razorpay',
-    idempotencyKey: `rzp_topup_${paymentId}`,
-  });
+  const idempotencyKey = `rzp_topup_${paymentId}`;
 
-  if (!result.alreadyProcessed) {
-    await prisma.invoice.create({
-      data: {
-        workspaceId,
-        invoiceDate: new Date(),
-        description: 'Wallet recharge',
-        amount: amt,
-        currency: order.currency,
-        status: 'PAID',
+  const { duplicate, result } = await applyGatewayPaymentOnce(
+    { workspaceId, paymentId, orderId: order.id, kind: 'WALLET_TOPUP', amount: amt, currency: order.currency, source },
+    async (tx) => {
+      // The ledger's unique key still catches a payment credited before
+      // GatewayPayment existed.
+      const res = await credit(workspaceId, amt, {
+        reason: 'Wallet recharge (Razorpay)',
         reference: paymentId,
-      },
-    }).catch(() => {});
-  }
+        category: 'RECHARGE',
+        gateway: 'razorpay',
+        idempotencyKey,
+      }, tx);
+      if (!res.alreadyProcessed) {
+        await tx.invoice.create({
+          data: {
+            workspaceId,
+            invoiceDate: new Date(),
+            description: 'Wallet recharge',
+            amount: amt,
+            currency: order.currency,
+            status: 'PAID',
+            reference: paymentId,
+          },
+        });
+      }
+      return res;
+    },
+  );
+  if (!duplicate) return result;
 
-  return result;
+  const [existing, ws] = await Promise.all([
+    findByIdempotencyKey(prisma, idempotencyKey),
+    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { walletBalance: true } }),
+  ]);
+  return {
+    balance: Number(ws?.walletBalance ?? 0),
+    transaction: existing ? serialize(existing) : null,
+    alreadyProcessed: true,
+  };
 }
 
 // Powers the dashboard's spend cards (README Part 5). One pass over the
@@ -312,17 +347,19 @@ export async function getWalletSummary(workspaceId) {
     }),
   ]);
 
-  // Refunds are credits, so subtract them from gross campaign spend to get
-  // what campaigns actually cost.
+  // Refunds are credits, so subtract campaign refunds from gross campaign
+  // spend to get what campaigns actually cost. Inbox overage refunds share the
+  // REFUND category but were never campaign spend; campaign refunds are the
+  // ones keyed campaign_refund_<id> (campaigns.service.js).
   const refunds = await prisma.walletTransaction.aggregate({
     _sum: { amount: true },
-    where: { workspaceId, type: 'CREDIT', category: 'REFUND' },
+    where: { workspaceId, type: 'CREDIT', category: 'REFUND', idempotencyKey: { startsWith: 'campaign_refund_' } },
   });
 
   const totalCampaigns = campaignStats._count._all || 0;
   const netCampaignSpend = money(Number(campaignSpend._sum.amount || 0) - Number(refunds._sum.amount || 0));
 
-  const summaryHealth = walletStatus(ws.walletBalance, ws.costPerMessage);
+  const summaryHealth = walletStatus(ws.walletBalance, await statusRate(workspaceId, ws.costPerMessage));
 
   return {
     balance: Number(ws.walletBalance),

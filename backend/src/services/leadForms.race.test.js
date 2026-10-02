@@ -62,6 +62,8 @@ test.before(async () => {
   mock.module('./leadDistribution.service.js', {
     namedExports: { evaluateAndAssignLead: async (_ws, leadId) => { distributed.push(leadId); return { assigned: false }; } },
   });
+  // The plan contact limit has its own tests in subscription.service.test.js.
+  mock.module('./subscription.service.js', { namedExports: { hasContactCapacity: async () => true } });
   ({ submitForm } = await import('./leadForms.service.js'));
 });
 

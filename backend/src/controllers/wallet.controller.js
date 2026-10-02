@@ -1,5 +1,13 @@
 import * as walletService from '../services/wallet.service.js';
 import { notifyWorkspace } from '../services/notification.service.js';
+import { retryPastDueRenewal } from '../services/subscription.service.js';
+import { env } from '../config/env.js';
+
+// The demo recharge mints balance without a payment, so it must never be
+// reachable in production, and even elsewhere needs an explicit opt-in.
+export function isDemoRechargeEnabled(config = env) {
+  return config.NODE_ENV !== 'production' && config.ALLOW_DEMO_RECHARGE === true;
+}
 
 export async function getWallet(req, res) {
   const wallet = await walletService.getWallet(req.params.workspaceId);
@@ -13,11 +21,10 @@ export async function getSummary(req, res) {
   res.json(summary);
 }
 
-// Demo/manual recharge — server-authoritative. NOTE: this is not a real payment.
-// In production, replace with a gateway checkout + webhook that calls
-// walletService.credit() only after the charge is confirmed. It is ADMIN-only
-// and bounded so it can't be used to mint arbitrary balance from the client.
+// Demo/manual recharge — NOT a real payment. Disabled (404) unless
+// isDemoRechargeEnabled(); real top-ups go through createCheckout/verifyCheckout.
 export async function recharge(req, res) {
+  if (!isDemoRechargeEnabled()) return res.status(404).json({ error: 'Not found' });
   const amount = Number(req.body?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'amount must be a positive number' });
   if (amount > 100000) return res.status(400).json({ error: 'Demo recharge is limited to 100000 per transaction' });
@@ -41,7 +48,7 @@ export async function recharge(req, res) {
       title: 'Wallet recharged',
       body: `₹${Number(amount).toFixed(2)} was added to your wallet. New balance: ₹${Number(result.balance).toFixed(2)}.`,
       link: 'payments',
-    }).catch(() => {});
+    }).catch((err) => console.error('[Wallet] Recharge notification failed:', err.message));
   }
 
   res.json({ ...result, demo: true });
@@ -57,12 +64,17 @@ export async function verifyCheckout(req, res) {
   const result = await walletService.verifyTopupPayment(req.params.workspaceId, req.body);
 
   if (!result.alreadyProcessed) {
+    // A top-up is usually the customer fixing a failed renewal, so retry it
+    // now rather than leaving them waiting for the nightly sweep.
+    retryPastDueRenewal(req.params.workspaceId)
+      .catch((err) => console.error(`[Wallet] Renewal retry after top-up failed for ${req.params.workspaceId}:`, err.message));
+
     notifyWorkspace(req.params.workspaceId, {
       type: 'WALLET_RECHARGE',
       title: 'Wallet recharged',
       body: `₹${Number(result.transaction.amount).toFixed(2)} was added to your wallet. New balance: ₹${Number(result.balance).toFixed(2)}.`,
       link: 'payments',
-    }).catch(() => {});
+    }).catch((err) => console.error('[Wallet] Recharge notification failed:', err.message));
   }
 
   res.json(result);

@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
 import { ADDONS, CURRENCY, getAddon, priceInPaise, assertPurchasable } from '../lib/addonCatalogue.js';
+import { applyGatewayPaymentOnce } from './gatewayPayment.service.js';
 
 // Add-on purchase, server-authoritative end to end.
 //
@@ -11,7 +12,17 @@ import { ADDONS, CURRENCY, getAddon, priceInPaise, assertPurchasable } from '../
 // figure the catalogue quoted, and a tampered client cannot change it. This
 // mirrors what wallet.service.js already does for top-ups.
 
+// An add-on is a one-off 30-day pack: nothing renews it automatically, and
+// one pack per add-on is held at a time (WorkspaceAddon is unique per key).
+// Buying it again in the last EXTEND_WINDOW_DAYS adds 30 days on top of what
+// is left rather than restarting the clock.
 const PERIOD_DAYS = 30;
+const EXTEND_WINDOW_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const canExtend = (row, now = new Date()) => row?.status === 'ACTIVE'
+  && row.currentPeriodEnd > now
+  && row.currentPeriodEnd.getTime() - now.getTime() <= EXTEND_WINDOW_DAYS * DAY_MS;
 
 export async function listAddons(workspaceId) {
   const owned = await prisma.workspaceAddon.findMany({ where: { workspaceId } });
@@ -26,8 +37,9 @@ export async function listAddons(workspaceId) {
         ...a,
         // The price the UI must display. Sending it rather than letting the
         // screen hardcode it is the whole point.
-        priceLabel: `₹${a.priceMonthly.toLocaleString('en-IN')}/month`,
+        priceLabel: `₹${a.priceMonthly.toLocaleString('en-IN')} per ${PERIOD_DAYS} days`,
         active,
+        canExtend: canExtend(row),
         status: row?.status ?? null,
         currentPeriodEnd: row?.currentPeriodEnd ?? null,
       };
@@ -43,8 +55,8 @@ export async function createAddonOrder(workspaceId, addonKey) {
   const existing = await prisma.workspaceAddon.findUnique({
     where: { workspaceId_addonKey: { workspaceId, addonKey: addon.key } },
   });
-  if (existing?.status === 'ACTIVE' && existing.currentPeriodEnd > new Date()) {
-    const e = new Error(`${addon.title} is already active on this workspace.`);
+  if (existing?.status === 'ACTIVE' && existing.currentPeriodEnd > new Date() && !canExtend(existing)) {
+    const e = new Error(`${addon.title} is already active on this workspace. It can be extended in its last ${EXTEND_WINDOW_DAYS} days.`);
     e.status = 409;
     throw e;
   }
@@ -82,63 +94,81 @@ export async function verifyAddonPayment(workspaceId, { orderId, paymentId, sign
   if (order.notes?.workspaceId !== workspaceId || order.notes?.type !== 'addon') {
     const e = new Error('This payment does not belong to your workspace'); e.status = 403; throw e;
   }
-  const addon = getAddon(order.notes.addonKey);
+  return applyAddonPayment(workspaceId, order, paymentId, 'VERIFY');
+}
+
+// Activates a captured add-on payment exactly once — from the verify call above
+// or the Razorpay webhook. The claim, add-on row and invoice commit together.
+export async function applyAddonPayment(workspaceId, order, paymentId, source = 'VERIFY') {
+  const addon = getAddon(order.notes?.addonKey);
 
   // Amount comes back from the gateway, never from the client.
   const paid = Number(order.amount) / 100;
-  const periodEnd = new Date(Date.now() + PERIOD_DAYS * 24 * 60 * 60 * 1000);
+  const summary = { key: addon.key, title: addon.title };
 
-  // The unique (workspaceId, addonKey) makes a repeated verify — a double
-  // click, a retried request, a duplicate gateway callback — converge on one
-  // row rather than activating twice or creating a second charge record.
-  const record = await prisma.workspaceAddon.upsert({
-    where: { workspaceId_addonKey: { workspaceId, addonKey: addon.key } },
-    update: {
-      status: 'ACTIVE',
-      amountPaid: paid,
-      currency: order.currency,
-      gateway: 'razorpay',
-      reference: paymentId,
-      activatedAt: new Date(),
-      cancelledAt: null,
-      currentPeriodEnd: periodEnd,
+  const { duplicate, result } = await applyGatewayPaymentOnce(
+    { workspaceId, paymentId, orderId: order.id, kind: 'ADDON', amount: paid, currency: order.currency, source },
+    async (tx) => {
+      const where = { workspaceId_addonKey: { workspaceId, addonKey: addon.key } };
+      // A payment applied before GatewayPayment existed is recognised by its invoice.
+      const legacy = await tx.invoice.findFirst({ where: { workspaceId, reference: paymentId } });
+      if (legacy) return tx.workspaceAddon.findUnique({ where });
+
+      // Time still left on a pack (active or cancelled-but-paid) is kept, not
+      // thrown away by restarting the 30 days from now.
+      const existing = await tx.workspaceAddon.findUnique({ where });
+      const now = Date.now();
+      const remainingFrom = existing && existing.currentPeriodEnd.getTime() > now ? existing.currentPeriodEnd.getTime() : now;
+      const periodEnd = new Date(remainingFrom + PERIOD_DAYS * DAY_MS);
+      const record = await tx.workspaceAddon.upsert({
+        where,
+        update: {
+          status: 'ACTIVE',
+          amountPaid: paid,
+          currency: order.currency,
+          gateway: 'razorpay',
+          reference: paymentId,
+          activatedAt: new Date(),
+          cancelledAt: null,
+          currentPeriodEnd: periodEnd,
+        },
+        create: {
+          workspaceId,
+          addonKey: addon.key,
+          status: 'ACTIVE',
+          amountPaid: paid,
+          currency: order.currency,
+          gateway: 'razorpay',
+          reference: paymentId,
+          currentPeriodEnd: periodEnd,
+        },
+      });
+
+      // An invoice so the purchase appears on the Invoices tab like every other payment.
+      await tx.invoice.create({
+        data: {
+          workspaceId,
+          invoiceDate: new Date(),
+          description: `${addon.title} (${PERIOD_DAYS}-day pack)`,
+          amount: paid,
+          currency: order.currency,
+          status: 'PAID',
+          reference: paymentId,
+        },
+      });
+      return record;
     },
-    create: {
-      workspaceId,
-      addonKey: addon.key,
-      status: 'ACTIVE',
-      amountPaid: paid,
-      currency: order.currency,
-      gateway: 'razorpay',
-      reference: paymentId,
-      currentPeriodEnd: periodEnd,
-    },
-  });
+  );
 
-  // An invoice so the purchase appears on the Invoices tab like every other
-  // payment. Keyed on the payment reference so a repeat verify cannot add a
-  // second line.
-  const already = await prisma.invoice.findFirst({ where: { workspaceId, reference: paymentId } });
-  if (!already) {
-    await prisma.invoice.create({
-      data: {
-        workspaceId,
-        invoiceDate: new Date(),
-        description: `${addon.title} (1 month)`,
-        amount: paid,
-        currency: order.currency,
-        status: 'PAID',
-        reference: paymentId,
-      },
-    }).catch(() => {});
-  }
-
-  return { ok: true, addon: { key: addon.key, title: addon.title }, currentPeriodEnd: record.currentPeriodEnd };
+  const record = duplicate
+    ? await prisma.workspaceAddon.findUnique({ where: { workspaceId_addonKey: { workspaceId, addonKey: addon.key } } })
+    : result;
+  return { ok: true, addon: summary, currentPeriodEnd: record?.currentPeriodEnd ?? null };
 }
 
-// Cancelling stops the renewal; the add-on stays usable until the period the
-// customer already paid for runs out. Removing it immediately would be taking
-// back something they have paid for.
+// Cancelling marks the pack as not wanted; it stays usable until the period
+// the customer already paid for runs out. Removing it immediately would be
+// taking back something they have paid for.
 export async function cancelAddon(workspaceId, addonKey) {
   const addon = getAddon(addonKey);
   const row = await prisma.workspaceAddon.findUnique({
@@ -154,7 +184,7 @@ export async function cancelAddon(workspaceId, addonKey) {
   });
   return {
     ok: true,
-    message: `${addon.title} will stay available until ${updated.currentPeriodEnd.toLocaleDateString('en-IN')} and will not renew.`,
+    message: `${addon.title} will stay available until ${updated.currentPeriodEnd.toLocaleDateString('en-IN')}.`,
     currentPeriodEnd: updated.currentPeriodEnd,
   };
 }
@@ -164,7 +194,7 @@ export async function cancelAddon(workspaceId, addonKey) {
 export async function hasAddon(workspaceId, addonKey) {
   const row = await prisma.workspaceAddon.findUnique({
     where: { workspaceId_addonKey: { workspaceId, addonKey } },
-  }).catch(() => null);
+  }).catch((err) => { console.error(`[Addons] Entitlement lookup failed for ${workspaceId}:`, err.message); return null; });
   return Boolean(row && row.status === 'ACTIVE' && row.currentPeriodEnd > new Date());
 }
 
@@ -176,11 +206,13 @@ export async function hasAddon(workspaceId, addonKey) {
 
 // How much of a given capability this workspace has bought.
 //
-// Quantities add up, so a workspace that buys the field pack twice gets ten
-// fields. `active` is re-derived from the row rather than trusted, because a
-// cancelled add-on keeps working only until the period it paid for runs out.
+// Grants from different add-ons add up; a single add-on is held once (one row
+// per key), so buying it again extends its period rather than doubling it.
+// `active` is re-derived from the row rather than trusted, because a cancelled
+// add-on keeps working only until the period it paid for runs out.
 export async function addonAllowance(workspaceId, capability) {
-  const rows = await prisma.workspaceAddon.findMany({ where: { workspaceId } }).catch(() => []);
+  const rows = await prisma.workspaceAddon.findMany({ where: { workspaceId } })
+    .catch((err) => { console.error(`[Addons] Allowance lookup failed for ${workspaceId}:`, err.message); return []; });
   const now = new Date();
   let total = 0;
   for (const row of rows) {

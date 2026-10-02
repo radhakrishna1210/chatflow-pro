@@ -127,7 +127,9 @@ export async function updateSettings(workspaceId, updates) {
 }
 
 export async function getInvoices(workspaceId) {
-  return prisma.invoice.findMany({ where: { workspaceId }, orderBy: { invoiceDate: 'desc' } });
+  const invoices = await prisma.invoice.findMany({ where: { workspaceId }, orderBy: { invoiceDate: 'desc' } });
+  // amount is a Decimal, which serialises as a string; the screens format a number.
+  return invoices.map((inv) => ({ ...inv, amount: Number(inv.amount) }));
 }
 
 const escapeHtml = (value) => String(value ?? '')
@@ -145,9 +147,15 @@ const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£' };
 export async function getInvoiceDocument(workspaceId, invoiceId) {
   const invoice = await prisma.invoice.findFirst({
     where: { id: invoiceId, workspaceId },
-    include: { workspace: { select: { name: true } } },
+    include: { workspace: { select: { name: true, billingProfile: true } } },
   });
   if (!invoice) { const e = new Error('Invoice not found'); e.status = 404; throw e; }
+  const billing = invoice.workspace?.billingProfile;
+  const billedTo = [
+    escapeHtml(billing?.businessName || invoice.workspace?.name || 'Workspace'),
+    ...[billing?.address, billing?.email, billing?.taxId && `GSTIN: ${billing.taxId}`]
+      .filter(Boolean).map((line) => `<span class="muted">${escapeHtml(line).replace(/\n/g, '<br />')}</span>`),
+  ].join('<br />');
 
   const symbol = CURRENCY_SYMBOLS[invoice.currency] || `${invoice.currency} `;
   const amount = Number(invoice.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -206,7 +214,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
     <div class="meta">
       <div>
         <h2>Billed to</h2>
-        <p>${escapeHtml(invoice.workspace?.name || 'Workspace')}</p>
+        <p>${billedTo}</p>
       </div>
       <div>
         <h2>Invoice date</h2>

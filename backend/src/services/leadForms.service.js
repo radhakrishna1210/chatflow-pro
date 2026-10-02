@@ -5,6 +5,7 @@ import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
+import { hasContactCapacity } from './subscription.service.js';
 
 
 // Public lead-capture forms.
@@ -317,6 +318,10 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   // retrying embed). The loser of the unique constraint re-reads the winner's
   // row instead of failing with a 500.
   if (!contact) {
+    if (!(await hasContactCapacity(workspaceId))) {
+      await record('REJECTED', 'Plan contact limit reached');
+      return { ok: true, message: form.successMessage };
+    }
     try {
       contact = await prisma.contact.create({
         data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [] },
