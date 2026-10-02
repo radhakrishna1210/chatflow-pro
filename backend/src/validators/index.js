@@ -898,6 +898,11 @@ export const aiAgentsStudioSchemas = {
   }).strict(),
 };
 
+// Autonomous CRM agent (/agent).
+export const autonomousAgentSchemas = {
+  settings: z.object({ enabled: z.boolean() }).strict(),
+};
+
 export const workflowCompilerSchemas = {
   compile: z.object({
     description: z.string().trim().min(1, 'Describe the automation you want').max(1000),

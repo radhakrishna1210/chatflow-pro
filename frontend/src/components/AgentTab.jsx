@@ -116,6 +116,53 @@ export default function AgentTab({ targetType, targetId }) {
 
   useEffect(() => { setData(null); load(); }, [load]);
 
+  // The workspace-wide on/off switch. Reading it is open to every member;
+  // changing it is admin-only, and a refusal is shown inline.
+  const [agentOn, setAgentOn] = useState(null);
+  const [switchBusy, setSwitchBusy] = useState(false);
+  const [switchError, setSwitchError] = useState(null);
+
+  useEffect(() => {
+    wFetch('/agent/settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => { if (s) setAgentOn(s.enabled === true); })
+      .catch(() => {});
+  }, []);
+
+  const toggleAgent = async () => {
+    setSwitchBusy(true);
+    setSwitchError(null);
+    try {
+      const res = await wFetch('/agent/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !agentOn }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(b.error || `Could not change that (${res.status}).`);
+      setAgentOn(b.enabled === true);
+      await load();
+    } catch (e) {
+      setSwitchError(e.message);
+    } finally {
+      setSwitchBusy(false);
+    }
+  };
+
+  const agentSwitch = agentOn === null ? null : (
+    <div style={{ ...card, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 12.5, color: agentOn ? 'var(--t2)' : '#fbbf24', flex: 1 }}>
+        {agentOn
+          ? 'The autonomous agent is on for this workspace.'
+          : 'The autonomous agent is off for this workspace — it books and changes nothing.'}
+      </span>
+      <Btn size="sm" variant="ghost" onClick={toggleAgent} disabled={switchBusy}>
+        {agentOn ? 'Turn off' : 'Turn on'}
+      </Btn>
+      {switchError && <span style={{ width: '100%', fontSize: 11.5, color: '#f87171' }}>{switchError}</span>}
+    </div>
+  );
+
   if (error) return <div style={{ ...card, padding: '13px 16px', fontSize: 12.5, color: '#f87171' }}>{error}</div>;
   if (!data) return <div style={{ ...card, padding: '16px', fontSize: 12.5, color: 'var(--t3)' }}>Loading…</div>;
 
@@ -126,6 +173,7 @@ export default function AgentTab({ targetType, targetId }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {agentSwitch}
       {nothingAtAll && (
         <Section icon="bot" title="Agent">
           <Empty>

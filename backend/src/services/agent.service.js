@@ -22,6 +22,65 @@ const LEASE_MS = 5 * 60_000;
 
 const MAX_ATTEMPTS = 3;
 
+// Workspaces the agent may write to: switched on, not suspended, and without a
+// cancelled or expired subscription — the same states workspaceContext blocks
+// for people. A workspace with no subscription row is on the free default.
+export const AGENT_ELIGIBLE_WHERE = {
+  autonomousAgentEnabled: true,
+  suspended: false,
+  OR: [
+    { subscription: { is: null } },
+    { subscription: { is: { status: { notIn: ['CANCELLED', 'EXPIRED'] } } } },
+  ],
+};
+
+export async function agentAllowed(workspaceId) {
+  const ws = await prisma.workspace.findFirst({
+    where: { id: workspaceId, ...AGENT_ELIGIBLE_WHERE },
+    select: { id: true },
+  });
+  return !!ws;
+}
+
+/**
+ * One page of workspaces the sweep should visit, in a stable order (by id) so
+ * a cursor can walk all of them. The old sweep took an arbitrary first 500
+ * and never reached the rest.
+ */
+export async function listAgentWorkspaceIds({ after = null, take = 200 } = {}) {
+  const rows = await prisma.workspace.findMany({
+    where: { ...AGENT_ELIGIBLE_WHERE, ...(after ? { id: { gt: after } } : {}) },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+    take,
+  });
+  return rows.map((r) => r.id);
+}
+
+export async function getAgentSettings(workspaceId) {
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { autonomousAgentEnabled: true },
+  });
+  if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
+  return { enabled: ws.autonomousAgentEnabled };
+}
+
+/**
+ * Switches the agent on or off for a workspace. Turning it off also retires
+ * work already queued, so nothing booked before the switch still runs.
+ */
+export async function setAgentEnabled(workspaceId, enabled) {
+  await prisma.workspace.update({ where: { id: workspaceId }, data: { autonomousAgentEnabled: !!enabled } });
+  if (!enabled) {
+    await prisma.agentTask.updateMany({
+      where: { workspaceId, status: 'PENDING' },
+      data: { status: 'SKIPPED', activeKey: null, lastError: 'Autonomous agent switched off for this workspace' },
+    });
+  }
+  return getAgentSettings(workspaceId);
+}
+
 /**
  * Claims up to `limit` due tasks for this worker.
  *
@@ -111,6 +170,8 @@ export async function scheduleRecheck(workspaceId, { kind, targetType, targetId,
  * verifiable one.
  */
 export async function sweepWorkspace(workspaceId, { now = new Date() } = {}) {
+  if (!(await agentAllowed(workspaceId))) return { booked: 0, deals: 0, leads: 0, skipped: true };
+
   const quietSince = new Date(now.getTime() - 14 * DAY);
 
   const [quietDeals, freshLeads] = await Promise.all([
@@ -164,6 +225,14 @@ export async function runTask(task, { actorUserId = null } = {}) {
     // The refusal happens before anything is loaded, so a sensitive kind cannot
     // do work on its way to being denied.
     assertPermittedUnattended(task.kind);
+
+    // Work booked before the workspace was switched off, suspended or lapsed
+    // is retired rather than run.
+    if (!(await agentAllowed(task.workspaceId))) {
+      const e = new Error('The autonomous agent is off for this workspace, or the workspace is inactive');
+      e.denied = true;
+      throw e;
+    }
 
     const action = ACTIONS[task.kind];
     if (!action) throw new Error(`No autonomous action named "${task.kind}"`);
