@@ -256,8 +256,10 @@ async function processRetryJob(job) {
     console.log(`[CampaignRetry] Campaign ${campaignId} not found — skipping retry`);
     return;
   }
-  if (isAuthenticationCampaign(campaign) ? campaign.status !== 'RUNNING' : campaign.status === 'CANCELLED') {
-    console.log(`[CampaignRetry] Campaign ${campaignId} was cancelled — skipping retry for ${recipientId}`);
+  // Pause halts all sending, retries included, for every campaign type. The
+  // row stays RETRYING; resumeCampaign re-queues it.
+  if (campaign.status !== 'RUNNING') {
+    console.log(`[CampaignRetry] Campaign ${campaignId} is ${campaign.status} — skipping retry for ${recipientId}`);
     return;
   }
   if (!campaign.waNumber) {

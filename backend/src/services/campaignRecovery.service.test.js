@@ -62,7 +62,13 @@ const campaignQueue = {
 mock.module(new URL('../lib/prisma.js', import.meta.url).href, { namedExports: { prisma } });
 mock.module(new URL('../queues/campaign.queue.js', import.meta.url).href, { namedExports: { campaignQueue } });
 mock.module(new URL('./retry.service.js', import.meta.url).href, {
-  namedExports: { checkAndCompleteCampaign: async (id) => { completed.push(id); return true; } },
+  namedExports: {
+    checkAndCompleteCampaign: async (id) => { completed.push(id); return true; },
+    recoverPendingRetries: async () => 0,
+  },
+});
+mock.module(new URL('./campaigns.service.js', import.meta.url).href, {
+  namedExports: { settleFinishedCampaigns: async () => 0 },
 });
 
 const { planCampaignRecovery, recoverStrandedCampaigns, RECOVERY_GRACE_MS } = await import('./campaignRecovery.service.js');

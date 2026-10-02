@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
-import { checkAndCompleteCampaign } from './retry.service.js';
+import { checkAndCompleteCampaign, recoverPendingRetries } from './retry.service.js';
+import { settleFinishedCampaigns } from './campaigns.service.js';
 
 // Database-driven recovery for campaigns whose BullMQ job is gone.
 //
@@ -141,7 +142,9 @@ export async function recoverStrandedCampaigns({ now = new Date() } = {}) {
 // One pass of everything that keeps campaigns moving without a live job.
 export async function runCampaignRecoverySweep() {
   const campaigns = await recoverStrandedCampaigns();
-  return { ...campaigns, retries: 0 };
+  const retries = await recoverPendingRetries();
+  const settled = await settleFinishedCampaigns();
+  return { ...campaigns, retries, settled };
 }
 
 let sweepTimer = null;
@@ -156,8 +159,8 @@ export function startCampaignRecoverySweep(intervalMs = RECOVERY_INTERVAL_MS) {
     sweepRunning = true;
     try {
       const r = await runCampaignRecoverySweep();
-      if (r.requeued || r.completed || r.retries) {
-        console.log(`[Recovery] Campaign sweep: requeued=${r.requeued} completed=${r.completed} retries=${r.retries}`);
+      if (r.requeued || r.completed || r.retries || r.settled) {
+        console.log(`[Recovery] Campaign sweep: requeued=${r.requeued} completed=${r.completed} retries=${r.retries} settled=${r.settled}`);
       }
     } catch (err) {
       console.error('[Recovery] Campaign sweep failed:', err.message);

@@ -1046,6 +1046,9 @@ export async function pauseCampaign(workspaceId, campaignId) {
   if (claimed.count === 0) {
     const e = new Error('This campaign changed state while it was being paused — refresh and try again.'); e.status = 409; throw e;
   }
+  // Retry jobs that come due while paused skip and leave their row RETRYING;
+  // resume re-queues them. OTP retries are folded back into the main send
+  // instead, since a code delivered hours later is useless.
   if (String(campaign.template?.category || '').toUpperCase() === 'AUTHENTICATION') {
     await prisma.campaignRecipient.updateMany({
       where: { campaignId, status: 'RETRYING' },
@@ -1110,11 +1113,16 @@ export async function resumeCampaign(workspaceId, campaignId) {
     return { ok: true, status: 'SCHEDULED', remaining };
   }
 
+  // Retries that came due while paused were skipped, and their rows left
+  // RETRYING for exactly this moment.
+  const { checkAndCompleteCampaign, recoverPendingRetries } = await import('./retry.service.js');
+  await recoverPendingRetries({ campaignId }).catch((e) =>
+    console.error(`[Campaign] Could not re-queue retries for ${campaignId}:`, e.message));
+
   if (remaining === 0) {
     // Nothing left for the main loop. Completing through the normal path
     // (rather than writing COMPLETED here) reconciles the counters and
     // settles the unspent reservation.
-    const { checkAndCompleteCampaign } = await import('./retry.service.js');
     const completed = await checkAndCompleteCampaign(campaignId);
     return { ok: true, status: completed ? 'COMPLETED' : 'RUNNING', remaining: 0 };
   }
@@ -1144,7 +1152,13 @@ export async function cancelCampaign(workspaceId, campaignId) {
 
   // Set CANCELLED first: the worker re-checks this before every send and at
   // claim time, so even a job that slipped into 'active' stops quickly.
-  await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'CANCELLED' } });
+  const claimed = await prisma.campaign.updateMany({
+    where: { id: campaignId, workspaceId, status: { notIn: ['COMPLETED', 'CANCELLED', 'FAILED'] } },
+    data: { status: 'CANCELLED' },
+  });
+  if (claimed.count === 0) {
+    const e = new Error('This campaign has already finished'); e.status = 409; throw e;
+  }
 
   // Remove the queued job by its stored ID (reliable) and by scan (fallback).
   if (campaign.queueJobId) {
@@ -1156,9 +1170,59 @@ export async function cancelCampaign(workspaceId, campaignId) {
     if (job.data?.campaignId === campaignId) await job.remove().catch(() => {});
   }
 
+  // A send already handed to Meta when the cancel landed finishes and claims
+  // its charge; settling before it does would refund a message that went out.
+  // Wait briefly for it — if it is still in flight, the recovery sweep
+  // settles the campaign shortly after.
+  for (let i = 0; i < 5 && await countInFlightRecipients(campaignId) > 0; i += 1) {
+    await new Promise((r) => setTimeout(r, 1000));
+  }
   await settleCampaignRefund(campaignId, 'Refund for cancelled campaign');
 
   return prisma.campaign.findUnique({ where: { id: campaignId } });
+}
+
+const SETTLEABLE_STATUSES = ['COMPLETED', 'CANCELLED', 'FAILED'];
+
+// Recipients a worker may be handing to Meta right now: claimed by the main
+// loop, or claimed by a retry job.
+export function countInFlightRecipients(campaignId) {
+  return prisma.campaignRecipient.count({
+    where: {
+      campaignId,
+      OR: [{ status: 'SENDING' }, { status: 'RETRYING', retryStatus: 'IN_PROGRESS' }],
+    },
+  });
+}
+
+// Settles terminal campaigns whose settlement was deferred (or lost to a
+// crash). Recent ones only, so the scan stays small; a campaign untouched for
+// SETTLE_ABANDON_MS has no live send left, and its in-flight rows are ignored.
+const SETTLE_LOOKBACK_MS = 3 * 24 * 60 * 60_000;
+const SETTLE_ABANDON_MS = 10 * 60_000;
+export async function settleFinishedCampaigns({ now = new Date() } = {}) {
+  const due = await prisma.campaign.findMany({
+    where: {
+      status: { in: SETTLEABLE_STATUSES },
+      chargedAt: { not: null },
+      updatedAt: { gt: new Date(now.getTime() - SETTLE_LOOKBACK_MS) },
+      refundedAt: null,
+    },
+    select: { id: true, status: true, updatedAt: true },
+    take: 100,
+  });
+  let settled = 0;
+  for (const c of due) {
+    const ignoreInFlight = c.updatedAt < new Date(now.getTime() - SETTLE_ABANDON_MS);
+    const reason = c.status === 'CANCELLED' ? 'Refund for cancelled campaign'
+      : c.status === 'FAILED' ? 'Refund for failed campaign' : 'Refund for unsent campaign messages';
+    const result = await settleCampaignRefund(c.id, reason, { ignoreInFlight }).catch((e) => {
+      console.error(`[Campaign] Deferred settlement failed for ${c.id}:`, e.message);
+      return null;
+    });
+    if (result) settled += 1;
+  }
+  return settled;
 }
 
 // Refunds every message that was paid for at launch but never actually left
@@ -1178,9 +1242,19 @@ export async function cancelCampaign(workspaceId, campaignId) {
 // `consumed`, and is therefore refunded — which is the behaviour that makes
 // "you are never charged for a blocked number" true even when the block
 // arrives after the campaign has started.
-export async function settleCampaignRefund(campaignId, reason = 'Refund for unsent campaign messages') {
+//
+// Settlement is one-shot, so it only runs once nothing can still be billed: in
+// a terminal state, with no recipient mid-send. A deferred settlement is
+// completed by the recovery sweep (settleFinishedCampaigns), which passes
+// `ignoreInFlight` once those rows are old enough to be abandoned.
+export async function settleCampaignRefund(campaignId, reason = 'Refund for unsent campaign messages', { ignoreInFlight = false } = {}) {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign || !campaign.chargedAt) return null;
+  if (!SETTLEABLE_STATUSES.includes(campaign.status)) return null;
+  if (!ignoreInFlight && await countInFlightRecipients(campaignId) > 0) {
+    console.log(`[Campaign] Settlement of ${campaignId} deferred — a send is still in flight`);
+    return null;
+  }
 
   const perMessage = Number(campaign.costPerMessage || 0);
   const totalCost = Number(campaign.totalCost || 0);
@@ -1188,7 +1262,6 @@ export async function settleCampaignRefund(campaignId, reason = 'Refund for unse
   // quota and come back as quota (lib/campaignCharge.js).
   const walletUnits = perMessage > 0 && totalCost > 0 ? Math.round(totalCost / perMessage) : 0;
   const quotaUnits = Number(campaign.quotaUnits || 0);
-  if (walletUnits === 0 && quotaUnits === 0) return null;
 
   // Only a message that actually went out is billable, and "went out" is
   // recorded explicitly: campaignBilling claims a charge on the recipient row
@@ -1213,9 +1286,16 @@ export async function settleCampaignRefund(campaignId, reason = 'Refund for unse
     }
   }
 
-  if (campaign.refundedAt || !(walletUnits > 0)) return null;
-  const refundable = Math.min(money(walletRefundUnits * perMessage), totalCost);
-  if (!(refundable > 0)) return null;
+  if (campaign.refundedAt) return null;
+  const refundable = walletUnits > 0 ? Math.min(money(walletRefundUnits * perMessage), totalCost) : 0;
+  if (!(refundable > 0)) {
+    // Nothing owed back. Stamping the settlement keeps it from being revisited.
+    await prisma.campaign.updateMany({
+      where: { id: campaignId, refundedAt: null },
+      data: { refundedAt: new Date(), refundAmount: 0 },
+    });
+    return null;
+  }
 
   console.log(`[Campaign] Refunding ₹${refundable} to ${campaign.workspaceId} — ${walletUnits} paid from wallet, ${quotaUnits} from quota, ${billed} sent (${campaign.name})`);
   return refundCampaign(campaignId, refundable, reason);

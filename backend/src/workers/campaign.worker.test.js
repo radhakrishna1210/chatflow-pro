@@ -246,6 +246,16 @@ test('retry: if failure handling throws too, the claim is handed back as SCHEDUL
   assert.equal(recipients[0].retryStatus, 'SCHEDULED');
 });
 
+test('retry: a paused (non-OTP) campaign sends nothing and leaves the row RETRYING for resume', async () => {
+  campaigns[0].status = 'PAUSED';
+  recipients[0].status = 'RETRYING';
+  recipients[0].retryStatus = 'SCHEDULED';
+  await processCampaign(retryJob('r1'));
+  assert.equal(calls.sent.length, 0);
+  assert.equal(recipients[0].status, 'RETRYING');
+  assert.equal(recipients[0].retryStatus, 'SCHEDULED');
+});
+
 test('retry: bookkeeping failure after Meta accepted the retry does not reschedule it', async () => {
   campaigns[0].status = 'RUNNING';
   recipients[0].status = 'RETRYING';
