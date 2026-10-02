@@ -4,62 +4,47 @@ import { createTask } from './tasks.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
 import { escalateToHuman } from './intentRouting.service.js';
+import { deployAgent, undeployAgent } from './aiAgent.service.js';
 
-// Pre-configured default agent templates matching user's reference specification
+// Starter agents shown until a workspace saves its own. Deliberately
+// business-neutral: they are offered to every tenant, whatever it sells.
 const DEFAULT_AGENTS = [
   {
-    id: 'agent_investor_support',
-    name: 'Investor Support Agent',
+    id: 'agent_customer_support',
+    name: 'Customer Support Agent',
     role: 'AGENT',
-    description: 'Supports existing investors with service-related questions and escalates operational issues when necessary.',
-    purpose: 'Provide fast, accurate 24/7 service responses to existing investors regarding statements, account status, and operational questions.',
-    systemPrompt: `You are the Investor Support Agent for our firm. Your goal is to support existing investors with polite, clear, and accurate service answers. If an investor asks about private account statements, complex tax documents, or expresses dissatisfaction, immediately offer to escalate to their designated relationship manager. Never make investment guarantees or provide personalized financial advisory.`,
-    guidelines: ['Do not provide personalized financial advice', 'Escalate account security and wire inquiries to a human rep', 'Maintain an executive, polished, and courteous tone'],
+    description: 'Answers common customer questions and hands anything it cannot resolve to a person.',
+    purpose: 'Give quick, accurate answers to customer questions about orders, services and policies, using only the business\'s own information.',
+    systemPrompt: `You are the customer support agent for this business. Answer politely, clearly and briefly using only the information you have been given. If a customer is unhappy, asks about a refund or complaint, or asks for a person, offer to hand the conversation to the team. Never invent prices, policies or delivery dates.`,
+    guidelines: ['g_no_invented_facts', 'g_polite_tone', 'g_escalate'],
     actions: ['crm.escalate_human', 'crm.create_task'],
-    knowledgeTypes: ['FAQ', 'OPERATIONAL_DOCS'],
-    model: 'gemini-1.5-flash',
+    knowledgeTypes: ['FAQ'],
     isDefault: true,
     enabled: true,
   },
   {
-    id: 'agent_investor_qualification',
-    name: 'Investor Qualification Agent',
+    id: 'agent_lead_qualification',
+    name: 'Lead Qualification Agent',
     role: 'AGENT',
-    description: 'Qualifies new investor interest, captures lead details, and helps move prospects toward a meeting or next step.',
-    purpose: 'Engage new inbound inquiries, assess investment criteria, capture allocation size & timeline, and route qualified leads to the sales team.',
-    systemPrompt: `You are the Investor Qualification Agent. When a new prospect reaches out, warmly welcome them and ask brief, respectful qualifying questions: 1) What type of investment offerings are they exploring? 2) What is their estimated allocation timeline? 3) Are they an accredited investor? When the prospect answers favorably, thank them and trigger meeting booking with our partner team.`,
-    guidelines: ['Verify accreditation status respectfully', 'Capture primary contact details if missing', 'Trigger CRM lead qualification when criteria are satisfied'],
+    description: 'Welcomes new enquiries, asks a few qualifying questions and routes promising leads to the sales team.',
+    purpose: 'Engage new inbound enquiries, understand what the customer needs and their timeline, and pass qualified leads to sales.',
+    systemPrompt: `You are the lead qualification agent for this business. Greet new enquiries warmly and ask, one at a time, what they are looking for, roughly when they need it, and how best to reach them. When they are a good fit, thank them and offer to set up a call with the team.`,
+    guidelines: ['g_capture_contact', 'g_polite_tone'],
     actions: ['crm.qualify_lead', 'crm.assign_rep', 'crm.book_meeting'],
-    knowledgeTypes: ['OVERVIEW_BROCHURE', 'CRITERIA_DOCS'],
-    model: 'gemini-1.5-flash',
+    knowledgeTypes: ['FAQ', 'PRODUCT_INFO'],
     isDefault: true,
     enabled: true,
   },
   {
-    id: 'agent_compliance_screening',
-    name: 'Compliance Screening Agent',
+    id: 'agent_product_info',
+    name: 'Product Information Agent',
     role: 'AGENT',
-    description: 'Handles eligibility, accreditation-related screening, and onboarding readiness questions for prospective investors.',
-    purpose: 'Screen prospect eligibility and regulatory prerequisites before partner meetings.',
-    systemPrompt: `You are the Compliance Screening Agent. Your sole responsibility is to clarify onboarding requirements, explain accreditation standards (e.g. net worth, income thresholds, institutional status), and confirm jurisdiction readiness. Keep responses concise, objective, and regulatory-safe.`,
-    guidelines: ['Strict compliance with securities regulations', 'Never provide legal or tax advice', 'Refer unverified entities to compliance team'],
-    actions: ['crm.qualify_lead', 'crm.create_task'],
-    knowledgeTypes: ['COMPLIANCE_GUIDELINES', 'ACCREDITATION_CRITERIA'],
-    model: 'gemini-1.5-flash',
-    isDefault: true,
-    enabled: true,
-  },
-  {
-    id: 'agent_fund_info',
-    name: 'Fund Information Agent',
-    role: 'AGENT',
-    description: 'Answers general questions about fund offerings, process, and common FAQs without giving personalized advice.',
-    purpose: 'Serve as an educational knowledge assistant explaining investment strategies, past performance history, and general fund FAQs.',
-    systemPrompt: `You are the Fund Information Agent. You answer general inquiries about the fund strategy, investment thesis, minimum holding periods, and fund management philosophy based strictly on provided documentation. If a prospect asks "Should I invest my money in this?", clarify that you provide fund information only and cannot provide investment recommendations.`,
-    guidelines: ['Stick strictly to facts in the knowledge base', 'Include regulatory disclaimer when discussing returns', 'Encourage scheduling a call for detailed prospectus access'],
+    description: 'Explains products and services from the knowledge base without making promises it cannot keep.',
+    purpose: 'Answer general questions about products, services, pricing and process strictly from the provided information.',
+    systemPrompt: `You are the product information agent for this business. Answer questions about products, services and how things work strictly from the information provided. If you do not know, say so and offer to connect the customer with the team.`,
+    guidelines: ['g_no_invented_facts', 'g_capture_contact'],
     actions: ['crm.book_meeting'],
-    knowledgeTypes: ['FUND_FACTSHEET', 'STRATEGY_OVERVIEW'],
-    model: 'gemini-1.5-flash',
+    knowledgeTypes: ['PRODUCT_INFO'],
     isDefault: true,
     enabled: true,
   },
@@ -67,10 +52,10 @@ const DEFAULT_AGENTS = [
 
 // Pre-defined guidelines catalog
 const DEFAULT_GUIDELINES = [
-  { id: 'g_no_advice', title: 'No Personalized Financial Advice', description: 'Agents must explicitly state they provide factual information only and do not give personalized investment, tax, or legal recommendations.', category: 'COMPLIANCE', severity: 'HIGH' },
-  { id: 'g_polite_tone', title: 'Executive Brand Voice', description: 'Maintain a professional, responsive, and articulate tone at all times.', category: 'BRAND', severity: 'MEDIUM' },
-  { id: 'g_escalate_disputes', title: 'Automatic Escalation on Inquiries', description: 'Any question concerning account balances, wire instructions, or complaints must be routed to human staff.', category: 'ESCALATION', severity: 'CRITICAL' },
-  { id: 'g_capture_contact', title: 'Inbound Contact Capture', description: 'Gently confirm email or phone number before scheduling consultations or sending prospectus attachments.', category: 'OPERATIONS', severity: 'MEDIUM' },
+  { id: 'g_no_invented_facts', title: 'Stick to the Facts Provided', description: 'Only state prices, policies, dates and product details that appear in the business\'s own information; say so when something is not known.', category: 'COMPLIANCE', severity: 'HIGH' },
+  { id: 'g_polite_tone', title: 'Brand Voice', description: 'Maintain a professional, friendly and concise tone at all times.', category: 'BRAND', severity: 'MEDIUM' },
+  { id: 'g_escalate', title: 'Escalate Complaints and Refunds', description: 'Complaints, refund requests, account or payment problems and requests for a person are handed to the team.', category: 'ESCALATION', severity: 'CRITICAL' },
+  { id: 'g_capture_contact', title: 'Inbound Contact Capture', description: 'Confirm the best way to reach the customer before scheduling a call or sending documents.', category: 'OPERATIONS', severity: 'MEDIUM' },
 ];
 
 // Pre-defined callable CRM action tools
@@ -135,7 +120,6 @@ export async function listAgents(workspaceId) {
       guidelines: Array.isArray(data.guidelines) ? data.guidelines : [],
       actions: Array.isArray(data.actions) ? data.actions : [],
       knowledgeTypes: Array.isArray(data.knowledgeTypes) ? data.knowledgeTypes : [],
-      model: data.model || 'gemini-1.5-flash',
       enabled: data.enabled !== false,
       isDefault: false,
       createdAt: v.createdAt,
@@ -179,7 +163,6 @@ export async function createAgent(workspaceId, userId, agentData = {}) {
     guidelines: Array.isArray(agentData.guidelines) ? agentData.guidelines : ['g_polite_tone'],
     actions: Array.isArray(agentData.actions) ? agentData.actions : ['crm.escalate_human'],
     knowledgeTypes: Array.isArray(agentData.knowledgeTypes) ? agentData.knowledgeTypes : ['FAQ'],
-    model: agentData.model || 'gemini-1.5-flash',
     enabled: agentData.enabled !== false,
   };
 
@@ -227,14 +210,13 @@ export async function updateAgent(workspaceId, agentId, patch, userId) {
           guidelines: merged.guidelines,
           actions: merged.actions,
           knowledgeTypes: merged.knowledgeTypes,
-          model: merged.model,
           enabled: merged.enabled,
         },
         isShared: true,
         createdByUserId: validUserId,
       },
     });
-    return { id: created.id, ...merged };
+    return { ...merged, id: created.id, isDefault: false };
   }
 
   const existing = await prisma.savedView.findFirst({
@@ -415,222 +397,137 @@ export async function executeAction(workspaceId, actionId, params = {}, user = n
 }
 
 /**
- * Channel deployments for AI Chatbots
+ * Channel deployments.
+ *
+ * WhatsApp is the only channel an agent from this page can actually answer on:
+ * the live WhatsApp AI agent is the workspace's aiAgent* configuration, and
+ * this page can apply a saved agent's persona to it and deploy/undeploy it
+ * through the same service the WhatsApp AI Agent page uses. Website-widget and
+ * Instagram toggles used to be listed here too, but nothing ever read them, so
+ * they are not offered.
  */
-export const DEFAULT_CHANNELS = [
-  {
-    channelKey: 'whatsapp',
-    channel: 'WhatsApp Cloud API',
-    icon: 'phone',
-    assignedAgentId: 'agent_investor_qualification',
-    assignedAgent: 'Investor Qualification Agent',
-    status: 'Connected & Active',
-    enabled: true,
-    color: '#22c55e',
-    greeting: 'Hello! Thank you for reaching out to us on WhatsApp. How can I assist you today?',
-    delaySeconds: 1,
-    fallbackToHuman: true,
-    autoSyncCrm: true,
-    businessHoursOnly: false,
-  },
-  {
-    channelKey: 'website',
-    channel: 'Website Live Chat Widget',
-    icon: 'globe',
-    assignedAgentId: 'agent_fund_info',
-    assignedAgent: 'Fund Information Agent',
-    status: 'Connected & Active',
-    enabled: true,
-    color: '#22c55e',
-    greeting: 'Welcome! I am your AI assistant. Feel free to ask anything about our offerings, funds, or services.',
-    delaySeconds: 0,
-    fallbackToHuman: true,
-    autoSyncCrm: true,
-    widgetPosition: 'bottom-right',
-  },
-  {
-    channelKey: 'instagram',
-    channel: 'Instagram Direct Messages',
-    icon: 'insta',
-    assignedAgentId: 'agent_investor_support',
-    assignedAgent: 'Investor Support Agent',
-    status: 'Standby / Ready',
-    enabled: false,
-    color: '#38bdf8',
-    greeting: 'Hi there! Thanks for messaging us on Instagram. How can we help you?',
-    delaySeconds: 2,
-    fallbackToHuman: true,
-    autoSyncCrm: true,
-    replyToStoryMentions: false,
-  },
-];
+export const CHANNEL_KEYS = ['whatsapp'];
 
 /**
- * List channels and their assigned AI agents
+ * List channels with their real deployment state
  */
 export async function listChannels(workspaceId) {
-  const [channelViews, agents] = await Promise.all([
-    prisma.savedView.findMany({
-      where: { workspaceId, entity: 'ai_channel_bot' },
-    }),
+  const [saved, agents, ws, connectedNumbers] = await Promise.all([
+    prisma.savedView.findFirst({ where: { workspaceId, entity: 'ai_channel_bot', name: 'whatsapp' } }),
     listAgents(workspaceId),
+    prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { aiAgentEnabled: true, aiAgentName: true, aiAgentDeployedAt: true },
+    }),
+    prisma.waNumber.count({ where: { workspaceId } }),
   ]);
 
-  const customMap = new Map();
-  for (const v of channelViews) {
-    if (typeof v.filters === 'object' && v.filters !== null) {
-      customMap.set(v.name, { ...v.filters, id: v.id });
-    }
-  }
+  const filters = saved && typeof saved.filters === 'object' && saved.filters !== null ? saved.filters : {};
+  const assigned = agents.find((a) => a.id === filters.assignedAgentId) || null;
+  const deployed = ws?.aiAgentEnabled === true;
 
-  return DEFAULT_CHANNELS.map((def) => {
-    const saved = customMap.get(def.channelKey);
-    const merged = saved ? { ...def, ...saved } : { ...def };
+  let status = 'Not deployed';
+  if (connectedNumbers === 0) status = 'No WhatsApp number connected';
+  else if (deployed) status = 'Live';
 
-    const assigned = agents.find((a) => a.id === merged.assignedAgentId);
-    if (assigned) {
-      merged.assignedAgent = assigned.name;
-    }
-
-    merged.status = merged.enabled ? 'Connected & Active' : 'Standby / Ready';
-    merged.color = merged.enabled ? '#22c55e' : '#38bdf8';
-    return merged;
-  });
+  return [{
+    channelKey: 'whatsapp',
+    channel: 'WhatsApp',
+    icon: 'phone',
+    assignedAgentId: assigned?.id ?? null,
+    assignedAgent: assigned?.name ?? null,
+    // The persona the live bot is actually using, which may have been edited on
+    // the WhatsApp AI Agent page since an agent was applied here.
+    liveAgentName: ws?.aiAgentName || null,
+    enabled: deployed,
+    deployedAt: ws?.aiAgentDeployedAt ?? null,
+    connectedNumbers,
+    live: deployed && connectedNumbers > 0,
+    status,
+  }];
 }
 
 /**
- * Update configuration for a specific channel bot
+ * Apply an agent to the WhatsApp channel and/or deploy or undeploy it
  */
 export async function updateChannel(workspaceId, channelKey, updates, userId) {
-  const existing = await prisma.savedView.findFirst({
-    where: { workspaceId, entity: 'ai_channel_bot', name: channelKey },
-  });
+  if (!CHANNEL_KEYS.includes(channelKey)) throw httpError(404, 'Unknown channel');
 
-  const defaultConf = DEFAULT_CHANNELS.find((c) => c.channelKey === channelKey) || {};
-  const prevFilters = (existing && typeof existing.filters === 'object' && existing.filters !== null)
-    ? existing.filters
-    : defaultConf;
+  if (updates.assignedAgentId !== undefined) {
+    const agents = await listAgents(workspaceId);
+    const assigned = agents.find((a) => a.id === updates.assignedAgentId);
+    if (!assigned) throw httpError(404, 'Agent not found');
 
-  const newFilters = {
-    ...prevFilters,
-    ...updates,
-    channelKey,
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (existing) {
-    await prisma.savedView.update({
-      where: { id: existing.id },
-      data: { filters: newFilters },
+    const existing = await prisma.savedView.findFirst({
+      where: { workspaceId, entity: 'ai_channel_bot', name: channelKey },
     });
-  } else {
-    const validUserId = await resolveUserId(workspaceId, userId);
-    await prisma.savedView.create({
+    const filters = { channelKey, assignedAgentId: assigned.id, updatedAt: new Date().toISOString() };
+    if (existing) {
+      await prisma.savedView.update({ where: { id: existing.id }, data: { filters } });
+    } else {
+      await prisma.savedView.create({
+        data: {
+          workspaceId,
+          entity: 'ai_channel_bot',
+          name: channelKey,
+          filters,
+          isShared: true,
+          createdByUserId: await resolveUserId(workspaceId, userId),
+        },
+      });
+    }
+
+    // Applying an agent replaces the live bot's name and persona prompt — the
+    // UI says so. Purpose, instructions, knowledge and guardrails stay as they
+    // are on the WhatsApp AI Agent page.
+    await prisma.workspace.update({
+      where: { id: workspaceId },
       data: {
-        workspaceId,
-        entity: 'ai_channel_bot',
-        name: channelKey,
-        filters: newFilters,
-        isShared: true,
-        createdByUserId: validUserId,
+        aiAgentName: assigned.name.slice(0, 80),
+        aiAgentPrompt: String(assigned.systemPrompt || '').slice(0, 4000),
       },
     });
   }
 
-  // If WhatsApp channel is configured, also sync with Workspace AI agent deployment
-  if (channelKey === 'whatsapp') {
-    const isEnabled = updates.enabled !== undefined ? !!updates.enabled : newFilters.enabled;
-    const agents = await listAgents(workspaceId);
-    const assigned = agents.find((a) => a.id === newFilters.assignedAgentId);
-    if (assigned) {
-      await prisma.workspace.update({
-        where: { id: workspaceId },
-        data: {
-          aiAgentEnabled: isEnabled,
-          aiAgentName: assigned.name,
-          aiAgentPrompt: assigned.systemPrompt || '',
-        },
-      });
-    }
-  }
+  // Same checks as the WhatsApp AI Agent page's Deploy button (prompt present,
+  // LLM configured) — flipping aiAgentEnabled directly skipped them.
+  if (updates.enabled === true) await deployAgent(workspaceId);
+  else if (updates.enabled === false) await undeployAgent(workspaceId);
 
-  return { success: true, channel: newFilters };
+  const [channel] = await listChannels(workspaceId);
+  return { success: true, channel };
 }
 
 /**
- * Simulate / Test an agent response (real Gemini LLM with heuristic fallback)
+ * Test an agent's reply with the configured LLM.
+ *
+ * Without a provider, or when the model returns nothing, this says so
+ * ({ ok: false, reason }) instead of returning canned text — a scripted reply
+ * here looked exactly like a working agent. No CRM actions are run or implied:
+ * the test lab only shows what the agent would say.
  */
 export async function testAgent(workspaceId, agentId, userMessage) {
   const agents = await listAgents(workspaceId);
-  const agent = agents.find((a) => a.id === agentId) || agents[0];
+  const agent = agents.find((a) => a.id === agentId);
+  if (!agent) throw httpError(404, 'Agent not found');
 
-  const lower = String(userMessage || '').toLowerCase();
-
-  // 1. Determine triggered CRM actions
-  const triggeredActions = [];
-  if (lower.includes('invest') || lower.includes('budget') || lower.includes('million') || lower.includes('500k') || lower.includes('accredited')) {
-    triggeredActions.push('crm.qualify_lead', 'crm.book_meeting');
-  }
-  if (lower.includes('meeting') || lower.includes('call') || lower.includes('schedule')) {
-    if (!triggeredActions.includes('crm.book_meeting')) triggeredActions.push('crm.book_meeting');
-  }
-  if (lower.includes('human') || lower.includes('rep') || lower.includes('person') || lower.includes('escalate') || lower.includes('support')) {
-    triggeredActions.push('crm.escalate_human');
-  }
-  if (lower.includes('task') || lower.includes('follow') || lower.includes('remind') || lower.includes('compliance')) {
-    triggeredActions.push('crm.create_task');
+  const base = { agentId: agent.id, agentName: agent.name, timestamp: new Date().toISOString() };
+  if (!llmAvailable()) {
+    return { ...base, ok: false, reply: null, reason: 'No LLM provider is configured (set GEMINI_API_KEY), so the agent cannot generate replies.' };
   }
 
-  // 2. If Gemini LLM is available, generate real AI response
-  if (llmAvailable()) {
-    try {
-      const guidelines = await listGuidelines(workspaceId);
-      const guidelinesSummary = guidelines.slice(0, 3).map((g) => `- ${g.title}: ${g.description}`).join('\n');
-      const system = `${agent.systemPrompt || 'You are an executive conversational AI agent.'}
+  const guidelines = await listGuidelines(workspaceId);
+  const chosen = Array.isArray(agent.guidelines) && agent.guidelines.length
+    ? guidelines.filter((g) => agent.guidelines.includes(g.id))
+    : guidelines.slice(0, 3);
+  const guidelinesSummary = chosen.map((g) => `- ${g.title}: ${g.description}`).join('\n');
+  const system = `${agent.systemPrompt || 'You are a helpful customer conversation agent.'}
+${guidelinesSummary ? `\nGUIDELINES:\n${guidelinesSummary}\n` : ''}
+Tone: professional, helpful, concise (1-3 sentences). Do not invent facts.`;
 
-GUIDELINES:
-${guidelinesSummary}
-
-Tone: Professional, helpful, concise (1-3 sentences max). Never hallucinate or give unapproved financial guarantees.`;
-
-      const llmReply = await llmText(userMessage, system);
-      if (llmReply && llmReply.trim().length > 5) {
-        return {
-          agentId: agent.id,
-          agentName: agent.name,
-          reply: llmReply.trim(),
-          triggeredActions,
-          timestamp: new Date().toISOString(),
-          model: agent.model || 'gemini-1.5-flash',
-        };
-      }
-    } catch (err) {
-      console.warn('[aiAgents] Gemini call failed, using heuristic fallback:', err.message);
-    }
+  const reply = await llmText(String(userMessage || ''), system);
+  if (!reply || !reply.trim()) {
+    return { ...base, ok: false, reply: null, reason: 'The model did not return a reply. Try again.' };
   }
-
-  // 3. Heuristic fallback simulator
-  let replyText = '';
-  if (agent.name.includes('Qualification') || lower.includes('invest') || lower.includes('budget') || lower.includes('qualify')) {
-    replyText = `Thank you for sharing your interest. As an investor exploring our offerings, could you confirm your anticipated allocation size and whether you meet accredited investor criteria? This will allow us to prepare the suitable documentation for you.`;
-    if (lower.includes('yes') || lower.includes('million') || lower.includes('accredited') || lower.includes('500k')) {
-      replyText = `Excellent. Based on your criteria, you qualify for our flagship fund series. I am reserving an introductory consultation slot with our partner team and updating your portfolio status now.`;
-      if (!triggeredActions.includes('crm.assign_rep')) triggeredActions.push('crm.assign_rep');
-    }
-  } else if (agent.name.includes('Compliance') || lower.includes('compliance') || lower.includes('eligibility') || lower.includes('terms')) {
-    replyText = `Our compliance framework adheres strictly to standard regulatory guidelines. Prospective participants must complete verification of accreditation status and standard AML/KYC checks prior to execution. Would you like me to note your onboarding readiness for our compliance officers?`;
-  } else if (agent.name.includes('Support') || lower.includes('help') || lower.includes('issue') || lower.includes('statement')) {
-    replyText = `I would be glad to help. For verified account statements or direct operational support, I can connect you directly with your assigned relationship manager. Would you like me to flag this as a priority request?`;
-  } else {
-    replyText = `Thank you for reaching out to us. Our investment strategy focuses on steady capital preservation and risk-adjusted growth across diversified high-conviction portfolios. How may I assist with your review today?`;
-  }
-
-  return {
-    agentId: agent.id,
-    agentName: agent.name,
-    reply: replyText,
-    triggeredActions,
-    timestamp: new Date().toISOString(),
-    model: 'heuristic-simulator',
-  };
+  return { ...base, ok: true, reply: reply.trim() };
 }

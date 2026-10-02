@@ -48,6 +48,25 @@ mock.module('./intentRouting.service.js', {
   },
 });
 
+let deployError = null;
+mock.module('./aiAgent.service.js', {
+  namedExports: {
+    deployAgent: async (workspaceId) => {
+      calls.deploy.push(workspaceId);
+      if (deployError) throw deployError;
+      workspace.aiAgentEnabled = true;
+    },
+    undeployAgent: async (workspaceId) => {
+      calls.undeploy.push(workspaceId);
+      workspace.aiAgentEnabled = false;
+    },
+  },
+});
+calls.deploy = [];
+calls.undeploy = [];
+let workspace = {};
+let numberCount = 0;
+
 const { prisma } = await import('../lib/prisma.js');
 const svc = await import('./aiAgents.service.js');
 
@@ -81,8 +100,16 @@ prisma.savedView.create = async ({ data }) => {
   savedViews.push(row);
   return row;
 };
+prisma.savedView.update = async ({ where, data }) => {
+  const row = savedViews.find((v) => v.id === where.id);
+  Object.assign(row, data);
+  return row;
+};
 prisma.workspaceMember.findFirst = async ({ where }) => members.find((m) => matches(m, where)) ?? null;
 prisma.user.findFirst = async () => { throw new Error('must never look up an arbitrary user'); };
+prisma.workspace.findUnique = async () => ({ ...workspace });
+prisma.workspace.update = async ({ data }) => { Object.assign(workspace, data); return { ...workspace }; };
+prisma.waNumber.count = async () => numberCount;
 
 const reset = () => {
   for (const k of Object.keys(calls)) calls[k].length = 0;
@@ -91,6 +118,9 @@ const reset = () => {
   members = [];
   llmOn = false;
   llmReply = null;
+  workspace = { aiAgentEnabled: false, aiAgentName: 'Live bot', aiAgentPrompt: 'Original persona prompt' };
+  numberCount = 0;
+  deployError = null;
 };
 
 const USER = { id: 'u_admin', role: 'ADMIN' };
@@ -183,4 +213,87 @@ test('listAgents returns the starter agents when none are saved', async () => {
 test('actions catalogue lists every action executeAction implements', () => {
   const ids = svc.listActions().map((a) => a.id).sort();
   assert.deepEqual(ids, ['crm.assign_rep', 'crm.book_meeting', 'crm.create_task', 'crm.escalate_human', 'crm.qualify_lead']);
+});
+
+test('starter agents are business-neutral and carry no fake model label', async () => {
+  reset();
+  const agents = await svc.listAgents(WS);
+  const text = JSON.stringify(agents).toLowerCase();
+  for (const word of [/investor/, /accredit/, /\bfunds?\b/, /\baml\b/]) assert.equal(word.test(text), false, String(word));
+  assert.equal(agents.some((a) => 'model' in a), false);
+});
+
+test('testAgent without an LLM says so instead of returning a scripted reply', async () => {
+  reset();
+  const out = await svc.testAgent(WS, 'agent_customer_support', 'I want to talk to a rep about support');
+  assert.equal(out.ok, false);
+  assert.equal(out.reply, null);
+  assert.match(out.reason, /No LLM provider/);
+  assert.equal('triggeredActions' in out, false);
+  assert.equal('model' in out, false);
+});
+
+test('testAgent returns the model reply, or an honest failure when it returns nothing', async () => {
+  reset();
+  llmOn = true;
+  llmReply = 'Happy to help with that.';
+  const ok = await svc.testAgent(WS, 'agent_customer_support', 'hi');
+  assert.equal(ok.ok, true);
+  assert.equal(ok.reply, 'Happy to help with that.');
+
+  llmReply = null;
+  const failed = await svc.testAgent(WS, 'agent_customer_support', 'hi');
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reply, null);
+
+  await assert.rejects(svc.testAgent(WS, 'agent_does_not_exist', 'hi'), { status: 404 });
+});
+
+test('channels report real WhatsApp state, never a synthetic "Connected & Active"', async () => {
+  reset();
+  let [ch] = await svc.listChannels(WS);
+  assert.equal((await svc.listChannels(WS)).length, 1);
+  assert.equal(ch.channelKey, 'whatsapp');
+  assert.equal(ch.status, 'No WhatsApp number connected');
+  assert.equal(ch.live, false);
+
+  numberCount = 1;
+  [ch] = await svc.listChannels(WS);
+  assert.equal(ch.status, 'Not deployed');
+
+  workspace.aiAgentEnabled = true;
+  [ch] = await svc.listChannels(WS);
+  assert.equal(ch.status, 'Live');
+  assert.equal(ch.live, true);
+});
+
+test('enabling the WhatsApp channel goes through deployAgent and its checks', async () => {
+  reset();
+  numberCount = 1;
+  deployError = Object.assign(new Error('No LLM provider is configured'), { status: 400 });
+  await assert.rejects(svc.updateChannel(WS, 'whatsapp', { enabled: true }, 'u1'), { status: 400 });
+  assert.equal(workspace.aiAgentEnabled, false);
+
+  deployError = null;
+  const out = await svc.updateChannel(WS, 'whatsapp', { enabled: true }, 'u1');
+  assert.deepEqual(calls.deploy, [WS, WS]);
+  assert.equal(out.channel.status, 'Live');
+
+  await svc.updateChannel(WS, 'whatsapp', { enabled: false }, 'u1');
+  assert.deepEqual(calls.undeploy, [WS]);
+  assert.equal(workspace.aiAgentEnabled, false);
+});
+
+test('applying an agent to WhatsApp copies its persona and records the assignment', async () => {
+  reset();
+  await assert.rejects(svc.updateChannel(WS, 'whatsapp', { assignedAgentId: 'nope' }, 'u1'), { status: 404 });
+  assert.equal(workspace.aiAgentPrompt, 'Original persona prompt');
+
+  const out = await svc.updateChannel(WS, 'whatsapp', { assignedAgentId: 'agent_lead_qualification' }, 'u1');
+  assert.equal(workspace.aiAgentName, 'Lead Qualification Agent');
+  assert.match(workspace.aiAgentPrompt, /lead qualification agent/);
+  assert.equal(out.channel.assignedAgent, 'Lead Qualification Agent');
+  assert.equal(calls.deploy.length, 0, 'assigning alone must not deploy');
+
+  await assert.rejects(svc.updateChannel(WS, 'website', { enabled: true }, 'u1'), { status: 404 });
 });
