@@ -3,6 +3,9 @@ import { llmText, llmJson } from '../lib/llm.js';
 import { generateTemplateDraft } from '../services/templateAi.service.js';
 import { createWorkflow } from '../services/workflow.service.js';
 import { hasFeature } from '../services/subscription.service.js';
+import { createTemplate, deleteTemplate } from '../services/templates.service.js';
+import { createCampaign } from '../services/campaigns.service.js';
+import { templateSchemas } from '../validators/index.js';
 
 // ─── Intent detection ─────────────────────────────────────────────────────────
 async function detectIntent(message) {
@@ -188,6 +191,68 @@ Reply with ONLY JSON: {"choice": number, "name": string, "why": string}
   return { template: best, name: derived || `${best.name} campaign`, why: '', picked: 'fallback' };
 }
 
+// ─── Permissions and writes ───────────────────────────────────────────────────
+
+// This route lives outside /workspaces/:workspaceId, so neither workspaceContext
+// nor authorize() runs. The same rules are applied here instead: creating is
+// member-level work (CLIENT and up, as on the REST routes), and deleting from a
+// free-text chat is restricted to ADMIN.
+const ROLE_LEVEL = { VIEWER: 0, AGENT: 1, CLIENT: 2, ADMIN: 3 };
+export const canCreateFromChat = (role) => (ROLE_LEVEL[role] ?? -1) >= ROLE_LEVEL.CLIENT;
+export const canDeleteFromChat = (role) => role === 'ADMIN';
+
+const CREATE_DENIED = 'Your role in this workspace can\'t create templates, campaigns or automations. Ask a workspace admin if you need this.';
+const DELETE_DENIED = 'Only workspace admins can delete templates or campaigns from the assistant. You can manage them from the Templates and Campaigns pages instead.';
+
+// Mirrors workspaceContext: a suspended workspace or an inactive subscription
+// blocks the workspace for everyone but platform super admins.
+export function workspaceBlockReason(workspace, user) {
+  if (user?.superAdmin === true) return null;
+  if (workspace?.suspended) return 'This workspace has been suspended. Please contact support.';
+  const subStatus = workspace?.subscription?.status;
+  if (subStatus && ['CANCELLED', 'EXPIRED'].includes(subStatus)) {
+    return 'This workspace\'s subscription is inactive. Renew your plan or recharge your wallet to continue.';
+  }
+  return null;
+}
+
+const firstNumberId = async (workspaceId) =>
+  (await prisma.waNumber.findFirst({ where: { workspaceId }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id;
+
+// Saves through the same validation and service the Templates page uses, so a
+// chat-made template is checked, bound to a number and actually submitted to
+// Meta — PENDING then really does mean "in review". Errors a user can act on
+// (validation, Meta rejection) come back as text instead of a 500.
+async function saveTemplate(workspaceId, { name, category, language, components }) {
+  const parsed = templateSchemas.create.safeParse({ name, category, language, components });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message || 'The template is not valid.' };
+  }
+  try {
+    const tpl = await createTemplate(workspaceId, { ...parsed.data, waNumberId: await firstNumberId(workspaceId) });
+    await prisma.template.update({ where: { id: tpl.id }, data: { aiGenerated: true } }).catch(() => {});
+    return { tpl };
+  } catch (err) {
+    if (err.status && err.status < 500) return { error: err.message };
+    throw err;
+  }
+}
+
+// Same path as POST /campaigns: plan campaign cap, template/number checks.
+async function saveCampaign(workspaceId, user, { name, template }) {
+  try {
+    const numberId = template.waNumberId || await firstNumberId(workspaceId);
+    const campaign = await createCampaign(workspaceId, { name, templateId: template.id, numberId }, user);
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { aiGenerated: true } }).catch(() => {});
+    return { campaign };
+  } catch (err) {
+    if (err.status && err.status < 500) return { error: err.message };
+    throw err;
+  }
+}
+
+const exactName = (text) => ({ equals: text.trim(), mode: 'insensitive' });
+
 // ─── Main chat handler ────────────────────────────────────────────────────────
 export const chatWithAi = async (req, res) => {
   try {
@@ -204,8 +269,13 @@ export const chatWithAi = async (req, res) => {
     // check below, so a non-member never sees any of this data.
     const member = await prisma.workspaceMember.findUnique({
       where: { userId_workspaceId: { userId, workspaceId } },
+      include: { workspace: { select: { suspended: true, subscription: { select: { status: true } } } } },
     });
     if (!member) return res.status(403).json({ content: 'You are not a member of that workspace.' });
+    const blocked = workspaceBlockReason(member.workspace, req.user);
+    if (blocked) return res.status(403).json({ content: blocked, error: blocked });
+    const mayCreate = canCreateFromChat(member.role);
+    const mayDelete = canDeleteFromChat(member.role);
 
     const [aiOnboardingAllowed, existingSession, numberCount] = await Promise.all([
       hasFeature(workspaceId, 'aiOnboarding'),
@@ -237,8 +307,27 @@ export const chatWithAi = async (req, res) => {
       state = { step: 'IDLE' };
     }
 
+    // Role is read live on every turn, so a flow started before a demotion
+    // cannot be finished after it.
+    if (state.step && state.step !== 'IDLE') {
+      const deleting = String(state.step).startsWith('DELETE_');
+      if (!(deleting ? mayDelete : mayCreate)) {
+        state = { step: 'IDLE' };
+        await save();
+        return res.json({ content: deleting ? DELETE_DENIED : CREATE_DENIED });
+      }
+    }
+
     if (state.step === 'IDLE') {
       const intent = await detectIntent(text);
+
+      const isDelete = intent === 'DELETE_TEMPLATE' || intent === 'DELETE_CAMPAIGN';
+      const isCreate = intent === 'CREATE_TEMPLATE' || intent === 'CREATE_CAMPAIGN' || intent === 'CREATE_WORKFLOW';
+      if ((isDelete && !mayDelete) || (isCreate && !mayCreate)) {
+        state = { step: 'IDLE' };
+        await save();
+        return res.json({ content: isDelete ? DELETE_DENIED : CREATE_DENIED });
+      }
 
       if (intent === 'CREATE_WORKFLOW') {
         // Build a REAL workflow via the workflow service — no fake success.
@@ -266,18 +355,18 @@ export const chatWithAi = async (req, res) => {
             responseText = "I've drafted your template copy below, but you need to connect a WhatsApp number before it can be saved and submitted to Meta.";
             card = { title: 'Template Draft (not saved)', icon: '📝', details: { name: draft.name, category: draft.category, preview: draft.body } };
           } else {
-            const tpl = await prisma.template.create({
-              data: {
-                workspaceId,
-                waNumberId: (await prisma.waNumber.findFirst({ where: { workspaceId }, orderBy: { createdAt: 'asc' } }))?.id,
-                // Category comes from the draft now: saving a UTILITY message
-                // as MARKETING is a common Meta rejection reason.
-                name: draft.name, category: draft.category, language: draft.language,
-                status: 'PENDING', aiGenerated: true, components: draftToComponents(draft),
-              },
+            // Category comes from the draft: saving a UTILITY message as
+            // MARKETING is a common Meta rejection reason.
+            const saved = await saveTemplate(workspaceId, {
+              name: draft.name, category: draft.category, language: draft.language, components: draftToComponents(draft),
             });
-            responseText = `I've drafted your template and saved it as PENDING (category ${draft.category}). Submit it to Meta from the Templates page to get it approved before use.${imageHint}`;
-            card = { title: 'Template Drafted', icon: '📝', details: { name: tpl.name, category: draft.category, status: 'PENDING', preview: draft.body, ...(draft.suggestImage ? { suggestedHeader: 'Image' } : {}) } };
+            if (saved.error) {
+              responseText = `I drafted the copy below but couldn't save it: ${saved.error}`;
+              card = { title: 'Template Draft (not saved)', icon: '📝', details: { name: draft.name, category: draft.category, preview: draft.body } };
+            } else {
+              responseText = `I've created your template and submitted it to Meta for review (category ${draft.category}). It can be used once it's approved.${imageHint}`;
+              card = { title: 'Template Submitted', icon: '📝', details: { name: saved.tpl.name, category: draft.category, status: 'PENDING', preview: draft.body, ...(draft.suggestImage ? { suggestedHeader: 'Image' } : {}) } };
+            }
           }
           state = { step: 'IDLE' };
           await save();
@@ -288,7 +377,7 @@ export const chatWithAi = async (req, res) => {
       } else if (intent === 'CREATE_CAMPAIGN') {
         if (guided === false) {
           const templates = await prisma.template.findMany({
-            where: { workspaceId },
+            where: { workspaceId, status: { not: 'DELETED' } },
             select: { id: true, name: true, category: true, components: true, waNumberId: true },
             orderBy: { createdAt: 'desc' },
             take: 40,
@@ -297,11 +386,13 @@ export const chatWithAi = async (req, res) => {
             responseText = "You don't have any templates yet. Say 'create a template' first, then I can build a campaign around it.";
           } else {
             const plan = await planCampaign(text, templates);
-            const campaign = await prisma.campaign.create({
-              data: { workspaceId, name: plan.name, templateId: plan.template.id, waNumberId: plan.template.waNumberId, status: 'DRAFT', aiGenerated: true },
-            });
-            responseText = `I've drafted the "${campaign.name}" campaign using your "${plan.template.name}" template${plan.why ? ` — ${plan.why}` : ''}. Open it from the Campaigns page to pick recipients and launch it.`;
-            card = { title: 'Campaign Drafted', icon: '🚀', details: { name: campaign.name, template: plan.template.name, status: 'DRAFT' } };
+            const saved = await saveCampaign(workspaceId, req.user, { name: plan.name, template: plan.template });
+            if (saved.error) {
+              responseText = `I couldn't create that campaign: ${saved.error}`;
+            } else {
+              responseText = `I've drafted the "${saved.campaign.name}" campaign using your "${plan.template.name}" template${plan.why ? ` — ${plan.why}` : ''}. Open it from the Campaigns page to pick recipients and launch it.`;
+              card = { title: 'Campaign Drafted', icon: '🚀', details: { name: saved.campaign.name, template: plan.template.name, status: 'DRAFT' } };
+            }
           }
           state = { step: 'IDLE' };
           await save();
@@ -314,7 +405,7 @@ export const chatWithAi = async (req, res) => {
         responseText = "Sure — what's the exact name of the template to delete?";
       } else if (intent === 'DELETE_CAMPAIGN') {
         state = { step: 'DELETE_GATHER_CAMPAIGN_NAME' };
-        responseText = "Okay — what's the name of the campaign to delete?";
+        responseText = "Okay — what's the exact name of the draft campaign to delete?";
       } else {
         const aiGeneral = await llmText(
           `You are Spandan's assistant. The user said: "${text}". Reply helpfully in 1-2 sentences, guiding them to create a template, campaign, or automation workflow.`,
@@ -345,22 +436,20 @@ export const chatWithAi = async (req, res) => {
         responseText = "I've drafted the copy, but connect a WhatsApp number first to save and submit it to Meta.";
         card = { title: 'Template Draft (not saved)', icon: '📝', details: { name: state.templateName, category, preview: body } };
       } else {
-        const tpl = await prisma.template.create({
-          data: {
-            workspaceId,
-            waNumberId: (await prisma.waNumber.findFirst({ where: { workspaceId }, orderBy: { createdAt: 'asc' } }))?.id,
-            name: state.templateName, category, language,
-            status: 'PENDING', aiGenerated: true, components,
-          },
-        });
-        responseText = `Saved as a PENDING draft (category ${category}). Submit it to Meta from the Templates page to get it approved.${imageHint}`;
-        card = { title: 'Template Drafted', icon: '📝', details: { name: tpl.name, category, status: 'PENDING', preview: body, ...(draft?.suggestImage ? { suggestedHeader: 'Image' } : {}) } };
+        const saved = await saveTemplate(workspaceId, { name: state.templateName, category, language, components });
+        if (saved.error) {
+          responseText = `I couldn't save that template: ${saved.error}`;
+          card = { title: 'Template Draft (not saved)', icon: '📝', details: { name: state.templateName, category, preview: body } };
+        } else {
+          responseText = `Created and submitted to Meta for review (category ${category}). It can be used once it's approved.${imageHint}`;
+          card = { title: 'Template Submitted', icon: '📝', details: { name: saved.tpl.name, category, status: 'PENDING', preview: body, ...(draft?.suggestImage ? { suggestedHeader: 'Image' } : {}) } };
+        }
       }
       state = { step: 'IDLE' };
     }
     else if (state.step === 'CAMPAIGN_GATHER_NAME') {
       state.campaignName = text;
-      const templates = await prisma.template.findMany({ where: { workspaceId }, select: { name: true } });
+      const templates = await prisma.template.findMany({ where: { workspaceId, status: { not: 'DELETED' } }, select: { name: true } });
       if (templates.length === 0) {
         responseText = "You don't have any templates yet. Say 'create a template' to make one first.";
         state = { step: 'IDLE' };
@@ -374,11 +463,11 @@ export const chatWithAi = async (req, res) => {
       // there is nothing to interpret. Only a miss goes to the model, so a
       // description ("the one about the sale") still lands on a template
       // instead of dead-ending on "I couldn't find a template matching…".
-      let template = await prisma.template.findFirst({ where: { workspaceId, name: { contains: text, mode: 'insensitive' } } });
+      let template = await prisma.template.findFirst({ where: { workspaceId, status: { not: 'DELETED' }, name: { contains: text, mode: 'insensitive' } } });
       let why = '';
       if (!template) {
         const templates = await prisma.template.findMany({
-          where: { workspaceId },
+          where: { workspaceId, status: { not: 'DELETED' } },
           select: { id: true, name: true, category: true, components: true, waNumberId: true },
           orderBy: { createdAt: 'desc' },
           take: 40,
@@ -389,26 +478,77 @@ export const chatWithAi = async (req, res) => {
         }
       }
       if (template) {
-        const campaign = await prisma.campaign.create({
-          data: { workspaceId, name: state.campaignName, templateId: template.id, waNumberId: template.waNumberId, status: 'DRAFT', aiGenerated: true },
-        });
-        responseText = `Your campaign is saved as a draft using the "${template.name}" template${why ? ` — ${why}` : ''}. Add recipients and launch it from the Campaigns page.`;
-        card = { title: 'Campaign Drafted', icon: '🚀', details: { name: campaign.name, template: template.name, status: 'DRAFT' } };
+        const saved = await saveCampaign(workspaceId, req.user, { name: state.campaignName, template });
+        if (saved.error) {
+          responseText = `I couldn't create that campaign: ${saved.error}`;
+        } else {
+          responseText = `Your campaign is saved as a draft using the "${template.name}" template${why ? ` — ${why}` : ''}. Add recipients and launch it from the Campaigns page.`;
+          card = { title: 'Campaign Drafted', icon: '🚀', details: { name: saved.campaign.name, template: template.name, status: 'DRAFT' } };
+        }
       } else {
         responseText = `I couldn't find a template matching "${text}". Please try again.`;
       }
       state = { step: 'IDLE' };
     }
+    // Deletes need an exact name and an explicit confirmation turn: a substring
+    // match used to hard-delete whichever record happened to come first.
     else if (state.step === 'DELETE_GATHER_TEMPLATE_NAME') {
-      const tpl = await prisma.template.findFirst({ where: { workspaceId, name: { contains: text, mode: 'insensitive' } } });
-      if (tpl) { await prisma.template.delete({ where: { id: tpl.id } }); responseText = `Deleted template "${tpl.name}".`; }
-      else responseText = `No template matching "${text}" found.`;
+      const matches = await prisma.template.findMany({
+        where: { workspaceId, status: { not: 'DELETED' }, name: exactName(text) },
+        select: { id: true, name: true },
+        take: 2,
+      });
+      if (matches.length === 1) {
+        state = { step: 'DELETE_CONFIRM_TEMPLATE', templateId: matches[0].id, name: matches[0].name };
+        responseText = `Delete template "${matches[0].name}"? This also removes it from Meta. Type DELETE to confirm, or anything else to cancel.`;
+      } else {
+        responseText = matches.length
+          ? `More than one template is named "${text}". Delete the right one from the Templates page.`
+          : `No template named exactly "${text}" found.`;
+        state = { step: 'IDLE' };
+      }
+    }
+    else if (state.step === 'DELETE_CONFIRM_TEMPLATE') {
+      if (low === 'delete') {
+        await deleteTemplate(workspaceId, state.templateId);
+        responseText = `Deleted template "${state.name}". You can restore it from the Templates page's deleted list.`;
+      } else {
+        responseText = 'Okay, nothing was deleted.';
+      }
       state = { step: 'IDLE' };
     }
     else if (state.step === 'DELETE_GATHER_CAMPAIGN_NAME') {
-      const camp = await prisma.campaign.findFirst({ where: { workspaceId, name: { contains: text, mode: 'insensitive' } } });
-      if (camp) { await prisma.campaign.delete({ where: { id: camp.id } }); responseText = `Deleted campaign "${camp.name}".`; }
-      else responseText = `No campaign matching "${text}" found.`;
+      const matches = await prisma.campaign.findMany({
+        where: { workspaceId, name: exactName(text) },
+        select: { id: true, name: true, status: true },
+        take: 2,
+      });
+      if (matches.length !== 1) {
+        responseText = matches.length
+          ? `More than one campaign is named "${text}". Manage it from the Campaigns page.`
+          : `No campaign named exactly "${text}" found.`;
+        state = { step: 'IDLE' };
+      } else if (matches[0].status !== 'DRAFT') {
+        // A scheduled or running campaign has a queued job and sent messages
+        // behind it; it is cancelled from the Campaigns page, never deleted here.
+        responseText = `"${matches[0].name}" is ${matches[0].status.toLowerCase()}, so it can't be deleted here. Only draft campaigns can be deleted from the assistant — cancel it from the Campaigns page instead.`;
+        state = { step: 'IDLE' };
+      } else {
+        state = { step: 'DELETE_CONFIRM_CAMPAIGN', campaignId: matches[0].id, name: matches[0].name };
+        responseText = `Delete the draft campaign "${matches[0].name}"? Type DELETE to confirm, or anything else to cancel.`;
+      }
+    }
+    else if (state.step === 'DELETE_CONFIRM_CAMPAIGN') {
+      if (low === 'delete') {
+        // Status re-checked in the delete itself, in case it was scheduled
+        // between the two turns.
+        const { count } = await prisma.campaign.deleteMany({ where: { id: state.campaignId, workspaceId, status: 'DRAFT' } });
+        responseText = count
+          ? `Deleted campaign "${state.name}".`
+          : `"${state.name}" is no longer a draft, so it was not deleted.`;
+      } else {
+        responseText = 'Okay, nothing was deleted.';
+      }
       state = { step: 'IDLE' };
     }
     else {
