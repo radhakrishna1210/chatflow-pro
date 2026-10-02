@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { scopeFilter } from './recordScope.service.js';
-import { awardXp } from './gamification.service.js';
+import { awardXp, revokeXp } from './gamification.service.js';
 import { getSection } from './crmCustomization.service.js';
 
 // Customer-facing support tickets.
@@ -221,6 +221,8 @@ export async function changeTicketStatus(workspaceId, id, status, user = null) {
   if (status === 'RESOLVED' && !SETTLED.includes(ticket.status) && result.ownerUserId) {
     awardXp(workspaceId, result.ownerUserId, 'resolved_ticket', { recordType: 'ticket', recordId: id })
       .catch((e) => console.error('[Gamification] award failed:', e.message));
+  } else if (status === 'OPEN' && SETTLED.includes(ticket.status)) {
+    revokeXp(workspaceId, 'resolved_ticket', id).catch((e) => console.error('[Gamification] revoke failed:', e.message));
   }
   return result;
 }

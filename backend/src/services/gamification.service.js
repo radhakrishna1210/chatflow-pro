@@ -39,6 +39,31 @@ export const ACHIEVEMENTS = [
   { key: 'ten_wins',        label: 'Ten Wins',          detail: 'Closed ten deals.' },
 ];
 
+// Records are free to create, so an award also needs evidence that the outcome
+// is real: a deal or lead must have existed for a while before it pays, a won
+// deal must carry a value, and an overdue task must have been created before
+// it fell due (otherwise "create with a past due date, tick it off" farms XP).
+export const MIN_RECORD_AGE_MS = 24 * 60 * 60 * 1000;
+
+const olderThan = (createdAt, now, ms = MIN_RECORD_AGE_MS) =>
+  Boolean(createdAt) && now.getTime() - new Date(createdAt).getTime() >= ms;
+
+export function earnsWonDeal(deal, now = new Date()) {
+  return Number(deal?.value) > 0 && olderThan(deal?.createdAt, now);
+}
+
+export function earnsQualifiedLead(lead, now = new Date()) {
+  return olderThan(lead?.createdAt, now);
+}
+
+export function earnsClearedOverdue(task, now = new Date()) {
+  if (!task?.dueDate || !task?.createdAt) return false;
+  const due = new Date(task.dueDate);
+  return new Date(task.createdAt) < due && due < now;
+}
+
+export const TEN_WINS = 10;
+
 export function levelFor(totalXp) {
   const current = [...LEVELS].reverse().find((l) => totalXp >= l.from) ?? LEVELS[0];
   const next = LEVELS.find((l) => l.from > totalXp) ?? null;
@@ -73,6 +98,29 @@ export async function awardXp(workspaceId, userId, kind, { recordType = null, re
     if (err.code === 'P2002') return { awarded: false, reason: 'Already awarded' };
     throw err;
   }
+}
+
+// Takes back an award whose outcome was undone (a won deal reopened or
+// deleted, a resolved ticket reopened). Re-reaching the outcome pays again, so
+// the net effect of flipping a record back and forth is zero.
+export async function revokeXp(workspaceId, kind, recordId) {
+  if (!XP_RULES[kind] || !recordId) return { revoked: 0 };
+  const res = await prisma.xpEvent.deleteMany({ where: { workspaceId, dedupeKey: `${kind}:${recordId}` } });
+  return { revoked: res.count };
+}
+
+// Achievements that depend on running totals rather than a single event.
+export async function checkWinAchievements(workspaceId, userId) {
+  const wins = await prisma.xpEvent.count({ where: { workspaceId, userId, kind: 'won_deal' } });
+  if (wins >= 1) await unlockAchievement(workspaceId, userId, 'first_win');
+  if (wins >= TEN_WINS) await unlockAchievement(workspaceId, userId, 'ten_wins');
+}
+
+export async function checkInboxZero(workspaceId, userId) {
+  const overdue = await prisma.task.count({
+    where: { workspaceId, assignedToUserId: userId, status: 'PENDING', dueDate: { lt: new Date() } },
+  });
+  if (overdue === 0) await unlockAchievement(workspaceId, userId, 'inbox_zero');
 }
 
 export async function unlockAchievement(workspaceId, userId, key) {
@@ -200,11 +248,45 @@ export async function getProfile(workspaceId, userId) {
   };
 }
 
+// Workspace-level switch for the leaderboard, off until an admin turns it on.
+const SETTINGS_ENTITY = 'gamification_settings';
+const SETTINGS_NAME = '__SYSTEM_GAMIFICATION_SETTINGS__';
+
+export async function getSettings(workspaceId) {
+  const row = await prisma.savedView.findFirst({
+    where: { workspaceId, entity: SETTINGS_ENTITY, name: SETTINGS_NAME },
+    select: { filters: true },
+  });
+  return { leaderboardEnabled: row?.filters?.leaderboardEnabled === true };
+}
+
+export async function saveSettings(workspaceId, { leaderboardEnabled }) {
+  const filters = { leaderboardEnabled: leaderboardEnabled === true };
+  const existing = await prisma.savedView.findFirst({
+    where: { workspaceId, entity: SETTINGS_ENTITY, name: SETTINGS_NAME },
+    select: { id: true },
+  });
+  if (existing) {
+    await prisma.savedView.update({ where: { id: existing.id }, data: { filters } });
+  } else {
+    await prisma.savedView.create({
+      data: { workspaceId, entity: SETTINGS_ENTITY, name: SETTINGS_NAME, filters, isShared: true },
+    });
+  }
+  return filters;
+}
+
 /**
- * Optional leaderboard (§64). Off unless asked for, and it reports only what a
- * colleague could already see — name and points, never pipeline value.
+ * Optional leaderboard (§64). Off unless a workspace admin turns it on, and it
+ * reports only what a colleague could already see — name and points, never
+ * pipeline value.
  */
 export async function leaderboard(workspaceId, { limit = 10 } = {}) {
+  const { leaderboardEnabled } = await getSettings(workspaceId);
+  if (!leaderboardEnabled) {
+    const e = new Error('The leaderboard is turned off for this workspace'); e.status = 403; throw e;
+  }
+
   const grouped = await prisma.xpEvent.groupBy({
     by: ['userId'],
     where: { workspaceId },

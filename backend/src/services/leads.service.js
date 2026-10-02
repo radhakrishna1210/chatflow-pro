@@ -5,7 +5,7 @@ import { computeLeadCategory } from './leadSegmentation.service.js';
 import { validateCrmCustomFields } from './customFields.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 import { scopeFilter } from './recordScope.service.js';
-import { awardXp, unlockAchievement } from './gamification.service.js';
+import { awardXp, unlockAchievement, earnsQualifiedLead } from './gamification.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { getSection } from './crmCustomization.service.js';
 import { assertKnownStage } from './pipelineStages.service.js';
@@ -251,7 +251,7 @@ export async function getLead(workspaceId, id, user = null) {
 // Accepts either an existing contactId, or name+phoneNumber to create the
 // contact first. The contact is the single source of truth for identity — a
 // lead never carries its own copy of name/phone.
-export async function createLead(workspaceId, body) {
+export async function createLead(workspaceId, body, actorUserId = null) {
   let contactId = body.contactId;
 
   // 1. Prospecting criteria validation
@@ -390,6 +390,10 @@ export async function createLead(workspaceId, body) {
   // Fire-and-forget: an automation must never delay or fail the write that
   // triggered it.
   emitCrmEvent(workspaceId, 'lead_created', { leadId: lead.id, contactId, score });
+  if (actorUserId) {
+    unlockAchievement(workspaceId, actorUserId, 'first_lead')
+      .catch((e) => console.error('[Gamification] achievement failed:', e.message));
+  }
   return {
     ...categorizedLead,
     contact: { ...lead.contact, ...categorizedLead.contact, tags: initialTags ?? lead.contact?.tags ?? [] },
@@ -404,7 +408,7 @@ export async function updateLead(workspaceId, id, updates, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const lead = await prisma.lead.findFirst({
     where: { id, workspaceId, ...scope },
-    select: { id: true, status: true, customFields: true, contactId: true, ownerUserId: true },
+    select: { id: true, status: true, customFields: true, contactId: true, ownerUserId: true, createdAt: true },
   });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
 
@@ -467,7 +471,7 @@ export async function updateLead(workspaceId, id, updates, user = null) {
   const effectiveStatus = updated.customFields?.statusKey || updated.status;
   const previousEffectiveStatus = lead.customFields?.statusKey || lead.status;
 
-  if (updates.status === 'QUALIFIED' && previousEffectiveStatus !== 'QUALIFIED' && updated.ownerUserId) {
+  if (updates.status === 'QUALIFIED' && previousEffectiveStatus !== 'QUALIFIED' && updated.ownerUserId && earnsQualifiedLead(lead)) {
     awardXp(workspaceId, updated.ownerUserId, 'qualified_lead', { recordType: 'lead', recordId: id })
       .then(() => unlockAchievement(workspaceId, updated.ownerUserId, 'first_qualified'))
       .catch((e) => console.error('[Gamification] award failed:', e.message));

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../lib/prisma.js';
 import {
-  awardXp, unlockAchievement, levelFor, computeStreak, getProfile, leaderboard,
+  awardXp, unlockAchievement, levelFor, computeStreak, getProfile, leaderboard, saveSettings,
   XP_RULES, LEVELS,
 } from './gamification.service.js';
 
@@ -183,6 +183,8 @@ test('missions are tied to real work, not to logging in', async (t) => {
 test('the leaderboard reports standing without exposing pipeline value', async (t) => {
   if (!dbAvailable) return t.skip('database unavailable');
 
+  await assert.rejects(() => leaderboard(workspaceId), (e) => e.status === 403, 'off until an admin enables it');
+  await saveSettings(workspaceId, { leaderboardEnabled: true });
   const board = await leaderboard(workspaceId);
   assert.ok(board.length >= 1);
 

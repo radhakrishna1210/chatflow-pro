@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { resolveCrmReferences } from './crmReferences.js';
 import { scopeFilter } from './recordScope.service.js';
-import { awardXp } from './gamification.service.js';
+import { awardXp, earnsClearedOverdue, checkInboxZero } from './gamification.service.js';
 
 const TASK_INCLUDE = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -71,7 +71,7 @@ export async function updateTask(workspaceId, id, updates) {
   // dueDate and assignee are needed to decide whether clearing this earns XP.
   const task = await prisma.task.findFirst({
     where: { id, workspaceId },
-    select: { id: true, status: true, dueDate: true, assignedToUserId: true },
+    select: { id: true, status: true, dueDate: true, assignedToUserId: true, createdAt: true },
   });
   if (!task) { const e = new Error('Task not found'); e.status = 404; throw e; }
 
@@ -90,13 +90,18 @@ export async function updateTask(workspaceId, id, updates) {
   // Only *overdue* work pays. Completing a task before it was due is normal
   // and needs no incentive; digging out of a backlog is the behaviour worth
   // encouraging.
-  const wasOverdue = task.dueDate && task.dueDate < new Date();
-  if (data.status === 'COMPLETED' && task.status !== 'COMPLETED' && wasOverdue && task.assignedToUserId) {
+  // A task created already past due does not count: it was never overdue work.
+  const completing = data.status === 'COMPLETED' && task.status !== 'COMPLETED';
+  const earns = completing && task.assignedToUserId && earnsClearedOverdue(task);
+
+  const result = await prisma.task.update({ where: { id }, data, include: TASK_INCLUDE });
+
+  if (earns) {
     awardXp(workspaceId, task.assignedToUserId, 'cleared_overdue', { recordType: 'task', recordId: id })
+      .then(() => checkInboxZero(workspaceId, task.assignedToUserId))
       .catch((e) => console.error('[Gamification] award failed:', e.message));
   }
-
-  return prisma.task.update({ where: { id }, data, include: TASK_INCLUDE });
+  return result;
 }
 
 export async function deleteTask(workspaceId, id) {

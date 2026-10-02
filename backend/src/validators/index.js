@@ -620,6 +620,10 @@ export const leadDistributionSchemas = {
   }).strict(),
 };
 
+export const gamificationSchemas = {
+  settings: z.object({ leaderboardEnabled: z.boolean() }).strict(),
+};
+
 export const productSchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'Product name is required').max(160),
