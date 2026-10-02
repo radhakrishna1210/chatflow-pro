@@ -387,6 +387,8 @@ export const settingsSchemas = {
     timezone: z.string().trim().min(1).max(64).optional(),
     brandColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Use a 6-digit hex colour').optional(),
     brandLogoUrl: z.union([z.string().trim().url().max(500), z.literal('')]).optional(),
+    // Settings -> lead capture: create a lead when a contact replies to a campaign.
+    autoLeadFromReply: z.boolean().optional(),
   }),
 };
 
