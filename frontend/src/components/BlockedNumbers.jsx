@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { I } from './Icons.jsx';
 import { Btn } from './Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
+import { confirmDialog } from './Feedback.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -78,7 +79,7 @@ export default function BlockedNumbers({ isAdmin }) {
 
   const unblock = async (ids, label) => {
     if (busy || ids.length === 0) return;
-    if (!window.confirm(`Unblock ${label}? They will start receiving campaign and automation messages again.`)) return;
+    if (!await confirmDialog(`Unblock ${label}? They will start receiving campaign and automation messages again.`, { danger: true })) return;
     setBusy(true);
     setError(null);
     try {

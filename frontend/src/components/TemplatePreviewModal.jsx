@@ -82,7 +82,7 @@ const TemplatePreviewModal = ({ template, onClose }) => {
             <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>{template.name}</p>
             <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:2 }}>{template.category} · {template.language} · <StatusBadge s={statusLabel(template.status)} /></p>
           </div>
-          <button onClick={onClose} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <button aria-label="Close" onClick={onClose} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
             <I n="x" s={12} c="var(--t2)" />
           </button>
         </div>

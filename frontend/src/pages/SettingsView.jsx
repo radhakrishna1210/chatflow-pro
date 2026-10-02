@@ -8,6 +8,8 @@ import BlockedNumbers from '../components/BlockedNumbers.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { TeamsAdmin } from '../components/TeamsAdmin.jsx';
 import { LeadCaptureSetting } from '../components/LeadCaptureSetting.jsx';
+import { Avatar } from '../components/Avatar.jsx';
+import { notify, confirmDialog } from '../components/Feedback.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
@@ -78,16 +80,6 @@ const INDUSTRIES = [
   'Real estate', 'Travel', 'Professional services', 'Agency', 'Other',
 ];
 
-const Avatar = ({ name='?', size=30 }) => {
-  const init = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B'];
-  const c = colors[init.charCodeAt(0) % colors.length];
-  return (
-    <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
-      {init}
-    </div>
-  );
-};
 
 const statusBadge = s => {
   const cfg = { Paid:{ bg:'var(--gbg)', bd:'var(--gbd)', c:'var(--green)' }, Pending:{ bg:'rgba(245,158,11,.1)', bd:'rgba(245,158,11,.25)', c:'#fbbf24' }, Failed:{ bg:'rgba(239,68,68,.08)', bd:'rgba(239,68,68,.2)', c:'#f87171' } };
@@ -163,7 +155,7 @@ export default function SettingsView() {
   const [lastInvite, setLastInvite] = useState(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
   const [memberRoles, setMemberRoles] = useState({});
-  const [usagePerc, setUsagePerc] = useState(0);
+  const [sentToday, setSentToday] = useState(null);
 
   useEffect(() => {
     wFetch('/settings').then(r=>r.ok&&r.json()).then(d=>{ if(d) { setSettings(d); if(d.webhookUrl) setWebhookUrl(d.webhookUrl); if(d.notifyNewConversation!=null) setNotifs({newConv:d.notifyNewConversation,tplApproved:d.notifyTemplateApproved,tplRejected:d.notifyTemplateRejected,campaignDone:d.notifyCampaignCompleted,highOptout:d.notifyHighOptout,rateLimitWarn:d.notifyRateLimit}); setEmailNotifs(Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id, d[o.id]!=null ? d[o.id] : o.default])));
@@ -176,13 +168,16 @@ export default function SettingsView() {
       }); }}).catch(()=>{});
     wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
     if (canInvite) wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(()=>{});
-    wFetch('/settings/invoices').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvoices(d); }).catch(()=>{});
+    // A failed load must not look like "no invoices yet".
+    wFetch('/settings/invoices')
+      .then(r => { if (!r.ok) throw new Error(`Could not load invoices (${r.status})`); return r.json(); })
+      .then(d => { if (Array.isArray(d)) setInvoices(d); })
+      .catch(e => setInvoiceError(e.message || 'Could not load invoices'));
     wFetch('/analytics/chat?days=7').then(r=>r.ok&&r.json()).then(d=>{
       if (d && Array.isArray(d.dailyVolume)) {
         const todayIso = new Date().toISOString().split('T')[0];
         const todayData = d.dailyVolume.find(v => v.date === todayIso) || d.dailyVolume[d.dailyVolume.length - 1];
-        const sentToday = todayData?.sent || 0;
-        setUsagePerc(Math.min((sentToday / 10000) * 100, 100));
+        setSentToday(todayData?.sent || 0);
       }
     }).catch(()=>{});
   }, []);
@@ -195,7 +190,7 @@ export default function SettingsView() {
     }
     setWebhookError(null);
     const r = await wFetch('/settings', { method:'PATCH', body:JSON.stringify({ webhookUrl: trimmed }) }).catch(()=>null);
-    if (r && !r.ok) {
+    if (!r || !r.ok) {
       const data = await r.json().catch(()=>({}));
       setWebhookError(data.error || 'Could not save webhook URL');
     }
@@ -210,7 +205,13 @@ export default function SettingsView() {
     try {
       const r = await wFetch('/settings', { method:'PATCH', body:JSON.stringify(body) });
       if (r.ok) { setPrefsSaved(true); setTimeout(()=>setPrefsSaved(false), 2500); }
-    } catch {} finally { setSavingPrefs(false); }
+      else {
+        const data = await r.json().catch(()=>({}));
+        notify(data.error || `Could not save your preferences (${r.status})`);
+      }
+    } catch (e) {
+      notify(e.message || 'Could not save your preferences');
+    } finally { setSavingPrefs(false); }
   };
 
   const reloadMembers = () =>
@@ -218,7 +219,7 @@ export default function SettingsView() {
 
   const delMember = async (m) => {
     const label = m.userId === currentUserId ? 'Leave this workspace?' : `Remove ${m.user.name} from this workspace?`;
-    if (!window.confirm(`${label} They'll lose access immediately.`)) return;
+    if (!await confirmDialog(`${label} They'll lose access immediately.`, { danger: true })) return;
 
     setMemberError(null);
     const prev = members;
@@ -261,6 +262,7 @@ export default function SettingsView() {
 
   const sendInvite = async () => {
     if (!inviteEmail.trim()) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim())) { setInviteError('Enter a valid email address.'); return; }
     setInviteError(null); setSendingInvite(true);
     try {
       const r = await wFetch('/invitations', { method:'POST', body:JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }) });
@@ -309,15 +311,17 @@ export default function SettingsView() {
     setResendingId(id);
     try {
       const r = await wFetch(`/invitations/${id}/resend`, { method:'POST' });
-      const data = await r.json();
-      if (!r.ok) return;
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { setInviteError(data.error || `Could not resend the invite (${r.status})`); return; }
       setInvitations(p => p.map(i => i.id === id ? data : i));
       // Resending rotates the token, so the old link stops working — show the
       // new one rather than leaving a stale link on screen.
       setLastInvite({ email: data.email, url: data.inviteUrl, emailQueued: data.emailQueued });
       setResentId(id);
       setTimeout(() => setResentId(prev => prev === id ? null : prev), 2500);
-    } catch {} finally {
+    } catch (e) {
+      setInviteError(e.message || 'Could not resend the invite');
+    } finally {
       setResendingId(null);
     }
   };
@@ -500,7 +504,7 @@ export default function SettingsView() {
                 <span style={{ fontSize:13, fontFamily:'monospace', color:'var(--t1)', background:'rgba(255,255,255,0.04)', padding:'7px 12px', borderRadius:7, border:'1px solid var(--bd)', flex:1 }}>
                   {showToken ? settings.webhookVerifyToken : '••••••••••••••••'}
                 </span>
-                <button onClick={()=>setShowToken(!showToken)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <button aria-label={showToken ? 'Hide token' : 'Show token'} onClick={()=>setShowToken(!showToken)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
                   <I n={showToken?'eyeoff':'eye'} s={13} c="var(--t2)" />
                 </button>
               </div>
@@ -517,16 +521,15 @@ export default function SettingsView() {
 
         {/* ── Rate Limit ── */}
         {tab === 'security' && (
-        <SectionCard icon="shield" title="Rate Limit Monitor">
+        <SectionCard icon="shield" title="Sending Today">
           <div style={{ marginBottom:10 }}>
             <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6, flexWrap: 'wrap', rowGap: 10 }}>
-              <span style={{ fontSize:13, color:'var(--t1)', fontWeight:600 }}>Daily Usage</span>
-              <span style={{ fontSize:13, color:'var(--t1)', fontWeight:700 }}>{(usagePerc/100 * 10000).toLocaleString()} / 10,000</span>
+              <span style={{ fontSize:13, color:'var(--t1)', fontWeight:600 }}>Messages sent today</span>
+              <span style={{ fontSize:13, color:'var(--t1)', fontWeight:700 }}>{sentToday == null ? '—' : sentToday.toLocaleString()}</span>
             </div>
-            <div style={{ height:10, borderRadius:6, background:'rgba(255,255,255,0.06)', overflow:'hidden' }}>
-              <div style={{ height:'100%', width:`${usagePerc}%`, borderRadius:6, background: usagePerc > 80 ? '#f87171' : usagePerc > 60 ? '#fbbf24' : 'var(--green)', transition:'width .5s' }} />
-            </div>
-            <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Connect your WhatsApp number to track live usage</p>
+            {/* Meta's messaging limit is per number and per tier; this app does
+                not read it yet, so no made-up ceiling is shown. */}
+            <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Your number's daily messaging limit is set by Meta and shown in WhatsApp Manager.</p>
           </div>
         </SectionCard>
         )}
@@ -664,7 +667,7 @@ export default function SettingsView() {
                   <tr key={m.userId} style={{ borderBottom: i < members.length-1 ? '1px solid var(--bd)' : 'none' }}>
                     <td style={{ padding:'10px 12px' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <Avatar name={m.user.name} />
+                        <Avatar name={m.user.name} size={30} />
                         <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{m.user.name}</span>
                         {isSelf && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:5, background:'rgba(255,255,255,0.05)', border:'1px solid var(--bd)', color:'var(--t3)' }}>You</span>}
                         {m.isOwner && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:5, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)' }}>Owner</span>}

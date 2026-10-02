@@ -5,6 +5,7 @@ import { wFetch } from '../lib/api.js';
 import ContactDetailsPanel from '../components/ContactDetailsPanel.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { Avatar } from '../components/Avatar.jsx';
 
 const labelCfg = {
   urgent:   { bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.22)',   c:'#f87171' },
@@ -12,16 +13,6 @@ const labelCfg = {
   billing:  { bg:'rgba(245,158,11,.08)', bd:'rgba(245,158,11,.22)', c:'#fbbf24' },
 };
 
-const Avatar = ({ name='?', size=36 }) => {
-  const init = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
-  const c = colors[init.charCodeAt(0) % colors.length];
-  return (
-    <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
-      {init}
-    </div>
-  );
-};
 
 const LabelBadge = ({ label }) => {
   if (!label) return null;
@@ -736,7 +727,7 @@ export default function InboxView() {
                 {sendError && (
                   <div style={{ padding:'8px 16px', borderTop:'1px solid var(--bd)', background:'rgba(239,68,68,.06)', color:'#f87171', fontSize:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                     <span>{sendError}</span>
-                    <button onClick={() => setSendError(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'#f87171', padding:0, display:'flex' }}>
+                    <button aria-label="Close" onClick={() => setSendError(null)} style={{ background:'none', border:'none', cursor:'pointer', color:'#f87171', padding:0, display:'flex' }}>
                       <I n="x" s={12} c="#f87171" />
                     </button>
                   </div>
@@ -829,7 +820,7 @@ export default function InboxView() {
                     style={{ flex:1, padding:'10px 14px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', transition:'border .15s', opacity: sending ? 0.6 : 1 }}
                     onFocus={e => e.target.style.borderColor='var(--gbd)'}
                     onBlur={e => e.target.style.borderColor='var(--bd)'} />
-                  <button onClick={send} disabled={!input.trim() || sending || (activeWindow ? !activeWindow.open : false)}
+                  <button aria-label="Send" onClick={send} disabled={!input.trim() || sending || (activeWindow ? !activeWindow.open : false)}
                     style={{ width:38, height:38, borderRadius:9, background:'var(--green)', border:'none', cursor: (!input.trim() || sending) ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'0 0 14px rgba(53,232,242,0.25)', opacity: (!input.trim() || sending) ? 0.5 : 1 }}>
                     <I n="send" s={15} c="#08090c" />
                   </button>

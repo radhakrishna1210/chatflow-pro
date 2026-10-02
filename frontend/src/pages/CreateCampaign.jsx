@@ -5,6 +5,7 @@ import { useIsMobile } from '../lib/useMediaQuery.js';
 import { wFetch } from '../lib/api.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
+import { notify } from '../components/Feedback.jsx';
 
 // Extract body text from Meta components array
 const getBodyText = (components) => {
@@ -453,6 +454,13 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
   const [addingManual, setAddingManual] = useState(false);
   const addManual = async () => {
     if (!manualPhone.trim() || addingManual) return;
+    // E.164-ish: optional +, then 8–15 digits once spaces, dashes and
+    // brackets are ignored. The server normalises; this only catches typos.
+    const digits = manualPhone.trim().replace(/[\s()-]/g, '');
+    if (!/^\+?\d{8,15}$/.test(digits)) {
+      notify('Enter a valid phone number with country code, e.g. +91 98765 43210.');
+      return;
+    }
     setAddingManual(true);
     try {
       const res = await wFetch('/contacts', {
@@ -466,7 +474,7 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
       setManualName(''); setManualPhone('');
     } catch (err) {
       console.error('[add manual contact]', err);
-      alert(`Couldn't add contact: ${err.message}`);
+      notify(`Couldn't add contact: ${err.message}`);
     } finally {
       setAddingManual(false);
     }

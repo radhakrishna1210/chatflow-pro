@@ -10,7 +10,7 @@ import { TemplateModal } from '../components/TemplateModal.jsx';
 import { TemplatePreviewModal } from '../components/TemplatePreviewModal.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { statusLabel } from '../lib/templateHelpers.js';
-import { fmtDate } from '../lib/formatters.js';
+import { fmtDateTime } from '../lib/format.js';
 
 function getErrorMessage(data, fallback) {
   return (
@@ -501,8 +501,8 @@ const AuthenticationAnalyticsPanel = () => {
                   <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t1)' }}>{attempt.templateName || '—'}</td>
                   <td style={{ padding: '11px 12px' }}><StatusBadge s={attempt.status} /></td>
                   <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t2)' }}>{attempt.acceptedByWhatsApp ? 'Yes' : '—'}</td>
-                  <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t2)' }}>{fmtDate(attempt.createdAt)}</td>
-                  <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t2)' }}>{fmtDate(attempt.verifiedAt)}</td>
+                  <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t2)' }}>{fmtDateTime(attempt.createdAt)}</td>
+                  <td style={{ padding: '11px 12px', fontSize: 12, color: 'var(--t2)' }}>{fmtDateTime(attempt.verifiedAt)}</td>
                 </tr>
               ))}
             </tbody>

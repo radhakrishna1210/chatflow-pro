@@ -3,19 +3,10 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { Avatar } from '../components/Avatar.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
-const Avatar = ({ name = '?', size = 32 }) => {
-  const init = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
-  const c = colors[init.charCodeAt(0) % colors.length];
-  return (
-    <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
-      {init}
-    </div>
-  );
-};
 
 const Tag = ({ label }) => (
   <span style={{ padding:'2px 8px', borderRadius:'6px', fontSize:'10px', fontWeight:600, background:'rgba(255,255,255,0.06)', border:'1px solid var(--bd)', color:'var(--t2)', whiteSpace:'nowrap' }}>{label}</span>
@@ -40,7 +31,7 @@ const Modal = ({ title, onClose, children, footer, width = 540 }) => (
     <div style={{ ...card, width, maxHeight:'85vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
       <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
         <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</span>
-        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
+        <button aria-label="Close" onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
           <I n="x" s={18} c="var(--t2)" />
         </button>
       </div>
@@ -138,13 +129,9 @@ const CsvTab = ({ onSaved }) => {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const { workspaceId } = JSON.parse(localStorage.getItem('user') || '{}');
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch(`/api/v1/workspaces/${workspaceId}/contacts/import`, {
-        method:'POST',
-        headers: { Authorization: `Bearer ${token}` }, // no Content-Type — browser sets it with boundary
-        body: fd,
-      });
+      // wFetch leaves Content-Type to the browser for FormData (multipart
+      // boundary) and refreshes an expired access token like every other call.
+      const res = await wFetch('/contacts/import', { method:'POST', body: fd });
       const data = await res.json();
       if (!res.ok) { setErr(data.error || `Error ${res.status}`); return; }
       setResult(data);
@@ -1051,18 +1038,18 @@ export default function ContactsView() {
                       </td>
                       <td style={{ padding:'12px 16px' }}>
                         <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
-                          <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
+                          <button aria-label="Message" style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
                             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(53,232,242,0.1)'; e.currentTarget.style.borderColor = 'var(--gbd)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
                             <I n="msg" s={13} c="var(--t2)" />
                           </button>
-                          <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
+                          <button aria-label="Edit" style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
                             onClick={() => setEditingContact(c)}
                             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,165,233,0.1)'; e.currentTarget.style.borderColor = 'rgba(14,165,233,0.3)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
                             <I n="pencil" s={13} c="var(--t2)" />
                           </button>
-                          <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#f87171', transition:'all .15s', flexShrink:0 }}
+                          <button aria-label="Delete" style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#f87171', transition:'all .15s', flexShrink:0 }}
                             onClick={() => setDeletingContact(c)}
                             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.3)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>

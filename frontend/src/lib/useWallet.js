@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useSyncExternalStore } from 'react';
 import { wFetch } from './api.js';
 
 // The wallet, kept fresh, for anything that needs to know what the balance is.
@@ -13,57 +13,84 @@ import { wFetch } from './api.js';
 //     case the number updates instantly and the refetch still confirms it);
 //   - the tab regaining focus, since a background campaign spends money while
 //     the user is elsewhere;
-//   - a slow poll, as the backstop for a long-lived open tab;
+//   - a slow poll, as the backstop for a long-lived open tab (skipped while
+//     the tab is hidden);
 //   - an explicit refresh() for callers that just changed something.
 //
 // `status`, `lowBalanceThreshold` and `messagesRemaining` are computed by the
 // server (services/wallet.service.js) rather than here, so the sidebar, the
 // banners and the campaign launcher cannot drift into disagreeing about
 // whether a wallet is low.
-export function useWallet({ pollMs = 60000 } = {}) {
-  const [wallet, setWallet] = useState(null);
-  const [loading, setLoading] = useState(true);
+//
+// Every component that calls useWallet() shares one store, one poll and one
+// request in flight — the sidebar and the home banners used to poll the same
+// endpoint independently.
+const POLL_MS = 60000;
+let snapshot = { wallet: null, loading: true };
+let inFlight = null;
+let teardown = null;
+const listeners = new Set();
 
-  const load = useCallback(() => (
-    wFetch('/wallet')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) setWallet(d); return d; })
-      .catch(() => null)
-      .finally(() => setLoading(false))
-  ), []);
+const emit = (patch) => {
+  snapshot = { ...snapshot, ...patch };
+  listeners.forEach((l) => l());
+};
 
-  useEffect(() => {
-    let alive = true;
-    const safeLoad = () => { if (alive) load(); };
-    safeLoad();
-
-    const onBalanceUpdated = (e) => {
-      // The event often carries the authoritative post-transaction balance.
-      // Showing it immediately avoids a visible lag, but the status/threshold
-      // still have to come from the server, so a refetch follows either way.
-      const next = Number(e.detail);
-      if (Number.isFinite(next)) {
-        setWallet((prev) => (prev ? { ...prev, balance: next } : prev));
-      }
-      safeLoad();
-    };
-    const onFocus = () => { if (document.visibilityState === 'visible') safeLoad(); };
-
-    const iv = setInterval(safeLoad, pollMs);
-    window.addEventListener('wallet:balance-updated', onBalanceUpdated);
-    document.addEventListener('visibilitychange', onFocus);
-    window.addEventListener('focus', onFocus);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-      window.removeEventListener('wallet:balance-updated', onBalanceUpdated);
-      document.removeEventListener('visibilitychange', onFocus);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, [load, pollMs]);
-
-  return { wallet, loading, refresh: load };
+function load() {
+  if (inFlight) return inFlight;
+  inFlight = wFetch('/wallet')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => { if (d) emit({ wallet: d }); return d; })
+    .catch(() => null)
+    .finally(() => { inFlight = null; if (snapshot.loading) emit({ loading: false }); });
+  return inFlight;
 }
+
+function start() {
+  load();
+  const visible = () => document.visibilityState !== 'hidden';
+  const onBalanceUpdated = (e) => {
+    // The event often carries the authoritative post-transaction balance.
+    // Showing it immediately avoids a visible lag, but the status/threshold
+    // still have to come from the server, so a refetch follows either way.
+    const next = Number(e.detail);
+    if (Number.isFinite(next) && snapshot.wallet) emit({ wallet: { ...snapshot.wallet, balance: next } });
+    load();
+  };
+  const onFocus = () => { if (visible()) load(); };
+  const iv = setInterval(() => { if (visible()) load(); }, POLL_MS);
+  window.addEventListener('wallet:balance-updated', onBalanceUpdated);
+  document.addEventListener('visibilitychange', onFocus);
+  window.addEventListener('focus', onFocus);
+  return () => {
+    clearInterval(iv);
+    window.removeEventListener('wallet:balance-updated', onBalanceUpdated);
+    document.removeEventListener('visibilitychange', onFocus);
+    window.removeEventListener('focus', onFocus);
+  };
+}
+
+function subscribe(listener) {
+  listeners.add(listener);
+  if (!teardown) teardown = start();
+  return () => {
+    listeners.delete(listener);
+    // Nobody is looking: stop polling, and forget the balance so a different
+    // account signing in on this tab never sees the last one's figure.
+    if (listeners.size === 0 && teardown) { teardown(); teardown = null; snapshot = { wallet: null, loading: true }; }
+  };
+}
+
+const getSnapshot = () => snapshot;
+
+// `enabled: false` (a super admin, who has no workspace wallet) neither
+// subscribes nor fetches.
+export function useWallet({ enabled = true } = {}) {
+  const state = useSyncExternalStore(enabled ? subscribe : noopSubscribe, getSnapshot);
+  return { wallet: state.wallet, loading: state.loading, refresh: load };
+}
+
+const noopSubscribe = () => () => {};
 
 // Sends the user to the wallet and puts the cursor in the amount field.
 //

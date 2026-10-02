@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { fmtDate } from '../lib/format.js';
+import { confirmDialog } from '../components/Feedback.jsx';
 
 // Builder for public lead-capture forms.
 //
@@ -622,7 +623,7 @@ export default function LeadFormsView() {
     const msg = n > 0
       ? `Delete “${form.name}”? Its ${n} submission${n === 1 ? '' : 's'} will be deleted too. Leads already created stay.`
       : `Delete “${form.name}”?`;
-    if (!window.confirm(msg)) return;
+    if (!await confirmDialog(msg)) return;
     try {
       const res = await wFetch(`/lead-forms/${form.id}`, { method: 'DELETE' });
       if (!res.ok && res.status !== 204) throw new Error(`Could not delete the form (${res.status}).`);

@@ -5,6 +5,7 @@ import { Avatar } from '../components/Avatar.jsx';
 import { Modal } from '../components/Modal.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
+import { notify } from '../components/Feedback.jsx';
 
 // Social / Channel icons helper
 const ChannelIcon = ({ source = 'INCOMING' }) => {
@@ -213,7 +214,7 @@ export default function EngagementsView({ user, initialTab }) {
   // Submit new engagement
   const handleSaveEngagement = async () => {
     if (!selectedLeadId) {
-      alert('Please select a lead');
+      notify('Please select a lead');
       return;
     }
     setSaving(true);
@@ -244,7 +245,7 @@ export default function EngagementsView({ user, initialTab }) {
       setDurationMins('');
       fetchEngagements();
     } catch (err) {
-      alert(`Could not log engagement: ${err.message}`);
+      notify(`Could not log engagement: ${err.message}`);
     } finally {
       setSaving(false);
     }
@@ -453,7 +454,7 @@ export default function EngagementsView({ user, initialTab }) {
               <I n="search" s={14} c="var(--t3)" />
             </div>
             {search && (
-              <button
+              <button aria-label="Close"
                 onClick={() => setSearch('')}
                 style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)' }}
               >

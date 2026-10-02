@@ -144,6 +144,13 @@ export default function PaymentsView({ initialTab } = {}) {
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
   const [invoiceError, setInvoiceError] = useState('');
 
+  // A failed load says so instead of rendering as "no invoices yet".
+  const loadInvoices = () => wFetch('/settings/invoices')
+    .then(r => { if (!r.ok) throw new Error(`Could not load invoices (${r.status}).`); return r.json(); })
+    .then(data => { setInvoices(Array.isArray(data) ? data : []); setInvoiceError(''); })
+    .catch(e => setInvoiceError(e.message || 'Could not load invoices.'))
+    .finally(() => setLoadingInvoices(false));
+
   // Billing cycle the plan catalog is priced in ('monthly' | 'quarterly')
   const [billingCycle, setBillingCycle] = useState('monthly');
 
@@ -183,13 +190,7 @@ export default function PaymentsView({ initialTab } = {}) {
     loadAddons();
 
     // 4. Load invoices from backend
-    wFetch('/settings/invoices')
-      .then(r => r.ok ? r.json() : [])
-      .then(data => {
-        setInvoices(data);
-        setLoadingInvoices(false);
-      })
-      .catch(() => setLoadingInvoices(false));
+    loadInvoices();
 
     // 5. Subscription plan + purchasable catalog
     loadSubscription();
@@ -261,7 +262,7 @@ export default function PaymentsView({ initialTab } = {}) {
             window.dispatchEvent(new CustomEvent('wallet:balance-updated', { detail: Number(data.balance) || 0 }));
             window.dispatchEvent(new CustomEvent('notifications:refresh'));
             if (window._reloadWallet) window._reloadWallet();
-            wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch(() => {});
+            loadInvoices();
             setRechargeStatus('success');
             setTimeout(() => setRechargeStatus(''), 2000);
           } catch {
@@ -427,7 +428,7 @@ export default function PaymentsView({ initialTab } = {}) {
             if (!verifyRes.ok) { setAddonError(data.error || 'Payment verification failed'); return; }
             setAddonMessage(`${data.addon.title} is active.`);
             await loadAddons();
-            wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch(() => {});
+            loadInvoices();
           } catch {
             setAddonError(`Payment succeeded but we could not confirm it automatically. Contact support with payment ID ${response.razorpay_payment_id}.`);
           } finally {

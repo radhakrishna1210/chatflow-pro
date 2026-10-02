@@ -211,7 +211,7 @@ export default function Login({ onNav, mode = 'login' }) {
                 <input type={showPass ? 'text' : 'password'} name="password" placeholder="Enter your password" value={form.password} onChange={change}
                   style={{ ...inp(focusPass), paddingRight: '44px' }}
                   onFocus={() => setFocusPass(true)} onBlur={() => setFocusPass(false)} required />
-                <button type="button" onClick={() => setShowPass(!showPass)}
+                <button aria-label={showPass ? 'Hide password' : 'Show password'} type="button" onClick={() => setShowPass(!showPass)}
                   style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', display: 'flex', padding: '4px' }}>
                   <I n={showPass ? 'eyeoff' : 'eye'} s={15} c="var(--t2)" />
                 </button>

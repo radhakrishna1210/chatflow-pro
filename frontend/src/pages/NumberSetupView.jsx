@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { canManage } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch, adminFetch } from '../lib/api.js';
+import { wFetch, adminFetch, apiFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { notify, confirmDialog } from '../components/Feedback.jsx';
 
 const statusColor = s => ({
   AVAILABLE: { bg:'var(--gbg)',              bd:'var(--gbd)',              c:'var(--green)' },
@@ -36,7 +37,7 @@ const Modal = ({ title, onClose, children, footer }) => (
     <div className="modal-card" style={{ ...card, width:480, maxHeight:'80vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
       <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
         <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</span>
-        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
+        <button aria-label="Close" onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
           <I n="x" s={18} c="var(--t2)" />
         </button>
       </div>
@@ -297,18 +298,18 @@ export default function NumberSetupView() {
   };
 
   const resetAllAssignments = async () => {
-    if (!window.confirm('This will disconnect all numbers from every workspace and return them to the pool. Continue?')) return;
+    if (!await confirmDialog('This will disconnect all numbers from every workspace and return them to the pool. Continue?', { danger: true })) return;
     setResetting(true);
     const res = await adminFetch('/numbers/reset-all', { method:'POST' }).catch(()=>null);
     if (res?.ok) setNumber(null);
-    else window.alert((await res?.json().catch(()=>({})))?.error || 'Reset failed');
+    else notify((await res?.json().catch(()=>({})))?.error || 'Reset failed');
     loadAdminPool();
     setResetting(false);
   };
 
   const resetEntry = async id => {
     const res = await adminFetch(`/numbers/pool/${id}/reset`, { method:'PATCH' }).catch(()=>null);
-    if (!res?.ok) window.alert((await res?.json().catch(()=>({})))?.error || 'Reset failed');
+    if (!res?.ok) notify((await res?.json().catch(()=>({})))?.error || 'Reset failed');
     loadAdminPool();
   };
 
@@ -319,13 +320,13 @@ export default function NumberSetupView() {
 
   const unbanEntry = async id => {
     const res = await adminFetch(`/numbers/pool/${id}/unban`, { method:'PATCH' }).catch(()=>null);
-    if (!res?.ok) window.alert((await res?.json().catch(()=>({})))?.error || 'Unban failed');
+    if (!res?.ok) notify((await res?.json().catch(()=>({})))?.error || 'Unban failed');
     loadAdminPool();
   };
 
   const disconnectNumber = async () => {
     if (!number?.id) return;
-    if (!window.confirm(`Disconnect ${number.phoneNumber}? It will be returned to the pool.`)) return;
+    if (!await confirmDialog(`Disconnect ${number.phoneNumber}? It will be returned to the pool.`, { danger: true })) return;
     setDisconnecting(true);
     try {
       const res = await wFetch(`/whatsapp/numbers/${number.id}`, { method:'DELETE' });
@@ -333,7 +334,7 @@ export default function NumberSetupView() {
       setNumber(null);
       if (isSuperAdmin) loadAdminPool();
     } catch (e) {
-      alert(`Disconnect failed: ${e.message}`);
+      notify(`Disconnect failed: ${e.message}`);
     } finally {
       setDisconnecting(false);
     }
@@ -453,7 +454,6 @@ export default function NumberSetupView() {
     setMetaConnecting(true);
     setMetaMsg(null);
     try {
-      const token = localStorage.getItem('accessToken');
       const { workspaceId } = JSON.parse(localStorage.getItem('user') || '{}');
 
       // Fetch Embedded Signup config (appId + configId) from the backend.
@@ -533,9 +533,7 @@ export default function NumberSetupView() {
         setMetaConnecting(false);
         return;
       }
-      const res = await fetch(`/api/v1/auth/meta/start?workspaceId=${encodeURIComponent(workspaceId || '')}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch(`/api/v1/auth/meta/start?workspaceId=${encodeURIComponent(workspaceId || '')}`);
       const data = await res.json();
       if (!res.ok) {
         setMetaMsg({ error: data.error || `Could not start Meta connection (${res.status})` });
@@ -1031,7 +1029,7 @@ export default function NumberSetupView() {
               <Label hint="From Meta → System Users or your WABA access token" required={true}>Access Token</Label>
               <div style={{ position:'relative' }}>
                 <FInput type={showTok ? 'text' : 'password'} value={form.accessToken} onChange={e => setForm(p=>({...p,accessToken:e.target.value}))} placeholder="EAAxxxxx…" />
-                <button onClick={() => setShowTok(!showTok)} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
+                <button aria-label={showTok ? 'Hide access token' : 'Show access token'} onClick={() => setShowTok(!showTok)} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
                   <I n={showTok ? 'eyeoff' : 'eye'} s={15} c="var(--t2)" />
                 </button>
               </div>

@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { Avatar } from '../components/Avatar.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -20,16 +21,6 @@ const KpiCard = ({ icon, iconColor, label, value, suffix = '' }) => (
   </div>
 );
 
-const Avatar = ({ name='?', size=28 }) => {
-  const init = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
-  const c = colors[init.charCodeAt(0) % colors.length];
-  return (
-    <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
-      {init}
-    </div>
-  );
-};
 
 export default function AnalyticsView() {
   const [kpi, setKpi]             = useState(null);
@@ -516,7 +507,7 @@ export default function AnalyticsView() {
                   <tr key={a.agentId} style={{ borderBottom: i < agents.length-1 ? '1px solid var(--bd)' : 'none' }}>
                     <td style={{ padding:'11px 16px' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <Avatar name={a.name} />
+                        <Avatar name={a.name} size={28} />
                         <span style={{ fontSize:13, fontWeight:500, color:'var(--t1)' }}>{a.name}</span>
                       </div>
                     </td>
