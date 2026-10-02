@@ -7,7 +7,9 @@ import { buildEmailHtml } from '../services/email.service.js';
 async function processEmail(job) {
   const { type, to, payload } = job.data;
   const { subject, html } = buildEmailHtml(type, payload);
-  await sendMail({ to, subject, html });
+  // mustDeliver: with SMTP unconfigured sendMail would otherwise return
+  // quietly and the job would be logged as "sent" for an email that never left.
+  await sendMail({ to, subject, html, mustDeliver: true });
 }
 
 export function startEmailWorker() {
