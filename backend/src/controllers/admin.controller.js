@@ -9,6 +9,15 @@ import * as audit from '../services/audit.service.js';
 // held the token and not who the request claimed to be.
 const actorOf = (req) => ({ id: req.user?.id, email: req.user?.email });
 
+// Every successful write on this router must leave a row. Handlers record what
+// they did with `recordFor`, which also marks the request; the router's
+// catch-all (middleware/adminAudit.js) writes a generic row for any write that
+// did not.
+async function recordFor(req, entry) {
+  req.adminAudited = true;
+  await audit.record({ actor: actorOf(req), reason: req.body?.reason || null, ...entry });
+}
+
 export async function getPool(req, res) {
   const result = await adminService.getPoolSummary();
   res.json(result);
@@ -16,33 +25,52 @@ export async function getPool(req, res) {
 
 export async function addNumber(req, res) {
   const entry = await adminService.addToPool(req.body);
+  await recordFor(req, {
+    action: 'number.add', targetType: 'number',
+    targetLabel: entry?.phoneNumber || req.body?.phoneNumber || '',
+    meta: { poolEntryId: entry?.id, wabaId: entry?.wabaId },
+  });
   res.status(201).json(entry);
 }
 
 export async function requestOtp(req, res) {
   const result = await adminService.sendOtpRequest(req.body);
+  await recordFor(req, {
+    action: 'number.otp_request', targetType: 'number',
+    targetLabel: req.body?.metaPhoneNumberId || '', meta: { method: req.body?.method },
+  });
   res.json(result);
 }
 
 export async function verifyOtp(req, res) {
   const entry = await adminService.verifyOtpAndAdd(req.body);
+  await recordFor(req, {
+    action: 'number.add', targetType: 'number',
+    targetLabel: entry?.phoneNumber || req.body?.phoneNumber || '',
+    meta: { poolEntryId: entry?.id, via: 'otp' },
+  });
   res.status(201).json(entry);
 }
 
 export async function resetAllAssignments(req, res) {
   const result = await adminService.resetAllAssignments();
+  await recordFor(req, { action: 'number.reset_all', targetType: 'number', targetLabel: 'all numbers' });
   res.json(result);
 }
 
 export async function resetPoolEntry(req, res) {
   const entry = await adminService.resetPoolEntry(req.params.id);
+  await recordFor(req, {
+    action: 'number.reset', targetType: 'number',
+    targetLabel: entry?.phoneNumber || req.params.id, meta: { poolEntryId: req.params.id },
+  });
   res.json(entry);
 }
 
 export async function banPoolEntry(req, res) {
   const entry = await adminService.banPoolEntry(req.params.id);
-  await audit.record({
-    actor: actorOf(req), action: 'number.ban', targetType: 'number',
+  await recordFor(req, {
+    action: 'number.ban', targetType: 'number',
     targetLabel: entry?.phoneNumber || req.params.id,
   });
   res.json(entry);
@@ -50,16 +78,25 @@ export async function banPoolEntry(req, res) {
 
 export async function unbanPoolEntry(req, res) {
   const entry = await adminService.unbanPoolEntry(req.params.id);
+  await recordFor(req, {
+    action: 'number.unban', targetType: 'number',
+    targetLabel: entry?.phoneNumber || req.params.id, meta: { poolEntryId: req.params.id },
+  });
   res.json(entry);
 }
 
 export async function twilioSync(req, res) {
   const result = await adminService.twilioSync();
+  await recordFor(req, { action: 'number.twilio_sync', targetType: 'number', targetLabel: 'twilio' });
   res.json(result);
 }
 
 export async function syncPoolFromWaba(req, res) {
   const result = await adminService.syncPoolFromWaba();
+  await recordFor(req, {
+    action: 'number.waba_sync', targetType: 'number', targetLabel: 'waba',
+    meta: { added: result?.added?.length ?? null },
+  });
   res.json(result);
 }
 
@@ -70,6 +107,7 @@ export async function getWabaNumbers(req, res) {
 
 export async function metaTestCalls(req, res) {
   const result = await adminService.metaTestCalls();
+  await recordFor(req, { action: 'meta.test_calls', targetType: 'platform', targetLabel: 'meta' });
   res.json(result);
 }
 
@@ -84,8 +122,8 @@ export async function assignToWorkspace(req, res) {
     return res.status(400).json({ error: 'poolEntryId and workspaceId are required' });
   }
   const result = await adminService.assignToWorkspace(poolEntryId, workspaceId);
-  await audit.record({
-    actor: actorOf(req), action: 'number.assign', targetType: 'number',
+  await recordFor(req, {
+    action: 'number.assign', targetType: 'number',
     targetLabel: result?.phoneNumber || poolEntryId,
     meta: { workspaceId, poolEntryId },
   });
@@ -103,8 +141,7 @@ export async function listWorkspacesDetailed(req, res) {
 export async function suspendWorkspace(req, res) {
   const { suspended, reason } = req.body;
   const result = await adminService.setWorkspaceSuspended(req.params.id, suspended, reason);
-  await audit.record({
-    actor: actorOf(req),
+  await recordFor(req, {
     action: suspended ? 'suspend' : 'reinstate',
     targetType: 'workspace',
     targetLabel: result?.name || req.params.id,
@@ -120,8 +157,8 @@ export async function listTickets(req, res) {
 
 export async function updateTicket(req, res) {
   const ticket = await adminService.updateTicket(req.params.id, req.body || {});
-  await audit.record({
-    actor: actorOf(req), action: 'ticket.update', targetType: 'ticket',
+  await recordFor(req, {
+    action: 'ticket.update', targetType: 'ticket',
     targetLabel: ticket?.subject || req.params.id,
     meta: { ticketId: req.params.id, status: req.body?.status },
   });
@@ -162,16 +199,29 @@ export async function workspaceMembers(req, res) {
 // the inviter.
 export async function workspaceInvite(req, res) {
   const invitation = await invitationsService.createInvitation(req.params.id, req.body, req.user.id);
+  await recordFor(req, {
+    action: 'invitation.create', targetType: 'workspace',
+    targetLabel: invitation?.email || req.body?.email || req.params.id,
+    meta: { workspaceId: req.params.id, invitationId: invitation?.id, role: invitation?.role ?? req.body?.role },
+  });
   res.status(201).json(invitation);
 }
 
 export async function workspaceInviteLink(req, res) {
   const invitation = await invitationsService.createLinkInvitation(req.params.id, req.body, req.user.id);
+  await recordFor(req, {
+    action: 'invitation.create_link', targetType: 'workspace', targetLabel: req.params.id,
+    meta: { workspaceId: req.params.id, invitationId: invitation?.id, role: invitation?.role ?? req.body?.role, maxUses: invitation?.maxUses ?? null },
+  });
   res.status(201).json(invitation);
 }
 
 export async function workspaceRevokeInvite(req, res) {
   await invitationsService.revokeInvitation(req.params.id, req.params.invitationId);
+  await recordFor(req, {
+    action: 'invitation.revoke', targetType: 'workspace', targetLabel: req.params.id,
+    meta: { workspaceId: req.params.id, invitationId: req.params.invitationId },
+  });
   res.status(204).send();
 }
 
@@ -181,17 +231,22 @@ export async function listUsers(req, res) {
 }
 
 export async function impersonateUser(req, res) {
-  const result = await authService.impersonateUser(req.params.id);
+  // Acting as a customer is the most sensitive thing this console does, so the
+  // log has to say why.
+  const reason = String(req.body?.reason || '').trim();
+  if (reason.length < 3) {
+    return res.status(400).json({ error: 'Give a reason for impersonating this user.', code: 'REASON_REQUIRED' });
+  }
+  const result = await authService.impersonateUser(req.params.id, { impersonatorId: req.user.id });
   // Audited after the fact deliberately: a failed impersonation is an
   // authorisation event the auth layer already reports, and logging the attempt
   // as if it succeeded would be worse than not logging it.
-  await audit.record({
-    actor: actorOf(req),
+  await recordFor(req, {
     action: 'impersonate',
     targetType: 'user',
     targetLabel: result?.user?.email || req.params.id,
-    reason: req.body?.reason || null,
-    meta: { userId: req.params.id, workspaceId: result?.user?.workspaceId || null },
+    reason,
+    meta: { userId: req.params.id, workspaceId: result?.workspace?.id || null, expiresAt: result?.impersonation?.expiresAt },
   });
   res.json(result);
 }
@@ -203,8 +258,8 @@ export async function listPlans(req, res) {
 
 export async function createPlan(req, res) {
   const plan = await adminService.createPlan(req.body || {});
-  await audit.record({
-    actor: actorOf(req), action: 'plan.create', targetType: 'plan',
+  await recordFor(req, {
+    action: 'plan.create', targetType: 'plan',
     targetLabel: plan?.name || '', meta: { planId: plan?.id },
   });
   res.status(201).json(plan);
@@ -214,8 +269,8 @@ export async function updatePlan(req, res) {
   const plan = await adminService.updatePlan(req.params.id, req.body || {});
   // The changed keys, not the values: entitlements can carry pricing, and an
   // audit log is read by more people than the billing screen is.
-  await audit.record({
-    actor: actorOf(req), action: 'plan.update', targetType: 'plan',
+  await recordFor(req, {
+    action: 'plan.update', targetType: 'plan',
     targetLabel: plan?.name || req.params.id,
     meta: { planId: req.params.id, changed: Object.keys(req.body || {}) },
   });
@@ -224,8 +279,8 @@ export async function updatePlan(req, res) {
 
 export async function deletePlan(req, res) {
   const result = await adminService.deletePlan(req.params.id);
-  await audit.record({
-    actor: actorOf(req), action: 'plan.delete', targetType: 'plan',
+  await recordFor(req, {
+    action: 'plan.delete', targetType: 'plan',
     targetLabel: req.params.id,
   });
   res.json(result);
@@ -257,6 +312,11 @@ export async function inspectWebhooks(req, res) {
 export async function repairWebhooks(req, res) {
   const { setAppWebhookSubscription, inspectWebhookSubscription } = await import('../lib/meta.js');
   await setAppWebhookSubscription(req.body?.callbackUrl);
+  // Re-points every tenant's inbound Meta traffic, so the URL itself is logged.
+  await recordFor(req, {
+    action: 'webhooks.repair', targetType: 'platform', targetLabel: 'meta webhook',
+    meta: { callbackUrl: req.body?.callbackUrl || null },
+  });
   res.json({ ok: true, subscription: await inspectWebhookSubscription() });
 }
 
@@ -266,6 +326,11 @@ export async function checkSystemCredentials(req, res) {
 
 export async function updateSystemSettings(req, res) {
   const result = await platformSettings.updateSettings(req.body || {});
+  // Setting names only — never values.
+  await recordFor(req, {
+    action: 'settings.update', targetType: 'platform', targetLabel: 'platform settings',
+    meta: { updated: result?.updated || [], cleared: result?.cleared || [] },
+  });
   res.json({ success: true, ...result, settings: await platformSettings.getAllSettings() });
 }
 

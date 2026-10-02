@@ -3,6 +3,8 @@ import * as authService from '../services/auth.service.js';
 import { redis } from '../lib/redis.js';
 import { revokeAccessToken } from '../lib/tokenDenylist.js';
 import { env } from '../config/env.js';
+import { prisma } from '../lib/prisma.js';
+import * as audit from '../services/audit.service.js';
 
 // ─── OTP signup ───────────────────────────────────────────────────────────────
 export async function startSignup(req, res) {
@@ -48,6 +50,17 @@ export async function logout(req, res) {
   const { refreshToken } = req.body || {};
   await authService.logout(refreshToken);
   if (req.user?.jti) await revokeAccessToken(req.user.jti, req.user.exp);
+  // "Return to admin" ends an impersonation through here; close the trail.
+  if (req.user?.impersonatedBy) {
+    const admin = await prisma.user.findUnique({ where: { id: req.user.impersonatedBy }, select: { email: true } }).catch(() => null);
+    await audit.record({
+      actor: { id: req.user.impersonatedBy, email: admin?.email },
+      action: 'impersonate.end',
+      targetType: 'user',
+      targetLabel: req.user.id,
+      meta: { userId: req.user.id, workspaceId: req.user.workspaceId || null },
+    });
+  }
   res.json({ message: 'Logged out successfully' });
 }
 

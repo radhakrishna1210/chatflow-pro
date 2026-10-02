@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { adminFetch } from '../lib/api.js';
+import { startImpersonation } from '../lib/tabSession.js';
 import { useMessageRates } from '../lib/pricing.js';
 import ApiManagementTab from './ApiManagementTab.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
@@ -914,27 +915,32 @@ function UsersTab() {
   }, [debounced, page]);
 
   const impersonate = async (u) => {
-    if (!window.confirm(`Impersonate ${u.name} (${u.email})? You'll see the app exactly as they do until you return to admin.`)) return;
+    const reason = window.prompt(`Impersonate ${u.name} (${u.email})?
+
+This tab only will act as them for up to 30 minutes; your other tabs stay signed in as you. The reason is recorded in the audit log.
+
+Reason:`);
+    if (reason === null) return;
+    if (reason.trim().length < 3) { window.alert('A reason is required to impersonate a user.'); return; }
     setImpersonatingId(u.id);
     try {
-      const res = await adminFetch(`/platform/users/${u.id}/impersonate`, { method: 'POST' });
+      const res = await adminFetch(`/platform/users/${u.id}/impersonate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
       const body = await res.json();
       if (!res.ok) { window.alert(body.error || 'Impersonation failed'); return; }
 
-      // Stash the admin's own session so the in-app banner can restore it.
-      const adminToken = localStorage.getItem('accessToken');
-      const adminRefresh = localStorage.getItem('refreshToken');
-      const adminUser = localStorage.getItem('user');
-      if (adminToken && adminUser) {
-        sessionStorage.setItem('impersonatorSession', JSON.stringify({ accessToken: adminToken, refreshToken: adminRefresh, user: adminUser }));
-      }
-
-      localStorage.setItem('accessToken', body.accessToken);
-      localStorage.setItem('refreshToken', body.refreshToken);
-      localStorage.setItem('user', JSON.stringify({
-        id: body.user.id, name: body.user.name, email: body.user.email, role: body.user.role,
-        superAdmin: body.user.superAdmin === true, workspaceId: body.workspace?.id ?? null, workspaceName: body.workspace?.name ?? null,
-      }));
+      // Tab-scoped: the customer's token goes to this tab's sessionStorage and
+      // the admin's own session in localStorage is left exactly as it is.
+      startImpersonation({
+        accessToken: body.accessToken,
+        impersonation: body.impersonation,
+        user: {
+          id: body.user.id, name: body.user.name, email: body.user.email, role: body.user.role,
+          superAdmin: false, workspaceId: body.workspace?.id ?? null, workspaceName: body.workspace?.name ?? null,
+        },
+      });
       window.location.href = '/dashboard';
     } finally {
       setImpersonatingId(null);

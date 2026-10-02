@@ -1,3 +1,5 @@
+import { impersonationInfo, endImpersonation } from './tabSession.js';
+
 let _refreshing = null;
 
 const PROTECTED_PREFIXES = ['/dashboard', '/setup'];
@@ -89,7 +91,13 @@ async function refreshAccessToken() {
   return _refreshing;
 }
 
+// In an impersonating tab this ends the impersonation only: the admin's own
+// session in localStorage is untouched and the tab falls back to it.
 export function clearStoredSession() {
+  if (impersonationInfo()) {
+    endImpersonation();
+    return;
+  }
   localStorage.removeItem('accessToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
@@ -97,6 +105,12 @@ export function clearStoredSession() {
 }
 
 function logout() {
+  // An impersonation expired (it has no refresh token): back to the console.
+  if (impersonationInfo()) {
+    endImpersonation();
+    window.location.href = '/dashboard';
+    return;
+  }
   clearStoredSession();
   const target = redirectTargetForDeadSession();
   // Assigning the current URL would reload the page for no reason — and on

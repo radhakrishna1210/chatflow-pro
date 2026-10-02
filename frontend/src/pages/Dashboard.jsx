@@ -4,6 +4,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import CreateCampaign from './CreateCampaign.jsx';
 import { wFetch, apiFetch } from '../lib/api.js';
+import { impersonationInfo, endImpersonation } from '../lib/tabSession.js';
 import { useMessageRates, inr as inrRate } from '../lib/pricing.js';
 import { useFocusTrap } from '../lib/useFocusTrap.js';
 import { getBodyText, statusLabel } from '../lib/templateHelpers.js';
@@ -3150,17 +3151,20 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     return <PlaceholderView title={navItem?.label || 'Section'} icon={navItem?.icon || 'cog'} />;
   };
 
-  // Set only while a super admin is impersonating another user (see UsersTab
-  // in SuperAdminView) — holds the admin's own tokens so they can be restored.
-  let impersonator = null;
-  try { impersonator = JSON.parse(sessionStorage.getItem('impersonatorSession') || 'null'); } catch { /* ignore */ }
+  // Set only in a tab where a super admin is impersonating another user (see
+  // UsersTab in SuperAdminView and lib/tabSession.js). The admin's own session
+  // was never replaced, so returning just ends this tab's impersonation.
+  const impersonator = impersonationInfo();
 
-  const returnToAdmin = () => {
+  const returnToAdmin = async () => {
     if (!impersonator) return;
-    localStorage.setItem('accessToken', impersonator.accessToken);
-    if (impersonator.refreshToken) localStorage.setItem('refreshToken', impersonator.refreshToken);
-    localStorage.setItem('user', impersonator.user);
-    sessionStorage.removeItem('impersonatorSession');
+    // Revokes the impersonation token server-side and closes the audit trail.
+    await fetch('/api/v1/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      body: '{}',
+    }).catch(() => {});
+    endImpersonation();
     window.location.href = '/dashboard';
   };
 
@@ -3172,7 +3176,8 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
       {impersonator && (
         <div style={{ flexShrink: 0, height: 38, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(245,158,11,.06))', borderBottom: '1px solid rgba(245,158,11,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 12.5, color: '#fbbf24', fontWeight: 600 }}>
           <I n="eye" s={13} c="#fbbf24" />
-          Impersonating {user?.name} ({user?.email})
+          Impersonating {user?.name} ({user?.email}) in this tab
+          {impersonator.expiresAt && ` · until ${new Date(impersonator.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
           <button onClick={returnToAdmin} style={{ padding: '3px 10px', borderRadius: 6, background: 'rgba(245,158,11,.15)', border: '1px solid rgba(245,158,11,.4)', color: '#fbbf24', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
             Return to admin
           </button>

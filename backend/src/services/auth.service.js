@@ -700,11 +700,18 @@ export async function switchWorkspace(userId, targetWorkspaceId) {
   return mintSessionForWorkspace(userId, targetWorkspaceId, member.role);
 }
 
-// Platform-admin impersonation: mint a session for the target user's default
-// (earliest-joined) workspace, exactly as if they'd logged in themselves.
+// Platform-admin impersonation. The session is deliberately not a normal one:
+// a single access token, short-lived, with no refresh token (so it never shows
+// up in the target's session list and cannot outlive IMPERSONATION_TTL), and
+// carrying `imp` — the super admin's user id — so the server can tell it apart
+// (req.user.impersonatedBy) and refuse the few actions that would turn it into
+// a lasting credential (middleware/authenticate.js).
 // Impersonating the platform admin account is blocked — no legitimate use,
 // and it would silently hand out a super-admin session from a user-id lookup.
-export async function impersonateUser(targetUserId) {
+export const IMPERSONATION_TTL_SEC = 30 * 60;
+
+export async function impersonateUser(targetUserId, { impersonatorId } = {}) {
+  if (!impersonatorId) { const e = new Error('Impersonator required'); e.status = 400; throw e; }
   const user = await prisma.user.findUnique({ where: { id: targetUserId } });
   if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
   if (isPlatformAdmin(user.email)) { const e = new Error('Cannot impersonate the platform admin'); e.status = 400; throw e; }
@@ -714,15 +721,27 @@ export async function impersonateUser(targetUserId) {
     orderBy: { joinedAt: 'asc' },
   });
 
-  const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, member?.role ?? null, false);
-  await storeRefreshToken(user.id, refreshToken);
+  const accessToken = jwt.sign(
+    {
+      sub: user.id,
+      workspaceId: member?.workspaceId ?? null,
+      role: member?.role ?? null,
+      superAdmin: false,
+      imp: impersonatorId,
+      jti: randomUUID(),
+    },
+    env.JWT_ACCESS_SECRET,
+    { expiresIn: IMPERSONATION_TTL_SEC },
+  );
 
   const workspace = member
     ? await prisma.workspace.findUnique({ where: { id: member.workspaceId }, select: { id: true, name: true } })
     : null;
 
   return {
-    accessToken, refreshToken,
+    accessToken,
+    refreshToken: null,
+    impersonation: { impersonatorId, expiresAt: new Date(Date.now() + IMPERSONATION_TTL_SEC * 1000).toISOString() },
     user: { id: user.id, name: user.name, email: user.email, role: member?.role ?? null, superAdmin: false },
     workspace,
   };

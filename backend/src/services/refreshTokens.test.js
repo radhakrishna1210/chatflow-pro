@@ -41,6 +41,7 @@ const fakePrisma = {
     },
   },
   user: { findUnique: async ({ where }) => users.find((u) => u.id === where.id) ?? null },
+  workspace: { findUnique: async ({ where }) => ({ id: where.id, name: where.id.toUpperCase() }) },
   workspaceMember: {
     findUnique: async ({ where }) => {
       const { userId, workspaceId } = where.userId_workspaceId;
@@ -178,4 +179,19 @@ test('revoking other sessions keeps the caller\'s family', async () => {
   assert.equal(revoked, 1);
   assert.ok((await auth.refresh(mineNext.refreshToken)).accessToken);
   await assert.rejects(auth.refresh(theirs), (e) => e.status === 401);
+});
+
+test('impersonation mints a short, marked access token and no refresh token', async () => {
+  const out = await auth.impersonateUser('u1', { impersonatorId: 'admin1' });
+  assert.equal(out.refreshToken, null);
+  assert.equal(rows.length, 0, 'nothing appears in the session list of the target');
+  const claims = jwt.decode(out.accessToken);
+  assert.equal(claims.imp, 'admin1');
+  assert.equal(claims.superAdmin, false);
+  assert.ok(claims.exp - claims.iat <= 30 * 60);
+  assert.equal(out.workspace.id, 'wsa');
+});
+
+test('impersonation requires the impersonator', async () => {
+  await assert.rejects(auth.impersonateUser('u1'), (e) => e.status === 400);
 });

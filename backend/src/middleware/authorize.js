@@ -74,6 +74,8 @@ export async function requireSuperAdmin(req, res, next) {
     if (!user || user.email.toLowerCase() !== env.ADMIN_EMAIL.toLowerCase()) {
       return res.status(403).json({ error: 'Super admin access required' });
     }
+    // The access token carries no email; the audit trail records this one.
+    req.user.email = user.email;
     next();
   } catch (err) {
     next(err);
