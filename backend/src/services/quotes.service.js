@@ -22,8 +22,11 @@ const ALLOWED_TRANSITIONS = {
   EXPIRED: ['SENT'],
 };
 
-// Sequential per workspace: Q-0001, Q-0002. Generated inside the creating
-// transaction so two people quoting at once cannot take the same number.
+// Sequential per workspace: Q-0001, Q-0002. Two concurrent creates can still
+// read the same last number (READ COMMITTED), so the @@unique index decides
+// and createQuote retries the loser with a fresh number.
+const QUOTE_NUMBER_ATTEMPTS = 5;
+
 async function nextQuoteNumber(tx, workspaceId) {
   const last = await tx.quote.findFirst({
     where: { workspaceId },
@@ -79,6 +82,17 @@ export async function createQuote(workspaceId, body, userId) {
     if (!contact) { const e = new Error('Contact not found'); e.status = 404; throw e; }
   }
 
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await createQuoteOnce(workspaceId, body, userId);
+    } catch (err) {
+      const numberClash = err?.code === 'P2002' && String(err?.meta?.target ?? '').includes('quoteNumber');
+      if (!numberClash || attempt >= QUOTE_NUMBER_ATTEMPTS) throw err;
+    }
+  }
+}
+
+function createQuoteOnce(workspaceId, body, userId) {
   return prisma.$transaction(async (tx) => {
     const quoteNumber = await nextQuoteNumber(tx, workspaceId);
     const quote = await tx.quote.create({

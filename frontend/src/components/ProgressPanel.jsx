@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { I } from './Icons.jsx';
 import { wFetch } from '../lib/api.js';
+import { canManageMembers } from '../lib/permissions.js';
 
 // Your own progress: level, streak, today's missions, achievements, and an
 // opt-in leaderboard.
@@ -19,11 +20,11 @@ const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderR
 // Mirrors XP_RULES in backend/src/services/gamification.service.js. Shown so
 // the scheme is inspectable; the server remains the only thing that awards.
 const EARNING = [
-  { points: 50, label: 'Close a deal' },
+  { points: 50, label: 'Close a deal (with a value, open at least a day)' },
   { points: 25, label: 'Get a quote accepted' },
-  { points: 10, label: 'Qualify a lead' },
+  { points: 10, label: 'Qualify a lead (at least a day old)' },
   { points: 8, label: 'Resolve a ticket' },
-  { points: 5, label: 'Clear an overdue task' },
+  { points: 5, label: 'Clear a task that became overdue' },
 ];
 
 const fmtWhen = (d) => {
@@ -207,12 +208,55 @@ const EarningCard = () => (
 );
 
 // Off by default. A leaderboard nobody asked for turns a team tool into a
-// ranking, so it is revealed on request and reports only name, points and
-// level — never pipeline value.
+// ranking, so a workspace admin has to switch it on, each person still reveals
+// it on request, and it reports only name, points and level — never pipeline
+// value.
 const Leaderboard = () => {
   const [rows, setRows] = useState(null);
   const [shown, setShown] = useState(false);
   const [error, setError] = useState(null);
+  const [enabled, setEnabled] = useState(null);
+  const isAdmin = canManageMembers();
+
+  useEffect(() => {
+    wFetch('/progress/settings')
+      .then((r) => (r.ok ? r.json() : { leaderboardEnabled: false }))
+      .then((d) => setEnabled(d.leaderboardEnabled === true))
+      .catch(() => setEnabled(false));
+  }, []);
+
+  const toggle = async (next) => {
+    setError(null);
+    try {
+      const res = await wFetch('/progress/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leaderboardEnabled: next }),
+      });
+      if (!res.ok) throw new Error(`Could not change the leaderboard setting (${res.status}).`);
+      setEnabled(next);
+      if (!next) setShown(false);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  if (enabled === null) return null;
+
+  if (!enabled) {
+    return (
+      <div style={{ ...card, padding: '13px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>
+          {error || 'The leaderboard is turned off for this workspace.'}
+        </span>
+        {isAdmin && (
+          <button onClick={() => toggle(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', fontSize: 11.5, fontFamily: 'inherit' }}>
+            Turn on for everyone
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const load = async () => {
     setShown(true);
@@ -246,9 +290,16 @@ const Leaderboard = () => {
           <I n="users" s={14} c="var(--t2)" />
           <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--t2)' }}>Leaderboard</span>
         </div>
-        <button onClick={() => setShown(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)', fontSize: 11.5, fontFamily: 'inherit' }}>
-          Hide
-        </button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          {isAdmin && (
+            <button onClick={() => toggle(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)', fontSize: 11.5, fontFamily: 'inherit' }}>
+              Turn off for everyone
+            </button>
+          )}
+          <button onClick={() => setShown(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)', fontSize: 11.5, fontFamily: 'inherit' }}>
+            Hide
+          </button>
+        </div>
       </div>
       {error ? <p style={{ fontSize: 12.5, color: '#f87171', margin: 0 }}>{error}</p>
         : rows === null ? <p style={{ fontSize: 12.5, color: 'var(--t3)', margin: 0 }}>Loading…</p>

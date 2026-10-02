@@ -1,9 +1,44 @@
 import { parse } from 'csv-parse/sync';
 import { prisma } from '../lib/prisma.js';
 import { normalizePhone, isValidPhone } from './contacts.service.js';
-import { computeLeadScore } from './leadScoring.service.js';
+import { getSection } from './crmCustomization.service.js';
 
-const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST'];
+// CONVERTED is left out on purpose: a converted lead points at the deal it
+// became, and an import cannot create that deal.
+const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'];
+
+// The import runs inside the request, so the file is capped at a size that
+// finishes well within proxy timeouts. Writes are batched per chunk.
+export const MAX_IMPORT_ROWS = 5000;
+const CHUNK = 500;
+
+const normaliseStatus = (v) => String(v || '').trim().toUpperCase().replace(/\s+/g, '_');
+
+// Custom lifecycle stages configured under Customize, so an exported file
+// re-imports into the same stages instead of collapsing to NEW.
+export async function loadCustomStatuses(workspaceId) {
+  const config = await getSection(workspaceId, 'lead_lifecycle').catch(() => null);
+  const stages = Array.isArray(config?.stages) ? config.stages : [];
+  const map = new Map();
+  for (const stage of stages) {
+    if (!stage?.key || LEAD_STATUSES.includes(stage.key) || stage.key === 'CONVERTED') continue;
+    map.set(normaliseStatus(stage.key), stage.key);
+    if (stage.label) map.set(normaliseStatus(stage.label), stage.key);
+  }
+  return map;
+}
+
+// -> { status, statusKey, warning }
+function resolveStatus(raw, customStatuses) {
+  const normalised = normaliseStatus(raw);
+  if (!normalised) return { status: 'NEW', statusKey: null, warning: null };
+  if (LEAD_STATUSES.includes(normalised)) return { status: normalised, statusKey: null, warning: null };
+  if (customStatuses?.has(normalised)) return { status: 'NEW', statusKey: customStatuses.get(normalised), warning: null };
+  if (normalised === 'CONVERTED') {
+    return { status: 'NEW', statusKey: null, warning: 'Converted leads cannot be imported without their deal — it will be imported as NEW' };
+  }
+  return { status: 'NEW', statusKey: null, warning: `Unknown status "${raw}" — it will be imported as NEW` };
+}
 
 // Header aliases, so a file exported from a spreadsheet or another CRM imports
 // without the user having to rename columns first.
@@ -54,10 +89,15 @@ function parseCsv(buffer) {
  * will happen before committing. Returns per-row problems rather than failing
  * on the first bad line.
  */
-export function previewLeadImport(buffer, { limit = 20 } = {}) {
+export function previewLeadImport(buffer, { limit = 20, customStatuses = null } = {}) {
   const records = parseCsv(buffer);
   if (records.length === 0) {
     const e = new Error('That file has no rows'); e.status = 400; throw e;
+  }
+  if (records.length > MAX_IMPORT_ROWS) {
+    const e = new Error(`That file has ${records.length} rows; split it into files of at most ${MAX_IMPORT_ROWS} rows.`);
+    e.status = 400;
+    throw e;
   }
 
   const headers = Object.keys(records[0]);
@@ -90,10 +130,8 @@ export function previewLeadImport(buffer, { limit = 20 } = {}) {
     }
     if (phoneNumber) seen.add(phoneNumber);
 
-    const status = mapping.status ? String(record[mapping.status] || '').trim().toUpperCase().replace(/\s+/g, '_') : '';
-    if (status && !LEAD_STATUSES.includes(status)) {
-      issues.push(`Unknown status "${record[mapping.status]}" — it will be imported as NEW`);
-    }
+    const resolved = resolveStatus(mapping.status ? record[mapping.status] : '', customStatuses);
+    if (resolved.warning) issues.push(resolved.warning);
 
     if (issues.some((m) => m.startsWith('Phone') || m.startsWith('Missing') || m.startsWith('Duplicate'))) invalid += 1;
     else valid += 1;
@@ -104,7 +142,7 @@ export function previewLeadImport(buffer, { limit = 20 } = {}) {
         name: mapping.name ? record[mapping.name] : phoneNumber,
         phoneNumber: phoneNumber ?? rawPhone,
         email: mapping.email ? record[mapping.email] : null,
-        status: LEAD_STATUSES.includes(status) ? status : 'NEW',
+        status: resolved.statusKey || resolved.status,
         issues,
       });
     }
@@ -127,10 +165,20 @@ export function previewLeadImport(buffer, { limit = 20 } = {}) {
  * user the whole file.
  *
  * A contact that already exists is reused rather than duplicated, and a contact
- * that is already a lead is left alone.
+ * that is already a lead is left alone. Contacts and leads are written in
+ * batches; scoring, HOT/WARM/COLD and distribution rules then run in the
+ * background (crm-maintenance queue) so the request does not wait on them.
+ * lead_created is deliberately not emitted per row: a bulk import must not
+ * fire thousands of automations that may message customers.
  */
 export async function importLeads(workspaceId, buffer, { ownerUserId = null } = {}) {
-  const { mapping } = previewLeadImport(buffer, { limit: 0 });
+  if (ownerUserId) {
+    const member = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: ownerUserId }, select: { userId: true } });
+    if (!member) { const e = new Error('Owner must be a member of this workspace'); e.status = 400; throw e; }
+  }
+
+  const customStatuses = await loadCustomStatuses(workspaceId);
+  const { mapping } = previewLeadImport(buffer, { limit: 0, customStatuses });
   const records = parseCsv(buffer);
 
   const seen = new Set();
@@ -152,12 +200,13 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     }
     seen.add(phoneNumber);
 
-    const status = mapping.status ? String(record[mapping.status] || '').trim().toUpperCase().replace(/\s+/g, '_') : '';
+    const { status, statusKey } = resolveStatus(mapping.status ? record[mapping.status] : '', customStatuses);
     candidates.push({
       phoneNumber,
       name: (mapping.name ? String(record[mapping.name] || '').trim() : '') || phoneNumber,
       email: mapping.email ? String(record[mapping.email] || '').trim() || null : null,
-      status: LEAD_STATUSES.includes(status) ? status : 'NEW',
+      status,
+      statusKey,
       source: mapping.source ? String(record[mapping.source] || '').trim() || null : null,
       notes: mapping.notes ? String(record[mapping.notes] || '').trim() || null : null,
     });
@@ -166,42 +215,85 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
   let contactsCreated = 0;
   let leadsCreated = 0;
   let alreadyLeads = 0;
+  const createdLeadIds = [];
 
-  for (const row of candidates) {
-    let contact = await prisma.contact.findFirst({
-      where: { workspaceId, phoneNumber: row.phoneNumber },
-      select: { id: true },
+  for (let start = 0; start < candidates.length; start += CHUNK) {
+    const chunk = candidates.slice(start, start + CHUNK);
+    const phones = chunk.map((r) => r.phoneNumber);
+
+    const existing = await prisma.contact.findMany({
+      where: { workspaceId, phoneNumber: { in: phones } },
+      select: { id: true, phoneNumber: true },
     });
+    const contactIdByPhone = new Map(existing.map((c) => [c.phoneNumber, c.id]));
 
-    if (!contact) {
-      contact = await prisma.contact.create({
-        data: { workspaceId, name: row.name, phoneNumber: row.phoneNumber, email: row.email },
-        select: { id: true },
+    const missing = chunk.filter((r) => !contactIdByPhone.has(r.phoneNumber));
+    if (missing.length) {
+      // skipDuplicates: a contact created concurrently (inbound message, form)
+      // is simply picked up by the re-read below.
+      const created = await prisma.contact.createMany({
+        data: missing.map((r) => ({ workspaceId, name: r.name, phoneNumber: r.phoneNumber, email: r.email })),
+        skipDuplicates: true,
       });
-      contactsCreated += 1;
+      contactsCreated += created.count;
+      const fresh = await prisma.contact.findMany({
+        where: { workspaceId, phoneNumber: { in: missing.map((r) => r.phoneNumber) } },
+        select: { id: true, phoneNumber: true },
+      });
+      for (const c of fresh) contactIdByPhone.set(c.phoneNumber, c.id);
     }
 
-    const existingLead = await prisma.lead.findUnique({ where: { contactId: contact.id }, select: { id: true } });
-    if (existingLead) { alreadyLeads += 1; continue; }
-
-    // Score on import so the list is immediately sortable rather than showing
-    // a wall of zeroes until someone recalculates.
-    const score = await computeLeadScore(workspaceId, contact.id).catch(() => null);
-
-    await prisma.lead.create({
-      data: {
-        workspaceId,
-        contactId: contact.id,
-        status: row.status,
-        source: row.source,
-        notes: row.notes,
-        ownerUserId,
-        score: score?.score ?? 0,
-        scoreFactors: score?.factors ?? undefined,
-        scoreComputedAt: score ? new Date() : null,
-      },
+    const leadsAlready = await prisma.lead.findMany({
+      where: { contactId: { in: [...contactIdByPhone.values()] } },
+      select: { contactId: true },
     });
-    leadsCreated += 1;
+    const isLead = new Set(leadsAlready.map((l) => l.contactId));
+
+    const toCreate = chunk.filter((r) => contactIdByPhone.has(r.phoneNumber) && !isLead.has(contactIdByPhone.get(r.phoneNumber)));
+    alreadyLeads += chunk.length - toCreate.length;
+    if (toCreate.length === 0) continue;
+
+    const leads = await prisma.lead.createManyAndReturn({
+      data: toCreate.map((r) => ({
+        workspaceId,
+        contactId: contactIdByPhone.get(r.phoneNumber),
+        status: r.status,
+        source: r.source,
+        notes: r.notes,
+        ownerUserId,
+        ...(r.statusKey ? { customFields: { statusKey: r.statusKey } } : {}),
+      })),
+      skipDuplicates: true,
+      select: { id: true },
+    });
+    leadsCreated += leads.length;
+    alreadyLeads += toCreate.length - leads.length;
+    createdLeadIds.push(...leads.map((l) => l.id));
+  }
+
+  // Score, category and distribution need several queries per lead, so they
+  // run after the response. If the queue is unavailable the nightly sweep
+  // still scores them (uncategorised leads go first); distribution then needs
+  // "Run on unassigned leads".
+  let followUp = 'none';
+  if (createdLeadIds.length) {
+    try {
+      const { enqueueImportFollowUp } = await import('../queues/crmMaintenance.queue.js');
+      // Bounded wait: with Redis down, BullMQ would otherwise hold the request
+      // open while it reconnects.
+      const jobs = [];
+      for (let start = 0; start < createdLeadIds.length; start += CHUNK) {
+        jobs.push(enqueueImportFollowUp(workspaceId, createdLeadIds.slice(start, start + CHUNK), { distribute: !ownerUserId }));
+      }
+      await Promise.race([
+        Promise.all(jobs),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('queue did not respond')), 5000).unref()),
+      ]);
+      followUp = 'queued';
+    } catch (err) {
+      console.error('[CrmImport] Could not queue scoring/distribution:', err.message);
+      followUp = 'deferred';
+    }
   }
 
   return {
@@ -211,5 +303,6 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     alreadyLeads,
     skipped: errors.length,
     errors: errors.slice(0, 100),
+    followUp,
   };
 }

@@ -448,10 +448,13 @@ const DeleteMultipleModal = ({ selectedIds, onClose, onDeleted }) => {
   );
 };
 
-// ─── Create Cluster modal ──────────────────────────────────────
-const CreateClusterModal = ({ onClose, onSaved }) => {
-  const [name, setName]               = useState('');
-  const [description, setDescription] = useState('');
+// ─── Create / edit Cluster modal ───────────────────────────────
+// With `cluster`, edits that cluster: its name, description and members are
+// preloaded and saving replaces them.
+const CreateClusterModal = ({ cluster = null, onClose, onSaved }) => {
+  const isEdit = Boolean(cluster?.id);
+  const [name, setName]               = useState(cluster?.name ?? '');
+  const [description, setDescription] = useState(cluster?.description ?? '');
   const [contacts, setContacts]       = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [search, setSearch]           = useState('');
@@ -469,6 +472,14 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    wFetch(`/clusters/${cluster.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setSelectedIds(new Set((d.memberContacts ?? []).map((c) => c.id))); })
+      .catch(() => {});
+  }, [isEdit, cluster?.id]);
 
   const toggle = (id) => {
     setSelectedIds((prev) => {
@@ -498,8 +509,8 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
     setErr(null);
     setSaving(true);
     try {
-      const res = await wFetch('/clusters', {
-        method: 'POST',
+      const res = await wFetch(isEdit ? `/clusters/${cluster.id}` : '/clusters', {
+        method: isEdit ? 'PUT' : 'POST',
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || null,
@@ -521,7 +532,7 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
   };
 
   return (
-    <Modal title="Create Cluster" onClose={onClose}>
+    <Modal title={isEdit ? 'Edit Cluster' : 'Create Cluster'} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {err && (
           <div style={{ padding: '9px 12px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 12 }}>
@@ -582,7 +593,7 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4, paddingTop: 12, borderTop: '1px solid var(--bd)' }}>
           <Btn variant="outline" onClick={onClose}>Cancel</Btn>
           <Btn onClick={submit} disabled={saving || !name.trim() || selectedIds.size === 0} style={{ boxShadow: name.trim() && selectedIds.size > 0 ? 'var(--glow)' : 'none' }}>
-            {saving ? 'Creating…' : 'Create Cluster'}
+            {saving ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save Cluster' : 'Create Cluster')}
           </Btn>
         </div>
       </div>
@@ -624,6 +635,7 @@ export default function ContactsView() {
   const [clusters, setClusters]         = useState([]);
   const [selectedCluster, setSelectedCluster] = useState('');
   const [clusterOpen, setClusterOpen]   = useState(false);
+  const [editingCluster, setEditingCluster] = useState(null);
 
   // Search / filter / sort / page are all query parameters — the server does
   // the work. Filtering a fetched page in the browser (which is what this
@@ -688,10 +700,29 @@ export default function ContactsView() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Filter options: clusters (sidebar), segments and the tags actually in use.
-  useEffect(() => {
+  const loadClusters = useCallback(() => {
     wFetch('/clusters').then(r => r.ok && r.json())
       .then(d => { if (Array.isArray(d)) setClusters(d); }).catch(() => {});
+  }, []);
+
+  const deleteCluster = async (c) => {
+    if (!window.confirm(`Delete the cluster "${c.name}"? The contacts in it are not deleted.`)) return;
+    try {
+      const res = await wFetch(`/clusters/${c.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Could not delete this cluster');
+      }
+      if (selectedCluster === c.id) setSelectedCluster('');
+      loadClusters();
+    } catch (e) {
+      window.alert(e.message);
+    }
+  };
+
+  // Filter options: clusters (sidebar), segments and the tags actually in use.
+  useEffect(() => {
+    loadClusters();
     wFetch('/segments').then(r => r.ok && r.json())
       .then(d => { if (Array.isArray(d)) setSegments(d); else if (Array.isArray(d?.data)) setSegments(d.data); }).catch(() => {});
     wFetch('/contacts/tags').then(r => r.ok && r.json())
@@ -959,6 +990,20 @@ export default function ContactsView() {
                 <span style={{ fontSize:11.5, color: active ? 'var(--green)' : 'var(--t3)', marginLeft:8, fontWeight:500 }}>
                   ({c.memberCount ?? 0})
                 </span>
+                {active && (
+                  <span style={{ display:'flex', gap:2, marginLeft:6 }}>
+                    <button title="Edit cluster" aria-label={`Edit ${c.name}`}
+                      onClick={e => { e.stopPropagation(); setEditingCluster(c); }}
+                      style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex' }}>
+                      <I n="pencil" s={12} c="var(--t2)" />
+                    </button>
+                    <button title="Delete cluster" aria-label={`Delete ${c.name}`}
+                      onClick={e => { e.stopPropagation(); deleteCluster(c); }}
+                      style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex' }}>
+                      <I n="trash" s={12} c="#f87171" />
+                    </button>
+                  </span>
+                )}
               </div>
             );
           })}
@@ -1094,7 +1139,14 @@ export default function ContactsView() {
       {clusterOpen && (
         <CreateClusterModal
           onClose={() => setClusterOpen(false)}
-          onSaved={() => { load(); }}
+          onSaved={() => { load(); loadClusters(); }}
+        />
+      )}
+      {editingCluster && (
+        <CreateClusterModal
+          cluster={editingCluster}
+          onClose={() => setEditingCluster(null)}
+          onSaved={() => { load(); loadClusters(); }}
         />
       )}
       {editingContact && (

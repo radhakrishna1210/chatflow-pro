@@ -5,9 +5,10 @@ import { computeLeadCategory } from './leadSegmentation.service.js';
 import { validateCrmCustomFields } from './customFields.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 import { scopeFilter } from './recordScope.service.js';
-import { awardXp, unlockAchievement } from './gamification.service.js';
+import { awardXp, unlockAchievement, earnsQualifiedLead } from './gamification.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { getSection } from './crmCustomization.service.js';
+import { assertKnownStage } from './pipelineStages.service.js';
 
 export const PRISMA_LEAD_STATUSES = new Set(['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST']);
 
@@ -250,7 +251,7 @@ export async function getLead(workspaceId, id, user = null) {
 // Accepts either an existing contactId, or name+phoneNumber to create the
 // contact first. The contact is the single source of truth for identity — a
 // lead never carries its own copy of name/phone.
-export async function createLead(workspaceId, body) {
+export async function createLead(workspaceId, body, actorUserId = null) {
   let contactId = body.contactId;
 
   // 1. Prospecting criteria validation
@@ -389,6 +390,10 @@ export async function createLead(workspaceId, body) {
   // Fire-and-forget: an automation must never delay or fail the write that
   // triggered it.
   emitCrmEvent(workspaceId, 'lead_created', { leadId: lead.id, contactId, score });
+  if (actorUserId) {
+    unlockAchievement(workspaceId, actorUserId, 'first_lead')
+      .catch((e) => console.error('[Gamification] achievement failed:', e.message));
+  }
   return {
     ...categorizedLead,
     contact: { ...lead.contact, ...categorizedLead.contact, tags: initialTags ?? lead.contact?.tags ?? [] },
@@ -403,7 +408,7 @@ export async function updateLead(workspaceId, id, updates, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const lead = await prisma.lead.findFirst({
     where: { id, workspaceId, ...scope },
-    select: { id: true, status: true, customFields: true, contactId: true, ownerUserId: true },
+    select: { id: true, status: true, customFields: true, contactId: true, ownerUserId: true, createdAt: true },
   });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
 
@@ -466,7 +471,7 @@ export async function updateLead(workspaceId, id, updates, user = null) {
   const effectiveStatus = updated.customFields?.statusKey || updated.status;
   const previousEffectiveStatus = lead.customFields?.statusKey || lead.status;
 
-  if (updates.status === 'QUALIFIED' && previousEffectiveStatus !== 'QUALIFIED' && updated.ownerUserId) {
+  if (updates.status === 'QUALIFIED' && previousEffectiveStatus !== 'QUALIFIED' && updated.ownerUserId && earnsQualifiedLead(lead)) {
     awardXp(workspaceId, updated.ownerUserId, 'qualified_lead', { recordType: 'lead', recordId: id })
       .then(() => unlockAchievement(workspaceId, updated.ownerUserId, 'first_qualified'))
       .catch((e) => console.error('[Gamification] award failed:', e.message));
@@ -541,6 +546,7 @@ export async function recalculateScore(workspaceId, id, user = null) {
 // Transactional by design: a conversion that created a Deal but failed to mark
 // the Lead converted would let the same lead be converted twice.
 export async function convertLead(workspaceId, id, body, userId) {
+  await assertKnownStage(workspaceId, body.stage || 'QUALIFICATION');
   return prisma.$transaction(async (tx) => {
     const lead = await tx.lead.findFirst({ where: { id, workspaceId } });
     if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
@@ -586,6 +592,12 @@ export async function bulkAssignLeads(workspaceId, ids = [], ownerUserId = null,
   if (!Array.isArray(ids) || ids.length === 0) {
     const e = new Error('At least one lead ID is required'); e.status = 400; throw e;
   }
+  // Lead.ownerUserId is a plain FK to User, so without this check a caller
+  // could hand leads to someone outside the workspace.
+  if (ownerUserId) {
+    const member = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: ownerUserId }, select: { userId: true } });
+    if (!member) { const e = new Error('Owner must be a member of this workspace'); e.status = 400; throw e; }
+  }
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const res = await prisma.lead.updateMany({
     where: { id: { in: ids }, workspaceId, ...scope },
@@ -594,16 +606,42 @@ export async function bulkAssignLeads(workspaceId, ids = [], ownerUserId = null,
   return { count: res.count };
 }
 
+// Custom lifecycle keys live in customFields.statusKey (the DB enum only knows
+// the built-ins), so each lead is written individually the same way updateLead
+// does it rather than with one updateMany.
 export async function bulkUpdateStatus(workspaceId, ids = [], status, user = null) {
   if (!Array.isArray(ids) || ids.length === 0 || !status) {
     const e = new Error('Lead IDs and status are required'); e.status = 400; throw e;
   }
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const res = await prisma.lead.updateMany({
+  const leads = await prisma.lead.findMany({
     where: { id: { in: ids }, workspaceId, ...scope },
-    data: { status },
+    select: { id: true, status: true, customFields: true, contactId: true },
   });
-  return { count: res.count };
+  const isPrismaStatus = PRISMA_LEAD_STATUSES.has(status);
+  const changed = [];
+  const writes = [];
+  for (const lead of leads) {
+    const customFields = typeof lead.customFields === 'object' && lead.customFields !== null ? { ...lead.customFields } : {};
+    const previousStatus = customFields.statusKey || lead.status;
+    if (isPrismaStatus) delete customFields.statusKey;
+    else customFields.statusKey = status;
+    writes.push(prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        status: isPrismaStatus ? status : 'NEW',
+        customFields: Object.keys(customFields).length > 0 ? customFields : null,
+      },
+    }));
+    if (previousStatus !== status) changed.push({ lead, previousStatus });
+  }
+  if (writes.length) await prisma.$transaction(writes);
+  for (const { lead, previousStatus } of changed) {
+    emitCrmEvent(workspaceId, 'lead_status_changed', {
+      leadId: lead.id, contactId: lead.contactId, status, previousStatus,
+    });
+  }
+  return { count: leads.length };
 }
 
 export async function bulkUpdateCategory(workspaceId, ids = [], category, user = null) {
@@ -618,29 +656,28 @@ export async function bulkUpdateCategory(workspaceId, ids = [], category, user =
   return { count: res.count };
 }
 
-export async function bulkCreateTask(workspaceId, ids = [], { title, dueDate = null, priority = 'NORMAL' } = {}, userId = null) {
+// Task has no priority column; the chosen priority is kept in the description,
+// the same way stage-transition auto-tasks record theirs.
+export async function bulkCreateTask(workspaceId, ids = [], { title, dueDate = null, priority = null } = {}, user = null) {
   if (!Array.isArray(ids) || ids.length === 0 || !title) {
     const e = new Error('Lead IDs and task title are required'); e.status = 400; throw e;
   }
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
   const leads = await prisma.lead.findMany({
-    where: { id: { in: ids }, workspaceId },
+    where: { id: { in: ids }, workspaceId, ...scope },
     select: { id: true, contactId: true, ownerUserId: true },
   });
-  const createdTasks = [];
-  for (const l of leads) {
-    const task = await prisma.task.create({
-      data: {
-        workspaceId,
-        title,
-        dueDate: dueDate ? new Date(dueDate) : null,
-        priority,
-        leadId: l.id,
-        contactId: l.contactId,
-        assignedToUserId: l.ownerUserId || userId,
-      },
-    });
-    createdTasks.push(task);
-  }
-  return { count: createdTasks.length };
+  if (leads.length === 0) return { count: 0 };
+  const res = await prisma.task.createMany({
+    data: leads.map((l) => ({
+      workspaceId,
+      title,
+      description: priority ? `[Priority: ${priority}]` : null,
+      dueDate: dueDate ? new Date(dueDate) : null,
+      leadId: l.id,
+      contactId: l.contactId,
+      assignedToUserId: l.ownerUserId || user?.id || null,
+    })),
+  });
+  return { count: res.count };
 }
-

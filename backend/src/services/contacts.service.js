@@ -168,7 +168,7 @@ export async function createContact(workspaceId, { name, phoneNumber, email, tag
   await assertWithinLimit(workspaceId, 'contact');
   // Values are checked against the workspace's own field definitions, so an
   // unknown key is refused rather than quietly stored and never displayed.
-  const { validateCustomFields } = await import('./customFields.service.js');
+  const { validateCustomFields } = await import('./workspaceCustomFields.service.js');
   const custom = await validateCustomFields(workspaceId, customFields);
   return prisma.contact.create({
     data: {
@@ -257,7 +257,7 @@ export async function updateContact(workspaceId, id, updates) {
     data.phoneNumber = normalizePhone(data.phoneNumber);
   }
   if (data.customFields !== undefined) {
-    const { validateCustomFields } = await import('./customFields.service.js');
+    const { validateCustomFields } = await import('./workspaceCustomFields.service.js');
     // Merged, not replaced: a form that edits one field must not wipe the rest.
     const patch = await validateCustomFields(workspaceId, data.customFields);
     data.customFields = { ...(contact.customFields || {}), ...(patch || {}) };

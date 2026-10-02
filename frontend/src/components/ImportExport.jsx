@@ -123,7 +123,7 @@ export const ImportExport = ({ entity, canImport = false, canExport = true, onIm
                 Upload a CSV with at least a phone column. Columns named like
                 {' '}<code style={{ color: 'var(--t1)' }}>name</code>, <code style={{ color: 'var(--t1)' }}>email</code>,
                 {' '}<code style={{ color: 'var(--t1)' }}>status</code> and <code style={{ color: 'var(--t1)' }}>source</code>
-                {' '}are detected automatically. Nothing is written until you confirm.
+                {' '}are detected automatically. Up to 5,000 rows per file. Nothing is written until you confirm.
               </p>
               <input ref={inputRef} type="file" accept=".csv,text/csv" onChange={choose} style={{ display: 'none' }} />
               <Btn size="sm" onClick={() => inputRef.current?.click()} disabled={busy}>
@@ -193,6 +193,8 @@ export const ImportExport = ({ entity, canImport = false, canExport = true, onIm
                 <div>{result.contactsCreated} new contact{result.contactsCreated === 1 ? '' : 's'} created.</div>
                 {result.alreadyLeads > 0 && <div>{result.alreadyLeads} contact(s) were already leads and were left unchanged.</div>}
                 {result.skipped > 0 && <div style={{ color: '#f87171' }}>{result.skipped} row(s) skipped.</div>}
+                {result.followUp === 'queued' && <div>Scores, HOT/WARM/COLD and distribution rules are being applied in the background.</div>}
+                {result.followUp === 'deferred' && <div>Scores will be filled in by the nightly refresh; use "Run on unassigned leads" to apply distribution rules.</div>}
               </div>
               {result.errors?.length > 0 && (
                 <div style={{ ...card, marginTop: 12, padding: '10px 13px', maxHeight: 160, overflowY: 'auto' }}>

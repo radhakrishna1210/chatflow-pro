@@ -26,10 +26,46 @@ export async function getDistributionRules(workspaceId) {
   };
 }
 
+// Only ids that belong to this workspace survive. Lead.ownerUserId is a plain
+// FK to User, so a foreign id would hand leads to someone outside the tenant.
+async function workspaceMemberIds(workspaceId, userIds) {
+  const unique = [...new Set(userIds.filter(Boolean))];
+  if (unique.length === 0) return new Set();
+  const members = await prisma.workspaceMember.findMany({
+    where: { workspaceId, userId: { in: unique } },
+    select: { userId: true },
+  });
+  return new Set(members.map((m) => m.userId));
+}
+
+// One atomic UPDATE ... RETURNING, so concurrent assignments each get their own
+// slot and the stored rules are never rewritten from a stale read.
+async function takeRoundRobinTicket(workspaceId) {
+  const rows = await prisma.$queryRaw`
+    UPDATE "SavedView"
+    SET "filters" = jsonb_set(
+      "filters", '{roundRobinIndex}',
+      to_jsonb(COALESCE(("filters"->>'roundRobinIndex')::bigint, 0) + 1)
+    )
+    WHERE "workspaceId" = ${workspaceId} AND "entity" = ${ENTITY_TYPE} AND "name" = ${RULES_VIEW_NAME}
+    RETURNING ("filters"->>'roundRobinIndex')::bigint AS "ticket"
+  `;
+  return rows.length ? Number(rows[0].ticket) - 1 : 0;
+}
+
 /**
  * Save or update distribution rules for a workspace.
  */
 export async function saveDistributionRules(workspaceId, { enabled = true, rules = [] } = {}) {
+  const referenced = (Array.isArray(rules) ? rules : []).flatMap((r) => [
+    ...(r.assignment?.type === 'USER' && r.assignment.userId ? [r.assignment.userId] : []),
+    ...(r.assignment?.type === 'ROUND_ROBIN' && Array.isArray(r.assignment.poolUserIds) ? r.assignment.poolUserIds : []),
+  ]);
+  const known = await workspaceMemberIds(workspaceId, referenced);
+  if (referenced.some((uid) => !known.has(uid))) {
+    const e = new Error('Every assignee must be a member of this workspace'); e.status = 400; throw e;
+  }
+
   const existing = await prisma.savedView.findFirst({
     where: { workspaceId, entity: ENTITY_TYPE, name: RULES_VIEW_NAME },
   });
@@ -137,10 +173,12 @@ export async function evaluateAndAssignLead(workspaceId, leadId) {
       assignedUserId = member.userId;
     }
   } else if (assignment.type === 'ROUND_ROBIN') {
-    // Determine candidate pool: either explicit poolUserIds or all workspace members
-    let candidateIds = Array.isArray(assignment.poolUserIds) && assignment.poolUserIds.length > 0
-      ? assignment.poolUserIds
-      : [];
+    // Candidate pool: explicit poolUserIds still in the workspace, or all members
+    let candidateIds = [];
+    if (Array.isArray(assignment.poolUserIds) && assignment.poolUserIds.length > 0) {
+      const known = await workspaceMemberIds(workspaceId, assignment.poolUserIds);
+      candidateIds = assignment.poolUserIds.filter((uid) => known.has(uid));
+    }
 
     if (candidateIds.length === 0) {
       const members = await prisma.workspaceMember.findMany({
@@ -151,25 +189,8 @@ export async function evaluateAndAssignLead(workspaceId, leadId) {
     }
 
     if (candidateIds.length > 0) {
-      const idx = config.roundRobinIndex % candidateIds.length;
-      assignedUserId = candidateIds[idx];
-
-      // Advance round robin counter
-      const nextIndex = (idx + 1) % candidateIds.length;
-      const record = await prisma.savedView.findFirst({
-        where: { workspaceId, entity: ENTITY_TYPE, name: RULES_VIEW_NAME },
-      });
-      if (record) {
-        await prisma.savedView.update({
-          where: { id: record.id },
-          data: {
-            filters: {
-              ...config,
-              roundRobinIndex: nextIndex,
-            },
-          },
-        });
-      }
+      const ticket = await takeRoundRobinTicket(workspaceId);
+      assignedUserId = candidateIds[ticket % candidateIds.length];
     }
   }
 

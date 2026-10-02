@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { scopeFilter } from './recordScope.service.js';
-import { awardXp } from './gamification.service.js';
+import { awardXp, revokeXp } from './gamification.service.js';
 import { getSection } from './crmCustomization.service.js';
 
 // Customer-facing support tickets.
@@ -30,9 +30,25 @@ const TICKET_INCLUDE = {
   team: { select: { id: true, name: true } },
 };
 
-export function slaDueAt(priority, from = new Date()) {
-  const hours = SLA_HOURS[priority] ?? SLA_HOURS.NORMAL;
+export function slaDueAt(priority, from = new Date(), hoursOverride = null) {
+  const hours = hoursOverride ?? SLA_HOURS[priority] ?? SLA_HOURS.NORMAL;
   return new Date(from.getTime() + hours * 3600_000);
+}
+
+// A category configured under Customize -> Tickets carries its own response
+// target, which takes precedence over the priority default.
+export function categorySlaHours(customConfig, category) {
+  if (!category) return null;
+  const wanted = String(category).trim().toLowerCase();
+  const match = (customConfig?.categories ?? []).find((c) => String(c?.name ?? '').trim().toLowerCase() === wanted);
+  const hours = Number(match?.slaHours);
+  return Number.isFinite(hours) && hours > 0 ? hours : null;
+}
+
+async function ticketSlaHours(workspaceId, category) {
+  if (!category) return null;
+  const config = await getSection(workspaceId, 'ticket_customization').catch(() => null);
+  return categorySlaHours(config, category);
 }
 
 // Sequential per workspace, generated inside the creating transaction so two
@@ -144,7 +160,7 @@ export async function createTicket(workspaceId, body) {
         ownerUserId: body.ownerUserId ?? null,
         teamId: body.teamId ?? null,
         conversationId: body.conversationId ?? null,
-        dueAt: slaDueAt(priority),
+        dueAt: slaDueAt(priority, new Date(), categorySlaHours(customConfig, body.category)),
       },
       include: TICKET_INCLUDE,
     });
@@ -155,16 +171,20 @@ export async function updateTicket(workspaceId, id, updates, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const ticket = await prisma.crmTicket.findFirst({
     where: { id, workspaceId, ...scope },
-    select: { id: true, priority: true, createdAt: true, status: true },
+    select: { id: true, priority: true, category: true, createdAt: true, status: true },
   });
   if (!ticket) { const e = new Error('Ticket not found'); e.status = 404; throw e; }
 
   const data = { ...updates };
 
-  // Raising priority tightens the deadline, measured from when the ticket was
-  // filed — not from now, which would hand back time already spent.
-  if (updates.priority && updates.priority !== ticket.priority && !SETTLED.includes(ticket.status)) {
-    data.dueAt = slaDueAt(updates.priority, ticket.createdAt);
+  // Changing priority or category moves the deadline, measured from when the
+  // ticket was filed — not from now, which would hand back time already spent.
+  const priorityChanged = updates.priority && updates.priority !== ticket.priority;
+  const categoryChanged = updates.category !== undefined && updates.category !== ticket.category;
+  if ((priorityChanged || categoryChanged) && !SETTLED.includes(ticket.status)) {
+    const priority = updates.priority || ticket.priority;
+    const category = updates.category !== undefined ? updates.category : ticket.category;
+    data.dueAt = slaDueAt(priority, ticket.createdAt, await ticketSlaHours(workspaceId, category));
   }
 
   return prisma.crmTicket.update({ where: { id }, data, include: TICKET_INCLUDE });
@@ -174,7 +194,7 @@ export async function changeTicketStatus(workspaceId, id, status, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const ticket = await prisma.crmTicket.findFirst({
     where: { id, workspaceId, ...scope },
-    select: { id: true, status: true, priority: true, resolvedAt: true },
+    select: { id: true, status: true, priority: true, category: true, resolvedAt: true },
   });
   if (!ticket) { const e = new Error('Ticket not found'); e.status = 404; throw e; }
 
@@ -193,7 +213,7 @@ export async function changeTicketStatus(workspaceId, id, status, user = null) {
     // reopened ticket is not reported as both resolved and open.
     data.resolvedAt = null;
     data.closedAt = null;
-    data.dueAt = slaDueAt(ticket.priority);
+    data.dueAt = slaDueAt(ticket.priority, new Date(), await ticketSlaHours(workspaceId, ticket.category));
   }
 
   const result = await prisma.crmTicket.update({ where: { id }, data, include: TICKET_INCLUDE });
@@ -201,6 +221,8 @@ export async function changeTicketStatus(workspaceId, id, status, user = null) {
   if (status === 'RESOLVED' && !SETTLED.includes(ticket.status) && result.ownerUserId) {
     awardXp(workspaceId, result.ownerUserId, 'resolved_ticket', { recordType: 'ticket', recordId: id })
       .catch((e) => console.error('[Gamification] award failed:', e.message));
+  } else if (status === 'OPEN' && SETTLED.includes(ticket.status)) {
+    revokeXp(workspaceId, 'resolved_ticket', id).catch((e) => console.error('[Gamification] revoke failed:', e.message));
   }
   return result;
 }
@@ -215,6 +237,17 @@ export async function markFirstResponse(workspaceId, id) {
   if (!ticket) { const e = new Error('Ticket not found'); e.status = 404; throw e; }
   if (ticket.firstRespondedAt) return ticket;
   return prisma.crmTicket.update({ where: { id }, data: { firstRespondedAt: new Date() } });
+}
+
+// Called when an agent replies in a conversation: open tickets linked to it get
+// their first-response time, once. A single conditional update, so concurrent
+// replies cannot overwrite the earliest stamp.
+export async function markFirstResponseForConversation(workspaceId, conversationId, at = new Date()) {
+  if (!conversationId) return { count: 0 };
+  return prisma.crmTicket.updateMany({
+    where: { workspaceId, conversationId, firstRespondedAt: null, status: { notIn: SETTLED } },
+    data: { firstRespondedAt: at },
+  });
 }
 
 export async function deleteTicket(workspaceId, id, user = null) {

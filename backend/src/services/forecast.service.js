@@ -57,7 +57,7 @@ export async function getForecast(workspaceId, { from, to, ownerUserId } = {}) {
     // rather than being silently dropped or silently included.
     prisma.deal.findMany({
       where: { ...scope, stage: { notIn: CLOSED_STAGES }, expectedCloseDate: { gte: periodStart, lte: periodEnd } },
-      select: { id: true, stage: true, value: true, ownerUserId: true, owner: { select: { id: true, name: true, email: true } } },
+      select: { id: true, stage: true, customFields: true, value: true, ownerUserId: true, owner: { select: { id: true, name: true, email: true } } },
     }),
     prisma.deal.findMany({
       where: { ...scope, stage: { in: CLOSED_STAGES }, closedAt: { gte: periodStart, lte: periodEnd } },
@@ -86,7 +86,10 @@ export async function getForecast(workspaceId, { from, to, ownerUserId } = {}) {
 
   for (const deal of open) {
     const value = toNumber(deal.value);
-    const probability = probabilities.get(deal.stage) ?? 0;
+    // Custom stages are stored as customFields.stageKey on top of the
+    // QUALIFICATION enum; their own configured probability applies.
+    const effectiveStage = deal.customFields?.stageKey || deal.stage;
+    const probability = probabilities.get(effectiveStage) ?? probabilities.get(deal.stage) ?? 0;
     const weighted = (value * probability) / 100;
     const bucket = categorise(probability);
 

@@ -5,6 +5,8 @@ const LEAD_STATUSES = Object.keys(LeadStatus);
 
 import { hasMeaningfulText } from '../lib/textValidation.js';
 import { workflowNodesSchema } from './workflowNodes.js';
+import { CUSTOM_FIELD_TYPES } from '../services/customFields.service.js';
+import { SAVED_VIEW_ENTITIES } from '../services/savedViews.service.js';
 
 // validate({ body, params, query }) ΓÇö parsed values replace the originals so
 // controllers receive clean, typed input instead of raw request payloads.
@@ -153,7 +155,7 @@ export const contactSchemas = {
     email: z.union([z.string().trim().email(), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
     tags: z.array(z.string().trim().max(50)).max(30).optional().default([]),
     // Shape only. The keys and value types are checked against the workspace's
-    // own field definitions in customFields.service.js#validateCustomFields ΓÇö
+    // own field definitions in workspaceCustomFields.service.js#validateCustomFields ΓÇö
     // a schema here could not know what fields this workspace has.
     customFields: z.record(z.union([z.string(), z.number(), z.null()])).optional(),
   }),
@@ -520,9 +522,6 @@ const leadFormField = z.object({
   placeholder: z.string().optional(),
 });
 
-const CUSTOM_FIELD_TYPES = ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN', 'SELECT'];
-const SAVED_VIEW_ENTITIES = ['CONTACT', 'LEAD', 'DEAL', 'TICKET', 'TASK'];
-
 const TASK_STATUSES = ['PENDING', 'COMPLETED'];
 const CRM_ACTIVITY_TYPES = ['NOTE', 'CALL', 'EMAIL', 'MEETING'];
 
@@ -573,6 +572,59 @@ export const leadSchemas = {
     expectedCloseDate: z.coerce.date().optional().nullable(),
     ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }),
+  bulkIds: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+  }).strict(),
+  bulkAssign: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => v || null),
+  }).strict(),
+  bulkStatus: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    status: z.string().trim().min(1).max(60),
+  }).strict(),
+  bulkCategory: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    category: z.enum(['HOT', 'WARM', 'COLD']),
+  }).strict(),
+  bulkTask: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    title: z.string().trim().min(1, 'Task title is required').max(200),
+    dueDate: z.coerce.date().optional().nullable(),
+    priority: z.enum(['HIGH', 'NORMAL', 'LOW']).optional(),
+  }).strict(),
+};
+
+const distributionScore = z.union([z.number(), z.string().trim().max(10), z.null()]).optional();
+
+export const leadDistributionSchemas = {
+  rules: z.object({
+    enabled: z.boolean().default(true),
+    rules: z.array(z.object({
+      id: z.string().trim().max(60).optional(),
+      name: z.string().trim().max(80).default('Rule'),
+      enabled: z.boolean().default(true),
+      conditions: z.object({
+        category: z.enum(['ANY', 'HOT', 'WARM', 'COLD', '']).optional(),
+        source: z.string().trim().max(100).optional(),
+        minScore: distributionScore,
+        maxScore: distributionScore,
+        formAnswerContains: z.string().trim().max(200).optional(),
+      }).default({}),
+      assignment: z.object({
+        type: z.enum(['USER', 'ROUND_ROBIN']),
+        userId: z.union([id, z.literal(''), z.null()]).optional(),
+        poolUserIds: z.array(id).max(200).optional(),
+      }),
+    })).max(50).default([]),
+  }).strict(),
+  distribute: z.object({
+    leadIds: z.array(id).max(100).optional(),
+  }).strict(),
+};
+
+export const gamificationSchemas = {
+  settings: z.object({ leaderboardEnabled: z.boolean() }).strict(),
 };
 
 export const productSchemas = {
@@ -844,6 +896,13 @@ export const crmActivitySchemas = {
     leadId: optionalRef,
     dealId: optionalRef,
     contactId: optionalRef,
+    // Structured engagement fields (Engagements log, Log interaction modal).
+    engagementType: z.enum(['Call', 'Video Call', 'Visit', 'Message', 'Note']).optional(),
+    status: z.string().trim().max(40).optional(),
+    duration: z.union([z.number().int().min(0).max(100000), z.string().trim().max(20), z.null()]).optional(),
+    notes: z.string().trim().max(5000).optional(),
+    outcome: z.string().trim().max(120).optional(),
+    sentiment: z.string().trim().max(40).optional(),
   }),
 };
 

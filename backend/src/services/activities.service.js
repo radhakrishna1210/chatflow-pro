@@ -168,7 +168,7 @@ export async function listActivities(workspaceId, {
 
     const leadContact = act.lead?.contact || act.contact;
     const leadName = leadContact?.name || leadContact?.phoneNumber || 'Lead Contact';
-    const leadSource = act.lead?.source || parsedMeta?.source || (act.type === 'CALL' ? 'Incoming' : 'INSTAGRAM');
+    const leadSource = act.lead?.source || parsedMeta?.source || null;
     const leadStage = act.deal?.stage
       ? `${act.deal.stage} Deal`
       : act.lead?.status === 'QUALIFIED'
@@ -176,8 +176,8 @@ export async function listActivities(workspaceId, {
       : 'Opportunity Lead';
 
     const engagementType = parsedMeta?.engagementType || (act.type === 'MEETING' ? 'Video Call' : act.type === 'CALL' ? 'Call' : act.type === 'EMAIL' ? 'Message' : 'Note');
-    const engagementStatus = parsedMeta?.status || (act.type === 'CALL' ? 'Completed' : 'Active');
-    const teamName = act.createdByUser?.teamMemberships?.[0]?.team?.name || 'Enterprise Growth Team';
+    const engagementStatus = parsedMeta?.status || 'Logged';
+    const teamName = act.createdByUser?.teamMemberships?.[0]?.team?.name || null;
 
     return {
       ...act,
@@ -209,9 +209,10 @@ export async function createActivity(workspaceId, body, userId) {
   else if (body.engagementType === 'Visit') rawType = 'MEETING';
   else if (body.engagementType === 'Message') rawType = 'EMAIL';
 
-  // Support structured engagement payload
+  // Structured engagement payload. Duration alone does not switch to JSON: the
+  // Log interaction modal already writes it into its plain-text content.
   let content = body.content || '';
-  if (body.engagementType || body.status || body.duration || body.notes) {
+  if (body.engagementType || body.status || body.notes) {
     const meta = {
       engagementType: body.engagementType || body.type,
       status: body.status || 'Completed',

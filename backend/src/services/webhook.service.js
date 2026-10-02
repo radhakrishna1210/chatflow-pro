@@ -474,6 +474,12 @@ async function handleInboundMessage(value, msg) {
     console.error('[Inbound] Failed to auto-exit sequence enrollments:', err.message);
   });
 
+  // Lead score and HOT/WARM/COLD depend on reply recency, so a reply refreshes
+  // them (debounced per contact). Never blocks or fails the inbound path.
+  import('../queues/crmMaintenance.queue.js')
+    .then((m) => m.enqueueContactRescore(workspaceId, contact.id))
+    .catch(() => {});
+
   // Tell the customer's own system. This is the event an integration is most
   // likely to want, and until now nothing was ever dispatched.
   emitWebhook(workspaceId, 'message.received', {

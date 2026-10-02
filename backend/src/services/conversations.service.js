@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { markFirstResponseForConversation } from './tickets.service.js';
 import { generateAgentReply } from './aiAgent.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage, sendWhatsAppMessage } from '../lib/meta.js';
@@ -323,6 +324,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     },
     include: { senderUser: { select: { id: true, name: true } } },
   });
+  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
 
   await prisma.conversation.update({
     where: { id: conversationId },
@@ -424,6 +426,7 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     },
     include: { senderUser: { select: { id: true, name: true } } },
   });
+  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
 
   await prisma.conversation.update({
     where: { id: conversationId },
@@ -532,6 +535,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     },
     include: { senderUser: { select: { id: true, name: true } } },
   });
+  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
 
   await prisma.conversation.update({
     where: { id: conversationId },

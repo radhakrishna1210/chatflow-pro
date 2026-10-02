@@ -14,11 +14,11 @@ router.post('/', authorize('CLIENT'), validate({ body: leadSchemas.create }), le
 router.get('/:id', leadsController.get);
 router.patch('/:id', authorize('CLIENT'), validate({ body: leadSchemas.update }), leadsController.update);
 router.delete('/:id', authorize('CLIENT'), leadsController.remove);
-router.post('/bulk-delete', authorize('CLIENT'), leadsController.bulkRemove);
-router.post('/bulk-assign', authorize('CLIENT'), leadsController.bulkAssign);
-router.post('/bulk-status', authorize('CLIENT'), leadsController.bulkStatus);
-router.post('/bulk-category', authorize('CLIENT'), leadsController.bulkCategory);
-router.post('/bulk-task', authorize('CLIENT'), leadsController.bulkTask);
+router.post('/bulk-delete', authorize('CLIENT'), validate({ body: leadSchemas.bulkIds }), leadsController.bulkRemove);
+router.post('/bulk-assign', authorize('CLIENT'), validate({ body: leadSchemas.bulkAssign }), leadsController.bulkAssign);
+router.post('/bulk-status', authorize('CLIENT'), validate({ body: leadSchemas.bulkStatus }), leadsController.bulkStatus);
+router.post('/bulk-category', authorize('CLIENT'), validate({ body: leadSchemas.bulkCategory }), leadsController.bulkCategory);
+router.post('/bulk-task', authorize('CLIENT'), validate({ body: leadSchemas.bulkTask }), leadsController.bulkTask);
 router.post('/:id/recalculate-score', authorize('CLIENT'), leadsController.recalculateScore);
 router.post('/:id/convert', authorize('CLIENT'), validate({ body: leadSchemas.convert }), leadsController.convert);
 

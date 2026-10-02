@@ -50,7 +50,8 @@ const EXPORTS = {
       { label: 'Name', value: (l) => l.contact?.name },
       { label: 'Phone', value: (l, opt) => (opt?.maskPhone ? maskPhoneNumber(l.contact?.phoneNumber) : l.contact?.phoneNumber) },
       { label: 'Email', value: (l) => l.contact?.email },
-      { label: 'Status', value: (l) => l.status },
+      // Custom lifecycle stages live in customFields.statusKey over a base enum.
+      { label: 'Status', value: (l) => l.customFields?.statusKey || l.status },
       { label: 'Score', value: (l) => l.score },
       { label: 'Source', value: (l) => l.source },
       { label: 'Owner', value: (l) => l.owner?.name || l.owner?.email },
@@ -70,7 +71,7 @@ const EXPORTS = {
     columns: [
       { label: 'Title', value: (d) => d.title },
       { label: 'Contact', value: (d) => d.contact?.name },
-      { label: 'Stage', value: (d) => d.stage },
+      { label: 'Stage', value: (d) => d.customFields?.stageKey || d.stage },
       { label: 'Value', value: (d) => (d.value == null ? '' : Number(d.value)) },
       { label: 'Currency', value: (d) => d.currency },
       { label: 'Owner', value: (d) => d.owner?.name || d.owner?.email },

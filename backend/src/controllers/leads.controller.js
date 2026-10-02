@@ -27,7 +27,7 @@ export async function get(req, res) {
 }
 
 export async function create(req, res) {
-  const result = await leadsService.createLead(req.params.workspaceId, req.body);
+  const result = await leadsService.createLead(req.params.workspaceId, req.body, req.user.id);
   res.status(201).json(result);
 }
 
@@ -67,7 +67,7 @@ export async function bulkCategory(req, res) {
 
 export async function bulkTask(req, res) {
   const { ids, title, dueDate, priority } = req.body || {};
-  const result = await leadsService.bulkCreateTask(req.params.workspaceId, ids, { title, dueDate, priority }, req.user.id);
+  const result = await leadsService.bulkCreateTask(req.params.workspaceId, ids, { title, dueDate, priority }, req.user);
   res.json(result);
 }
 

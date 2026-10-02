@@ -4,6 +4,7 @@ import { isValidPhone, normalizePhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
+import { evaluateAndAssignLead } from './leadDistribution.service.js';
 
 
 // Public lead-capture forms.
@@ -31,6 +32,19 @@ export const slugify = (s) => String(s || '')
 // IPs are hashed, never stored raw: enough to spot a flood, not enough to be a
 // log of who visited.
 const hashIp = (ip) => (ip ? createHash('sha256').update(String(ip)).digest('hex').slice(0, 32) : null);
+
+// Submissions that produce no lead (honeypot, rejected, duplicate, opted out)
+// are still logged, but only up to this many per form per hour. The per-IP
+// rate limit does not stop a distributed bot from filling the table.
+const MAX_UNPRODUCTIVE_PER_HOUR = 200;
+
+const isUniqueViolation = (err) => err?.code === 'P2002';
+
+async function assertOwnerIsMember(workspaceId, ownerUserId) {
+  if (!ownerUserId) return;
+  const member = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: ownerUserId }, select: { userId: true } });
+  if (!member) { const e = new Error('The form owner must be a member of this workspace'); e.status = 400; throw e; }
+}
 
 export function validateFields(fields) {
   if (!Array.isArray(fields) || fields.length === 0) {
@@ -85,11 +99,13 @@ export async function listForms(workspaceId) {
   return { data, total: data.length };
 }
 
-export async function getForm(workspaceId, id) {
+// Submissions carry visitors' answers (PII), so read-only viewers get the form
+// definition and counts without them.
+export async function getForm(workspaceId, id, { includeSubmissions = true } = {}) {
   const form = await prisma.leadForm.findFirst({
     where: { id, workspaceId },
     include: {
-      submissions: { orderBy: { createdAt: 'desc' }, take: 50 },
+      ...(includeSubmissions ? { submissions: { orderBy: { createdAt: 'desc' }, take: 50 } } : {}),
       _count: { select: { submissions: true } },
     },
   });
@@ -100,6 +116,7 @@ export async function getForm(workspaceId, id) {
 export async function createForm(workspaceId, body) {
   const fields = validateFields(body.fields);
   assertContactable(fields);
+  await assertOwnerIsMember(workspaceId, body.ownerUserId);
 
   const slug = slugify(body.slug || body.name);
   if (!slug) { const e = new Error('That name does not produce a usable URL slug'); e.status = 400; throw e; }
@@ -123,6 +140,8 @@ export async function createForm(workspaceId, body) {
 export async function updateForm(workspaceId, id, updates) {
   const form = await prisma.leadForm.findFirst({ where: { id, workspaceId }, select: { id: true } });
   if (!form) { const e = new Error('Form not found'); e.status = 404; throw e; }
+
+  await assertOwnerIsMember(workspaceId, updates.ownerUserId);
 
   const data = { ...updates };
   if (updates.fields !== undefined) {
@@ -219,15 +238,27 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   });
   if (!form) { const e = new Error('Form not found'); e.status = 404; throw e; }
 
+  const underUnproductiveCap = async () => {
+    const recent = await prisma.leadFormSubmission.count({
+      where: {
+        workspaceId, formId: form.id, outcome: { not: 'CREATED' },
+        createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+      },
+    });
+    return recent < MAX_UNPRODUCTIVE_PER_HOUR;
+  };
+
   // Honeypot: a field no human sees. Anything in it is a bot, and the polite
   // response is to accept and discard rather than explain the trap.
   if (typeof body?._hp === 'string' && body._hp.trim() !== '') {
-    await prisma.leadFormSubmission.create({
-      data: {
-        workspaceId, formId: form.id, answers: {}, outcome: 'REJECTED',
-        reason: 'Honeypot triggered', ipHash: hashIp(ip),
-      },
-    });
+    if (await underUnproductiveCap()) {
+      await prisma.leadFormSubmission.create({
+        data: {
+          workspaceId, formId: form.id, answers: {}, outcome: 'REJECTED',
+          reason: 'Honeypot triggered', ipHash: hashIp(ip),
+        },
+      });
+    }
     return { ok: true, message: form.successMessage };
   }
 
@@ -239,16 +270,19 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
     const e = new Error('Please agree before submitting'); e.status = 400; throw e;
   }
 
-  const record = (outcome, reason, extra = {}) => prisma.leadFormSubmission.create({
-    data: {
-      workspaceId, formId: form.id, answers, outcome, reason,
-      attribution: attribution ?? undefined,
-      consentText: form.consentText ?? null,
-      consentAt: form.consentText ? new Date() : null,
-      ipHash: hashIp(ip),
-      ...extra,
-    },
-  });
+  const record = async (outcome, reason, extra = {}) => {
+    if (outcome !== 'CREATED' && !(await underUnproductiveCap())) return null;
+    return prisma.leadFormSubmission.create({
+      data: {
+        workspaceId, formId: form.id, answers, outcome, reason,
+        attribution: attribution ?? undefined,
+        consentText: form.consentText ?? null,
+        consentAt: form.consentText ? new Date() : null,
+        ipHash: hashIp(ip),
+        ...extra,
+      },
+    });
+  };
 
   const phoneField = fields.find((f) => f.type === 'phone');
   const emailField = fields.find((f) => f.type === 'email');
@@ -279,10 +313,19 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
     return { ok: true, message: form.successMessage };
   }
 
+  // Two submissions of the same number can race here (double-submit, a
+  // retrying embed). The loser of the unique constraint re-reads the winner's
+  // row instead of failing with a 500.
   if (!contact) {
-    contact = await prisma.contact.create({
-      data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [] },
-    });
+    try {
+      contact = await prisma.contact.create({
+        data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [] },
+      });
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      contact = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
+      if (!contact) throw err;
+    }
   }
 
   const existingLead = await prisma.lead.findUnique({ where: { contactId: contact.id }, select: { id: true } });
@@ -293,23 +336,35 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
 
   const { score, factors, computedAt } = await computeLeadScore(workspaceId, contact.id);
 
-  const lead = await prisma.lead.create({
-    data: {
-      workspaceId,
-      contactId: contact.id,
-      status: 'NEW',
-      source: form.source || `Form: ${form.name}`,
-      ownerUserId: form.ownerUserId ?? null,
-      score,
-      scoreFactors: factors,
-      scoreComputedAt: computedAt,
-      notes: attribution ? `Attribution: ${JSON.stringify(attribution)}` : null,
-    },
-    select: { id: true },
-  });
+  let lead;
+  try {
+    lead = await prisma.lead.create({
+      data: {
+        workspaceId,
+        contactId: contact.id,
+        status: 'NEW',
+        source: form.source || `Form: ${form.name}`,
+        ownerUserId: form.ownerUserId ?? null,
+        score,
+        scoreFactors: factors,
+        scoreComputedAt: computedAt,
+        notes: attribution ? `Attribution: ${JSON.stringify(attribution)}` : null,
+      },
+      select: { id: true },
+    });
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const winner = await prisma.lead.findUnique({ where: { contactId: contact.id }, select: { id: true } });
+    await record('DUPLICATE', 'This contact is already a lead', { contactId: contact.id, leadId: winner?.id ?? null });
+    return { ok: true, message: form.successMessage };
+  }
 
   await record('CREATED', null, { contactId: contact.id, leadId: lead.id });
   await computeLeadCategory(workspaceId, lead.id).catch((err) => console.error('[LeadForms] Category compute failed:', err.message));
+  // Web-form leads go through the same distribution rules as any other lead.
+  if (!form.ownerUserId) {
+    await evaluateAndAssignLead(workspaceId, lead.id).catch((err) => console.error('[LeadForms] Distribution failed:', err.message));
+  }
   emitCrmEvent(workspaceId, 'lead_created', { leadId: lead.id, contactId: contact.id, score });
 
   return { ok: true, message: form.successMessage };

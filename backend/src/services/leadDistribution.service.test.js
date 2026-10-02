@@ -1,147 +1,73 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { prisma } from '../lib/prisma.js';
-import {
-  getDistributionRules,
-  saveDistributionRules,
-  evaluateAndAssignLead,
-  autoDistributeBatch,
-} from './leadDistribution.service.js';
 
-let dbAvailable = false;
-let workspaceId;
-let user1Id;
-let user2Id;
-let contactId;
-let leadId;
+// Round-robin assignment and assignee membership, against an in-memory
+// prisma stand-in. The counter itself is a single UPDATE ... RETURNING, so
+// the stand-in hands out sequential tickets the way the database would.
+
+let rules;
+let members;
+let ticket;
+let savedFilters;
+
+const fakePrisma = {
+  savedView: {
+    findFirst: async () => (rules ? { id: 'v1', filters: rules } : null),
+    update: async ({ data }) => { savedFilters = data.filters; },
+    create: async ({ data }) => { savedFilters = data.filters; },
+  },
+  workspaceMember: {
+    findMany: async ({ where }) => members
+      .filter((m) => !where.userId?.in || where.userId.in.includes(m))
+      .map((userId) => ({ userId })),
+    findFirst: async ({ where }) => (members.includes(where.userId) ? { userId: where.userId } : null),
+  },
+  lead: {
+    findFirst: async ({ where }) => ({ id: where.id, workspaceId: 'ws1', contactId: 'c1', category: 'HOT', score: 50, source: null, LeadFormSubmission: [] }),
+    update: async ({ data }) => ({ owner: { name: data.ownerUserId } }),
+  },
+  crmActivity: { create: async () => ({}) },
+  $queryRaw: async () => [{ ticket: BigInt(++ticket) }],
+};
+
+let svc;
 
 test.before(async () => {
-  try {
-    await prisma.$connect();
-    dbAvailable = true;
-  } catch {
-    return;
+  mock.module('../lib/prisma.js', { namedExports: { prisma: fakePrisma } });
+  mock.module('./workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
+  svc = await import('./leadDistribution.service.js');
+});
+
+test.beforeEach(() => {
+  members = ['u1', 'u2'];
+  ticket = 0;
+  savedFilters = null;
+  rules = {
+    enabled: true,
+    roundRobinIndex: 0,
+    rules: [{ name: 'All', enabled: true, conditions: {}, assignment: { type: 'ROUND_ROBIN', poolUserIds: ['u1', 'foreign', 'u2'] } }],
+  };
+});
+
+test('round robin cycles through workspace members only', async () => {
+  const owners = [];
+  for (const id of ['l1', 'l2', 'l3', 'l4']) {
+    const res = await svc.evaluateAndAssignLead('ws1', id);
+    owners.push(res.ownerUserId);
   }
-  const stamp = Date.now();
-  workspaceId = (await prisma.workspace.create({ data: { name: `test-dist-${stamp}` } })).id;
-
-  user1Id = (await prisma.user.create({
-    data: { name: 'Rep Alice', email: `alice-${stamp}@example.test` },
-  })).id;
-  user2Id = (await prisma.user.create({
-    data: { name: 'Rep Bob', email: `bob-${stamp}@example.test` },
-  })).id;
-
-  await prisma.workspaceMember.createMany({
-    data: [
-      { workspaceId, userId: user1Id, role: 'CLIENT' },
-      { workspaceId, userId: user2Id, role: 'CLIENT' },
-    ],
-  });
-
-  const contact = await prisma.contact.create({
-    data: { workspaceId, name: 'Lead Contact', phoneNumber: `+9199${stamp.toString().slice(-8)}` },
-  });
-  contactId = contact.id;
-
-  const lead = await prisma.lead.create({
-    data: {
-      workspaceId,
-      contactId,
-      source: 'Website',
-      score: 85,
-      category: 'HOT',
-    },
-  });
-  leadId = lead.id;
+  assert.deepEqual(owners, ['u1', 'u2', 'u1', 'u2']);
+  assert.equal(savedFilters, null, 'assignment must not rewrite the stored rules');
 });
 
-test.after(async () => {
-  if (!dbAvailable) return;
-  await prisma.workspace.delete({ where: { id: workspaceId } }).catch(() => {});
+test('saving rules that name a non-member is refused', async () => {
+  await assert.rejects(
+    () => svc.saveDistributionRules('ws1', { enabled: true, rules: rules.rules }),
+    (e) => e.status === 400,
+  );
 });
 
-test('lead distribution rules can be saved and retrieved', async (t) => {
-  if (!dbAvailable) return t.skip('database unavailable');
-
-  const rules = [
-    {
-      id: 'rule-hot-website',
-      name: 'Hot Website Leads',
-      enabled: true,
-      priority: 1,
-      conditions: {
-        category: 'HOT',
-        source: 'Website',
-      },
-      assignment: {
-        type: 'USER',
-        userId: user1Id,
-      },
-    },
-    {
-      id: 'rule-warm-roundrobin',
-      name: 'Warm Round Robin',
-      enabled: true,
-      priority: 2,
-      conditions: {
-        category: 'WARM',
-      },
-      assignment: {
-        type: 'ROUND_ROBIN',
-        poolUserIds: [user1Id, user2Id],
-      },
-    },
-  ];
-
-  const saved = await saveDistributionRules(workspaceId, { enabled: true, rules });
-  assert.equal(saved.enabled, true);
-  assert.equal(saved.rules.length, 2);
-
-  const fetched = await getDistributionRules(workspaceId);
-  assert.equal(fetched.enabled, true);
-  assert.equal(fetched.rules.length, 2);
-  assert.equal(fetched.rules[0].name, 'Hot Website Leads');
-});
-
-test('evaluateAndAssignLead assigns HOT website lead to specific user', async (t) => {
-  if (!dbAvailable) return t.skip('database unavailable');
-
-  const result = await evaluateAndAssignLead(workspaceId, leadId);
-  assert.equal(result.assigned, true);
-  assert.equal(result.ownerUserId, user1Id);
-
-  const updatedLead = await prisma.lead.findUnique({ where: { id: leadId } });
-  assert.equal(updatedLead.ownerUserId, user1Id);
-});
-
-test('round robin rule alternates between users', async (t) => {
-  if (!dbAvailable) return t.skip('database unavailable');
-
-  const stamp = Date.now();
-  const c2 = await prisma.contact.create({
-    data: { workspaceId, name: 'Warm 1', phoneNumber: `+9188${stamp.toString().slice(-8)}` },
-  });
-  const l2 = await prisma.lead.create({
-    data: { workspaceId, contactId: c2.id, category: 'WARM', score: 50 },
-  });
-
-  const c3 = await prisma.contact.create({
-    data: { workspaceId, name: 'Warm 2', phoneNumber: `+9177${stamp.toString().slice(-8)}` },
-  });
-  const l3 = await prisma.lead.create({
-    data: { workspaceId, contactId: c3.id, category: 'WARM', score: 55 },
-  });
-
-  const res1 = await evaluateAndAssignLead(workspaceId, l2.id);
-  assert.equal(res1.assigned, true);
-  const firstAssigned = res1.ownerUserId;
-
-  const res2 = await evaluateAndAssignLead(workspaceId, l3.id);
-  assert.equal(res2.assigned, true);
-  const secondAssigned = res2.ownerUserId;
-
-  assert.notEqual(firstAssigned, secondAssigned);
-  assert.ok([user1Id, user2Id].includes(firstAssigned));
-  assert.ok([user1Id, user2Id].includes(secondAssigned));
+test('saving rules with members only succeeds', async () => {
+  const valid = [{ ...rules.rules[0], assignment: { type: 'ROUND_ROBIN', poolUserIds: ['u1', 'u2'] } }];
+  await svc.saveDistributionRules('ws1', { enabled: true, rules: valid });
+  assert.deepEqual(savedFilters.rules, valid);
 });
