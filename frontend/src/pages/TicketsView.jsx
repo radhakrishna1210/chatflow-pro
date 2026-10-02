@@ -181,6 +181,14 @@ const NewTicket = ({ contacts, members, onClose, onCreated }) => {
                 </option>
               ))}
             </datalist>
+            {(() => {
+              const matched = customCategories.find(c => c.name.toLowerCase() === String(draft.category || '').trim().toLowerCase());
+              return Number(matched?.slaHours) > 0 ? (
+                <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
+                  Category SLA: respond within {matched.slaHours}h (overrides the priority default).
+                </div>
+              ) : null;
+            })()}
           </div>
         </div>
 
