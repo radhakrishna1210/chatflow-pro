@@ -38,7 +38,7 @@ import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js
 import { workflowQueue } from './queues/workflow.queue.js';
 import { sequenceQueue } from './queues/sequence.queue.js';
 import { prisma } from './lib/prisma.js';
-import { loadPlatformSettings } from './services/platformSettings.service.js';
+import { loadPlatformSettings, startPlatformSettingsRefresh } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
 import { markReady, markNotReady } from './lib/readiness.js';
 
@@ -283,6 +283,7 @@ async function main() {
     // Before anything reads a credential: platform keys stored in the database
     // override the environment, and every client below is built from `env`.
     await loadPlatformSettings();
+    startPlatformSettingsRefresh();
   } catch (err) {
     console.error('[DB] Post-connect initialization failed:', err.message);
   }
