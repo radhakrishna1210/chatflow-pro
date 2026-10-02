@@ -1,4 +1,5 @@
 import * as campaignsService from '../services/campaigns.service.js';
+import { getExportableCampaign, campaignRecipientsCsv, exportFilename } from '../services/campaignExport.service.js';
 
 export async function list(req, res) {
   const { page, limit } = req.query;
@@ -69,4 +70,27 @@ export async function resume(req, res) {
 export async function fallbackCapabilities(req, res) {
   const { fallbackCapabilities } = await import('../services/fallback.service.js');
   res.json(fallbackCapabilities());
+}
+
+// Every recipient of a campaign as CSV, streamed page by page. Headers go out
+// only once the campaign is known to belong to this workspace, so a bad id is
+// still a clean 404.
+export async function exportRecipients(req, res) {
+  const campaign = await getExportableCampaign(req.params.workspaceId, req.params.id);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${exportFilename(campaign)}"`);
+  // A BOM so Excel opens non-ASCII names in the right encoding.
+  res.write('﻿');
+  try {
+    for await (const chunk of campaignRecipientsCsv(campaign.id)) {
+      if (!res.write(chunk)) await new Promise((resolve) => res.once('drain', resolve));
+    }
+  } catch (err) {
+    // Too late for an error status; cut the download short so it cannot be
+    // mistaken for a complete file.
+    console.error(`[CampaignExport] Export of ${campaign.id} failed:`, err.message);
+    res.destroy(err);
+    return;
+  }
+  res.end();
 }

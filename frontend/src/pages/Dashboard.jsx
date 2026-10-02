@@ -3,7 +3,7 @@ import { canManage } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import CreateCampaign from './CreateCampaign.jsx';
-import { wFetch, apiFetch } from '../lib/api.js';
+import { wFetch, apiFetch, wDownload } from '../lib/api.js';
 import { useMessageRates, inr as inrRate } from '../lib/pricing.js';
 import { useFocusTrap } from '../lib/useFocusTrap.js';
 import { getBodyText, statusLabel } from '../lib/templateHelpers.js';
@@ -1076,6 +1076,15 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
     finally { setCancelling(false); }
   };
 
+  // Every recipient with status and failure reason; the modal shows only 100.
+  const [exporting, setExporting] = useState(false);
+  const exportReport = async () => {
+    setExporting(true);
+    try { await wDownload(`/campaigns/${campaignId}/export`, 'campaign-report.csv'); }
+    catch (e) { setErr(e.message); }
+    finally { setExporting(false); }
+  };
+
   const changeLifecycle = async (action) => {
     setLifecycleChanging(true);
     try {
@@ -1288,6 +1297,12 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
               <Btn variant="outline" size="sm" onClick={cancel} disabled={cancelling}
                 style={{ borderColor:'rgba(239,68,68,.35)', color:'#f87171' }}>
                 {cancelling ? 'Cancelling…' : 'Cancel Campaign'}
+              </Btn>
+            )}
+            {c && c.status !== 'DRAFT' && (
+              <Btn variant="outline" size="sm" onClick={exportReport} disabled={exporting}>
+                <I n="download" s={12} c="var(--t2)" />
+                {exporting ? 'Exporting…' : 'Export CSV'}
               </Btn>
             )}
             {pausable && <Btn variant="outline" size="sm" onClick={() => changeLifecycle('pause')} disabled={lifecycleChanging}>{lifecycleChanging ? 'Pausing…' : 'Pause Campaign'}</Btn>}

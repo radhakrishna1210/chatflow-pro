@@ -18,6 +18,9 @@ router.get('/', campaignsController.list);
 router.get('/fallback-capabilities', campaignsController.fallbackCapabilities);
 router.post('/', authorize('CLIENT'), validate({ body: campaignSchemas.create }), campaignsController.create);
 router.post('/estimate', authorize('CLIENT'), validate({ body: campaignSchemas.estimate }), campaignsController.estimate);
+// The recipient report carries phone numbers, so it is member-level, not
+// open to viewers and agents.
+router.get('/:id/export', authorize('CLIENT'), campaignsController.exportRecipients);
 router.get('/:id', campaignsController.getOne);
 router.patch('/:id', authorize('CLIENT'), validate({ body: campaignSchemas.update }), campaignsController.update);
 router.put('/:id', authorize('CLIENT'), validate({ body: campaignSchemas.update }), campaignsController.update);
