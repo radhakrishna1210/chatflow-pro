@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticateApiKey } from '../middleware/authenticateApiKey.js';
+import { rateLimit, apiKeyIdentity, recipientIdentity } from '../middleware/rateLimit.js';
 import { requireScope } from '../lib/apiScopes.js';
 import * as templatesController from '../controllers/templates.controller.js';
 import * as campaignsController from '../controllers/campaigns.controller.js';
@@ -15,8 +16,23 @@ import { validate, templateSchemas, campaignSchemas, publicApiSchemas } from '..
 
 const router = Router();
 
-// 1. Authenticate all public routes
+// 1. Authenticate all public routes. The address-level limit in front bounds
+//    the key lookups one client can cause; the per-key limit after it is the
+//    real budget, whatever address the key is used from.
+router.use(rateLimit({ windowMs: 60_000, max: 600, keyPrefix: 'public-api-ip' }));
 router.use(authenticateApiKey);
+router.use(rateLimit({ windowMs: 60_000, max: 300, keyPrefix: 'public-api', by: apiKeyIdentity }));
+
+// Sends cost money and reach real people: a tighter per-key budget, and a cap
+// per recipient so one number cannot be flooded.
+const sendLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  keyPrefix: 'public-send',
+  by: apiKeyIdentity,
+  subject: recipientIdentity('to'),
+  subjectMax: 10,
+});
 
 // 2. Inject workspaceId into req.params just before controller executes 
 //    to avoid Express wiping req.params when matching route paths.
@@ -33,7 +49,7 @@ const injectWorkspace = (fn) => (req, res, next) => {
 router.get('/me', publicIdentityController.me);
 
 // --- Messages ---
-router.post('/messages', requireScope('messages:send'), validate({ body: publicApiSchemas.sendMessage }), async (req, res, next) => {
+router.post('/messages', requireScope('messages:send'), sendLimiter, validate({ body: publicApiSchemas.sendMessage }), async (req, res, next) => {
   try {
     const result = await sendPublicMessage(req.workspaceId, req.body);
     res.status(200).json(result);
