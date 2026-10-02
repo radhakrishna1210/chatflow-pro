@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
-import { canManage } from '../lib/permissions.js';
+import { canManage, canBill, canHandleConversations, isReadOnly, ROLE_LABELS } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import CreateCampaign from './CreateCampaign.jsx';
+import ErrorBoundary from '../components/ErrorBoundary.jsx';
+import { openMobileNav } from '../components/MobileNavButton.jsx';
+import { usePolling } from '../lib/usePolling.js';
+import { useWallet } from '../lib/useWallet.js';
 import { wFetch, apiFetch } from '../lib/api.js';
 import { useMessageRates, inr as inrRate } from '../lib/pricing.js';
 import { useFocusTrap } from '../lib/useFocusTrap.js';
@@ -19,12 +22,15 @@ const CrmDashboardView = lazy(() =>
 import { CommandPalette } from '../components/CommandPalette.jsx';
 import Copilot from '../components/Copilot.jsx';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
-import ContactsView from './ContactsView.jsx';
-import LeadsView from './LeadsView.jsx';
-import DealsView from './DealsView.jsx';
-import TasksView from './TasksView.jsx';
-import EngagementsView from './EngagementsView.jsx';
-import AiAgentsView from './AiAgentsView.jsx';
+// Every section view is fetched the first time it is opened, so landing on
+// Home does not download the CRM, the automation builder and the rest.
+const CreateCampaign = lazy(() => import('./CreateCampaign.jsx'));
+const ContactsView = lazy(() => import('./ContactsView.jsx'));
+const LeadsView = lazy(() => import('./LeadsView.jsx'));
+const DealsView = lazy(() => import('./DealsView.jsx'));
+const TasksView = lazy(() => import('./TasksView.jsx'));
+const EngagementsView = lazy(() => import('./EngagementsView.jsx'));
+const AiAgentsView = lazy(() => import('./AiAgentsView.jsx'));
 const ForecastView = lazy(() => import('./ForecastView.jsx'));
 const ProductsView = lazy(() => import('./ProductsView.jsx'));
 const QuotesView = lazy(() => import('./QuotesView.jsx'));
@@ -32,27 +38,26 @@ const SequencesView = lazy(() => import('./SequencesView.jsx'));
 const LeadFormsView = lazy(() => import('./LeadFormsView.jsx'));
 const TicketsView = lazy(() => import('./TicketsView.jsx'));
 const CustomizeBusinessView = lazy(() => import('./CustomizeBusinessView.jsx'));
-import InboxView from './InboxView.jsx';
-import CrmSalesInboxView from './CrmSalesInboxView.jsx';
-
-import WidgetsView from './WidgetsView.jsx';
-import AutomationView from './AutomationView.jsx';
-import AnalyticsView from './AnalyticsView.jsx';
-import UserAnalyticsView from './UserAnalyticsView.jsx';
-import ChatAnalytics from '../components/dashboard/ChatAnalytics.jsx';
+const InboxView = lazy(() => import('./InboxView.jsx'));
+const CrmSalesInboxView = lazy(() => import('./CrmSalesInboxView.jsx'));
+const WidgetsView = lazy(() => import('./WidgetsView.jsx'));
+const AutomationView = lazy(() => import('./AutomationView.jsx'));
+const AnalyticsView = lazy(() => import('./AnalyticsView.jsx'));
+const UserAnalyticsView = lazy(() => import('./UserAnalyticsView.jsx'));
+const ChatAnalytics = lazy(() => import('../components/dashboard/ChatAnalytics.jsx'));
 import { useIsMobile } from '../lib/useMediaQuery.js';
-import NumberSetupView from './NumberSetupView.jsx';
-import ApiKeysView from './ApiKeysView.jsx';
-import SettingsView from './SettingsView.jsx';
-import ProfileView from './ProfileView.jsx';
-import SuperAdminView from './SuperAdminView.jsx';
-import SupportView from './SupportView.jsx';
-import IntegrationsView from './IntegrationsView.jsx';
-import PaymentsView from './PaymentsView.jsx';
+const NumberSetupView = lazy(() => import('./NumberSetupView.jsx'));
+const ApiKeysView = lazy(() => import('./ApiKeysView.jsx'));
+const SettingsView = lazy(() => import('./SettingsView.jsx'));
+const ProfileView = lazy(() => import('./ProfileView.jsx'));
+const SuperAdminView = lazy(() => import('./SuperAdminView.jsx'));
+const SupportView = lazy(() => import('./SupportView.jsx'));
+const IntegrationsView = lazy(() => import('./IntegrationsView.jsx'));
+const PaymentsView = lazy(() => import('./PaymentsView.jsx'));
 import LegalCenter from '../components/LegalCenter.jsx';
 import { LEGAL_DOCS } from '../lib/legalContent.js';
-import AuthenticationDashboard from './AuthenticationDashboard.jsx';
-import ResourceCenter from './ResourceCenter.jsx';
+const AuthenticationDashboard = lazy(() => import('./AuthenticationDashboard.jsx'));
+const ResourceCenter = lazy(() => import('./ResourceCenter.jsx'));
 import { Avatar } from '../components/Avatar.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
@@ -166,7 +171,7 @@ const ProfileMenu = () => {
               background: isAdmin ? 'var(--gbg)' : 'rgba(196,255,70,.1)',
               border: `1px solid ${isAdmin ? 'var(--gbd)' : 'rgba(196,255,70,.25)'}`,
               color: isAdmin ? 'var(--green)' : '#d8ff8a',
-            }}>{isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'Member'}</span>
+            }}>{isSuperAdmin ? 'Super Admin' : (ROLE_LABELS[user?.role] || 'Member')}</span>
             <span style={{ padding:'3px 10px', borderRadius:12, fontSize:11, fontWeight:600, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:180 }}>
               {wsName}
             </span>
@@ -312,11 +317,6 @@ const MSGS = {
 // it is on. Without them it keeps its original behaviour — jump to Contacts
 // with the query prefilled — which is right for pages that have nothing of
 // their own to search.
-// Opens the nav drawer on mobile. An event rather than a prop because
-// DashHeader is rendered by twenty different views, none of which should have
-// to know the shell has a drawer — the same reason `app:nav` is an event.
-export const openMobileNav = () => window.dispatchEvent(new CustomEvent('app:toggle-nav'));
-
 const DashHeader = ({ title, subtitle, searchPlaceholder, onSearch, searchKey }) => {
   const mobile = useIsMobile();
   return (
@@ -430,22 +430,25 @@ const NotificationsBell = () => {
       const res = await apiFetch('/api/v1/notifications');
       if (!res.ok) return;
       const data = await res.json();
+      const count = Number(data.unread) || 0;
       setItems(Array.isArray(data.data) ? data.data : []);
-      setUnread(Number(data.unread) || 0);
+      setUnread(count);
+      return count;
     } catch { /* offline — keep whatever is on screen */ }
     finally { setLoading(false); }
+    return null;
   };
 
+  usePolling(load, 30000);
+
   useEffect(() => {
-    load();
-    const iv = setInterval(load, 30000);
     // Anything that creates a notification (launching a campaign, sending an
     // invite, a recharge) fires this so the bell updates without waiting for
     // the next poll.
     const onRefresh = () => load();
     window.addEventListener('notifications:refresh', onRefresh);
-    return () => { clearInterval(iv); window.removeEventListener('notifications:refresh', onRefresh); };
-  }, []);
+    return () => window.removeEventListener('notifications:refresh', onRefresh);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!open) return;
@@ -461,8 +464,11 @@ const NotificationsBell = () => {
     setOpen(next);
     if (!next) return;
 
-    await load();
-    if (unread === 0) return;
+    // Branch on the count this load just returned: `unread` is the value from
+    // before the click, so a notification that arrived since would otherwise
+    // never be marked read.
+    const fresh = await load();
+    if (!(fresh ?? unread)) return;
     // Optimistic: the badge clears the moment the list is opened, then the
     // server is told. A failed call is re-synced by the next poll.
     setUnread(0);
@@ -556,19 +562,20 @@ const inr = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimu
 // nobody ever sees twice.
 const NEXT_ACTION_DISMISS_KEY = 'cfp:nextAction:dismissed';
 
-const NextBestAction = ({ onGo }) => {
+// `numbers` comes from HomeView, which already loads them for its own card.
+const NextBestAction = ({ onGo, numbers }) => {
   const [action, setAction] = useState(null);
   const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(NEXT_ACTION_DISMISS_KEY) === '1');
 
   useEffect(() => {
     let alive = true;
-    Promise.all([
-      wFetch('/campaigns').then(r => (r.ok ? r.json() : [])).catch(() => []),
-      wFetch('/whatsapp/numbers').then(r => (r.ok ? r.json() : [])).catch(() => []),
-    ]).then(([campaigns, numbers]) => {
+    const hasNumber = Array.isArray(numbers) && numbers.length > 0;
+    (hasNumber
+      ? wFetch('/campaigns').then(r => (r.ok ? r.json() : [])).catch(() => [])
+      : Promise.resolve([])
+    ).then((campaigns) => {
       if (!alive) return;
       const list = Array.isArray(campaigns) ? campaigns : (campaigns?.data || []);
-      const hasNumber = Array.isArray(numbers) && numbers.length > 0;
 
       if (!hasNumber) {
         setAction({
@@ -609,7 +616,7 @@ const NextBestAction = ({ onGo }) => {
       }
     });
     return () => { alive = false; };
-  }, []);
+  }, [numbers]);
 
   if (!action || dismissed) return null;
 
@@ -639,7 +646,8 @@ const LiveConversations = () => {
 
   useEffect(() => {
     let alive = true;
-    wFetch('/conversations')
+    // Only the four most recent are shown, so only four are asked for.
+    wFetch('/conversations?limit=4')
       .then(r => (r.ok ? r.json() : []))
       .then(d => { if (alive) setConvs(Array.isArray(d) ? d : (d?.data || [])); })
       .catch(() => { if (alive) setConvs([]); });
@@ -719,8 +727,11 @@ const LegalView = ({ initialTab }) => {
 const HomeView = () => {
   const [prompt, setPrompt] = useState('');
   const [guided, setGuided] = useState(true);
-  const [number, setNumber] = useState(null);
+  const [numbers, setNumbers] = useState(null);
+  const number = numbers?.[0] ?? null;
   const [loading, setLoading] = useState(true);
+  const [plan, setPlan] = useState(null);
+  const [instagram, setInstagram] = useState(undefined);
   const [aiResponse, setAiResponse] = useState(null);
   const [aiError, setAiError] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -730,10 +741,31 @@ const HomeView = () => {
   useEffect(() => {
     wFetch('/whatsapp/numbers')
       .then(r => r.ok && r.json())
-      .then(nums => { if (Array.isArray(nums) && nums[0]) setNumber(nums[0]); })
-      .catch(() => null)
+      .then(nums => setNumbers(Array.isArray(nums) ? nums : []))
+      .catch(() => setNumbers([]))
       .finally(() => setLoading(false));
+    // Only someone who can actually buy a plan is shown the upgrade prompt.
+    if (canBill()) {
+      wFetch('/subscription')
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => setPlan(d?.plan || null))
+        .catch(() => setPlan(null));
+    }
+    wFetch('/instagram/connection')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setInstagram(d))
+      .catch(() => setInstagram(null));
   }, []);
+
+  // The paid tiers are the ones that carry integrations and AI onboarding;
+  // a workspace already on one has nothing to upgrade to here.
+  const canUpgrade = !!plan && !(plan.features?.integrations && plan.features?.aiOnboarding);
+  const openInstagram = () => window.dispatchEvent(new CustomEvent('app:nav', { detail: { section: 'automation', subTab: 'ig-quick' } }));
+  const igState = instagram === undefined ? null
+    : !instagram ? { badge: 'Unavailable', tone: 'muted', title: 'Instagram', text: 'Not available on this workspace.' }
+    : instagram.connected ? { badge: 'Connected', tone: 'ok', title: instagram.username ? `@${instagram.username}` : 'Account connected', text: 'Manage Instagram Quickflows in Automation.' }
+    : instagram.configured === false ? { badge: 'Not configured', tone: 'muted', title: 'Not available yet', text: 'Instagram is not configured on this server.' }
+    : { badge: 'Not connected', tone: 'warn', title: 'Connect Account', text: 'Link your Instagram business account in Automation.' };
 
   const handleSend = async () => {
     if (!prompt.trim() || aiLoading) return;
@@ -803,7 +835,7 @@ const HomeView = () => {
 
         {!loading && (
         <>
-        <NextBestAction onGo={(a) => {
+        <NextBestAction numbers={numbers} onGo={(a) => {
           // A draft opens straight into its own editor rather than the list —
           // the whole point of the card is to remove the next click.
           if (a.draftId) {
@@ -814,18 +846,18 @@ const HomeView = () => {
           window.dispatchEvent(new CustomEvent('app:nav', { detail: a.section }));
         }} />
 
-        <div style={{ borderRadius: 'var(--rl)', background: 'linear-gradient(135deg,rgba(53,232,242,0.1),rgba(14,165,233,0.06))', border: '1px solid var(--gbd)', padding: '16px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+        {canUpgrade && <div style={{ borderRadius: 'var(--rl)', background: 'linear-gradient(135deg,rgba(53,232,242,0.1),rgba(14,165,233,0.06))', border: '1px solid var(--gbd)', padding: '16px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <I n="spark" s={18} c="var(--green)" />
             </div>
             <div>
-              <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '14px', color: 'var(--t1)', marginBottom: '2px' }}>Unlock AI Smart Replies &amp; A/B Testing</p>
-              <p style={{ fontSize: '12px', color: 'var(--t2)' }}>Upgrade to Growth plan for advanced features.</p>
+              <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '14px', color: 'var(--t1)', marginBottom: '2px' }}>Unlock integrations &amp; AI onboarding</p>
+              <p style={{ fontSize: '12px', color: 'var(--t2)' }}>You're on the {plan.name} plan. Upgrade for higher limits and the paid features.</p>
             </div>
           </div>
-          <Btn size="sm" style={{ flexShrink: 0 }} onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'payments' }))}>Upgrade Plan</Btn>
-        </div>
+          <Btn size="sm" style={{ flexShrink: 0 }} onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: { section: 'payments', subTab: 'subscription' } }))}>See plans</Btn>
+        </div>}
 
         <WalletStatusBanner hideWhenHealthy style={{ marginBottom: 16 }} />
 
@@ -945,21 +977,29 @@ const HomeView = () => {
               </div>
             </div>
           </div>
+          {igState && (
           <div style={{ ...card, padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', rowGap: 10 }}>
               <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.1em' }}>Instagram</span>
-              <span style={{ padding: '3px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)' }}>Coming Soon</span>
+              <span style={{ padding: '3px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
+                ...(igState.tone === 'ok' ? { background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)' }
+                  : igState.tone === 'warn' ? { background: 'rgba(245,158,11,.1)', border: '1px solid rgba(245,158,11,.25)', color: '#fbbf24' }
+                  : { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)' }) }}>{igState.badge}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ width: '44px', height: '44px', borderRadius: '11px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1, opacity: .55 }}>{'\u{1F4F7}'}</span>
+                <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1, opacity: igState.tone === 'ok' ? 1 : .55 }}>{'\u{1F4F7}'}</span>
               </div>
-              <div>
-                <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', marginBottom: '2px' }}>Connect Account</p>
-                <p style={{ fontSize: '12px', color: 'var(--t2)' }}>Link your Instagram business account</p>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', marginBottom: '2px' }}>{igState.title}</p>
+                <p style={{ fontSize: '12px', color: 'var(--t2)' }}>{igState.text}</p>
               </div>
+              {instagram && instagram.configured !== false && canManage() && (
+                <Btn size="sm" variant="ghost" onClick={openInstagram}>{instagram.connected ? 'Manage' : 'Connect'}</Btn>
+              )}
             </div>
           </div>
+          )}
         </div>
         </>
         )}
@@ -2483,6 +2523,10 @@ const PlaceholderView = ({ title, icon }) => (
   </div>
 );
 
+// `minRole` hides a section from roles that can do nothing in it (see
+// lib/permissions.js). VIEWER and AGENT keep every section they can read; the
+// ones hidden are pure configuration. The server enforces all of this anyway —
+// this only stops offering screens whose every control would answer 403.
 const ADMIN_NAV = [
   { id: 'home',           label: 'Home',           icon: 'home'  },
   { id: 'templates',      label: 'Templates',      icon: 'file'  },
@@ -2491,17 +2535,17 @@ const ADMIN_NAV = [
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
 
-  { id: 'widget',         label: 'Website Widget', icon: 'globe' },
-  { id: 'integrations',   label: 'Integrations',   icon: 'plug'  },
+  { id: 'widget',         label: 'Website Widget', icon: 'globe', minRole: 'CLIENT' },
+  { id: 'integrations',   label: 'Integrations',   icon: 'plug', minRole: 'CLIENT' },
   { id: 'ai-agent',       label: 'AI Agent',       icon: 'bot'   },
   { id: 'automation',     label: 'Automation',     icon: 'zap'   },
   { id: 'intent-matching', label: 'Intent Matching', icon: 'spark' },
   { id: 'analytics',      label: 'Analytics',      icon: 'chart' },
   { id: 'chat-analysis',  label: 'Chat Analysis',  icon: 'chart' },
   { id: 'user-analytics', label: 'User Analytics', icon: 'user'  },
-  { id: 'setup',          label: 'Number Setup',   icon: 'phone' },
+  { id: 'setup',          label: 'Number Setup',   icon: 'phone', minRole: 'CLIENT' },
   { id: 'payments',       label: 'Payments',       icon: 'credit' },
-  { id: 'api',            label: 'API Keys',       icon: 'key'   },
+  { id: 'api',            label: 'API Keys',       icon: 'key', minRole: 'CLIENT' },
   { id: 'support',        label: 'Help & Support', icon: 'msg'   },
   { id: 'resources',      label: 'Resource Center', icon: 'file' },
   { id: 'settings',       label: 'Settings',       icon: 'cog'   },
@@ -2519,7 +2563,7 @@ const ADMIN_NAV = [
   { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
   { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
   { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
-  { id: 'customize-business', label: 'Customize Your Business', icon: 'sliders' },
+  { id: 'customize-business', label: 'Customize Your Business', icon: 'sliders', minRole: 'CLIENT' },
   { id: 'legal',          label: 'Legal',          icon: 'file'  },
 ];
 
@@ -2634,8 +2678,21 @@ function navGroupsForUser(user) {
   return rest.length ? [...bands, { name: 'MORE', items: rest }] : bands;
 }
 
+const meetsRole = (minRole, user) =>
+  !minRole || (minRole === 'CLIENT' ? canManage(user) : minRole === 'AGENT' ? canHandleConversations(user) : true);
+
 function navForUser(user) {
-  return user?.superAdmin === true ? SUPERADMIN_NAV : ADMIN_NAV;
+  if (user?.superAdmin === true) return SUPERADMIN_NAV;
+  return ADMIN_NAV.filter(item => meetsRole(item.minRole, user));
+}
+
+// Sections reachable by URL but not listed in the nav carry their own floor.
+const SECTION_MIN_ROLE = { 'campaigns-create': 'CLIENT' };
+
+function sectionAllowed(section, user) {
+  if (user?.superAdmin === true) return true;
+  const item = ADMIN_NAV.find(n => n.id === section);
+  return meetsRole(item?.minRole ?? SECTION_MIN_ROLE[section], user);
 }
 
 // ─── mobile bottom tab bar ───────────────────────────────────────────────────
@@ -2680,6 +2737,16 @@ const MobileTabBar = ({ page, setPage, user }) => {
           </button>
         );
       })}
+      {/* Every other section lives in the drawer. Several views (the CRM ones
+          among them) have no hamburger of their own, so without this entry a
+          phone user on one of them had no way back to the rest of the app. */}
+      <button onClick={openMobileNav} aria-label="Open navigation menu"
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '7px 4px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'Manrope',sans-serif" }}>
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="var(--t3)" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+        <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--t3)' }}>Menu</span>
+      </button>
     </nav>
   );
 };
@@ -2692,58 +2759,30 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
   const isAdmin = user?.role === 'ADMIN';
   const isSuperAdmin = user?.superAdmin === true;
   const GROUPS = navGroupsForUser(user);
-  const planLabel = isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'Member';
-  const [balance, setBalance] = useState(null);
+  const planLabel = isSuperAdmin ? 'Super Admin' : (ROLE_LABELS[user?.role] || 'Member');
   const [crmBadge, setCrmBadge] = useState(0);
+
+  // Workspace-wide count of overdue tasks plus open recommendations, from the
+  // server totals rather than the length of one page. Super admins have no
+  // workspace to count.
+  usePolling(() => Promise.all([
+    wFetch('/tasks?isOverdue=true').then(r => (r.ok ? r.json() : null)).catch(() => null),
+    wFetch('/insights/recommendations?limit=1').then(r => (r.ok ? r.json() : null)).catch(() => null),
+  ]).then(([tData, rData]) => {
+    if (!tData && !rData) return;
+    setCrmBadge((tData?.total ?? tData?.data?.length ?? 0) + (rData?.total ?? 0));
+  }), 120000, { enabled: !isSuperAdmin });
 
   useEffect(() => {
     const onCrmBadge = (e) => setCrmBadge(Number(e.detail) || 0);
     window.addEventListener('crm:badge-updated', onCrmBadge);
-    Promise.all([
-      wFetch('/tasks?isOverdue=true').then(r => r.json()).catch(() => ({ data: [] })),
-      wFetch('/insights/recommendations?limit=1').then(r => r.json()).catch(() => ({ total: 0 })),
-    ]).then(([tData, rData]) => {
-      const count = (tData.data?.length || 0) + (rData.total || 0);
-      setCrmBadge(count);
-    }).catch(() => {});
     return () => window.removeEventListener('crm:badge-updated', onCrmBadge);
   }, []);
 
-  useEffect(() => {
-    if (isSuperAdmin) return undefined;
-
-    // Server-authoritative balance. It used to be read once on mount, so a
-    // recharge or a campaign deduction left a stale figure in the sidebar
-    // until the user logged out and back in. Now it refreshes on the
-    // wallet:balance-updated event, whenever the tab regains focus, and on a
-    // slow background poll — so it is never more than a moment out of date
-    // and never needs a manual reload.
-    let alive = true;
-    const load = () => wFetch('/wallet')
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (alive && d) setBalance(Number(d.balance) || 0); })
-      .catch(() => {});
-
-    load();
-    const onBalanceUpdated = (e) => {
-      const next = Number(e.detail);
-      if (Number.isFinite(next)) setBalance(next);
-      else load();
-    };
-    const onFocus = () => { if (document.visibilityState === 'visible') load(); };
-
-    const iv = setInterval(load, 60000);
-    window.addEventListener('wallet:balance-updated', onBalanceUpdated);
-    document.addEventListener('visibilitychange', onFocus);
-    window.addEventListener('focus', onFocus);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-      window.removeEventListener('wallet:balance-updated', onBalanceUpdated);
-      document.removeEventListener('visibilitychange', onFocus);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, [isSuperAdmin]);
+  // Server-authoritative balance, shared with every other wallet consumer
+  // (one poll, refreshed on focus and on wallet:balance-updated).
+  const { wallet } = useWallet({ enabled: !isSuperAdmin });
+  const balance = wallet ? Number(wallet.balance) || 0 : null;
 
   // On mobile every navigation also dismisses the drawer — leaving it open
   // over the page the user just asked for is the classic drawer bug.
@@ -2924,10 +2963,9 @@ function sectionFromPath(path, user) {
   if (String(path || '').replace(/^\//, '').split('/')[0] === 'resources') return 'resources';
   const rest = String(path || '').replace(/^\/dashboard\/?/, '');
   if (!rest) return defaultSection;
-  if (rest === 'campaigns/create') return 'campaigns-create';
   if (rest === 'platform') return 'admin-overview'; // pre-restructure bookmark
-  const section = rest.split('/')[0];
-  return VALID_SECTIONS.has(section) ? section : defaultSection;
+  const section = rest === 'campaigns/create' ? 'campaigns-create' : rest.split('/')[0];
+  return VALID_SECTIONS.has(section) && sectionAllowed(section, user) ? section : defaultSection;
 }
 
 // `subTab` becomes a `?tab=` query param so a Quick Link can deep-link into a
@@ -2965,6 +3003,19 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
   const NAV = navForUser(user);
 
   const [copilotOpen, setCopilotOpen] = useState(false);
+
+  // Said once at the top rather than discovered as a 403 on every button.
+  const [noteDismissed, setNoteDismissed] = useState(() => {
+    try { return sessionStorage.getItem('cfp:roleNote:dismissed') === '1'; } catch { return false; }
+  });
+  const dismissRestrictedNote = () => {
+    try { sessionStorage.setItem('cfp:roleNote:dismissed', '1'); } catch { /* storage blocked */ }
+    setNoteDismissed(true);
+  };
+  const restrictedNote = noteDismissed || user?.superAdmin === true ? null
+    : isReadOnly(user) ? 'You have view-only access to this workspace. Ask a workspace admin if you need to make changes.'
+    : user?.role === 'AGENT' ? 'Agent access: you can work the inbox and contacts. Other sections are view-only.'
+    : null;
 
   const page = sectionFromPath(routePath ?? window.location.pathname, user);
   const isCrmTab = CRM_TAB_IDS.has(page);
@@ -3081,7 +3132,6 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     if (page === 'ai-agent' || page === 'ai-chatbots') return <AiAgentsView user={user} initialTab={initialSubTab} />;
     if (page === 'intent-matching') return <AutomationView initialTab="ai-intent" />;
     if (page === 'crm-overview') return <CrmDashboardView user={user} />;
-    if (page === 'contacts')   return <ContactsView />;
     if (page === 'leads')      return <LeadsView />;
     if (page === 'deals')      return <DealsView initialTab={initialSubTab} />;
     if (page === 'tasks')       return <TasksView />;
@@ -3093,7 +3143,6 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     if (page === 'lead-forms') return <LeadFormsView />;
     if (page === 'tickets')    return <TicketsView />;
     if (page === 'customize-business') return <CustomizeBusinessView user={user} initialTab={initialSubTab} />;
-    if (page === 'automation')     return <AutomationView />;
     if (page === 'analytics')      return <AnalyticsView />;
     if (page === 'chat-analysis')  return <ChatAnalytics workspaceId={user.workspaceId} />;
     if (page === 'user-analytics') return <UserAnalyticsView />;
@@ -3147,6 +3196,16 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
           </button>
         </div>
       )}
+      {restrictedNote && !impersonator && (
+        <div role="status" style={{ flexShrink: 0, minHeight: 34, padding: '6px 14px', background: 'rgba(53,232,242,0.06)', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 12.5, color: 'var(--t2)' }}>
+          <I n="lock" s={13} c="var(--t2)" />
+          <span>{restrictedNote}</span>
+          <button type="button" onClick={dismissRestrictedNote} aria-label="Dismiss"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 2 }}>
+            <I n="x" s={12} c="var(--t3)" />
+          </button>
+        </div>
+      )}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
         <Sidebar
           page={page} setPage={setPage} onNav={onNav} user={user}
@@ -3159,7 +3218,11 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
               Loading…
             </div>
           }>
-            {renderView()}
+            {/* Keyed on the section so a crash in one view is cleared by
+                navigating to another; a stale chunk after a deploy reloads. */}
+            <ErrorBoundary resetKey={page}>
+              {renderView()}
+            </ErrorBoundary>
           </Suspense>
         </div>
       </div>

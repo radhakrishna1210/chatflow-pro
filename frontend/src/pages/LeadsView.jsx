@@ -6,6 +6,7 @@ import { Modal } from '../components/Modal.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
+import { useIsMobile } from '../lib/useMediaQuery.js';
 import { SavedViews } from '../components/SavedViews.jsx';
 import { ImportExport } from '../components/ImportExport.jsx';
 import { CustomFieldInputs } from '../components/CustomFields.jsx';
@@ -1144,6 +1145,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
 };
 
 export default function LeadsView() {
+  const mobile = useIsMobile();
   const [leads, setLeads] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -1470,7 +1472,9 @@ export default function LeadsView() {
       {/* Main Workspace Body */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Left Side: Lead Operational List */}
-        <div style={{ width: 380, borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', flexShrink: 0, background: 'var(--surf)' }}>
+        {/* On a phone the list and the lead are one pane at a time: the
+            fixed 380px list was wider than the screen. */}
+        <div style={{ width: mobile ? '100%' : 380, borderRight: mobile ? 'none' : '1px solid var(--bd)', display: mobile && detail ? 'none' : 'flex', flexDirection: 'column', flexShrink: 0, background: 'var(--surf)' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)' }}>
               <I n="search" s={14} c="var(--t3)" />
@@ -1641,6 +1645,13 @@ export default function LeadsView() {
 
         {/* Right Side: 360° Lead View */}
         {detail ? (
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {mobile && (
+            <button type="button" onClick={() => setActiveId(null)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', background: 'var(--surf)', border: 'none', borderBottom: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+              <I n="arrowLeft" s={14} c="var(--t2)" /> All leads
+            </button>
+          )}
           <LeadDetail
             lead={detail}
             members={members}
@@ -1653,7 +1664,8 @@ export default function LeadsView() {
               window.dispatchEvent(new CustomEvent('app:nav', { detail: 'deals' }));
             }}
           />
-        ) : (
+          </div>
+        ) : mobile ? null : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
             <I n="target" s={32} c="var(--t3)" />
             <div style={{ fontSize: 14, color: 'var(--t2)', fontWeight: 600 }}>Select a lead to view 360° intelligence</div>

@@ -75,8 +75,12 @@ export function CrmDashboardView({ user }) {
       setSavedReports(repData?.saved || []);
       setLoading(false);
 
-      const totalBadge = recsTotal + overdueList.length;
-      window.dispatchEvent(new CustomEvent('crm:badge-updated', { detail: totalBadge }));
+      // The sidebar badge is workspace-wide; a "mine" view must not
+      // overwrite it with a personal count.
+      if (filter !== 'me') {
+        const totalBadge = recsTotal + (tasksData.total ?? overdueList.length);
+        window.dispatchEvent(new CustomEvent('crm:badge-updated', { detail: totalBadge }));
+      }
     }).catch(e => {
       console.error(e);
       setLoading(false);
