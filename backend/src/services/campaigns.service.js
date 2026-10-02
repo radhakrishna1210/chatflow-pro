@@ -456,6 +456,10 @@ export async function addRecipients(workspaceId, campaignId, contactIds) {
   return { added, skipped: invalidIds.length + duplicates, duplicates, invalidIds, blocked, totalContacts: total };
 }
 
+// All that pricing and launch read from each recipient's contact; the full row
+// was loaded before, for up to 10,000 recipients at a time.
+const AUDIENCE_CONTACT_FIELDS = { id: true, name: true, phoneNumber: true, optedOut: true };
+
 // Breaks a set of contacts into the four buckets the campaign summary screen
 // shows — valid / duplicate / blocked / invalid — and prices the valid ones.
 // Used both by the pre-launch preview endpoint and by launchCampaign itself,
@@ -559,7 +563,7 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
     category = campaign.template?.category ?? null;
     const recipients = await prisma.campaignRecipient.findMany({
       where: { campaignId, status: 'PENDING' },
-      include: { contact: true },
+      include: { contact: { select: AUDIENCE_CONTACT_FIELDS } },
     });
     contacts = recipients.map((r) => r.contact).filter(Boolean);
   } else {
@@ -567,7 +571,7 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
     const ids = Array.isArray(contactIds) ? contactIds.filter(Boolean) : [];
     if (ids.length === 0) { const e = new Error('Select at least one contact to estimate a campaign'); e.status = 400; throw e; }
     if (ids.length > 10_000) { const e = new Error('A campaign can target at most 10,000 contacts at a time'); e.status = 400; throw e; }
-    const found = await prisma.contact.findMany({ where: { id: { in: [...new Set(ids)] }, workspaceId } });
+    const found = await prisma.contact.findMany({ where: { id: { in: [...new Set(ids)] }, workspaceId }, select: AUDIENCE_CONTACT_FIELDS });
     const byId = new Map(found.map((c) => [c.id, c]));
     // Preserve the caller's list (including its repeats) so "duplicate
     // contacts" reflects what they actually selected.
@@ -640,7 +644,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
 
   const recipients = await prisma.campaignRecipient.findMany({
     where: { campaignId, status: 'PENDING' },
-    include: { contact: true },
+    include: { contact: { select: AUDIENCE_CONTACT_FIELDS } },
   });
   if (recipients.length === 0) {
     const e = new Error('Add at least one recipient before launching'); e.status = 400; throw e;

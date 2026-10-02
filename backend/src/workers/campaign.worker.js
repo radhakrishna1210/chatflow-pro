@@ -19,6 +19,8 @@ import { sendAuthenticationOtp } from '../authentication/authentication.service.
 // Meta Cloud API Tier-1 numbers are limited to ~250 msgs/min. The old 60ms
 // delay (~1000/min) triggered rate-limit errors (code 131042). 250ms ≈ 240/min.
 const RATE_DELAY_MS = Math.max(env.CAMPAIGN_RATE_DELAY_MS, 250);
+const BATCH_SIZE = Math.max(1, Number(env.CAMPAIGN_BATCH_SIZE) || 50);
+const STATUS_CHECK_MS = 2_000;
 
 const normalizePhone = (raw) => String(raw || '').replace(/[^\d]/g, '');
 const isAuthenticationCampaign = (campaign) =>
@@ -32,14 +34,16 @@ const isAuthenticationCampaign = (campaign) =>
 // to be live for anything to go out. Campaigns without a launch charge (none
 // are created any more) keep the per-send path.
 const SENDABLE_SUBSCRIPTION = ['ACTIVE', 'PAST_DUE'];
-async function takeSendCredit(campaign, reason) {
+// `memo` lets one send loop reuse a recent positive subscription check.
+async function takeSendCredit(campaign, reason, memo = null) {
   if (campaign.chargedAt) {
+    if (memo?.subscriptionOkUntil > Date.now()) return { ok: true, source: null };
     const sub = await prisma.subscription.findUnique({
       where: { workspaceId: campaign.workspaceId }, select: { status: true },
     });
-    return sub && SENDABLE_SUBSCRIPTION.includes(sub.status)
-      ? { ok: true, source: null }
-      : { ok: false, code: 'SUBSCRIPTION_INACTIVE' };
+    if (!sub || !SENDABLE_SUBSCRIPTION.includes(sub.status)) return { ok: false, code: 'SUBSCRIPTION_INACTIVE' };
+    if (memo) memo.subscriptionOkUntil = Date.now() + 30_000;
+    return { ok: true, source: null };
   }
   return consumeMessageCredit(campaign.workspaceId, {
     reason,
@@ -375,7 +379,7 @@ async function processRetryJob(job) {
 // One recipient of the main loop, already claimed PENDING -> SENDING. Every
 // path moves the row out of SENDING. Returns false when nothing was offered to
 // Meta (an opt-out skip), so the caller can skip the rate-limit pause.
-async function sendClaimedRecipient(campaign, recipient, { phoneNumberId, accessToken }) {
+async function sendClaimedRecipient(campaign, recipient, { phoneNumberId, accessToken, memo = null }) {
   const campaignId = campaign.id;
   // Declared outside the try so the catch below knows which kind of credit to
   // hand back when the send fails.
@@ -391,7 +395,7 @@ async function sendClaimedRecipient(campaign, recipient, { phoneNumberId, access
       return false;
     }
 
-    const credit = await takeSendCredit(campaign, 'Campaign overage');
+    const credit = await takeSendCredit(campaign, 'Campaign overage', memo);
     creditSource = credit.ok ? credit.source : null;
     creditAmount = credit.ok ? (credit.amount ?? null) : null;
     if (!credit.ok) {
@@ -566,34 +570,55 @@ export async function processCampaign(job) {
   let cancelled = false;
   let paused = false;
   let processed = 0;
+  let lastId = null;
+  let statusCheckedAt = 0;
+  const memo = {};
 
-  for (const recipient of recipients) {
-    const refreshed = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
-    if (refreshed?.status === 'CANCELLED') { cancelled = true; break; }
-    // Pausing has to bite immediately, not at the end of the batch — that is
-    // the whole point of being able to stop a campaign mid-flight.
-    if (refreshed?.status === 'PAUSED') {
-      console.log(`[CampaignWorker] Campaign ${campaignId} was paused — stopping after ${processed} recipient(s).`);
-      paused = true;
-      break;
-    }
-
-    // Claim this recipient before sending. The retry path already does this;
-    // the main loop did not, so anything that ran the loop twice concurrently
-    // would send to the same person twice. Only the writer that moves PENDING
-    // to SENDING proceeds.
-    const claimedRecipient = await prisma.campaignRecipient.updateMany({
-      where: { id: recipient.id, status: 'PENDING' },
-      data: { status: 'SENDING' },
+  // Recipients are read in CAMPAIGN_BATCH_SIZE pages (keyset on id) rather
+  // than all at once, so a 100k-recipient campaign does not hold 100k contact
+  // rows in memory. Rows that leave PENDING drop out of the filter on their
+  // own; the id bound is what moves the page past rows claimed elsewhere.
+  while (!cancelled && !paused) {
+    const batch = await prisma.campaignRecipient.findMany({
+      where: { campaignId, status: 'PENDING', ...(lastId ? { id: { gt: lastId } } : {}) },
+      include: { contact: true },
+      orderBy: { id: 'asc' },
+      take: BATCH_SIZE,
     });
-    if (claimedRecipient.count === 0) {
-      console.log(`[CampaignWorker] Recipient ${recipient.id} already claimed elsewhere — skipping duplicate.`);
-      continue;
-    }
-    processed += 1;
+    if (batch.length === 0) break;
+    lastId = batch[batch.length - 1].id;
 
-    const attempted = await sendClaimedRecipient(campaign, recipient, { phoneNumberId, accessToken });
-    if (attempted) await sleep(RATE_DELAY_MS);
+    for (const recipient of batch) {
+      // Pause and cancel have to bite within moments, not at the end of a
+      // page, but a status read before every single send was one extra round
+      // trip per message. Re-read it at most every STATUS_CHECK_MS.
+      if (Date.now() - statusCheckedAt >= STATUS_CHECK_MS) {
+        const refreshed = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
+        statusCheckedAt = Date.now();
+        if (refreshed?.status === 'CANCELLED') { cancelled = true; break; }
+        if (refreshed?.status === 'PAUSED') {
+          console.log(`[CampaignWorker] Campaign ${campaignId} was paused — stopping after ${processed} recipient(s).`);
+          paused = true;
+          break;
+        }
+      }
+
+      // Claim this recipient before sending. Anything that ran the loop twice
+      // concurrently would otherwise send to the same person twice. Only the
+      // writer that moves PENDING to SENDING proceeds.
+      const claimedRecipient = await prisma.campaignRecipient.updateMany({
+        where: { id: recipient.id, status: 'PENDING' },
+        data: { status: 'SENDING' },
+      });
+      if (claimedRecipient.count === 0) {
+        console.log(`[CampaignWorker] Recipient ${recipient.id} already claimed elsewhere — skipping duplicate.`);
+        continue;
+      }
+      processed += 1;
+
+      const attempted = await sendClaimedRecipient(campaign, recipient, { phoneNumberId, accessToken, memo });
+      if (attempted) await sleep(RATE_DELAY_MS);
+    }
   }
 
   // A cancelled campaign must stay CANCELLED — never flip it to COMPLETED.
