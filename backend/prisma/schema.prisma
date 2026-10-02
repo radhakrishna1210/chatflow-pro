@@ -222,6 +222,8 @@ model WorkspaceMember {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@id([userId, workspaceId])
+  // The primary key leads with userId, so listing a workspace's members needs this.
+  @@index([workspaceId])
 }
 
 model Invitation {
@@ -245,7 +247,9 @@ model Invitation {
   revokedAt       DateTime?
   createdAt       DateTime         @default(now())
   workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  invitedBy       User             @relation(fields: [invitedByUserId], references: [id])
+  // Cascade: an invitation dies with the user who sent it (users.service
+  // already deleted them by hand before deleting the account).
+  invitedBy       User             @relation(fields: [invitedByUserId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, email])
   @@index([workspaceId, status])
@@ -473,12 +477,19 @@ model Campaign {
   goal            String?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @default(now()) @updatedAt
-  template        Template            @relation(fields: [templateId], references: [id])
+  // NoAction, not the implicit Restrict: a template still used by a campaign
+  // cannot be deleted on its own, but a workspace delete that cascades to both
+  // is checked at the end of the statement and succeeds.
+  template        Template            @relation(fields: [templateId], references: [id], onDelete: NoAction)
   waNumber        WaNumber?           @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
   workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   recipients      CampaignRecipient[]
   aiSessions      CampaignAiSession[]
   authenticationTransactions AuthenticationTransaction[]
+
+  @@index([workspaceId, createdAt])
+  // recoverScheduledCampaigns: SCHEDULED rows by due time.
+  @@index([status, scheduledAt])
 }
 
 model CampaignRecipient {
@@ -533,6 +544,8 @@ model CampaignRecipient {
   aiSessions        CampaignAiSession[]
 
   @@unique([campaignId, contactId])
+  // Per-campaign status counts and the PENDING-recipient load.
+  @@index([campaignId, status])
   // Drives the restart-recovery sweep, which looks for RETRYING rows whose
   // nextRetryAt has passed because their delayed job died with Redis.
   @@index([status, nextRetryAt])
@@ -581,6 +594,9 @@ model Conversation {
   // NULL), which Prisma cannot express here. Declared as an index so the
   // client still plans lookups against it.
   @@index([workspaceId, contactId, waNumberId])
+  // The inbox list: newest activity first, optionally by status.
+  @@index([workspaceId, lastMessageAt])
+  @@index([workspaceId, status])
   tickets CrmTicket[]
 }
 
@@ -885,6 +901,8 @@ model Invoice {
   status      String    @default("PAID")
   reference   String? // gateway payment id, for reconciliation
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, invoiceDate])
 }
 
 model RefreshToken {
@@ -894,6 +912,8 @@ model RefreshToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 enum Role {
@@ -1257,8 +1277,9 @@ model Subscription {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  plan               Plan      @relation("SubscriptionPlan", fields: [planId], references: [id])
-  pendingPlan        Plan?     @relation("SubscriptionPendingPlan", fields: [pendingPlanId], references: [id])
+  // Plans are retired (isActive=false), never deleted while subscribed.
+  plan               Plan      @relation("SubscriptionPlan", fields: [planId], references: [id], onDelete: Restrict)
+  pendingPlan        Plan?     @relation("SubscriptionPendingPlan", fields: [pendingPlanId], references: [id], onDelete: SetNull)
 }
 
 model UsageCounter {
