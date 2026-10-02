@@ -98,6 +98,14 @@ Optional — leave blank to disable that feature: `GEMINI_API_KEY`, `OPENAI_API_
 `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`,
 `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `SMTP_*`, `EMAIL_FROM`.
 
+Razorpay webhook: in the Razorpay dashboard add a webhook to
+`https://<api host>/api/v1/webhook/razorpay` for the `payment.captured` and
+`order.paid` events, and set the same secret as `RAZORPAY_WEBHOOK_SECRET`. It
+credits payments whose browser checkout never reached the verify step.
+
+Never set `ALLOW_DEMO_RECHARGE` in production — it enables a wallet "recharge"
+without payment, and is ignored when `NODE_ENV=production` anyway.
+
 4. **Apply**. First build takes ~5 min (two `npm ci` runs + a Vite build +
    `prisma migrate deploy`).
 

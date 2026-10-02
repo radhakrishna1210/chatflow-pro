@@ -887,6 +887,24 @@ model Invoice {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
+// One row per gateway payment applied to a workspace. The unique paymentId is
+// the idempotency claim shared by the browser verify call and the Razorpay
+// webhook, so whichever arrives second is a no-op.
+model GatewayPayment {
+  id          String   @id @default(cuid())
+  workspaceId String
+  gateway     String   @default("razorpay")
+  paymentId   String   @unique
+  orderId     String
+  kind        String // WALLET_TOPUP | PLAN | ADDON
+  amount      Decimal  @db.Decimal(12, 2)
+  currency    String   @default("INR")
+  source      String // VERIFY | WEBHOOK
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
 model RefreshToken {
   id        String   @id @default(cuid())
   userId    String

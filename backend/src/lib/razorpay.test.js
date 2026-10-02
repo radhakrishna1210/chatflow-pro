@@ -32,6 +32,22 @@ test('verifyPaymentSignature is a 503 when Razorpay is not configured', () => {
   env.RAZORPAY_KEY_SECRET = 'key_secret';
 });
 
+test('verifyWebhookSignature checks the HMAC of the exact raw body', async () => {
+  const { verifyWebhookSignature } = await import('./razorpay.js');
+  env.RAZORPAY_WEBHOOK_SECRET = 'hook_secret';
+  const body = '{"event":"payment.captured","payload":{}}';
+  assert.equal(verifyWebhookSignature(body, sign(body, 'hook_secret')), true);
+  assert.equal(verifyWebhookSignature(body, sign(body, 'key_secret')), false);
+  assert.equal(verifyWebhookSignature(`${body} `, sign(body, 'hook_secret')), false);
+  assert.equal(verifyWebhookSignature(undefined, sign(body, 'hook_secret')), false);
+});
+
+test('verifyWebhookSignature is a 503 without RAZORPAY_WEBHOOK_SECRET', async () => {
+  const { verifyWebhookSignature } = await import('./razorpay.js');
+  env.RAZORPAY_WEBHOOK_SECRET = undefined;
+  assert.throws(() => verifyWebhookSignature('{}', 'x'), (e) => e.status === 503);
+});
+
 test('safeEqualHex handles unequal lengths and non-strings without throwing', () => {
   assert.equal(safeEqualHex('abcd', 'abcd'), true);
   assert.equal(safeEqualHex('abcd', 'abc'), false);

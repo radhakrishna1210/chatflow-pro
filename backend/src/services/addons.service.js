@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
 import { ADDONS, CURRENCY, getAddon, priceInPaise, assertPurchasable } from '../lib/addonCatalogue.js';
+import { applyGatewayPaymentOnce } from './gatewayPayment.service.js';
 
 // Add-on purchase, server-authoritative end to end.
 //
@@ -82,58 +83,71 @@ export async function verifyAddonPayment(workspaceId, { orderId, paymentId, sign
   if (order.notes?.workspaceId !== workspaceId || order.notes?.type !== 'addon') {
     const e = new Error('This payment does not belong to your workspace'); e.status = 403; throw e;
   }
-  const addon = getAddon(order.notes.addonKey);
+  return applyAddonPayment(workspaceId, order, paymentId, 'VERIFY');
+}
+
+// Activates a captured add-on payment exactly once — from the verify call above
+// or the Razorpay webhook. The claim, add-on row and invoice commit together.
+export async function applyAddonPayment(workspaceId, order, paymentId, source = 'VERIFY') {
+  const addon = getAddon(order.notes?.addonKey);
 
   // Amount comes back from the gateway, never from the client.
   const paid = Number(order.amount) / 100;
-  const periodEnd = new Date(Date.now() + PERIOD_DAYS * 24 * 60 * 60 * 1000);
+  const summary = { key: addon.key, title: addon.title };
 
-  // The unique (workspaceId, addonKey) makes a repeated verify — a double
-  // click, a retried request, a duplicate gateway callback — converge on one
-  // row rather than activating twice or creating a second charge record.
-  const record = await prisma.workspaceAddon.upsert({
-    where: { workspaceId_addonKey: { workspaceId, addonKey: addon.key } },
-    update: {
-      status: 'ACTIVE',
-      amountPaid: paid,
-      currency: order.currency,
-      gateway: 'razorpay',
-      reference: paymentId,
-      activatedAt: new Date(),
-      cancelledAt: null,
-      currentPeriodEnd: periodEnd,
+  const { duplicate, result } = await applyGatewayPaymentOnce(
+    { workspaceId, paymentId, orderId: order.id, kind: 'ADDON', amount: paid, currency: order.currency, source },
+    async (tx) => {
+      const where = { workspaceId_addonKey: { workspaceId, addonKey: addon.key } };
+      // A payment applied before GatewayPayment existed is recognised by its invoice.
+      const legacy = await tx.invoice.findFirst({ where: { workspaceId, reference: paymentId } });
+      if (legacy) return tx.workspaceAddon.findUnique({ where });
+
+      const periodEnd = new Date(Date.now() + PERIOD_DAYS * 24 * 60 * 60 * 1000);
+      const record = await tx.workspaceAddon.upsert({
+        where,
+        update: {
+          status: 'ACTIVE',
+          amountPaid: paid,
+          currency: order.currency,
+          gateway: 'razorpay',
+          reference: paymentId,
+          activatedAt: new Date(),
+          cancelledAt: null,
+          currentPeriodEnd: periodEnd,
+        },
+        create: {
+          workspaceId,
+          addonKey: addon.key,
+          status: 'ACTIVE',
+          amountPaid: paid,
+          currency: order.currency,
+          gateway: 'razorpay',
+          reference: paymentId,
+          currentPeriodEnd: periodEnd,
+        },
+      });
+
+      // An invoice so the purchase appears on the Invoices tab like every other payment.
+      await tx.invoice.create({
+        data: {
+          workspaceId,
+          invoiceDate: new Date(),
+          description: `${addon.title} (1 month)`,
+          amount: paid,
+          currency: order.currency,
+          status: 'PAID',
+          reference: paymentId,
+        },
+      });
+      return record;
     },
-    create: {
-      workspaceId,
-      addonKey: addon.key,
-      status: 'ACTIVE',
-      amountPaid: paid,
-      currency: order.currency,
-      gateway: 'razorpay',
-      reference: paymentId,
-      currentPeriodEnd: periodEnd,
-    },
-  });
+  );
 
-  // An invoice so the purchase appears on the Invoices tab like every other
-  // payment. Keyed on the payment reference so a repeat verify cannot add a
-  // second line.
-  const already = await prisma.invoice.findFirst({ where: { workspaceId, reference: paymentId } });
-  if (!already) {
-    await prisma.invoice.create({
-      data: {
-        workspaceId,
-        invoiceDate: new Date(),
-        description: `${addon.title} (1 month)`,
-        amount: paid,
-        currency: order.currency,
-        status: 'PAID',
-        reference: paymentId,
-      },
-    }).catch(() => {});
-  }
-
-  return { ok: true, addon: { key: addon.key, title: addon.title }, currentPeriodEnd: record.currentPeriodEnd };
+  const record = duplicate
+    ? await prisma.workspaceAddon.findUnique({ where: { workspaceId_addonKey: { workspaceId, addonKey: addon.key } } })
+    : result;
+  return { ok: true, addon: summary, currentPeriodEnd: record?.currentPeriodEnd ?? null };
 }
 
 // Cancelling stops the renewal; the add-on stays usable until the period the

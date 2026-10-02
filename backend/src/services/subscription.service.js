@@ -3,6 +3,7 @@ import { debit, credit } from './wallet.service.js';
 import { overageRateFor } from '../lib/messagePricing.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
 import { env } from '../config/env.js';
+import { applyGatewayPaymentOnce } from './gatewayPayment.service.js';
 
 // Returns the workspace's subscription + plan + the UsageCounter for the
 // subscription's current billing cycle, creating the counter if it doesn't
@@ -274,7 +275,7 @@ export async function createCheckoutOrder(workspaceId, planId, cycle = 'monthly'
     receipt: `sub_${workspaceId.slice(-12)}_${Date.now().toString(36)}`,
     // `cycle` rides along so verifyCheckoutPayment sets a period length that
     // matches what was actually paid for, rather than trusting the client.
-    notes: { workspaceId, planId: plan.id, cycle: billingCycle },
+    notes: { workspaceId, type: 'plan', planId: plan.id, cycle: billingCycle },
   }).catch(normalizeRazorpayError);
 
   return {
@@ -303,55 +304,67 @@ export async function verifyCheckoutPayment(workspaceId, { orderId, paymentId, s
 
   const client = getRazorpayClient();
   const order = await client.orders.fetch(orderId).catch(normalizeRazorpayError);
-  if (order.notes?.workspaceId !== workspaceId) {
+  if (order.notes?.workspaceId !== workspaceId || !order.notes?.planId) {
     const e = new Error('This payment does not belong to your workspace'); e.status = 403; throw e;
   }
 
+  return applyCheckoutPayment(workspaceId, order, paymentId, 'VERIFY');
+}
+
+// Applies a captured plan payment exactly once — from the verify call above or
+// the Razorpay webhook. The claim, invoice and plan change commit together, so
+// two concurrent verifies (or verify + webhook) cannot both apply it.
+export async function applyCheckoutPayment(workspaceId, order, paymentId, source = 'VERIFY') {
   const plan = await prisma.plan.findUnique({ where: { id: order.notes?.planId } });
   if (!plan) { const e = new Error('Plan for this payment could not be found'); e.status = 404; throw e; }
+  const summary = { key: plan.key, name: plan.name };
+  const cycle = order.notes?.cycle === 'quarterly' ? 'quarterly' : 'monthly';
+  const amount = Number(order.amount) / 100;
 
-  const subscription = await prisma.subscription.findUnique({ where: { workspaceId } });
-  if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
+  const { duplicate, result } = await applyGatewayPaymentOnce(
+    { workspaceId, paymentId, orderId: order.id, kind: 'PLAN', amount, currency: order.currency, source },
+    async (tx) => {
+      const subscription = await tx.subscription.findUnique({ where: { workspaceId } });
+      if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
 
-  // Idempotency guard: a replayed verify call (network retry, double-click)
-  // for the same Razorpay payment must not apply the plan change twice.
-  const existingInvoice = await prisma.invoice.findFirst({ where: { workspaceId, reference: paymentId } });
-  if (existingInvoice) {
-    return { applied: 'already_processed', plan: { key: plan.key, name: plan.name } };
-  }
+      // A payment applied before GatewayPayment existed is recognised by its invoice.
+      const legacy = await tx.invoice.findFirst({ where: { workspaceId, reference: paymentId } });
+      if (legacy) return 'already_processed';
 
-  // The charge happened regardless of when the plan itself takes effect.
-  await prisma.invoice.create({
-    data: {
-      workspaceId,
-      invoiceDate: new Date(),
-      description: `${plan.name} plan subscription (${order.notes?.cycle === 'quarterly' ? 'quarterly' : 'monthly'})`,
-      amount: Number(order.amount) / 100,
-      currency: order.currency,
-      status: 'PAID',
-      reference: paymentId,
+      await tx.invoice.create({
+        data: {
+          workspaceId,
+          invoiceDate: new Date(),
+          description: `${plan.name} plan subscription (${cycle})`,
+          amount,
+          currency: order.currency,
+          status: 'PAID',
+          reference: paymentId,
+        },
+      });
+
+      // Cycle length comes from the order's own notes, so a quarterly purchase
+      // gets a 90-day period. runBillingCycleSweep() rolls forward by whatever
+      // this period's length is, so quarterly renewals stay quarterly.
+      const cycleDays = cycle === 'quarterly' ? 90 : 30;
+      const periodStart = new Date();
+      const periodEnd = new Date(periodStart.getTime() + cycleDays * 24 * 60 * 60 * 1000);
+      await tx.subscription.update({
+        where: { workspaceId },
+        data: {
+          planId: plan.id, pendingPlanId: null, status: 'ACTIVE', cancelAtPeriodEnd: false,
+          currentPeriodStart: periodStart, currentPeriodEnd: periodEnd,
+        },
+      });
+      await tx.usageCounter.upsert({
+        where: { workspaceId_periodStart: { workspaceId, periodStart } },
+        update: {},
+        create: { workspaceId, periodStart, periodEnd, messagesUsed: 0 },
+      });
+      return 'immediately';
     },
-  });
-
-  // Cycle length comes from the order's own notes, so a quarterly purchase
-  // gets a 90-day period. runBillingCycleSweep() rolls forward by whatever
-  // this period's length is, so quarterly renewals stay quarterly.
-  const cycleDays = order.notes?.cycle === 'quarterly' ? 90 : 30;
-  const periodStart = new Date();
-  const periodEnd = new Date(periodStart.getTime() + cycleDays * 24 * 60 * 60 * 1000);
-  await prisma.subscription.update({
-    where: { workspaceId },
-    data: {
-      planId: plan.id, pendingPlanId: null, status: 'ACTIVE', cancelAtPeriodEnd: false,
-      currentPeriodStart: periodStart, currentPeriodEnd: periodEnd,
-    },
-  });
-  await prisma.usageCounter.upsert({
-    where: { workspaceId_periodStart: { workspaceId, periodStart } },
-    update: {},
-    create: { workspaceId, periodStart, periodEnd, messagesUsed: 0 },
-  });
-  return { applied: 'immediately', plan: { key: plan.key, name: plan.name } };
+  );
+  return { applied: duplicate ? 'already_processed' : result, plan: summary };
 }
 
 // Billing-cycle reset (README §12.6). Finds ACTIVE subscriptions whose cycle

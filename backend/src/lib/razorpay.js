@@ -37,6 +37,19 @@ export function verifyPaymentSignature({ orderId, paymentId, signature }) {
   return safeEqualHex(expected, signature);
 }
 
+// Razorpay signs a webhook as HMAC-SHA256(raw request body, webhook secret) in
+// the X-Razorpay-Signature header. The body must be the exact bytes received,
+// not a re-serialised object.
+export function verifyWebhookSignature(rawBody, signature) {
+  const secret = env.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) {
+    const e = new Error('Razorpay webhook is not configured on this server'); e.status = 503; e.expose = true; throw e;
+  }
+  if (typeof rawBody !== 'string' && !Buffer.isBuffer(rawBody)) return false;
+  const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+  return safeEqualHex(expected, signature);
+}
+
 // Constant-time comparison of two hex digests. A length mismatch (including a
 // missing signature) is simply "not equal" — timingSafeEqual would throw.
 export function safeEqualHex(expected, received) {
