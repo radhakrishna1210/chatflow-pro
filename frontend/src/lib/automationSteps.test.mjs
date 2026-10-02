@@ -1,33 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  applyStepChange, DEFAULT_STEP_VALUE, TRIGGER_SUBTYPES, ACTION_SUBTYPES, CONDITION_SUBTYPES,
+} from './automationSteps.js';
 
-// Mirrors applyStepChange in AutomationView.jsx. Kept as a standalone copy
-// because the component imports React and the frontend has no test runner —
-// see OPEN-006. The logic is small and self-contained enough that a drift
-// between the two would be caught by the shape assertions below.
-const DEFAULT_STEP_VALUE = {
-  keyword: 'HELP',
-  welcome: '', missed: '', lead_created: '',
-  lead_status: '', deal_stage: '',
-  score_above: '70',
-  message: 'Thanks for reaching out. Our team will help you shortly.',
-  delay: '1 hour',
-  tag: '', agent: '',
-  task: '', owner: '', sequence: '',
-};
-
-function applyStepChange(step, fields) {
-  const next = { ...step, ...fields };
-  if (fields.type && fields.type !== step.type) {
-    next.subtype = fields.type === 'trigger' ? 'keyword' : 'message';
-    next.value = DEFAULT_STEP_VALUE[next.subtype];
-    return next;
-  }
-  if (fields.subtype && fields.subtype !== step.subtype) {
-    next.value = DEFAULT_STEP_VALUE[fields.subtype] ?? '';
-  }
-  return next;
-}
+// Tests the real applyStepChange the workflow builder uses (it used to test a
+// hand-copied version that had drifted from the component).
 
 const keywordTrigger = { id: 's1', type: 'trigger', subtype: 'keyword', value: 'ORDER' };
 
@@ -54,6 +32,29 @@ test('changing type resets both subtype and value', () => {
   assert.equal(backToTrigger.value, 'HELP');
 });
 
+test('changing to a condition defaults to "equals" and a skip of one step', () => {
+  const asCondition = applyStepChange(keywordTrigger, { type: 'condition' });
+  assert.equal(asCondition.subtype, 'equals');
+  assert.equal(asCondition.value, '');
+  assert.equal(asCondition.skipIfFalse, 1);
+
+  const kept = applyStepChange({ ...asCondition, skipIfFalse: 3 }, { type: 'condition' });
+  assert.equal(kept.skipIfFalse, 3, 'a no-op type change keeps the configured skip');
+
+  const backToAction = applyStepChange(asCondition, { type: 'action' });
+  assert.equal(backToAction.skipIfFalse, undefined, 'only a condition carries a skip count');
+});
+
+test('a reminder belongs to a "Wait for reply" step only', () => {
+  const wait = { id: 'w', type: 'action', subtype: 'wait_reply', value: 'order', remindAfter: '5 min', reminder: 'Still there?' };
+  const edited = applyStepChange(wait, { value: 'order_id' });
+  assert.equal(edited.reminder, 'Still there?');
+  const changed = applyStepChange(wait, { subtype: 'message' });
+  assert.equal(changed.reminder, undefined);
+  assert.equal(changed.remindAfter, undefined);
+  assert.equal(changed.value, DEFAULT_STEP_VALUE.message);
+});
+
 test('editing only the value leaves subtype alone', () => {
   const next = applyStepChange(keywordTrigger, { value: 'REFUND' });
   assert.equal(next.subtype, 'keyword');
@@ -67,9 +68,11 @@ test('re-selecting the same subtype does not wipe a typed value', () => {
 });
 
 test('every selectable subtype has a defined default', () => {
-  const TRIGGERS = ['keyword', 'welcome', 'missed', 'lead_created', 'lead_status', 'deal_stage', 'score_above'];
-  const ACTIONS = ['message', 'delay', 'tag', 'agent', 'task', 'lead_status', 'owner', 'sequence'];
-  for (const subtype of [...TRIGGERS, ...ACTIONS]) {
+  for (const [subtype] of [...TRIGGER_SUBTYPES, ...ACTION_SUBTYPES, ...CONDITION_SUBTYPES]) {
     assert.ok(subtype in DEFAULT_STEP_VALUE, `"${subtype}" is selectable but has no default value`);
   }
+});
+
+test('the missed-call trigger, which nothing fires, is not offered', () => {
+  assert.ok(!TRIGGER_SUBTYPES.some(([subtype]) => subtype === 'missed'));
 });
