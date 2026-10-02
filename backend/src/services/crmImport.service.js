@@ -167,11 +167,28 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
   let leadsCreated = 0;
   let alreadyLeads = 0;
 
-  for (const row of candidates) {
-    let contact = await prisma.contact.findFirst({
-      where: { workspaceId, phoneNumber: row.phoneNumber },
-      select: { id: true },
+  // Existing contacts and leads are looked up for the whole file in chunks,
+  // not with two queries per row.
+  const contactIdByPhone = new Map();
+  const leadContactIds = new Set();
+  const LOOKUP_CHUNK = 1000;
+  for (let i = 0; i < candidates.length; i += LOOKUP_CHUNK) {
+    const found = await prisma.contact.findMany({
+      where: { workspaceId, phoneNumber: { in: candidates.slice(i, i + LOOKUP_CHUNK).map((r) => r.phoneNumber) } },
+      select: { id: true, phoneNumber: true },
     });
+    for (const c of found) contactIdByPhone.set(c.phoneNumber, c.id);
+    if (found.length) {
+      const leads = await prisma.lead.findMany({
+        where: { contactId: { in: found.map((c) => c.id) } },
+        select: { contactId: true },
+      });
+      for (const l of leads) leadContactIds.add(l.contactId);
+    }
+  }
+
+  for (const row of candidates) {
+    let contact = contactIdByPhone.has(row.phoneNumber) ? { id: contactIdByPhone.get(row.phoneNumber) } : null;
 
     if (!contact) {
       contact = await prisma.contact.create({
@@ -181,8 +198,7 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
       contactsCreated += 1;
     }
 
-    const existingLead = await prisma.lead.findUnique({ where: { contactId: contact.id }, select: { id: true } });
-    if (existingLead) { alreadyLeads += 1; continue; }
+    if (leadContactIds.has(contact.id)) { alreadyLeads += 1; continue; }
 
     // Score on import so the list is immediately sortable rather than showing
     // a wall of zeroes until someone recalculates.

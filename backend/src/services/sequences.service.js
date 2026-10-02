@@ -157,7 +157,7 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
   const alreadyIn = new Set(existing.map((e) => e.contactId));
   const blockedNumbers = new Set(blocked.map((b) => b.phoneNumber));
 
-  const enrolled = [];
+  const toEnroll = [];
   const skipped = [];
   const now = new Date();
 
@@ -166,22 +166,28 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
     if (contact.optedOut) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Opted out' }); continue; }
     if (blockedNumbers.has(contact.phoneNumber)) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Number is blocked' }); continue; }
 
-    const created = await prisma.sequenceEnrollment.create({
-      data: {
-        workspaceId,
-        sequenceId,
-        contactId: contact.id,
-        leadId: leadByContact.get(contact.id) ?? null,
-        // The steps are snapshotted here, so editing the sequence later does
-        // not move this contact into a different cadence mid-flight.
-        steps: sequence.steps,
-        status: 'ACTIVE',
-        nextRunAt: now,
-      },
-      select: { id: true, contactId: true },
+    toEnroll.push({
+      workspaceId,
+      sequenceId,
+      contactId: contact.id,
+      leadId: leadByContact.get(contact.id) ?? null,
+      // The steps are snapshotted here, so editing the sequence later does
+      // not move this contact into a different cadence mid-flight.
+      steps: sequence.steps,
+      status: 'ACTIVE',
+      nextRunAt: now,
     });
-    enrolled.push(created);
   }
+
+  // One insert for the batch rather than one per contact. skipDuplicates
+  // covers a concurrent enrol of the same contact (unique sequenceId+contactId).
+  const enrolled = toEnroll.length
+    ? await prisma.sequenceEnrollment.createManyAndReturn({
+      data: toEnroll,
+      select: { id: true, contactId: true },
+      skipDuplicates: true,
+    })
+    : [];
 
   const missing = wanted.filter((id) => !contacts.some((c) => c.id === id));
   for (const id of missing) skipped.push({ contactId: id, reason: 'Contact not found in this workspace' });
