@@ -118,3 +118,11 @@ test('with the queue unavailable an event gets one inline attempt, not a retry l
     warn.mock.restore();
   }
 });
+
+test('a saved category selection matches the events it stands for', async () => {
+  reset();
+  workspace.webhookEvents = ['messages', 'deliveries'];
+  assert.equal((await svc.dispatchWebhook('ws_1', 'message.received', {})).queued, true);
+  assert.equal((await svc.dispatchWebhook('ws_1', 'message.status', {})).queued, true);
+  assert.equal((await svc.dispatchWebhook('ws_1', 'campaign.completed', {})).queued, false);
+});

@@ -55,6 +55,17 @@ export async function ensureWebhookSecret(workspaceId, current) {
   return ws?.webhookVerifyToken || null;
 }
 
+// `webhookEvents` is saved as the categories the settings schema accepts
+// (messages, deliveries, …), not as event names, so a selection used to match
+// nothing at all. Each category stands for the events it covers.
+const EVENT_CATEGORIES = {
+  messages: ['message.received'],
+  reactions: ['message.received'],
+  referrals: ['message.received'],
+  deliveries: ['message.status'],
+  reads: ['message.status'],
+};
+
 // Which workspaces want this event. `webhookEvents` null means "everything",
 // matching what the settings UI implies when nothing is selected.
 function wantsEvent(workspace, event) {
@@ -62,7 +73,8 @@ function wantsEvent(workspace, event) {
   const selected = workspace.webhookEvents;
   if (selected == null) return true;
   if (!Array.isArray(selected)) return true;
-  return selected.length === 0 || selected.includes(event);
+  return selected.length === 0
+    || selected.some((s) => s === event || EVENT_CATEGORIES[s]?.includes(event));
 }
 
 // The URL was vetted when it was saved, but DNS can change since: every
