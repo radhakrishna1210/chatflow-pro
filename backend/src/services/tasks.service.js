@@ -10,7 +10,14 @@ const TASK_INCLUDE = {
   contact: { select: { id: true, name: true, email: true } },
 };
 
-export async function listTasks(workspaceId, { status, assignedToUserId, isOverdue } = {}, user = null) {
+// Capped by default instead of returning every matching task; `total` still
+// counts everything, so a client can tell it got a page.
+const LIST_DEFAULT_LIMIT = 500;
+const LIST_MAX_LIMIT = 1000;
+
+export async function listTasks(workspaceId, { status, assignedToUserId, isOverdue, limit, offset } = {}, user = null) {
+  const take = Math.min(Math.max(Number.parseInt(limit, 10) || LIST_DEFAULT_LIMIT, 1), LIST_MAX_LIMIT);
+  const skip = Math.max(Number.parseInt(offset, 10) || 0, 0);
   const scope = user ? await scopeFilter(workspaceId, user, { ownerField: 'assignedToUserId' }) : {};
   const where = {
     workspaceId,
@@ -25,11 +32,11 @@ export async function listTasks(workspaceId, { status, assignedToUserId, isOverd
   }
 
   const [data, total] = await Promise.all([
-    prisma.task.findMany({ where, include: TASK_INCLUDE, orderBy: { dueDate: 'asc' } }),
+    prisma.task.findMany({ where, include: TASK_INCLUDE, orderBy: [{ dueDate: 'asc' }, { id: 'asc' }], skip, take }),
     prisma.task.count({ where }),
   ]);
   
-  return { data, total };
+  return { data, total, limit: take, offset: skip };
 }
 
 export async function getTask(workspaceId, id) {

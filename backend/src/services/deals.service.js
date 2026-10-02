@@ -19,7 +19,14 @@ const DEAL_INCLUDE = {
   lead: { select: { id: true, status: true, score: true } },
 };
 
-export async function listDeals(workspaceId, { stage = '', ownerUserId = '' } = {}, user = null) {
+// The board used to load every deal in the workspace in one query. Capped by
+// default; `total` still counts everything, so a client can tell it got a page.
+const LIST_DEFAULT_LIMIT = 500;
+const LIST_MAX_LIMIT = 1000;
+
+export async function listDeals(workspaceId, { stage = '', ownerUserId = '', limit, offset } = {}, user = null) {
+  const take = Math.min(Math.max(Number.parseInt(limit, 10) || LIST_DEFAULT_LIMIT, 1), LIST_MAX_LIMIT);
+  const skip = Math.max(Number.parseInt(offset, 10) || 0, 0);
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const where = {
     workspaceId,
@@ -41,7 +48,7 @@ export async function listDeals(workspaceId, { stage = '', ownerUserId = '' } = 
   // Health for the whole board is computed in one fixed set of queries rather
   // than per card, so adding it to the list costs a constant amount.
   const [data, total, health] = await Promise.all([
-    prisma.deal.findMany({ where, include: DEAL_INCLUDE, orderBy: { updatedAt: 'desc' } }),
+    prisma.deal.findMany({ where, include: DEAL_INCLUDE, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], skip, take }),
     prisma.deal.count({ where }),
     computeWorkspaceDealHealth(workspaceId, { ownerUserId: ownerUserId || undefined }),
   ]);
@@ -51,6 +58,8 @@ export async function listDeals(workspaceId, { stage = '', ownerUserId = '' } = 
       return { ...deal, stage: effectiveStage, health: health.get(deal.id) ?? null };
     }),
     total,
+    limit: take,
+    offset: skip,
   };
 }
 

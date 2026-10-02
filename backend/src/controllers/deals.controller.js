@@ -1,8 +1,8 @@
 import * as dealsService from '../services/deals.service.js';
 
 export async function list(req, res) {
-  const { stage, ownerUserId } = req.query;
-  const result = await dealsService.listDeals(req.params.workspaceId, { stage, ownerUserId }, req.user);
+  const { stage, ownerUserId, limit, offset } = req.query;
+  const result = await dealsService.listDeals(req.params.workspaceId, { stage, ownerUserId, limit, offset }, req.user);
   res.json(result);
 }
 
