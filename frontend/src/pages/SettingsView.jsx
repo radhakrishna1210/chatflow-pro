@@ -504,7 +504,7 @@ export default function SettingsView() {
                 <span style={{ fontSize:13, fontFamily:'monospace', color:'var(--t1)', background:'rgba(255,255,255,0.04)', padding:'7px 12px', borderRadius:7, border:'1px solid var(--bd)', flex:1 }}>
                   {showToken ? settings.webhookVerifyToken : '••••••••••••••••'}
                 </span>
-                <button onClick={()=>setShowToken(!showToken)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <button aria-label={showToken ? 'Hide token' : 'Show token'} onClick={()=>setShowToken(!showToken)} style={{ width:28, height:28, borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
                   <I n={showToken?'eyeoff':'eye'} s={13} c="var(--t2)" />
                 </button>
               </div>

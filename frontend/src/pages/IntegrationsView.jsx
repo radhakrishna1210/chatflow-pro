@@ -316,7 +316,7 @@ function FieldInput({ field, value, onChange }) {
           onBlur={e => e.target.style.borderColor = 'var(--bd)'}
         />
         {field.password && (
-          <button onClick={() => setShow(s => !s)} type="button"
+          <button aria-label={show ? 'Hide value' : 'Show value'} onClick={() => setShow(s => !s)} type="button"
             style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'var(--t3)' }}>
             <I n={show ? 'eyeoff' : 'eye'} s={14} c="var(--t3)" />
           </button>
@@ -396,7 +396,7 @@ function ConnectModal({ intg, onClose, onSave }) {
             <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Connect {intg.name}</p>
             <p style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 2 }}>{intg.category}</p>
           </div>
-          <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button aria-label="Close" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <I n="x" s={12} c="var(--t2)" />
           </button>
         </div>
@@ -509,7 +509,7 @@ function UpgradeModal({ intg, onClose }) {
             <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Upgrade to connect {intg.name}</p>
             <p style={{ fontSize: 11.5, color: 'var(--t2)', marginTop: 2 }}>{intg.category}</p>
           </div>
-          <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button aria-label="Close" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <I n="x" s={12} c="var(--t2)" />
           </button>
         </div>
@@ -562,7 +562,7 @@ function InfoModal({ intg, isConnected, locked, onClose, onConnectClick, onUpgra
               <span style={{ fontSize: 11, color: 'var(--t3)' }}>{intg.category}</span>
             </div>
           </div>
-          <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button aria-label="Close" onClick={onClose} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <I n="x" s={12} c="var(--t2)" />
           </button>
         </div>
@@ -875,7 +875,7 @@ export default function IntegrationsView() {
             style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 13, color: 'var(--t1)', fontFamily: 'inherit' }}
           />
           {search && (
-            <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}>
+            <button aria-label="Clear search" onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}>
               <I n="x" s={12} c="var(--t3)" />
             </button>
           )}

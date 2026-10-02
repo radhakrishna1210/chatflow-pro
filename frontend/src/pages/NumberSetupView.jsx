@@ -37,7 +37,7 @@ const Modal = ({ title, onClose, children, footer }) => (
     <div className="modal-card" style={{ ...card, width:480, maxHeight:'80vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
       <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
         <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</span>
-        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
+        <button aria-label="Close" onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
           <I n="x" s={18} c="var(--t2)" />
         </button>
       </div>
@@ -1029,7 +1029,7 @@ export default function NumberSetupView() {
               <Label hint="From Meta → System Users or your WABA access token" required={true}>Access Token</Label>
               <div style={{ position:'relative' }}>
                 <FInput type={showTok ? 'text' : 'password'} value={form.accessToken} onChange={e => setForm(p=>({...p,accessToken:e.target.value}))} placeholder="EAAxxxxx…" />
-                <button onClick={() => setShowTok(!showTok)} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
+                <button aria-label={showTok ? 'Hide access token' : 'Show access token'} onClick={() => setShowTok(!showTok)} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
                   <I n={showTok ? 'eyeoff' : 'eye'} s={15} c="var(--t2)" />
                 </button>
               </div>

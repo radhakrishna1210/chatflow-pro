@@ -169,7 +169,7 @@ export function LeadDistributionModal({ onClose, members = [], onDistributed }) 
                       />
                       Enabled
                     </label>
-                    <button onClick={() => deleteRule(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                    <button aria-label="Delete" onClick={() => deleteRule(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
                       <I n="trash" s={13} c="#f87171" />
                     </button>
                   </div>

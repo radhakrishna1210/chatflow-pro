@@ -122,7 +122,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)' }}>
             {isNew ? 'New plan' : `Edit ${src.name} plan`}
           </span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
+          <button aria-label="Close" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
             <I n="x" s={18} c="var(--t2)" />
           </button>
         </div>
@@ -1185,7 +1185,7 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
               </span>
             )}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
+          <button aria-label="Close" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
             <I n="x" s={18} c="var(--t2)" />
           </button>
         </div>

@@ -454,8 +454,8 @@ const WidgetEditor = ({ widget, numbers, onClose, onSaved }) => {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div className="dash-page-head" style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', padding: '0 28px', gap: 12, flexShrink: 0, background: 'var(--surf)' }}>
         <MobileNavButton />
-        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', display: 'flex' }}>
-          <I n="arrow" s={16} c="var(--t2)" />
+        <button aria-label="Back" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', display: 'flex' }}>
+          <I n="arrowLeft" s={16} c="var(--t2)" />
         </button>
         <div style={{ flex: 1 }}>
           <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 16, color: 'var(--t1)' }}>

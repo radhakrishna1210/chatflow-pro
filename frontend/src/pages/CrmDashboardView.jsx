@@ -1004,7 +1004,7 @@ export function CrmDashboardView({ user }) {
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Action Center</div>
                 <div style={{ fontSize: 11, color: 'var(--t3)' }}>Urgent recommendations & overdue tasks</div>
               </div>
-              <button onClick={() => setDrawerOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--t2)', cursor: 'pointer', padding: 6 }}>
+              <button aria-label="Close" onClick={() => setDrawerOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--t2)', cursor: 'pointer', padding: 6 }}>
                 <I n="x" s={18} c="var(--t2)" />
               </button>
             </div>

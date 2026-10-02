@@ -454,7 +454,7 @@ export default function EngagementsView({ user, initialTab }) {
               <I n="search" s={14} c="var(--t3)" />
             </div>
             {search && (
-              <button
+              <button aria-label="Close"
                 onClick={() => setSearch('')}
                 style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)' }}
               >

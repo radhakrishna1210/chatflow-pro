@@ -893,7 +893,7 @@ function ProspectingCriteriaTab({ config = {}, onChange }) {
                   />
                   <span>%</span>
                 </div>
-                <button
+                <button aria-label="Delete"
                   type="button"
                   onClick={() => handleRemoveQuestion(item.id)}
                   style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}
@@ -1188,13 +1188,13 @@ function LeadTagsTab({ config, onChange, palette }) {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 4 }}>
-              <button
+              <button aria-label="Edit"
                 onClick={() => handleOpenEdit(tags.indexOf(tag))}
                 style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 4 }}
               >
                 <I n="pencil" s={13} />
               </button>
-              <button
+              <button aria-label="Delete"
                 onClick={() => handleDelete(tags.indexOf(tag))}
                 style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}
               >
@@ -1399,13 +1399,13 @@ function LeadSourcesTab({ config, onChange, onRequestDelete }) {
                 </td>
                 <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                   <div style={{ display: 'inline-flex', gap: 4 }}>
-                    <button
+                    <button aria-label="Edit"
                       onClick={() => handleOpenEdit(idx)}
                       style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 4 }}
                     >
                       <I n="pencil" s={14} />
                     </button>
-                    <button
+                    <button aria-label="Delete"
                       onClick={() => handleDelete(idx)}
                       style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}
                     >
@@ -1590,13 +1590,13 @@ function CallOutcomesTab({ config, onChange }) {
                 </td>
                 <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                   <div style={{ display: 'inline-flex', gap: 4 }}>
-                    <button
+                    <button aria-label="Edit"
                       onClick={() => handleOpenEdit(idx)}
                       style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 4 }}
                     >
                       <I n="pencil" s={14} />
                     </button>
-                    <button
+                    <button aria-label="Delete"
                       onClick={() => handleDelete(idx)}
                       style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}
                     >
@@ -1754,13 +1754,13 @@ function VisitOutcomesTab({ config, onChange }) {
                 </td>
                 <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                   <div style={{ display: 'inline-flex', gap: 4 }}>
-                    <button
+                    <button aria-label="Edit"
                       onClick={() => handleOpenEdit(idx)}
                       style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 4 }}
                     >
                       <I n="pencil" s={14} />
                     </button>
-                    <button
+                    <button aria-label="Delete"
                       onClick={() => handleDelete(idx)}
                       style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}
                     >
@@ -2239,10 +2239,10 @@ function TicketCustomizationTab({ config, onChange, subTab, setSubTab, palette }
                   <td style={{ padding: '12px 16px', color: 'var(--t3)' }}>{cat.description || '—'}</td>
                   <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                     <div style={{ display: 'inline-flex', gap: 4 }}>
-                      <button onClick={() => handleOpenEdit(idx)} style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 4 }}>
+                      <button aria-label="Edit" onClick={() => handleOpenEdit(idx)} style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 4 }}>
                         <I n="pencil" s={14} />
                       </button>
-                      <button onClick={() => handleDelete(idx)} style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}>
+                      <button aria-label="Delete" onClick={() => handleDelete(idx)} style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}>
                         <I n="trash" s={14} />
                       </button>
                     </div>
@@ -2286,10 +2286,10 @@ function TicketCustomizationTab({ config, onChange, subTab, setSubTab, palette }
                   </td>
                   <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                     <div style={{ display: 'inline-flex', gap: 4 }}>
-                      <button onClick={() => handleOpenEdit(idx)} style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 4 }}>
+                      <button aria-label="Edit" onClick={() => handleOpenEdit(idx)} style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: 4 }}>
                         <I n="pencil" s={14} />
                       </button>
-                      <button onClick={() => handleDelete(idx)} style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}>
+                      <button aria-label="Delete" onClick={() => handleDelete(idx)} style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: 4 }}>
                         <I n="trash" s={14} />
                       </button>
                     </div>
