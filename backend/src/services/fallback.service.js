@@ -2,6 +2,9 @@ import twilio from 'twilio';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { sendMail } from '../lib/mailer.js';
+import { debit, credit } from './wallet.service.js';
+import { isOptedOut } from './optout.service.js';
+import { SMS_FALLBACK_RATE } from '../lib/messagePricing.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Campaign fallback channels (wizard step 8)
@@ -32,6 +35,7 @@ function twilioClient() {
 export function fallbackCapabilities() {
   return {
     sms: !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN),
+    smsRate: SMS_FALLBACK_RATE,
     email: !!env.SMTP_HOST,
   };
 }
@@ -43,18 +47,40 @@ function renderText(template, contact) {
     .replaceAll('{{name}}', contact.name || 'there');
 }
 
-async function sendSmsFallback(config, contact) {
+// SMS goes out on the platform's Twilio account, so each one is charged to
+// the workspace wallet at SMS_FALLBACK_RATE — debited before the send (keyed
+// per recipient, so a duplicate fallback can never charge twice) and handed
+// back if Twilio refuses it. No balance, no SMS.
+async function sendSmsFallback(config, contact, { workspaceId, campaign, recipient }) {
   const client = twilioClient();
   if (!client) return { ok: false, channel: 'sms', reason: 'Twilio not configured' };
   if (!config.smsFrom) return { ok: false, channel: 'sms', reason: 'No SMS sender number configured' };
+
+  const chargeKey = `sms_fallback_${recipient.id}`;
+  const charge = await debit(workspaceId, SMS_FALLBACK_RATE, {
+    reason: `Fallback SMS: ${campaign.name}`,
+    reference: campaign.id,
+    category: 'USAGE',
+    idempotencyKey: chargeKey,
+  }).catch((err) => ({ ok: false, reason: err.message }));
+  if (!charge.ok) return { ok: false, channel: 'sms', reason: 'Insufficient wallet balance for SMS' };
+  if (charge.alreadyProcessed) return { ok: false, channel: 'sms', reason: 'SMS fallback already sent for this recipient' };
+
   try {
     const msg = await client.messages.create({
       from: config.smsFrom,
       to: contact.phoneNumber,
       body: renderText(config.smsText || 'We tried to reach you on WhatsApp.', contact).slice(0, 1500),
     });
-    return { ok: true, channel: 'sms', sid: msg.sid };
+    return { ok: true, channel: 'sms', sid: msg.sid, charged: SMS_FALLBACK_RATE };
   } catch (err) {
+    await credit(workspaceId, SMS_FALLBACK_RATE, {
+      reason: `Refund for unsent fallback SMS: ${campaign.name}`,
+      reference: campaign.id,
+      category: 'REFUND',
+      gateway: 'system',
+      idempotencyKey: `${chargeKey}_refund`,
+    }).catch((e) => console.error(`[Fallback] SMS refund failed for ${recipient.id}:`, e.message));
     return { ok: false, channel: 'sms', reason: err.message };
   }
 }
@@ -82,9 +108,17 @@ export async function runFallbackForRecipient(campaign, recipient, contact) {
   const config = campaign.fallbackConfig;
   if (!config || (!config.smsEnabled && !config.emailEnabled)) return null;
 
+  const workspaceId = campaign.workspaceId;
+  // The WhatsApp opt-out was checked before the WhatsApp attempt, but a STOP
+  // can land in between — and a customer who opted out has not asked to be
+  // reached on another channel instead.
   const attempts = [];
-  if (config.smsEnabled) attempts.push(await sendSmsFallback(config, contact));
-  if (config.emailEnabled) attempts.push(await sendEmailFallback(config, contact));
+  if (contact?.phoneNumber && await isOptedOut(workspaceId, contact.phoneNumber)) {
+    attempts.push({ ok: false, channel: 'all', reason: 'recipient opted out' });
+  } else {
+    if (config.smsEnabled) attempts.push(await sendSmsFallback(config, contact, { workspaceId, campaign, recipient }));
+    if (config.emailEnabled) attempts.push(await sendEmailFallback(config, contact));
+  }
 
   const succeeded = attempts.filter((a) => a.ok).map((a) => a.channel);
   const failed = attempts.filter((a) => !a.ok).map((a) => `${a.channel}: ${a.reason}`);

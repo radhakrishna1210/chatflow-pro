@@ -31,7 +31,7 @@ function getExpirationMinutes() {
  * Verify that a template is an approved
  * AUTHENTICATION / COPY_CODE template.
  */
-function isCopyCodeAuthenticationTemplate(template) {
+export function isCopyCodeAuthenticationTemplate(template) {
   if (
     String(template?.category || '').toUpperCase() !==
     'AUTHENTICATION'
@@ -182,6 +182,61 @@ async function resolveAuthenticationConfiguration(
 }
 
 /**
+ * Resolve the sender for an Authentication campaign: the template and number
+ * the campaign itself was built on, held to the same rules as the workspace
+ * configuration (same workspace, APPROVED, AUTHENTICATION, COPY_CODE).
+ *
+ * Internal only — the public controller never passes these ids.
+ */
+async function resolveCampaignAuthenticationSender(
+  workspaceId,
+  { templateId, waNumberId }
+) {
+  const [template, waNumber] = await Promise.all([
+    prisma.template.findFirst({
+      where: { id: templateId, workspaceId, status: 'APPROVED' },
+    }),
+    prisma.waNumber.findFirst({
+      where: { id: waNumberId, workspaceId },
+    }),
+  ]);
+
+  if (!template) {
+    const error = new Error(
+      'The campaign template is not approved or no longer exists.'
+    );
+    error.status = 409;
+    throw error;
+  }
+
+  if (!isCopyCodeAuthenticationTemplate(template)) {
+    const error = new Error(
+      'Only approved COPY_CODE authentication templates are supported.'
+    );
+    error.status = 422;
+    throw error;
+  }
+
+  if (!waNumber) {
+    const error = new Error(
+      'The campaign WhatsApp number no longer exists.'
+    );
+    error.status = 409;
+    throw error;
+  }
+
+  if (template.waNumberId && template.waNumberId !== waNumber.id) {
+    const error = new Error(
+      'The campaign template belongs to a different WhatsApp number.'
+    );
+    error.status = 409;
+    throw error;
+  }
+
+  return { template, waNumber };
+}
+
+/**
  * Build the Meta Authentication template payload.
  *
  * The generated OTP is used for the Authentication message.
@@ -229,7 +284,7 @@ function buildAuthenticationPayload(template, otp) {
  */
 export async function sendAuthenticationOtp(
   workspaceId,
-  { to, campaignId = null }
+  { to, campaignId = null, templateId = null, waNumberId = null }
 ) {
   if (!workspaceId) {
     const error = new Error('Workspace is required.');
@@ -258,12 +313,14 @@ export async function sendAuthenticationOtp(
     recipient
   );
 
+  // A campaign sends from its own template and number; everything else uses
+  // the workspace's Authentication configuration.
   const {
     template,
     waNumber,
-  } = await resolveAuthenticationConfiguration(
-    workspaceId
-  );
+  } = campaignId && templateId && waNumberId
+    ? await resolveCampaignAuthenticationSender(workspaceId, { templateId, waNumberId })
+    : await resolveAuthenticationConfiguration(workspaceId);
 
   // `campaignId` is internal worker metadata only. Verify it belongs to this
   // workspace and is an Authentication campaign before persisting the link.
@@ -275,9 +332,13 @@ export async function sendAuthenticationOtp(
         workspaceId,
         template: { category: { equals: 'AUTHENTICATION', mode: 'insensitive' } },
       },
-      select: { id: true },
+      select: { id: true, templateId: true, waNumberId: true },
     });
-    if (!campaign) {
+    if (
+      !campaign ||
+      (templateId && campaign.templateId !== templateId) ||
+      (waNumberId && campaign.waNumberId !== waNumberId)
+    ) {
       const error = new Error('Authentication campaign not found.');
       error.status = 404;
       throw error;

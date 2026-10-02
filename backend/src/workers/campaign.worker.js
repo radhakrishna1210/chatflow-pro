@@ -19,11 +19,41 @@ import { sendAuthenticationOtp } from '../authentication/authentication.service.
 // Meta Cloud API Tier-1 numbers are limited to ~250 msgs/min. The old 60ms
 // delay (~1000/min) triggered rate-limit errors (code 131042). 250ms ≈ 240/min.
 const RATE_DELAY_MS = Math.max(env.CAMPAIGN_RATE_DELAY_MS, 250);
+const BATCH_SIZE = Math.max(1, Number(env.CAMPAIGN_BATCH_SIZE) || 50);
+const STATUS_CHECK_MS = 2_000;
 
 const normalizePhone = (raw) => String(raw || '').replace(/[^\d]/g, '');
 const isAuthenticationCampaign = (campaign) =>
   String(campaign?.template?.category || '').toUpperCase() ===
   'AUTHENTICATION';
+
+// A campaign launched with chargedAt set reserved its plan quota and paid the
+// wallet for the rest up front (campaigns.service.js#launchCampaign), so a
+// send must not meter either a second time — that double-counted every
+// campaign message against the plan's allowance. The subscription still has
+// to be live for anything to go out. Campaigns without a launch charge (none
+// are created any more) keep the per-send path.
+const SENDABLE_SUBSCRIPTION = ['ACTIVE', 'PAST_DUE'];
+// `memo` lets one send loop reuse a recent positive subscription check.
+async function takeSendCredit(campaign, reason, memo = null) {
+  if (campaign.chargedAt) {
+    if (memo?.subscriptionOkUntil > Date.now()) return { ok: true, source: null };
+    const sub = await prisma.subscription.findUnique({
+      where: { workspaceId: campaign.workspaceId }, select: { status: true },
+    });
+    if (!sub || !SENDABLE_SUBSCRIPTION.includes(sub.status)) return { ok: false, code: 'SUBSCRIPTION_INACTIVE' };
+    if (memo) memo.subscriptionOkUntil = Date.now() + 30_000;
+    return { ok: true, source: null };
+  }
+  return consumeMessageCredit(campaign.workspaceId, {
+    reason,
+    messageCategory: campaign.template?.category ?? null,
+  });
+}
+
+const creditFailureReason = (code) => (code === 'SUBSCRIPTION_INACTIVE'
+  ? 'Subscription is not active'
+  : 'Quota and wallet balance exhausted');
 
 // Marks a recipient as skipped because the number is opted out. Skips are
 // tracked separately from failures: they cost nothing, are never retried, and
@@ -129,6 +159,94 @@ const snapshotRecipientContext = async (campaign, recipient) => {
   }
 };
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Hands one recipient's message to Meta and returns the message id. This is
+// the only step whose failure means "not sent".
+async function sendToRecipient(campaign, recipient, { phoneNumberId, accessToken }) {
+  if (isAuthenticationCampaign(campaign)) {
+    // Each recipient gets a freshly generated OTP and its own
+    // AuthenticationTransaction, sent from the campaign's template and number.
+    const authenticationResult = await sendAuthenticationOtp(campaign.workspaceId, {
+      templateId: campaign.template.id,
+      to: recipient.contact.phoneNumber,
+      waNumberId: campaign.waNumber.id,
+      campaignId: campaign.id,
+    });
+    return authenticationResult?.metaMessageId ?? null;
+  }
+
+  const templatePayload = await buildTemplatePayload(
+    campaign.template,
+    recipient.contact,
+    { phoneNumberId, accessToken, campaign, recipientId: recipient.id },
+  );
+  const result = await sendWhatsAppMessage(
+    phoneNumberId,
+    accessToken,
+    normalizePhone(recipient.contact.phoneNumber),
+    templatePayload,
+  );
+  return result?.messages?.[0]?.id ?? null;
+}
+
+// Once Meta has accepted a message everything else is bookkeeping, and none of
+// it may route the recipient back into failure handling: that scheduled a retry
+// (a duplicate paid send) for a message the customer already had, and released
+// the credit for a message that was delivered. Each step runs on its own and a
+// failure is logged, not thrown.
+async function bookkeep(label, recipientId, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(`[CampaignWorker] ${label} failed for recipient ${recipientId} after Meta accepted the message:`, err.message);
+    return null;
+  }
+}
+
+// The write that records a send. It is what keeps the message from being sent
+// again (recovery re-sends a SENDING/IN_PROGRESS row that never got it), so a
+// transient database error gets a couple of short retries before giving up.
+async function markRecipientSent(recipientId, data) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await prisma.campaignRecipient.update({ where: { id: recipientId }, data });
+      return true;
+    } catch (err) {
+      if (attempt === 3) {
+        console.error(`[CampaignWorker] Could not record the send for recipient ${recipientId} — Meta accepted it:`, err.message);
+        return false;
+      }
+      await sleep(500 * attempt);
+    }
+  }
+  return false;
+}
+
+// Files the outbound message on the contact's conversation so delivery/read
+// webhooks (matched by metaMessageId) can update the right recipient.
+async function persistOutboundMessage(campaign, recipient, metaMessageId, body) {
+  if (!metaMessageId) return;
+  const where = { contactId: recipient.contactId, waNumberId: campaign.waNumberId };
+  let convo = await prisma.conversation.findFirst({ where });
+  if (!convo) {
+    convo = await prisma.conversation.create({
+      data: { workspaceId: campaign.workspaceId, ...where, status: 'OPEN' },
+    }).catch(() => prisma.conversation.findFirst({ where }));
+  }
+  if (!convo) return;
+  await prisma.message.create({
+    data: {
+      conversationId: convo.id,
+      body,
+      direction: 'OUTBOUND',
+      metaMessageId,
+      campaignRecipientId: recipient.id,
+      sentAt: new Date(),
+    },
+  });
+}
+
 async function processRetryJob(job) {
   const { campaignId, workspaceId, recipientId, attempt = 1 } = job.data;
   console.log(`[CampaignRetry] Retry started for recipient ${recipientId} (attempt #${attempt})`);
@@ -142,8 +260,10 @@ async function processRetryJob(job) {
     console.log(`[CampaignRetry] Campaign ${campaignId} not found — skipping retry`);
     return;
   }
-  if (isAuthenticationCampaign(campaign) ? campaign.status !== 'RUNNING' : campaign.status === 'CANCELLED') {
-    console.log(`[CampaignRetry] Campaign ${campaignId} was cancelled — skipping retry for ${recipientId}`);
+  // Pause halts all sending, retries included, for every campaign type. The
+  // row stays RETRYING; resumeCampaign re-queues it.
+  if (campaign.status !== 'RUNNING') {
+    console.log(`[CampaignRetry] Campaign ${campaignId} is ${campaign.status} — skipping retry for ${recipientId}`);
     return;
   }
   if (!campaign.waNumber) {
@@ -183,165 +303,195 @@ async function processRetryJob(job) {
     return;
   }
 
-  const accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
-  const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
-
-  // Declared outside the try so the catch below knows which kind of credit to
-  // hand back when the retry send fails.
+  // From here on every path must leave the claim: the send succeeds (SENT),
+  // or failure handling reschedules / fails the recipient. A throw that escaped
+  // (a decrypt failure, a database error) used to leave IN_PROGRESS behind,
+  // which every later job refused and which kept the campaign from completing.
   let creditSource = null;
   let creditAmount = null;
+  let metaMessageId = null;
   try {
-    const credit = await consumeMessageCredit(workspaceId, {
-      reason: 'Campaign retry attempt',
-      prepaid: !!campaign.chargedAt,
-      // Overage is priced by the template's category, same as the launch charge.
-      messageCategory: campaign.template?.category ?? null,
-    });
+    const accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
+    const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
+
+    const credit = await takeSendCredit(campaign, 'Campaign retry attempt');
     creditSource = credit.ok ? credit.source : null;
     creditAmount = credit.ok ? (credit.amount ?? null) : null;
     if (!credit.ok) {
-      console.warn(`[CampaignRetry] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
-      await handleRecipientFailure(campaign, recipient, 'Quota and wallet balance exhausted', null);
+      console.warn(`[CampaignRetry] cannot send to ${recipient.contact.phoneNumber}: ${credit.code}`);
+      await handleRecipientFailure(campaign, recipient, creditFailureReason(credit.code), null);
       return;
     }
 
-    // const templatePayload = await buildTemplatePayload(
-    //   campaign.template,
-    //   recipient.contact,
-    //   { phoneNumberId, accessToken, campaign, recipientId: recipient.id },
-    // );
-
-    // const result = await sendWhatsAppMessage(
-    //   phoneNumberId,
-    //   accessToken,
-    //   normalizePhone(recipient.contact.phoneNumber),
-    //   templatePayload
-    // );
-    // const metaMessageId = result?.messages?.[0]?.id ?? null;
-    let metaMessageId = null;
-
-if (isAuthenticationCampaign(campaign)) {
-  /*
-   * AUTHENTICATION campaign:
-   *
-   * Do not use the normal campaign template payload builder.
-   * sendAuthenticationOtp() generates a unique OTP for this
-   * recipient and creates the workspace/phone-isolated transaction.
-   *
-   * Campaigns currently do not have a per-recipient client OTP
-   * source, so they use CHATFLOW_GENERATED mode.
-   */
-  const authenticationResult = await sendAuthenticationOtp(
-    workspaceId,
-    {
-      templateId: campaign.template.id,
-      to: recipient.contact.phoneNumber,
-      waNumberId: campaign.waNumber.id,
-      campaignId: campaign.id,
-    }
-  );
-
-  metaMessageId =
-    authenticationResult?.metaMessageId ?? null;
-} else {
-  /*
-   * NORMAL campaign:
-   * Keep the existing template payload behavior unchanged.
-   */
-  const templatePayload = await buildTemplatePayload(
-    campaign.template,
-    recipient.contact,
-    {
-      phoneNumberId,
-      accessToken,
-      campaign,
-      recipientId: recipient.id,
-    },
-  );
-
-  const result = await sendWhatsAppMessage(
-    phoneNumberId,
-    accessToken,
-    normalizePhone(recipient.contact.phoneNumber),
-    templatePayload
-  );
-
-  metaMessageId = result?.messages?.[0]?.id ?? null;
-}
-    console.log(`[CampaignRetry] Retry succeeded for recipient ${recipient.id} on attempt #${attempt}:`, metaMessageId);
-
-    await snapshotRecipientContext(campaign, recipient);
-
-    const wasSent = Boolean(recipient.sentAt);
-    await prisma.campaignRecipient.update({
-      where: { id: recipient.id },
-      data: {
-        status: 'SENT',
-        sentAt: recipient.sentAt || new Date(),
-        retryStatus: 'SUCCESS',
-        nextRetryAt: null,
-        failReason: null,
-        lastFailureReason: null,
-      },
-    });
-
-    // First attempt that actually reached Meta claims the charge. If the
-    // initial send already billed this recipient, this is a no-op — never a
-    // second charge for the same person.
-    await claimRecipientCharge(campaign, recipient);
-    await recordAttempt(recipient.id, { attempt, ok: true });
-    await notifyRetrySucceeded(campaign, recipient, attempt);
-
-    if (!wasSent) {
-      await prisma.campaign.update({
-        where: { id: campaignId },
-        data: { sent: { increment: 1 } },
-      });
-    }
-
-    if (metaMessageId) {
-      let convo = await prisma.conversation.findFirst({
-        where: { contactId: recipient.contactId, waNumberId: campaign.waNumberId },
-      });
-      if (!convo) {
-        convo = await prisma.conversation.create({
-          data: {
-            workspaceId: campaign.workspaceId,
-            contactId: recipient.contactId,
-            waNumberId: campaign.waNumberId,
-            status: 'OPEN',
-          },
-        }).catch(() => null);
-      }
-      if (convo) {
-        await prisma.message.create({
-          data: {
-            conversationId: convo.id,
-            body: `[Campaign Retry: ${campaign.name}]`,
-            direction: 'OUTBOUND',
-            metaMessageId,
-            campaignRecipientId: recipient.id,
-            sentAt: new Date(),
-          },
-        }).catch(() => null);
-      }
-    }
-
-    await checkAndCompleteCampaign(campaignId);
+    metaMessageId = await sendToRecipient(campaign, recipient, { phoneNumberId, accessToken });
   } catch (err) {
     const metaErr = err.response?.data?.error;
     const reason = describeMetaError(metaErr, err.message);
     console.error(`[CampaignRetry] Retry failed for ${recipient.contact.phoneNumber}:`, reason);
 
-    // Nothing went out, so the retry's credit goes back — otherwise every
-    // retry attempt would burn quota for a message that never arrived.
-    await releaseMessageCredit(workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
-    await recordAttempt(recipient.id, { attempt, ok: false, reason, metaCode: metaErr?.code ?? null });
-    await handleRecipientFailure(campaign, { ...recipient, retryCount: attempt }, reason, metaErr?.code);
+    try {
+      // Nothing went out, so the retry's credit goes back — otherwise every
+      // retry attempt would burn quota for a message that never arrived.
+      await releaseMessageCredit(workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
+      await recordAttempt(recipient.id, { attempt, ok: false, reason, metaCode: metaErr?.code ?? null });
+      await handleRecipientFailure(campaign, { ...recipient, retryCount: attempt }, reason, metaErr?.code);
+    } catch (handlingErr) {
+      // Hand the claim back so the recovery sweep re-queues this attempt.
+      console.error(`[CampaignRetry] Could not record the failure for ${recipient.id}:`, handlingErr.message);
+      await prisma.campaignRecipient.updateMany({
+        where: { id: recipient.id, retryStatus: 'IN_PROGRESS' },
+        data: { retryStatus: 'SCHEDULED' },
+      }).catch(() => {});
+    }
+    return;
   }
+
+  console.log(`[CampaignRetry] Retry succeeded for recipient ${recipient.id} on attempt #${attempt}:`, metaMessageId);
+
+  const wasSent = Boolean(recipient.sentAt);
+  await markRecipientSent(recipient.id, {
+    status: 'SENT',
+    sentAt: recipient.sentAt || new Date(),
+    retryStatus: 'SUCCESS',
+    nextRetryAt: null,
+    failReason: null,
+    lastFailureReason: null,
+  });
+
+  await snapshotRecipientContext(campaign, recipient);
+  // First attempt that actually reached Meta claims the charge. If the
+  // initial send already billed this recipient, this is a no-op — never a
+  // second charge for the same person.
+  await bookkeep('Charge claim', recipient.id, () => claimRecipientCharge(campaign, recipient));
+  await bookkeep('Attempt history', recipient.id, () => recordAttempt(recipient.id, { attempt, ok: true }));
+  await bookkeep('Retry notification', recipient.id, () => notifyRetrySucceeded(campaign, recipient, attempt));
+  if (!wasSent) {
+    await bookkeep('Sent counter', recipient.id, () => prisma.campaign.update({
+      where: { id: campaignId },
+      data: { sent: { increment: 1 } },
+    }));
+  }
+  await bookkeep('Message record', recipient.id, () =>
+    persistOutboundMessage(campaign, recipient, metaMessageId, `[Campaign Retry: ${campaign.name}]`));
+  await bookkeep('Completion check', recipient.id, () => checkAndCompleteCampaign(campaignId));
 }
 
-async function processCampaign(job) {
+// One recipient of the main loop, already claimed PENDING -> SENDING. Every
+// path moves the row out of SENDING. Returns false when nothing was offered to
+// Meta (an opt-out skip), so the caller can skip the rate-limit pause.
+async function sendClaimedRecipient(campaign, recipient, { phoneNumberId, accessToken, memo = null }) {
+  const campaignId = campaign.id;
+  // Declared outside the try so the catch below knows which kind of credit to
+  // hand back when the send fails.
+  let creditSource = null;
+  let creditAmount = null;
+  let metaMessageId = null;
+  try {
+    // Re-checked per recipient rather than only at launch: a customer can
+    // reply STOP while the campaign is mid-flight, and that must take effect
+    // for the messages that haven't gone out yet.
+    if (await isOptedOut(campaign.workspaceId, recipient.contact.phoneNumber)) {
+      await skipOptedOutRecipient(campaignId, recipient);
+      return false;
+    }
+
+    const credit = await takeSendCredit(campaign, 'Campaign overage', memo);
+    creditSource = credit.ok ? credit.source : null;
+    creditAmount = credit.ok ? (credit.amount ?? null) : null;
+    if (!credit.ok) {
+      console.warn(`[CampaignWorker] cannot send to ${recipient.contact.phoneNumber}: ${credit.code}`);
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id },
+        data: {
+          status: 'FAILED', failedAt: new Date(),
+          failReason: creditFailureReason(credit.code),
+          initialStatus: 'FAILED',
+        },
+      });
+      // Nothing was sent, so nothing is owed for this recipient.
+      await markRecipientNotCharged(recipient.id);
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { failed: { increment: 1 } },
+      });
+      return true;
+    }
+
+    metaMessageId = await sendToRecipient(campaign, recipient, { phoneNumberId, accessToken });
+  } catch (err) {
+    const metaErr = err.response?.data?.error;
+    const reason = describeMetaError(metaErr, err.message);
+    console.error(`[CampaignWorker] send failed for ${recipient.contact.phoneNumber}:`, reason, metaErr || '');
+    try {
+      // The credit was claimed before the send that just failed — give it
+      // back so a message nobody received doesn't count against the quota.
+      await releaseMessageCredit(campaign.workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
+      // No charge is claimed on a failed send — the recipient stays unbilled
+      // until an attempt actually reaches Meta.
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id }, data: { initialStatus: 'FAILED' },
+      }).catch(() => {});
+      await recordAttempt(recipient.id, { attempt: 0, ok: false, reason, metaCode: metaErr?.code ?? null });
+      await handleRecipientFailure(campaign, recipient, reason, metaErr?.code);
+    } catch (handlingErr) {
+      // Nothing went out. Hand the row back rather than leaving it SENDING, so
+      // a later run (or the recovery sweep) picks it up again.
+      console.error(`[CampaignWorker] Could not record the failure for ${recipient.id}:`, handlingErr.message);
+      await prisma.campaignRecipient.updateMany({
+        where: { id: recipient.id, status: 'SENDING' },
+        data: { status: 'PENDING' },
+      }).catch(() => {});
+    }
+    return true;
+  }
+
+  console.log(`[CampaignWorker] sent to ${recipient.contact.phoneNumber}:`, metaMessageId);
+  await markRecipientSent(recipient.id, { status: 'SENT', sentAt: new Date(), initialStatus: 'SENT' });
+  await snapshotRecipientContext(campaign, recipient);
+  // The message reached Meta, so this recipient claims its share of the
+  // launch reservation — once, no matter how many attempts follow. What
+  // is never claimed here is refunded at settlement.
+  await bookkeep('Charge claim', recipient.id, () => claimRecipientCharge(campaign, recipient));
+  await bookkeep('Attempt history', recipient.id, () => recordAttempt(recipient.id, { attempt: 0, ok: true }));
+  await bookkeep('Sent counter', recipient.id, () => prisma.campaign.update({
+    where: { id: campaignId },
+    data: { sent: { increment: 1 } },
+  }));
+  await bookkeep('Message record', recipient.id, () =>
+    persistOutboundMessage(campaign, recipient, metaMessageId, `[Campaign: ${campaign.name}]`));
+  return true;
+}
+
+// Ends a campaign that cannot be sent. Never overwrites a CANCELLED/COMPLETED
+// one. A campaign that died before sending (a disconnected number, an expired
+// token) has already taken the money, so everything that never went out is
+// given back — otherwise FAILED is a dead end with no refund path, since
+// cancel() refuses terminal campaigns.
+async function failCampaign(campaignId, message) {
+  const res = await prisma.campaign.updateMany({
+    where: { id: campaignId, status: { in: ['RUNNING', 'SCHEDULED', 'DRAFT'] } },
+    data: { status: 'FAILED' },
+  });
+  if (res.count === 0) return;
+  console.error(`[CampaignWorker] Campaign ${campaignId} failed: ${message}`);
+
+  const failed = await prisma.campaign.findUnique({ where: { id: campaignId } }).catch(() => null);
+  if (!failed) return;
+  await settleCampaignRefund(failed.id, 'Refund for failed campaign').catch((e) =>
+    console.error(`[Campaign] Settlement failed for ${failed.id}:`, e.message));
+
+  queueCampaignFailedEmail(failed).catch(() => {});
+  notifyWorkspace(failed.workspaceId, {
+    type: 'CAMPAIGN_FAILED',
+    title: `Campaign "${failed.name}" failed`,
+    body: message,
+    link: 'campaigns',
+    meta: { campaignId: failed.id },
+  }).catch(() => {});
+}
+
+// Exported for tests; production runs it only through startCampaignWorker().
+export async function processCampaign(job) {
   if (job.name === 'retry-recipient' || job.data?.type === 'retry') {
     await processRetryJob(job);
     return;
@@ -367,10 +517,21 @@ async function processCampaign(job) {
     console.log(`[CampaignWorker] Campaign ${campaignId} is ${campaign.status} — skipping`);
     return;
   }
+  // Both are permanent: retrying the job cannot fix them, and a retry that
+  // found the campaign already FAILED used to return quietly, so the refund
+  // in the final-attempt handler never ran.
   if (!campaign.waNumber) {
-    await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'FAILED' } });
-    throw new Error(`Campaign ${campaignId} has no WhatsApp number`);
+    await failCampaign(campaignId, `Campaign ${campaignId} has no WhatsApp number`);
+    return;
   }
+  let accessToken;
+  try {
+    accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
+  } catch {
+    await failCampaign(campaignId, 'The WhatsApp access token for this number could not be read — reconnect the number in Number Setup, then relaunch.');
+    return;
+  }
+  const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
 
   // Atomic status guard: only transition to RUNNING if the campaign wasn't
   // cancelled or paused in the meantime (closes the cancel race with getJobs()).
@@ -379,24 +540,27 @@ async function processCampaign(job) {
     data: { status: 'RUNNING', launchedAt: campaign.launchedAt || new Date() },
   });
   if (claimed.count === 0) {
-    // RUNNING is deliberately *not* claimable above. It used to be, which meant
-    // two deliveries of the same job (a stalled worker being redelivered, a
-    // double launch) could both claim it and both iterate the same PENDING
-    // recipients — sending every message twice. A resume is the one legitimate
-    // way back into RUNNING, and it comes through resumeCampaign().
-    const current = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
-    if (current?.status === 'RUNNING' && !job.data?.resume) {
-      console.warn(`[CampaignWorker] Campaign ${campaignId} is already being sent by another job — refusing to send it twice.`);
-      return;
-    }
+    // RUNNING is deliberately not claimable above, so an unrelated second job
+    // (a double launch) cannot start another loop over the same recipients.
+    // Re-entry is legitimate for a resume or recovery job (flagged `resume`)
+    // and for a redelivery of the very job that owns the campaign — a stalled
+    // worker, or BullMQ's own retry after a throw mid-run. Without the latter
+    // the retry returned "success" and the campaign stayed RUNNING forever.
+    // Each recipient is still claimed PENDING -> SENDING before it is sent,
+    // which is what actually rules out a double send.
+    const current = await prisma.campaign.findUnique({
+      where: { id: campaignId }, select: { status: true, queueJobId: true },
+    });
     if (current?.status !== 'RUNNING') {
       console.log(`[CampaignWorker] Campaign ${campaignId} could not be claimed (${current?.status}) — skipping`);
       return;
     }
+    const ownsCampaign = Boolean(current.queueJobId) && String(job.id) === current.queueJobId;
+    if (!job.data?.resume && !ownsCampaign) {
+      console.warn(`[CampaignWorker] Campaign ${campaignId} is already being sent by another job — refusing to send it twice.`);
+      return;
+    }
   }
-
-  const accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
-  const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
 
   const recipients = await prisma.campaignRecipient.findMany({
     where: { campaignId, status: 'PENDING' },
@@ -406,214 +570,55 @@ async function processCampaign(job) {
   let cancelled = false;
   let paused = false;
   let processed = 0;
+  let lastId = null;
+  let statusCheckedAt = 0;
+  const memo = {};
 
-  for (const recipient of recipients) {
-    const refreshed = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
-    if (refreshed?.status === 'CANCELLED') { cancelled = true; break; }
-    // Pausing has to bite immediately, not at the end of the batch — that is
-    // the whole point of being able to stop a campaign mid-flight.
-    if (refreshed?.status === 'PAUSED') {
-      console.log(`[CampaignWorker] Campaign ${campaignId} was paused — stopping after ${processed} recipient(s).`);
-      paused = true;
-      break;
-    }
-
-    // Claim this recipient before sending. The retry path already does this;
-    // the main loop did not, so anything that ran the loop twice concurrently
-    // would send to the same person twice. Only the writer that moves PENDING
-    // to SENDING proceeds.
-    const claimedRecipient = await prisma.campaignRecipient.updateMany({
-      where: { id: recipient.id, status: 'PENDING' },
-      data: { status: 'SENDING' },
+  // Recipients are read in CAMPAIGN_BATCH_SIZE pages (keyset on id) rather
+  // than all at once, so a 100k-recipient campaign does not hold 100k contact
+  // rows in memory. Rows that leave PENDING drop out of the filter on their
+  // own; the id bound is what moves the page past rows claimed elsewhere.
+  while (!cancelled && !paused) {
+    const batch = await prisma.campaignRecipient.findMany({
+      where: { campaignId, status: 'PENDING', ...(lastId ? { id: { gt: lastId } } : {}) },
+      include: { contact: true },
+      orderBy: { id: 'asc' },
+      take: BATCH_SIZE,
     });
-    if (claimedRecipient.count === 0) {
-      console.log(`[CampaignWorker] Recipient ${recipient.id} already claimed elsewhere — skipping duplicate.`);
-      continue;
-    }
-    processed += 1;
+    if (batch.length === 0) break;
+    lastId = batch[batch.length - 1].id;
 
-    // Re-checked per recipient rather than only at launch: a customer can
-    // reply STOP while the campaign is mid-flight, and that must take effect
-    // for the messages that haven't gone out yet.
-    if (await isOptedOut(campaign.workspaceId, recipient.contact.phoneNumber)) {
-      await skipOptedOutRecipient(campaignId, recipient);
-      continue;
-    }
+    for (const recipient of batch) {
+      // Pause and cancel have to bite within moments, not at the end of a
+      // page, but a status read before every single send was one extra round
+      // trip per message. Re-read it at most every STATUS_CHECK_MS.
+      if (Date.now() - statusCheckedAt >= STATUS_CHECK_MS) {
+        const refreshed = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
+        statusCheckedAt = Date.now();
+        if (refreshed?.status === 'CANCELLED') { cancelled = true; break; }
+        if (refreshed?.status === 'PAUSED') {
+          console.log(`[CampaignWorker] Campaign ${campaignId} was paused — stopping after ${processed} recipient(s).`);
+          paused = true;
+          break;
+        }
+      }
 
-    // Declared outside the try so the catch below knows which kind of credit
-    // to hand back when the send fails.
-    let creditSource = null;
-    let creditAmount = null;
-    try {
-      // Campaigns are paid for in full at launch (campaigns.service.js), so
-      // the per-send call only meters quota here — charging again would
-      // double-bill the same message.
-      const credit = await consumeMessageCredit(campaign.workspaceId, {
-        reason: 'Campaign overage',
-        prepaid: !!campaign.chargedAt,
-        // Only used when this send is not prepaid; prices overage by category.
-        messageCategory: campaign.template?.category ?? null,
+      // Claim this recipient before sending. Anything that ran the loop twice
+      // concurrently would otherwise send to the same person twice. Only the
+      // writer that moves PENDING to SENDING proceeds.
+      const claimedRecipient = await prisma.campaignRecipient.updateMany({
+        where: { id: recipient.id, status: 'PENDING' },
+        data: { status: 'SENDING' },
       });
-      creditSource = credit.ok ? credit.source : null;
-      creditAmount = credit.ok ? (credit.amount ?? null) : null;
-      if (!credit.ok) {
-        console.warn(`[CampaignWorker] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
-        await prisma.campaignRecipient.update({
-          where: { id: recipient.id },
-          data: {
-            status: 'FAILED', failedAt: new Date(),
-            failReason: 'Quota and wallet balance exhausted',
-            initialStatus: 'FAILED',
-          },
-        });
-        // Nothing was sent, so nothing is owed for this recipient.
-        await markRecipientNotCharged(recipient.id);
-        await prisma.campaign.update({
-          where: { id: campaignId },
-          data: { failed: { increment: 1 } },
-        });
-        await new Promise((r) => setTimeout(r, RATE_DELAY_MS));
+      if (claimedRecipient.count === 0) {
+        console.log(`[CampaignWorker] Recipient ${recipient.id} already claimed elsewhere — skipping duplicate.`);
         continue;
       }
+      processed += 1;
 
-      // Only carries `components` when there is something to substitute — the
-      // template's own definition (type:BODY/text:...) causes Meta to reject.
-      // const templatePayload = await buildTemplatePayload(
-      //   campaign.template,
-      //   recipient.contact,
-      //   { phoneNumberId, accessToken, campaign, recipientId: recipient.id },
-      // );
-
-      // const result = await sendWhatsAppMessage(
-      //   phoneNumberId,
-      //   accessToken,
-      //   normalizePhone(recipient.contact.phoneNumber),
-      //   templatePayload
-      // );
-      // const metaMessageId = result?.messages?.[0]?.id ?? null;
-      
-      // console.log(`[CampaignWorker] sent to ${recipient.contact.phoneNumber}:`, metaMessageId);
-let metaMessageId = null;
-
-if (isAuthenticationCampaign(campaign)) {
-  /*
-   * AUTHENTICATION campaign:
-   *
-   * Reuse the existing Authentication OTP service.
-   * Each recipient gets a newly generated OTP and a
-   * separate AuthenticationTransaction.
-   */
-  const authenticationResult = await sendAuthenticationOtp(
-    campaign.workspaceId,
-    {
-      templateId: campaign.template.id,
-      to: recipient.contact.phoneNumber,
-      waNumberId: campaign.waNumber.id,
-      campaignId: campaign.id,
+      const attempted = await sendClaimedRecipient(campaign, recipient, { phoneNumberId, accessToken, memo });
+      if (attempted) await sleep(RATE_DELAY_MS);
     }
-  );
-
-  metaMessageId =
-    authenticationResult?.metaMessageId ?? null;
-
-  console.log(
-    `[CampaignWorker] authentication OTP sent to ${recipient.contact.phoneNumber}:`,
-    metaMessageId
-  );
-} else {
-  /*
-   * NORMAL campaign:
-   * Existing behavior remains unchanged.
-   */
-  const templatePayload = await buildTemplatePayload(
-    campaign.template,
-    recipient.contact,
-    {
-      phoneNumberId,
-      accessToken,
-      campaign,
-      recipientId: recipient.id,
-    },
-  );
-
-  const result = await sendWhatsAppMessage(
-    phoneNumberId,
-    accessToken,
-    normalizePhone(recipient.contact.phoneNumber),
-    templatePayload
-  );
-
-  metaMessageId = result?.messages?.[0]?.id ?? null;
-
-  console.log(
-    `[CampaignWorker] sent to ${recipient.contact.phoneNumber}:`,
-    metaMessageId
-  );
-}
-      await prisma.campaignRecipient.update({
-        where: { id: recipient.id },
-        data: { status: 'SENT', sentAt: new Date(), initialStatus: 'SENT' },
-      });
-
-      await snapshotRecipientContext(campaign, recipient);
-
-      // The message reached Meta, so this recipient claims its share of the
-      // launch reservation — once, no matter how many attempts follow. What
-      // is never claimed here is refunded at settlement.
-      await claimRecipientCharge(campaign, recipient);
-      await recordAttempt(recipient.id, { attempt: 0, ok: true });
-
-      await prisma.campaign.update({
-        where: { id: campaignId },
-        data: { sent: { increment: 1 } },
-      });
-
-      // Persist the outbound message with a link back to the campaign
-      // recipient so delivery/read webhooks can update the right rows.
-      if (metaMessageId) {
-        let convo = await prisma.conversation.findFirst({
-          where: { contactId: recipient.contactId, waNumberId: campaign.waNumberId },
-        });
-        if (!convo) {
-          convo = await prisma.conversation.create({
-            data: {
-              workspaceId: campaign.workspaceId,
-              contactId: recipient.contactId,
-              waNumberId: campaign.waNumberId,
-              status: 'OPEN',
-            },
-          }).catch(() => null);
-        }
-        if (convo) {
-          await prisma.message.create({
-            data: {
-              conversationId: convo.id,
-              body: `[Campaign: ${campaign.name}]`,
-              direction: 'OUTBOUND',
-              metaMessageId,
-              campaignRecipientId: recipient.id,
-              sentAt: new Date(),
-            },
-          });
-        }
-      }
-    } catch (err) {
-      const metaErr = err.response?.data?.error;
-      const reason = describeMetaError(metaErr, err.message);
-      console.error(`[CampaignWorker] send failed for ${recipient.contact.phoneNumber}:`, reason, metaErr || '');
-      // The credit was claimed before the send that just failed — give it
-      // back so a message nobody received doesn't count against the quota.
-      await releaseMessageCredit(campaign.workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
-      // No charge is claimed on a failed send — the recipient stays unbilled
-      // until an attempt actually reaches Meta.
-      await prisma.campaignRecipient.update({
-        where: { id: recipient.id }, data: { initialStatus: 'FAILED' },
-      }).catch(() => {});
-      await recordAttempt(recipient.id, { attempt: 0, ok: false, reason, metaCode: metaErr?.code ?? null });
-      await handleRecipientFailure(campaign, recipient, reason, metaErr?.code);
-    }
-
-    await new Promise((r) => setTimeout(r, RATE_DELAY_MS));
   }
 
   // A cancelled campaign must stay CANCELLED — never flip it to COMPLETED.
@@ -627,7 +632,7 @@ if (isAuthenticationCampaign(campaign)) {
   // marked SENDING but not yet sent keeps them eligible.
   if (paused) {
     await prisma.campaignRecipient.updateMany({
-      where: { campaignId, status: 'SENDING' },
+      where: { campaignId, status: 'SENDING', sentAt: null },
       data: { status: 'PENDING' },
     }).catch(() => {});
     console.log(`[CampaignWorker] Campaign ${campaignId} paused mid-run — leaving status PAUSED`);
@@ -649,34 +654,13 @@ export function startCampaignWorker() {
   worker.on('completed', (job) => console.log(`[CampaignWorker] Job ${job.id} completed`));
   worker.on('failed', async (job, err) => {
     console.error(`[CampaignWorker] Job ${job?.id} failed:`, err.message);
-    // Only flag FAILED after the final attempt, and never overwrite a
-    // CANCELLED/COMPLETED campaign.
+    // Only flag FAILED after the final attempt of a main send job. A retry
+    // job failing is one recipient's problem, never the whole campaign's.
     const isFinalAttempt = job && job.attemptsMade >= (job.opts?.attempts ?? 1);
-    if (isFinalAttempt && job?.data?.campaignId) {
-      const res = await prisma.campaign.updateMany({
-        where: { id: job.data.campaignId, status: { in: ['RUNNING', 'SCHEDULED', 'DRAFT'] } },
-        data: { status: 'FAILED' },
-      }).catch(() => null);
-      if (res?.count > 0) {
-        const failed = await prisma.campaign.findUnique({ where: { id: job.data.campaignId } }).catch(() => null);
-        if (failed) {
-          // A campaign that died before sending (a disconnected number, an
-          // expired token) has already taken the money. Give back everything
-          // that never went out — otherwise a FAILED campaign is a dead end
-          // with no refund path, since cancel() refuses terminal campaigns.
-          await settleCampaignRefund(failed.id, 'Refund for failed campaign').catch((e) =>
-            console.error(`[Campaign] Settlement failed for ${failed.id}:`, e.message));
-
-          queueCampaignFailedEmail(failed).catch(() => {});
-          notifyWorkspace(failed.workspaceId, {
-            type: 'CAMPAIGN_FAILED',
-            title: `Campaign "${failed.name}" failed`,
-            body: err.message,
-            link: 'campaigns',
-            meta: { campaignId: failed.id },
-          }).catch(() => {});
-        }
-      }
+    const isSendJob = job?.name === 'send-campaign' && job?.data?.type !== 'retry';
+    if (isFinalAttempt && isSendJob && job?.data?.campaignId) {
+      await failCampaign(job.data.campaignId, err.message).catch((e) =>
+        console.error(`[CampaignWorker] Could not mark ${job.data.campaignId} failed:`, e.message));
     }
   });
 

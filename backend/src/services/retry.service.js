@@ -54,11 +54,15 @@ async function reconcileCampaignCounters(campaignId) {
   return totals;
 }
 
+// SENDING counts as outstanding: a retry job finishing while the main loop is
+// mid-send must not complete (and settle) the campaign underneath that send.
+export const OUTSTANDING_RECIPIENT_STATUSES = ['PENDING', 'SENDING', 'RETRYING'];
+
 export async function checkAndCompleteCampaign(campaignId) {
   const pendingCount = await prisma.campaignRecipient.count({
     where: {
       campaignId,
-      status: { in: ['PENDING', 'RETRYING'] },
+      status: { in: OUTSTANDING_RECIPIENT_STATUSES },
     },
   });
 
@@ -116,61 +120,100 @@ export async function checkAndCompleteCampaign(campaignId) {
 // database already holds.
 export { retryJobId };
 
-// Re-queues retries whose delayed jobs no longer exist.
+// Queues one retry attempt, idempotently. The id is deterministic, so a job
+// that is still waiting or running makes this a no-op. A finished job with the
+// same id is removed first: BullMQ keeps completed jobs around, and an add()
+// for a retained id is silently dropped — which is what happened to a retry
+// that fired while its campaign was paused and has to run again on resume.
+export async function enqueueRetryJob({ campaignId, workspaceId, recipientId, attempt, delay = 0 }) {
+  const jobId = retryJobId(recipientId, attempt);
+  const existing = await campaignQueue.getJob(jobId).catch(() => null);
+  if (existing) {
+    const state = await existing.getState().catch(() => 'unknown');
+    if (state !== 'completed' && state !== 'failed') return { queued: false, jobId };
+    await existing.remove().catch(() => {});
+  }
+  await campaignQueue.add(
+    'retry-recipient',
+    { type: 'retry', campaignId, workspaceId, recipientId, attempt },
+    { delay: Math.max(0, delay), jobId },
+  );
+  return { queued: true, jobId };
+}
+
+// A retry claim (IN_PROGRESS) older than this belongs to a job that died.
+export const STALE_RETRY_CLAIM_MS = 10 * 60_000;
+// Rows due within this window are checked each pass; a lost job further out
+// is found by a later pass, before it is due.
+const RETRY_LOOKAHEAD_MS = 15 * 60_000;
+const MAX_RETRIES_PER_SWEEP = 1000;
+
+// Re-queues retries whose jobs no longer exist.
 //
 // Retry delays run to 24 hours, but the queue holding them is Redis — and on
 // the deployment's Key Value plan Redis has no persistence, so every waiting
-// retry job dies with the process. Nothing else notices: the recipient stays
-// RETRYING forever, which also blocks checkAndCompleteCampaign, so the
-// campaign never completes and its unsent messages are never refunded. One
-// lost restart used to strand both the messages and the money.
+// retry job dies with the process (or with a flush while it keeps running).
+// Nothing else notices: the recipient stays RETRYING forever, which also
+// blocks checkAndCompleteCampaign, so the campaign never completes and its
+// unsent messages are never refunded.
 //
-// Called at boot, alongside recoverScheduledCampaigns().
-export async function recoverPendingRetries() {
+// Runs at boot and from the periodic campaign sweep, for RUNNING campaigns.
+// A PAUSED campaign's retries wait; resumeCampaign re-queues them by passing
+// its `campaignId`, which also lifts the look-ahead window.
+export async function recoverPendingRetries({ now = new Date(), campaignId = null } = {}) {
+  const scope = campaignId ? { campaignId } : { campaign: { status: 'RUNNING' } };
+
+  // A job that died mid-attempt left IN_PROGRESS behind, which the claim
+  // guard in the worker refuses forever. Only claims old enough that no live
+  // job can still hold them are handed back — this now runs while workers are
+  // sending, not just at boot.
+  await prisma.campaignRecipient.updateMany({
+    where: {
+      ...scope,
+      status: 'RETRYING',
+      retryStatus: 'IN_PROGRESS',
+      OR: [{ lastRetryAt: null }, { lastRetryAt: { lt: new Date(now.getTime() - STALE_RETRY_CLAIM_MS) } }],
+    },
+    data: { retryStatus: 'SCHEDULED' },
+  });
+
   const waiting = await prisma.campaignRecipient.findMany({
     where: {
+      ...scope,
       status: 'RETRYING',
-      campaign: { status: { in: ['RUNNING', 'SCHEDULED'] } },
+      AND: [
+        { OR: [{ retryStatus: null }, { retryStatus: { not: 'IN_PROGRESS' } }] },
+        ...(campaignId ? [] : [{ OR: [{ nextRetryAt: null }, { nextRetryAt: { lt: new Date(now.getTime() + RETRY_LOOKAHEAD_MS) } }] }]),
+      ],
     },
     select: {
-      id: true, retryCount: true, nextRetryAt: true, retryStatus: true,
+      id: true, retryCount: true, nextRetryAt: true,
       campaign: { select: { id: true, workspaceId: true } },
     },
+    orderBy: { nextRetryAt: 'asc' },
+    take: MAX_RETRIES_PER_SWEEP,
   });
 
   let requeued = 0;
   for (const r of waiting) {
-    // A job that died mid-attempt left IN_PROGRESS behind, which the claim
-    // guard in the worker would refuse forever. Hand it back to SCHEDULED so
-    // the recovered job can claim it.
-    if (r.retryStatus === 'IN_PROGRESS') {
-      await prisma.campaignRecipient.update({
-        where: { id: r.id }, data: { retryStatus: 'SCHEDULED' },
-      }).catch(() => {});
-    }
-
     // retryCount is the last attempt that actually ran, so the one still owed
     // is the next number up — the same value handleRecipientFailure used when
     // it queued the job, which is what makes the id line up.
     const attempt = (r.retryCount || 0) + 1;
-    const delay = Math.max(0, (r.nextRetryAt?.getTime() ?? 0) - Date.now());
 
     // Retries used to be queued under a colon id. One that survived in Redis
     // would not dedupe against the new id and the attempt would run twice.
     const legacy = await campaignQueue.getJob(legacyRetryJobId(r.id, attempt)).catch(() => null);
     if (legacy) await legacy.remove().catch(() => {});
 
-    await campaignQueue.add(
-      'retry-recipient',
-      {
-        type: 'retry',
-        campaignId: r.campaign.id,
-        workspaceId: r.campaign.workspaceId,
-        recipientId: r.id,
-        attempt,
-      },
-      { delay, jobId: retryJobId(r.id, attempt) },
-    ).then(() => { requeued++; }).catch(() => {});
+    const result = await enqueueRetryJob({
+      campaignId: r.campaign.id,
+      workspaceId: r.campaign.workspaceId,
+      recipientId: r.id,
+      attempt,
+      delay: (r.nextRetryAt?.getTime() ?? 0) - now.getTime(),
+    }).catch(() => null);
+    if (result?.queued) requeued += 1;
   }
 
   return requeued;
@@ -301,20 +344,16 @@ export async function handleRecipientFailure(campaign, recipient, reason, metaCo
     },
   });
 
-  await campaignQueue.add(
-    'retry-recipient',
-    {
-      type: 'retry',
-      campaignId: campaign.id,
-      workspaceId: campaign.workspaceId,
-      recipientId: recipient.id,
-      attempt: calculation.attempt,
-    },
-    // A deterministic id makes queueing idempotent: BullMQ drops an add() for
-    // an id it already holds, so the restart sweep below can re-queue every
-    // waiting retry without checking whether its job survived.
-    { delay: calculation.delayMs, jobId: retryJobId(recipient.id, calculation.attempt) },
-  );
+  // A deterministic id makes queueing idempotent, so the recovery sweep can
+  // re-queue every waiting retry without double-scheduling. If this add fails
+  // the row is RETRYING with no job, which that sweep also picks up.
+  await enqueueRetryJob({
+    campaignId: campaign.id,
+    workspaceId: campaign.workspaceId,
+    recipientId: recipient.id,
+    attempt: calculation.attempt,
+    delay: calculation.delayMs,
+  });
 
   // Best-effort: the retry is already queued, and a notification that could not
   // be written must never undo that.

@@ -6,7 +6,7 @@ import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { openMobileNav } from '../components/MobileNavButton.jsx';
 import { usePolling } from '../lib/usePolling.js';
 import { useWallet } from '../lib/useWallet.js';
-import { wFetch, apiFetch } from '../lib/api.js';
+import { wFetch, apiFetch, wDownload } from '../lib/api.js';
 import { useMessageRates, inr as inrRate } from '../lib/pricing.js';
 import { useFocusTrap } from '../lib/useFocusTrap.js';
 import { getBodyText, statusLabel } from '../lib/templateHelpers.js';
@@ -1085,6 +1085,15 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
     finally { setCancelling(false); }
   };
 
+  // Every recipient with status and failure reason; the modal shows only 100.
+  const [exporting, setExporting] = useState(false);
+  const exportReport = async () => {
+    setExporting(true);
+    try { await wDownload(`/campaigns/${campaignId}/export`, 'campaign-report.csv'); }
+    catch (e) { setErr(e.message); }
+    finally { setExporting(false); }
+  };
+
   const changeLifecycle = async (action) => {
     setLifecycleChanging(true);
     try {
@@ -1099,14 +1108,14 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
 
   // Members can cancel too — they can create and launch campaigns, so being
   // unable to stop one would be worse than not starting it.
-  const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING'].includes(c.status);
+  const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED'].includes(c.status);
   // A draft is unfinished work, so it gets a way back into the wizard. Only a
   // draft: anything launched is a report, and "editing" it would imply changes
   // reaching messages that have already gone out.
   const editable = c?.status === 'DRAFT';
   const isAuthentication = String(c?.template?.category || '').toUpperCase() === 'AUTHENTICATION';
-  const pausable = isAuthentication && ['RUNNING', 'SCHEDULED'].includes(c?.status);
-  const resumable = isAuthentication && c?.status === 'PAUSED';
+  const pausable = ['RUNNING', 'SCHEDULED'].includes(c?.status);
+  const resumable = c?.status === 'PAUSED';
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef, true);
@@ -1299,6 +1308,12 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                 {cancelling ? 'Cancelling…' : 'Cancel Campaign'}
               </Btn>
             )}
+            {c && c.status !== 'DRAFT' && (
+              <Btn variant="outline" size="sm" onClick={exportReport} disabled={exporting}>
+                <I n="download" s={12} c="var(--t2)" />
+                {exporting ? 'Exporting…' : 'Export CSV'}
+              </Btn>
+            )}
             {pausable && <Btn variant="outline" size="sm" onClick={() => changeLifecycle('pause')} disabled={lifecycleChanging}>{lifecycleChanging ? 'Pausing…' : 'Pause Campaign'}</Btn>}
             {resumable && <Btn size="sm" onClick={() => changeLifecycle('resume')} disabled={lifecycleChanging}>{lifecycleChanging ? 'Resuming…' : 'Resume Campaign'}</Btn>}
             {editable && (
@@ -1386,7 +1401,7 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
             contacts and then do nothing with them. */}
         <WalletStatusBanner style={{ marginBottom: 16 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-          {campaignType === 'regular' && <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>}
+          <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>
         </div>
         {loading ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading campaigns…</div>

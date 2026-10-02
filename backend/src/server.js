@@ -33,6 +33,7 @@ import { startCrmMaintenanceWorker } from './workers/crmMaintenance.worker.js';
 import { crmMaintenanceQueue, scheduleCrmMaintenance } from './queues/crmMaintenance.queue.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
+import { recoverStrandedCampaigns, startCampaignRecoverySweep } from './services/campaignRecovery.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
 import { syncIndex as syncSiteKnowledge } from './services/siteKnowledge.service.js';
 import { campaignQueue } from './queues/campaign.queue.js';
@@ -363,6 +364,15 @@ async function main() {
     } catch (err) {
       console.error('[CrmMaintenance] Could not schedule the nightly sweep:', err.message);
     }
+    // RUNNING (and charged-but-unstarted) campaigns whose job died with the
+    // previous process; the sweep then repeats while the server is up.
+    try {
+      const stranded = await recoverStrandedCampaigns();
+      if (stranded.requeued || stranded.completed) console.log(`[Recovery] Stranded campaigns: requeued=${stranded.requeued} completed=${stranded.completed}`);
+    } catch (err) {
+      console.error('[Recovery] Stranded-campaign recovery failed:', err.message);
+    }
+    startCampaignRecoverySweep();
 
     // Register the daily repeatable billing-cycle job (no-op if already registered).
     try {

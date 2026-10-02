@@ -100,29 +100,58 @@ const aiAgentConfig = z.object({
   ctaLabel: meaningfulText(z.string().trim().min(1).max(25), 'CTA label').optional(),
 }).strict();
 
+// Campaign advanced config. Explicit, bounded shapes instead of z.any(): these
+// are written to the Campaign row as JSON. Unknown keys are stripped.
+const retryTime = z.string().trim().max(16);
+const campaignRetryConfig = z.object({
+  enabled: z.boolean().optional(),
+  active: z.boolean().optional(),
+  retryEndDate: z.union([z.string().max(40), z.null()]).optional(),
+  endDate: z.union([z.string().max(40), z.null()]).optional(),
+  retryPattern: z.enum(['smart', 'hourly']).optional(),
+  pattern: z.enum(['smart', 'hourly']).optional(),
+  noRetryWindow: z.union([z.object({ start: retryTime, end: retryTime }), z.null()]).optional(),
+  noRetryStart: retryTime.optional(),
+  noRetryEnd: retryTime.optional(),
+});
+const campaignFallbackConfig = z.object({
+  smsEnabled: z.boolean().default(false),
+  smsFrom: z.string().trim().max(32).optional(),
+  smsText: z.string().max(1500).optional(),
+  emailEnabled: z.boolean().default(false),
+  emailSubject: z.string().max(200).optional(),
+  emailText: z.string().max(5000).optional(),
+});
+// Reply flows and conversion tracking were stored but never executed. Until
+// they exist a value is refused rather than silently ignored; null is still
+// accepted so clients that always send the key keep working.
+const unavailableCampaignFeature = (label) => z.unknown()
+  .refine((v) => v === null || v === undefined, { message: `${label} are not available yet` })
+  .optional();
+
 export const campaignSchemas = {
   create: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Campaign name'),
     templateId: id,
     numberId: id.optional(),
     whatsappNumberId: id.optional(),
-    replyRules: z.any().optional(),
-    retryConfig: z.any().optional(),
-    trackingConfig: z.any().optional(),
-    fallbackConfig: z.any().optional(),
+    replyRules: unavailableCampaignFeature('Reply flows'),
+    retryConfig: z.union([campaignRetryConfig, z.null()]).optional(),
+    trackingConfig: unavailableCampaignFeature('Conversion tracking settings'),
+    fallbackConfig: z.union([campaignFallbackConfig, z.null()]).optional(),
     aiAgent: aiAgentConfig.optional(),
     goal: z.enum(['sales', 'launch', 'reengage', 'nurture']).optional(),
-  }).passthrough().refine((v) => v.numberId || v.whatsappNumberId, { message: 'numberId is required' }),
+  }).refine((v) => v.numberId || v.whatsappNumberId, { message: 'numberId is required' }),
   addRecipients: z.object({ contactIds: z.array(id).min(1, 'At least one contact is required').max(10_000) }),
   // Replacing an audience may legitimately empty it ΓÇö a draft mid-edit does
   // not have to have anyone selected yet. Launch is what insists on that.
   setRecipients: z.object({ contactIds: z.array(id).max(10_000) }),
   update: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Campaign name').optional(),
-    replyRules: z.any().optional(),
-    retryConfig: z.any().optional(),
-    trackingConfig: z.any().optional(),
-    fallbackConfig: z.any().optional(),
+    replyRules: unavailableCampaignFeature('Reply flows'),
+    retryConfig: z.union([campaignRetryConfig, z.null()]).optional(),
+    trackingConfig: unavailableCampaignFeature('Conversion tracking settings'),
+    fallbackConfig: z.union([campaignFallbackConfig, z.null()]).optional(),
     aiAgent: aiAgentConfig.optional(),
     // Editable while the campaign is still a draft; the service enforces that.
     templateId: id.optional(),
@@ -130,10 +159,10 @@ export const campaignSchemas = {
     whatsappNumberId: id.optional(),
     scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
     goal: z.enum(['sales', 'launch', 'reengage', 'nurture']).optional(),
-  }).passthrough(),
+  }),
   launch: z.object({
     scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
-    retryConfig: z.any().optional(),
+    retryConfig: z.union([campaignRetryConfig, z.null()]).optional(),
   }),
   // Either a selection of contacts (wizard, before the campaign exists) or an
   // existing draft campaign.
