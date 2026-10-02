@@ -224,7 +224,12 @@ old schema). A failed migration therefore shows up as a crash-looping deploy
 rather than a failed build — check the deploy logs
 for `prisma migrate` output, not the build logs. `backend/prisma/manual/` is *not*
 applied automatically; those need a shell (Render paid plans) or a one-off local
-run against `DATABASE_URL`.
+run against `DATABASE_URL`. A brand-new database no longer needs them or
+`db push`: `migrations/20260101000000_baseline` creates the pre-migration schema
+(including what `manual/003` and `manual/004` added), so `migrate deploy` builds
+it from empty. On an existing database the baseline is a guarded no-op that
+`migrate deploy` records as applied; nothing has to be run by hand (optionally
+`npx prisma migrate resolve --applied 20260101000000_baseline` first).
 
 **`DIRECT_URL` is optional here.** `schema.prisma` declares it, and Prisma's CLI
 treats it as required (`P1012`) — but `scripts/prisma-cli.js` defaults it to
