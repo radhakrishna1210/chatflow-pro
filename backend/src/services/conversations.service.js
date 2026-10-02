@@ -222,13 +222,16 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   // from the inbox — a customer who sent STOP must not be messaged again.
   await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
 
-  // WhatsApp's 24-hour rule:
-  // Meta Cloud API is the authoritative source of truth for whether the customer
-  // service window is currently active. If lastInboundAt is null or stale in the local
-  // DB (e.g., webhook was not delivered, in local dev, or network delay), we attempt the
-  // send via Meta. If Meta rejects with 131047, describeSendFailure() refunds credit
-  // and returns OUTSIDE_24H_WINDOW. If Meta accepts, we sync lastInboundAt.
+  // WhatsApp's 24-hour rule, enforced locally. Meta accepts an out-of-window
+  // free-form send synchronously and only reports 131047 later through the
+  // status webhook, so a 200 from the send is not evidence the window is open.
+  // Only a real inbound message (webhook) moves lastInboundAt.
   const windowState = await getWindowState(conversationId);
+  if (!windowState.open) throw outsideWindowError(windowState);
+
+  // Decrypt before charging: a token stored under a rotated key must not cost
+  // a credit for a send that can never happen.
+  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
 
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Message overage' });
   if (!credit.ok) {
@@ -237,7 +240,6 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     throw e;
   }
 
-  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
   let result;
   try {
     result = await sendTextMessage(
@@ -272,9 +274,6 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     where: { id: conversationId },
     data: {
       lastMessageAt: new Date(),
-      // If Meta accepted the free-form send, the 24-hour window is active on WhatsApp.
-      // Sync lastInboundAt so local window checks reflect this reality.
-      ...(!windowState.open ? { lastInboundAt: new Date() } : {}),
       // A person replying is a takeover. Shared inboxes work this way for a
       // reason: once an agent is in the thread, an automated reply arriving
       // between their messages reads as the company talking to itself.
@@ -322,8 +321,11 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
 
   await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
 
-  // An attachment is a free-form message, so the same 24-hour rule applies via Meta.
+  // An attachment is a free-form message, so the same 24-hour rule applies.
   const windowState = await getWindowState(conversationId);
+  if (!windowState.open) throw outsideWindowError(windowState);
+
+  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
 
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Media message' });
   if (!credit.ok) {
@@ -332,7 +334,6 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     throw e;
   }
 
-  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
   let result;
   let mediaId;
   try {
@@ -374,7 +375,6 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     where: { id: conversationId },
     data: {
       lastMessageAt: new Date(),
-      ...(!windowState.open ? { lastInboundAt: new Date() } : {}),
       ...(userId ? { humanHandoffAt: new Date() } : {}),
     },
   });
@@ -425,6 +425,8 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     e.status = 422; e.code = 'TEMPLATE_NOT_SENDABLE'; e.expose = true; throw e;
   }
 
+  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
+
   const credit = await consumeMessageCredit(workspaceId, {
     reason: 'Template message',
     messageCategory: template.category ?? null,
@@ -435,7 +437,6 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     throw e;
   }
 
-  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
   const components = Array.isArray(template.components) ? template.components : [];
   const required = components.reduce((max, c) => Math.max(max, countVariables(c?.text)), 0);
   let supplied = (Array.isArray(variables) ? variables : []).map((v) => String(v ?? ''));
