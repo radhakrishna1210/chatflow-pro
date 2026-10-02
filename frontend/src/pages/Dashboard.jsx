@@ -1090,14 +1090,14 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
 
   // Members can cancel too — they can create and launch campaigns, so being
   // unable to stop one would be worse than not starting it.
-  const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING'].includes(c.status);
+  const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED'].includes(c.status);
   // A draft is unfinished work, so it gets a way back into the wizard. Only a
   // draft: anything launched is a report, and "editing" it would imply changes
   // reaching messages that have already gone out.
   const editable = c?.status === 'DRAFT';
   const isAuthentication = String(c?.template?.category || '').toUpperCase() === 'AUTHENTICATION';
-  const pausable = isAuthentication && ['RUNNING', 'SCHEDULED'].includes(c?.status);
-  const resumable = isAuthentication && c?.status === 'PAUSED';
+  const pausable = ['RUNNING', 'SCHEDULED'].includes(c?.status);
+  const resumable = c?.status === 'PAUSED';
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef, true);
@@ -1377,7 +1377,7 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
             contacts and then do nothing with them. */}
         <WalletStatusBanner style={{ marginBottom: 16 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-          {campaignType === 'regular' && <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>}
+          <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>
         </div>
         {loading ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading campaigns…</div>

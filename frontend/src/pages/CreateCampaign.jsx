@@ -40,12 +40,17 @@ const card = {
   boxShadow: 'var(--card-shadow)',
 };
 
-const DEFAULT_RULES = [
-  { id: 'r1', enabled: true, triggerType: 'exact',    keyword: 'STOP', actionType: 'optout', replyText: '' },
-  { id: 'r2', enabled: true, triggerType: 'exact',    keyword: 'YES',  actionType: 'reply',  replyText: 'Thank you for your interest! Our team will reach out shortly.' },
-  { id: 'r3', enabled: true, triggerType: 'exact',    keyword: 'HELP', actionType: 'reply',  replyText: 'Need help? Reply with your query and our support team will assist you.' },
-  { id: 'r4', enabled: true, triggerType: 'any',      keyword: '',     actionType: 'reply',  replyText: "Sorry, I didn't understand that. Reply HELP for assistance." },
-];
+// Authentication (OTP) campaigns send each recipient a freshly generated code
+// through the campaign's own template, which the server only supports for an
+// approved COPY_CODE template — so only those are offered.
+const isCopyCodeOtpTemplate = (t) => {
+  const buttons = (t?.components || []).find(c => String(c?.type || '').toUpperCase() === 'BUTTONS')?.buttons;
+  if (!Array.isArray(buttons) || buttons.length !== 1) return false;
+  const b = buttons[0] || {};
+  const type = String(b.type || '').toUpperCase();
+  if (type === 'OTP') return String(b.otp_type || '').toUpperCase() === 'COPY_CODE';
+  return type === 'URL' && /otp_type=COPY_CODE/i.test(String(b.url || ''));
+};
 
 const SMART_SCHEDULE = [
   { attempt: 1, delay: '1h 1m',   cumulative: '~1h from send' },
@@ -359,6 +364,10 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
   const [clusters, setClusters] = useState([]);
   const [selectedClusterId, setSelectedClusterId] = useState('');
   const [clusterLoading, setClusterLoading] = useState(false);
+  const [segments, setSegments] = useState([]);
+  const [selectedSegmentId, setSelectedSegmentId] = useState('');
+  const [segmentLoading, setSegmentLoading] = useState(false);
+  const [segmentError, setSegmentError] = useState('');
 
   const downloadSample = () => {
     const csvContent = [
@@ -421,7 +430,39 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
         .then(d => { if (Array.isArray(d)) setClusters(d); })
         .catch(() => {});
     }
+    if (audienceMethod === 'segment' && segments.length === 0) {
+      wFetch('/segments')
+        .then(r => r.ok && r.json())
+        .then(d => { if (Array.isArray(d)) setSegments(d); })
+        .catch(() => {});
+    }
   }, [audienceMethod]);
+
+  // The segment list only previews its first contacts, so the full membership
+  // comes from the contacts endpoint filtered by segment (capped at the
+  // campaign's own 10,000-recipient limit).
+  const handleSelectSegment = async (sid) => {
+    setSelectedSegmentId(sid);
+    setSegmentError('');
+    if (!sid) {
+      setSelectedContactIds?.(new Set());
+      return;
+    }
+    setSegmentLoading(true);
+    try {
+      const res = await wFetch(`/contacts?segmentId=${encodeURIComponent(sid)}&limit=all`);
+      if (!res.ok) throw new Error(`Could not load the segment (${res.status})`);
+      const data = await res.json();
+      setSelectedContactIds?.(new Set((data.data ?? []).map(c => c.id)));
+      if ((data.total ?? 0) > (data.data ?? []).length) {
+        setSegmentError(`Only the first ${(data.data ?? []).length.toLocaleString()} of ${data.total.toLocaleString()} contacts were added — a campaign can target at most 10,000.`);
+      }
+    } catch (e) {
+      setSegmentError(e.message || 'Could not load the segment');
+    } finally {
+      setSegmentLoading(false);
+    }
+  };
 
   const handleSelectCluster = async (cid) => {
     setSelectedClusterId(cid);
@@ -477,7 +518,7 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
     { id: 'manual',  label: 'Enter Manually' },
     { id: 'csv',     label: 'Upload CSV' },
     { id: 'cluster', label: 'Select Cluster' },
-    { id: 'segment', label: 'Select Segment', disabled: true },
+    { id: 'segment', label: 'Select Segment' },
   ];
 
   const total = selectedContactIds.size;
@@ -667,6 +708,38 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
             <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
               <I n="check" s={14} c="var(--green)" />
               <span>Included {selectedContactIds.size} contact{selectedContactIds.size !== 1 ? 's' : ''} from selected cluster.</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {audienceMethod === 'segment' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.5 }}>
+            Choose a Smart List. Every contact in it is added to your audience.
+          </div>
+          <select
+            value={selectedSegmentId}
+            onChange={(e) => handleSelectSegment(e.target.value)}
+            style={{ width: '100%', padding: '10px 14px', borderRadius: 8, background: 'var(--surf)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif", outline: 'none' }}
+          >
+            <option value="">-- Select a Segment --</option>
+            {segments.map((sg) => (
+              <option key={sg.id} value={sg.id}>
+                {sg.name} ({sg.contactCount ?? 0} contacts)
+              </option>
+            ))}
+          </select>
+          {segmentLoading && (
+            <div style={{ fontSize: 12, color: 'var(--t2)' }}>Loading segment contacts...</div>
+          )}
+          {segmentError && (
+            <div style={{ padding: '9px 12px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 12 }}>{segmentError}</div>
+          )}
+          {selectedSegmentId && !segmentLoading && (
+            <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <I n="check" s={14} c="var(--green)" />
+              <span>Included {selectedContactIds.size} contact{selectedContactIds.size !== 1 ? 's' : ''} from selected segment.</span>
             </div>
           )}
         </div>
@@ -920,90 +993,6 @@ const StepAiAgent = ({ enabled, setEnabled, agents, agentId, setAgentId, ctaLabe
   );
 };
 
-// ─── Step 6 · Reply Flows ───────────────────────────────────────────────────
-const StepReplyFlows = ({ initial, onSaved }) => {
-  const [rules, setRules] = useState(initial && initial.length ? initial : DEFAULT_RULES);
-  const [saved, setSaved] = useState(false);
-
-  const update = (id, key, val) => setRules(prev => prev.map(r => r.id === id ? { ...r, [key]: val } : r));
-  const remove = id => setRules(prev => prev.filter(r => r.id !== id));
-  const move = (idx, dir) => {
-    const arr = [...rules]; const to = idx + dir;
-    if (to < 0 || to >= arr.length) return;
-    [arr[idx], arr[to]] = [arr[to], arr[idx]];
-    setRules(arr);
-  };
-  const addRule = () => setRules(prev => [...prev, { id: `r${Date.now()}`, enabled: true, triggerType: 'contains', keyword: '', actionType: 'reply', replyText: '' }]);
-
-  const actionColor = { reply: 'var(--green)', assign: '#9d6bff', optout: '#f87171' };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      {rules.map((rule, idx) => (
-        <div key={rule.id} style={{ padding: '14px 16px', borderRadius: '10px', border: `1px solid ${rule.enabled ? 'var(--bd)' : 'rgba(255,255,255,0.05)'}`, background: 'rgba(255,255,255,0.02)', opacity: rule.enabled ? 1 : 0.55, transition: 'all .15s' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-            <div style={{ paddingTop: '1px' }}>
-              <Toggle on={rule.enabled} onToggle={() => update(rule.id, 'enabled', !rule.enabled)} />
-            </div>
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em' }}>Trigger</label>
-                  <select value={rule.triggerType} onChange={e => update(rule.id, 'triggerType', e.target.value)}
-                    style={{ padding: '6px 10px', borderRadius: '7px', background: 'rgba(255,255,255,0.06)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: '12px', fontFamily: "'Manrope',sans-serif", outline: 'none', minWidth: '120px' }}>
-                    <option value="contains">Contains</option>
-                    <option value="exact">Exact match</option>
-                    <option value="any">Any message</option>
-                  </select>
-                </div>
-                {rule.triggerType !== 'any' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '1 1 100px' }}>
-                    <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em' }}>Keyword</label>
-                    <input value={rule.keyword} onChange={e => update(rule.id, 'keyword', e.target.value)} placeholder="e.g. STOP"
-                      style={{ padding: '6px 10px', borderRadius: '7px', background: 'rgba(255,255,255,0.06)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: '12px', fontFamily: "'Manrope',sans-serif", outline: 'none' }} />
-                  </div>
-                )}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '10px', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em' }}>Action</label>
-                  <select value={rule.actionType} onChange={e => update(rule.id, 'actionType', e.target.value)}
-                    style={{ padding: '6px 10px', borderRadius: '7px', background: 'rgba(255,255,255,0.06)', border: '1px solid var(--bd)', color: actionColor[rule.actionType] || 'var(--t1)', fontSize: '12px', fontFamily: "'Manrope',sans-serif", outline: 'none', minWidth: '140px', fontWeight: 600 }}>
-                    <option value="reply">Reply</option>
-                    <option value="assign">Assign to agent</option>
-                    <option value="optout">Opt-out</option>
-                  </select>
-                </div>
-              </div>
-              {rule.actionType === 'reply' && (
-                <textarea value={rule.replyText} onChange={e => update(rule.id, 'replyText', e.target.value)} placeholder="Enter auto-reply message…"
-                  style={{ width: '100%', minHeight: '60px', padding: '8px 10px', borderRadius: '7px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: '12px', fontFamily: "'Manrope',sans-serif", outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }} />
-              )}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '1px' }}>
-              <ArrowBtn dir="up"   onClick={() => move(idx, -1)} disabled={idx === 0} />
-              <ArrowBtn dir="down" onClick={() => move(idx,  1)} disabled={idx === rules.length - 1} />
-              <button onClick={() => remove(rule.id)} style={{ width: '26px', height: '26px', borderRadius: '6px', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.18)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f87171' }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3,6 5,6 21,6"/>
-                  <path d="M19,6l-1,14H6L5,6M10,11v6M14,11v6M9,6V4h6v2"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      ))}
-      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px' }}>
-        <Btn variant="outline" onClick={addRule}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Rule
-        </Btn>
-        <Btn onClick={() => { onSaved?.(rules); setSaved(true); setTimeout(() => setSaved(false), 1800); }}>
-          {saved ? 'Saved ✓' : 'Save Flow'}
-        </Btn>
-      </div>
-    </div>
-  );
-};
-
 // ─── Step 7 · Retries ───────────────────────────────────────────────────
 const TpPicker = ({ label, h, m, ap, onH, onM, onAp }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
@@ -1125,71 +1114,6 @@ const StepRetries = ({ initial = null, onRetryToggle, onSaved, onCommit }) => {
   );
 };
 
-// ─── Step 8 · Conversion Tracking ───────────────────────────────────────────────────
-const CBox = ({ checked, onToggle, label }) => (
-  <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-    <div style={{ width: '18px', height: '18px', borderRadius: '5px', border: `1.5px solid ${checked ? 'var(--green)' : 'var(--bd)'}`, background: checked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s', flexShrink: 0 }}>
-      {checked && <I n="check" s={11} c="#08090c" w={3} />}
-    </div>
-    <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--t1)' }}>{label}</span>
-  </div>
-);
-
-const StepTracking = ({ onSaved }) => {
-  const [utmOn, setUtmOn]   = useState(false);
-  const [evtOn, setEvtOn]   = useState(false);
-  const [utm, setUtm]       = useState({ source: '', medium: '', campaign: '', content: '', term: '' });
-  const [evtName, setEvtName] = useState('');
-  const [saved, setSaved] = useState(false);
-
-  const commit = () => {
-    onSaved?.({ utmEnabled: utmOn, utm, eventsEnabled: evtOn, eventName: evtName });
-    setSaved(true); setTimeout(() => setSaved(false), 1800);
-  };
-
-  const utmFields = [
-    { k: 'source',   label: 'utm_source',   req: true },
-    { k: 'medium',   label: 'utm_medium',   req: true },
-    { k: 'campaign', label: 'utm_campaign', req: true },
-    { k: 'content',  label: 'utm_content',  req: false },
-    { k: 'term',     label: 'utm_term',     req: false },
-  ];
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-      <div>
-        <CBox checked={utmOn} onToggle={() => setUtmOn(!utmOn)} label="Via UTM Parameters" />
-        {utmOn && (
-          <div className="rgrid-3" style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px' }}>
-            {utmFields.map(f => (
-              <div key={f.k} style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', letterSpacing: '.04em' }}>
-                  {f.label} {f.req && <span style={{ color: '#f87171' }}>*</span>}
-                </label>
-                <input value={utm[f.k]} onChange={e => setUtm(p => ({ ...p, [f.k]: e.target.value }))} placeholder={f.label}
-                  style={{ padding: '8px 10px', borderRadius: '7px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: '12px', fontFamily: "'Manrope',sans-serif", outline: 'none' }} />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div style={{ borderTop: '1px solid var(--bd)', paddingTop: '18px' }}>
-        <CBox checked={evtOn} onToggle={() => setEvtOn(!evtOn)} label="Via Custom Events" />
-        {evtOn && (
-          <div style={{ marginTop: '12px' }}>
-            <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', letterSpacing: '.04em', display: 'block', marginBottom: '6px' }}>Conversion Event Name</label>
-            <input value={evtName} onChange={e => setEvtName(e.target.value)} placeholder="e.g. purchase, signup"
-              style={{ width: '256px', padding: '9px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: '13px', fontFamily: "'Manrope',sans-serif", outline: 'none' }} />
-          </div>
-        )}
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <Btn onClick={commit}>{saved ? 'Saved ✓' : 'Save Tracking'}</Btn>
-      </div>
-    </div>
-  );
-};
-
 // ─── Step 9 · Fallback Channels ───────────────────────────────────────────────────
 const StepFallback = ({ retriesActive, onSaved }) => {
   const [caps, setCaps]       = useState({ sms: false, email: false });
@@ -1234,7 +1158,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       {!canEnable && (
         <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', color: '#f87171', fontSize: '12.5px', lineHeight: 1.5 }}>
-          Fallback channels cannot be enabled when Retries are active. Disable Retries in Step 6 to configure Fallbacks.
+          Fallback channels cannot be enabled when Retries are active. Turn off Retries to configure Fallbacks.
         </div>
       )}
       <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', opacity: canEnable ? 1 : 0.5, pointerEvents: canEnable ? 'auto' : 'none' }}>
@@ -1535,10 +1459,8 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
   const [aiAgentId, setAiAgentId]             = useState(null);
   const [aiCtaLabel, setAiCtaLabel]           = useState('Ask Anything');
   const [agents, setAgents]                   = useState([]);
-  // Advanced wizard config (steps 6-9) — persisted to the campaign on launch.
-  const [replyRules, setReplyRules]           = useState(null);
+  // Advanced wizard config (retries, fallback) — persisted to the campaign.
   const [retryConfig, setRetryConfig]         = useState(null);
-  const [trackingConfig, setTrackingConfig]   = useState(null);
   const [fallbackConfig, setFallbackConfig]   = useState(null);
 
   const [numbers, setNumbers]     = useState([]);
@@ -1559,7 +1481,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
     // Authentication templates are sent only through the Authentication API/OTP
     // flow, not a normal campaign — excluded from this picker alongside the
     // existing approved-status filter.
-    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t=>(t.status==='APPROVED'||t.status==='Approved') && t.category !== 'AUTHENTICATION')); }).catch(()=>{});
+    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t=>(t.status==='APPROVED'||t.status==='Approved') && (String(t.category).toUpperCase() !== 'AUTHENTICATION' || isCopyCodeOtpTemplate(t)))); }).catch(()=>{});
     // Deployed agents the campaign can be pointed at. One deployed agent is
     // preselected so enabling the step is a single click.
     wFetch('/ai-agent/agents').then(r=>r.ok&&r.json()).then(d=>{
@@ -1607,10 +1529,8 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
           setScheduledAt(toLocalInput(c.scheduledAt));
         }
 
-        setReplyRules(c.replyRules ?? null);
         setGoal(c.goal ?? null);
         setRetryConfig(c.retryConfig ?? null);
-        setTrackingConfig(c.trackingConfig ?? null);
         setFallbackConfig(c.fallbackConfig ?? null);
         setRetriesActive(!!c.retryConfig?.enabled);
 
@@ -1632,9 +1552,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
         setStep4Done(hasNumber && hasTemplate && hasAudience);
         setSavedSteps({
           ...(c.aiAgentEnabled ? { 5: true } : {}),
-          ...(c.replyRules ? { 6: true } : {}),
           ...(c.retryConfig ? { 7: true } : {}),
-          ...(c.trackingConfig ? { 8: true } : {}),
           ...(c.fallbackConfig ? { 9: true } : {}),
         });
         // Open the first thing still missing, so "Continue" lands where the
@@ -1729,7 +1647,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
       type: campaignType,
       numberId: selectedNumberId,
       templateId: selectedTemplateId,
-      replyRules, retryConfig, trackingConfig, fallbackConfig,
+      retryConfig, fallbackConfig,
       aiAgent: aiAgentPayload,
       goal,
       // Kept on the draft so a schedule survives being saved and reopened.
@@ -1852,9 +1770,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
     { n: 3, title: 'Audience',                        done: step3Done },
     { n: 4, title: 'Schedule',                        done: step4Done },
     { n: 5, title: 'AI Agent',                        done: !!savedSteps[5] },
-    { n: 6, title: 'Reply Flows',                     done: !!savedSteps[6] },
     { n: 7, title: 'Retries',                         done: !!savedSteps[7] },
-    { n: 8, title: 'Conversion Tracking',             done: !!savedSteps[8] },
     { n: 9, title: 'Fallback Channels',               done: !!savedSteps[9] },
     { n: 10, title: 'Review & launch',                done: false },
   ];
@@ -2017,16 +1933,14 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
                   agentId={aiAgentId} setAgentId={setAiAgentId}
                   ctaLabel={aiCtaLabel} setCtaLabel={setAiCtaLabel}
                   template={selectedTemplate}
-                  onNext={() => { markStepSaved(5); setOpenStep(6); }}
+                  onNext={() => { markStepSaved(5); setOpenStep(7); }}
                 />
               )}
               {/* Each optional step reports its own save. Retries is the odd
                   one out: it also lifts its config on every change so a launch
                   can't go out with a stale retryConfig, which would tick the
                   step the moment it mounted — hence the separate onCommit. */}
-              {s.n === 6 && <StepReplyFlows initial={replyRules} onSaved={(r) => { setReplyRules(r); markStepSaved(6); }} />}
               {s.n === 7 && <StepRetries initial={retryConfig} onRetryToggle={setRetriesActive} onSaved={setRetryConfig} onCommit={() => markStepSaved(7)} />}
-              {s.n === 8 && <StepTracking onSaved={(t) => { setTrackingConfig(t); markStepSaved(8); }} />}
               {s.n === 9 && <StepFallback retriesActive={retriesActive} onSaved={(f) => { setFallbackConfig(f); markStepSaved(9); }} />}
               {s.n === 10 && (
                 <ReviewPanel

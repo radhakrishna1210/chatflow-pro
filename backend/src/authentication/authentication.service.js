@@ -31,7 +31,7 @@ function getExpirationMinutes() {
  * Verify that a template is an approved
  * AUTHENTICATION / COPY_CODE template.
  */
-function isCopyCodeAuthenticationTemplate(template) {
+export function isCopyCodeAuthenticationTemplate(template) {
   if (
     String(template?.category || '').toUpperCase() !==
     'AUTHENTICATION'

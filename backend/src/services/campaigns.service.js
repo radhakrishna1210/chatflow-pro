@@ -10,6 +10,7 @@ import { billedCount, getRemainingQuota, reserveCampaignQuota, releaseCampaignQu
 import { splitCampaignCharge, settleCampaignUnits } from '../lib/campaignCharge.js';
 import { getAgent } from './aiAgent.service.js';
 import { normalizeCtaLabel, buildCampaignContext, findCtaButton } from './campaignAi.service.js';
+import { isCopyCodeAuthenticationTemplate } from '../authentication/authentication.service.js';
 
 const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
@@ -240,7 +241,7 @@ export async function listCampaigns(workspaceId, { page = 1, limit = 20, type } 
   };
 }
 
-export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent, goal }, user = null) {
+export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, retryConfig, fallbackConfig, aiAgent, goal }, user = null) {
   if (!name || !String(name).trim()) { const e = new Error('Campaign name is required'); e.status = 400; throw e; }
   // Plan's campaign cap (null = unlimited); reads the plan live so admin edits
   // in the Plans tab apply immediately.
@@ -269,11 +270,10 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
       workspaceId, name: String(name).trim(), templateId, waNumberId: waNumber.id, status: 'DRAFT',
       createdByUserId: user?.id ?? null,
       ...(aiConfig ?? {}),
-      // Advanced wizard config (reply flows / retries / conversion tracking) is
-      // persisted as JSON so it survives and can drive future execution.
-      replyRules: replyRules ?? undefined,
+      // Advanced wizard config (retries / fallback channels), persisted as JSON
+      // and read by the retry engine and fallback.service. Reply flows and
+      // conversion tracking are refused by the validator until they exist.
       retryConfig: retryConfig ? normalizeRetryConfig(retryConfig) : undefined,
-      trackingConfig: trackingConfig ?? undefined,
       goal: goal ?? undefined,
       fallbackConfig: fallbackConfig ?? undefined,
     },
@@ -281,7 +281,7 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
 }
 
 export async function updateCampaign(workspaceId, campaignId, {
-  name, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent, goal,
+  name, retryConfig, fallbackConfig, aiAgent, goal,
   templateId, numberId, whatsappNumberId, scheduledAt,
 }) {
   const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
@@ -339,9 +339,7 @@ export async function updateCampaign(workspaceId, campaignId, {
       data.scheduledAt = when;
     }
   }
-  if (replyRules !== undefined) data.replyRules = replyRules;
   if (retryConfig !== undefined) data.retryConfig = retryConfig ? normalizeRetryConfig(retryConfig) : null;
-  if (trackingConfig !== undefined) data.trackingConfig = trackingConfig;
   if (goal !== undefined) data.goal = goal;
   if (fallbackConfig !== undefined) data.fallbackConfig = fallbackConfig;
   const aiConfig = await resolveAiAgentConfig(workspaceId, aiAgent);
@@ -597,6 +595,17 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
 // at any time afterwards.
 function assertTemplateSendable(template) {
   if (!template) { const e = new Error('This campaign has no template'); e.status = 400; throw e; }
+  // An authentication campaign generates a code per recipient, which the send
+  // path only supports for COPY_CODE templates; anything else would charge
+  // the whole audience for sends that all fail.
+  if (template.status === 'APPROVED' && String(template.category || '').toUpperCase() === 'AUTHENTICATION'
+    && !isCopyCodeAuthenticationTemplate(template)) {
+    const e = new Error(`Template "${template.name}" is an authentication template without a COPY_CODE button. Authentication campaigns need an approved COPY_CODE template.`);
+    e.status = 422;
+    e.code = 'TEMPLATE_NOT_SENDABLE';
+    e.details = { templateId: template.id, status: template.status };
+    throw e;
+  }
   if (template.status === 'APPROVED') return;
 
   const reason = {
