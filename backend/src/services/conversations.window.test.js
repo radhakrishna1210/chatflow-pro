@@ -63,7 +63,7 @@ prisma.optOut.findUnique = async () => null;
 prisma.contact.findFirst = async () => null;
 prisma.message.create = async ({ data }) => ({ id: 'msg_1', ...data });
 
-const { sendMessage } = await import('./conversations.service.js');
+const { sendMessage, listConversations } = await import('./conversations.service.js');
 
 function reset(lastInboundAt) {
   sends.length = 0;
@@ -122,4 +122,30 @@ test('a token that cannot be decrypted fails before a credit is consumed', async
   await assert.rejects(sendMessage('ws_1', 'conv_1', 'u_1', { body: 'hello' }));
   assert.equal(credits.consumed, 0);
   assert.equal(sends.length, 0);
+});
+
+test('the inbox list pages by keyset cursor and applies views in the query', async () => {
+  const rows = [
+    { id: 'c3', lastMessageAt: new Date('2026-10-02T10:00:00Z') },
+    { id: 'c2', lastMessageAt: new Date('2026-10-02T09:00:00Z') },
+    { id: 'c1', lastMessageAt: new Date('2026-10-02T08:00:00Z') },
+  ];
+  const seen = [];
+  prisma.conversation.findMany = async (args) => { seen.push(args); return rows.slice(0, args.take); };
+  prisma.conversation.count = async () => 3;
+
+  const first = await listConversations('ws_1', { limit: 2, view: 'mine', userId: 'u_1' });
+  assert.deepEqual(first.data.map((c) => c.id), ['c3', 'c2']);
+  assert.ok(first.nextCursor);
+  assert.equal(first.total, 3);
+  assert.deepEqual(seen[0].where.AND, [{ assignedToUserId: 'u_1' }]);
+
+  await listConversations('ws_1', { limit: 2, cursor: first.nextCursor });
+  const bound = seen[1].where.AND[0].OR;
+  assert.deepEqual(bound[0], { lastMessageAt: { lt: rows[1].lastMessageAt } });
+  assert.deepEqual(bound[1], { lastMessageAt: rows[1].lastMessageAt, id: { lt: 'c2' } });
+  assert.equal(seen[1].skip, 0);
+
+  const last = await listConversations('ws_1', { limit: 5 });
+  assert.equal(last.nextCursor, null);
 });

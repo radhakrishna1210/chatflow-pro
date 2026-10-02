@@ -9,9 +9,58 @@ import { countVariables, buildTextComponents, buildButtonComponents, contactVari
 import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
 
-export async function listConversations(workspaceId, { page = 1, limit = 20, contactId = null, search = '' } = {}) {
-  const skip = (page - 1) * limit;
+// Keyset cursor over (lastMessageAt desc, id desc), opaque to the client. A
+// page/skip offset shifts under the inbox's feet as new messages reorder it.
+const encodeCursor = (c) => Buffer.from(`${new Date(c.lastMessageAt).toISOString()}|${c.id}`).toString('base64url');
+function decodeCursor(cursor) {
+  try {
+    const [at, id] = Buffer.from(String(cursor), 'base64url').toString().split('|');
+    const lastMessageAt = new Date(at);
+    if (!id || Number.isNaN(lastMessageAt.getTime())) return null;
+    return { lastMessageAt, id };
+  } catch {
+    return null;
+  }
+}
+
+// The inbox's views, applied in the query so they cover every conversation
+// rather than only the page already loaded.
+//   unassigned — nobody has the thread
+//   mine       — assigned to the caller
+//   ai         — a campaign AI session is live, or the automation has replied
+//                and no person has taken the thread over
+function viewFilter(view, userId) {
+  switch (view) {
+    case 'unassigned': return { assignedToUserId: null };
+    case 'mine': return { assignedToUserId: userId || '__nobody__' };
+    case 'ai': return {
+      OR: [
+        { aiSessions: { some: { status: 'ACTIVE' } } },
+        { humanHandoffAt: null, assignedToUserId: null, messages: { some: { direction: 'OUTBOUND', senderUserId: null } } },
+      ],
+    };
+    default: return null;
+  }
+}
+
+export async function listConversations(workspaceId, {
+  page = 1, limit = 20, contactId = null, search = '', cursor = null, view = null, userId = null,
+} = {}) {
+  limit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const after = cursor ? decodeCursor(cursor) : null;
+  const skip = after ? 0 : (Math.max(Number(page) || 1, 1) - 1) * limit;
   const where = { workspaceId };
+  const and = [];
+  const viewWhere = viewFilter(view, userId);
+  if (viewWhere) and.push(viewWhere);
+  if (after) {
+    and.push({
+      OR: [
+        { lastMessageAt: { lt: after.lastMessageAt } },
+        { lastMessageAt: after.lastMessageAt, id: { lt: after.id } },
+      ],
+    });
+  }
   if (contactId) {
     where.contactId = contactId;
   } else if (search && search.trim()) {
@@ -34,13 +83,16 @@ export async function listConversations(workspaceId, { page = 1, limit = 20, con
       OR: conditions,
     };
   }
+  // The cursor bound is left out of the count so `total` describes the view.
+  const countWhere = viewWhere ? { ...where, AND: [viewWhere] } : where;
+  if (and.length) where.AND = and;
 
-  const [data, total] = await Promise.all([
+  const [rows, total] = await Promise.all([
     prisma.conversation.findMany({
       where,
       skip,
-      take: limit,
-      orderBy: { lastMessageAt: 'desc' },
+      take: limit + 1,
+      orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
       include: {
         contact: { select: { id: true, name: true, phoneNumber: true, email: true, optedOut: true } },
         waNumber: { select: { id: true, phoneNumber: true, displayName: true, status: true } },
@@ -62,9 +114,11 @@ export async function listConversations(workspaceId, { page = 1, limit = 20, con
         },
       },
     }),
-    prisma.conversation.count({ where }),
+    prisma.conversation.count({ where: countWhere }),
   ]);
-  return { data, total };
+  const hasMore = rows.length > limit;
+  const data = hasMore ? rows.slice(0, limit) : rows;
+  return { data, total, nextCursor: hasMore ? encodeCursor(data[data.length - 1]) : null };
 }
 
 export async function getOrCreateConversation(workspaceId, { contactId, waNumberId = null } = {}) {
