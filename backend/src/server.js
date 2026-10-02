@@ -27,7 +27,7 @@ import { startWorkflowWorker } from './workers/workflow.worker.js';
 import { startSequenceWorker } from './workers/sequence.worker.js';
 import { startSequenceSweep } from './queues/sequence.queue.js';
 import { startAgentWorker } from './workers/agent.worker.js';
-import { startAgentSchedules } from './queues/agent.queue.js';
+import { agentQueue, startAgentSchedules } from './queues/agent.queue.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
@@ -422,8 +422,9 @@ async function shutdown(signal) {
       billingWorker?.close(),
       workflowWorker?.close(),
       sequenceWorker?.close(),
+      agentWorker?.close(),
     ]);
-    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close()]);
+    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close(), agentQueue.close()]);
     await Promise.allSettled([redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);
