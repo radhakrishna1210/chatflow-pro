@@ -781,6 +781,34 @@ export const savedViewSchemas = {
   }).strict(),
 };
 
+// CRM custom reports. Status and stage stay free strings (max 50) because
+// custom lifecycle/stage keys are valid filters; the service maps them.
+const reportFilterValue = z.string().trim().max(50).optional();
+const reportConfig = z.object({
+  entity: z.enum(['leads', 'deals', 'activities']).default('leads'),
+  metric: z.enum(['count', 'sum_value', 'avg_score']).default('count'),
+  groupBy: z.enum(['owner', 'source', 'category', 'status', 'stage', 'type']).default('source'),
+  chartType: z.enum(['bar', 'pie', 'table', 'funnel']).optional(),
+  filters: z.object({
+    category: reportFilterValue,
+    status: reportFilterValue,
+    stage: reportFilterValue,
+    type: z.enum(CRM_ACTIVITY_TYPES).optional(),
+    ownerUserId: z.string().trim().max(64).optional(),
+    source: z.string().trim().max(100).optional(),
+  }).default({}),
+});
+export const reportSchemas = {
+  query: reportConfig.extend({
+    range: z.enum(['7d', '30d', '90d', 'this_month', 'all']).default('30d'),
+  }),
+  save: z.object({
+    name: z.string().trim().min(1, 'Report name is required').max(100),
+    config: reportConfig,
+    isShared: z.boolean().optional().default(true),
+  }),
+};
+
 export const dealSchemas = {
   create: z.object({
     contactId: id,

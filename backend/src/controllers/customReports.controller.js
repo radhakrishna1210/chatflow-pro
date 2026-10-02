@@ -1,7 +1,7 @@
 import * as customReportsService from '../services/customReports.service.js';
 
 export async function queryReport(req, res) {
-  const result = await customReportsService.executeCustomReport(req.params.workspaceId, req.body);
+  const result = await customReportsService.executeCustomReport(req.params.workspaceId, req.body, req.user);
   res.json(result);
 }
 
@@ -16,6 +16,6 @@ export async function saveReport(req, res) {
 }
 
 export async function removeReport(req, res) {
-  await customReportsService.deleteSavedReport(req.params.workspaceId, req.params.id, req.user?.id);
+  await customReportsService.deleteSavedReport(req.params.workspaceId, req.params.id, req.user);
   res.status(204).send();
 }

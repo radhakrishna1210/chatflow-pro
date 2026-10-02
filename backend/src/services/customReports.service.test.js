@@ -116,7 +116,7 @@ test('saveCustomReport and listSavedReports manage user custom reports', async (
   const list = await listSavedReports(workspaceId, userId);
   assert.ok(list.saved.some((r) => r.name === 'My Custom Source Funnel'));
 
-  await deleteSavedReport(workspaceId, saved.id, userId);
+  await deleteSavedReport(workspaceId, saved.id, { id: userId, role: 'CLIENT' });
   const listAfter = await listSavedReports(workspaceId, userId);
   assert.ok(!listAfter.saved.some((r) => r.id === saved.id));
 });

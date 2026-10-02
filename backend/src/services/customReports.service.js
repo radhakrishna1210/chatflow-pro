@@ -1,4 +1,6 @@
+import { LeadStatus, DealStage } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { scopeFilter, activityScopeFilter, withScope } from './recordScope.service.js';
 
 const REPORT_ENTITY_TYPE = 'crm_custom_report';
 
@@ -55,8 +57,21 @@ export const PREBUILT_TEMPLATES = [
   },
 ];
 
+// Custom lifecycle statuses and pipeline stages live in customFields, not the
+// enum column; passing one to the enum used to fail the whole query with a 500.
+const LEAD_STATUSES = new Set(Object.keys(LeadStatus));
+const DEAL_STAGES = new Set(Object.keys(DealStage));
+const leadStatusClause = (status) => (LEAD_STATUSES.has(status)
+  ? { status }
+  : { customFields: { path: ['statusKey'], equals: status } });
+const dealStageClause = (stage) => (DEAL_STAGES.has(stage)
+  ? { stage }
+  : { customFields: { path: ['stageKey'], equals: stage } });
+
 /**
- * Executes dynamic custom report query.
+ * Executes dynamic custom report query. Reports aggregate the same records the
+ * caller could list, so record visibility applies: an OWN-scoped member charts
+ * their own pipeline, not their colleagues'.
  */
 export async function executeCustomReport(workspaceId, {
   entity = 'leads',
@@ -64,7 +79,7 @@ export async function executeCustomReport(workspaceId, {
   groupBy = 'source',
   filters = {},
   range = '30d',
-} = {}) {
+} = {}, user = null) {
   const now = new Date();
   let startDate = null;
   if (range === '7d') startDate = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
@@ -73,14 +88,15 @@ export async function executeCustomReport(workspaceId, {
   else if (range === 'this_month') startDate = new Date(now.getFullYear(), now.getMonth(), 1);
 
   if (entity === 'leads') {
-    const where = {
+    const scope = user ? await scopeFilter(workspaceId, user) : {};
+    const where = withScope({
       workspaceId,
       ...(startDate ? { createdAt: { gte: startDate } } : {}),
-      ...(filters.category && filters.category !== 'ALL' ? { category: filters.category } : {}),
-      ...(filters.status ? { status: filters.status } : {}),
+      ...(['HOT', 'WARM', 'COLD'].includes(filters.category) ? { category: filters.category } : {}),
+      ...(filters.status ? leadStatusClause(filters.status) : {}),
       ...(filters.ownerUserId ? { ownerUserId: filters.ownerUserId } : {}),
       ...(filters.source ? { source: { contains: filters.source, mode: 'insensitive' } } : {}),
-    };
+    }, scope);
 
     if (groupBy === 'owner') {
       const leads = await prisma.lead.findMany({
@@ -166,12 +182,13 @@ export async function executeCustomReport(workspaceId, {
   }
 
   if (entity === 'deals') {
-    const where = {
+    const scope = user ? await scopeFilter(workspaceId, user) : {};
+    const where = withScope({
       workspaceId,
       ...(startDate ? { createdAt: { gte: startDate } } : {}),
-      ...(filters.stage ? { stage: filters.stage } : {}),
+      ...(filters.stage ? dealStageClause(filters.stage) : {}),
       ...(filters.ownerUserId ? { ownerUserId: filters.ownerUserId } : {}),
-    };
+    }, scope);
 
     if (groupBy === 'owner') {
       const deals = await prisma.deal.findMany({
@@ -223,12 +240,13 @@ export async function executeCustomReport(workspaceId, {
   }
 
   if (entity === 'activities') {
-    const where = {
+    const scope = user ? await activityScopeFilter(workspaceId, user) : {};
+    const where = withScope({
       workspaceId,
       ...(startDate ? { createdAt: { gte: startDate } } : {}),
       ...(filters.type ? { type: filters.type } : {}),
       ...(filters.ownerUserId ? { createdByUserId: filters.ownerUserId } : {}),
-    };
+    }, scope);
 
     const groups = await prisma.crmActivity.groupBy({
       by: ['type'],
@@ -298,11 +316,20 @@ export async function saveCustomReport(workspaceId, { name, config, isShared = t
   return report;
 }
 
-export async function deleteSavedReport(workspaceId, id, userId) {
+// Only the author (or a workspace admin, so a departed member's reports can
+// still be cleaned up) may delete a saved report; shared means readable, not
+// deletable by everyone.
+export async function deleteSavedReport(workspaceId, id, user) {
   const report = await prisma.savedView.findFirst({
     where: { id, workspaceId, entity: REPORT_ENTITY_TYPE },
+    select: { id: true, createdByUserId: true, isShared: true },
   });
-  if (!report) { const e = new Error('Report not found'); e.status = 404; throw e; }
+  if (!report || (report.createdByUserId !== user?.id && !report.isShared)) {
+    const e = new Error('Report not found'); e.status = 404; throw e;
+  }
+  if (report.createdByUserId !== user?.id && user?.role !== 'ADMIN') {
+    const e = new Error('Only the author can delete this report'); e.status = 403; throw e;
+  }
   await prisma.savedView.delete({ where: { id } });
   return { ok: true };
 }
