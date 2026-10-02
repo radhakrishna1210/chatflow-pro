@@ -116,7 +116,20 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
 // `source` is the value consumeMessageCredit returned: QUOTA and PREPAID both
 // incremented the usage counter, WALLET did not (it debited the overage rate
 // instead) and so is refunded in money rather than in quota.
-export async function releaseMessageCredit(workspaceId, { source, amount: charged = null, messageCategory = null, reason = 'Refund for failed message send' } = {}) {
+//
+// Never throws: callers run it on a failure path and several discard its
+// errors, so a failed release is logged here with enough context to reconcile
+// by hand rather than vanishing.
+export async function releaseMessageCredit(workspaceId, opts = {}) {
+  try {
+    return await releaseMessageCreditUnsafe(workspaceId, opts);
+  } catch (err) {
+    console.error(`[Subscription] Releasing ${opts.source} credit failed for ${workspaceId} (amount ${opts.amount ?? 'n/a'}):`, err.message);
+    return { released: false, source: opts.source, error: err.message };
+  }
+}
+
+async function releaseMessageCreditUnsafe(workspaceId, { source, amount: charged = null, messageCategory = null, reason = 'Refund for failed message send' } = {}) {
   if (!source) return { released: false };
 
   if (source === 'WALLET') {
@@ -130,9 +143,8 @@ export async function releaseMessageCredit(workspaceId, { source, amount: charge
       ? Number(charged)
       : overageRateFor(subscription.plan, messageCategory);
     if (!(amount > 0)) return { released: false };
-    const result = await credit(workspaceId, amount, { reason, category: 'REFUND', gateway: 'system' })
-      .catch((err) => { console.error(`[Subscription] Overage refund failed for ${workspaceId}:`, err.message); return null; });
-    return { released: !!result, source, amount };
+    await credit(workspaceId, amount, { reason, category: 'REFUND', gateway: 'system' });
+    return { released: true, source, amount };
   }
 
   const subscription = await prisma.subscription.findUnique({ where: { workspaceId } });

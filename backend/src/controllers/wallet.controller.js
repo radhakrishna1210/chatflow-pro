@@ -48,7 +48,7 @@ export async function recharge(req, res) {
       title: 'Wallet recharged',
       body: `₹${Number(amount).toFixed(2)} was added to your wallet. New balance: ₹${Number(result.balance).toFixed(2)}.`,
       link: 'payments',
-    }).catch(() => {});
+    }).catch((err) => console.error('[Wallet] Recharge notification failed:', err.message));
   }
 
   res.json({ ...result, demo: true });
@@ -74,7 +74,7 @@ export async function verifyCheckout(req, res) {
       title: 'Wallet recharged',
       body: `₹${Number(result.transaction.amount).toFixed(2)} was added to your wallet. New balance: ₹${Number(result.balance).toFixed(2)}.`,
       link: 'payments',
-    }).catch(() => {});
+    }).catch((err) => console.error('[Wallet] Recharge notification failed:', err.message));
   }
 
   res.json(result);

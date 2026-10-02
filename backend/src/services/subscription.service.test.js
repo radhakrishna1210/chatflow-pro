@@ -59,7 +59,7 @@ const prisma = {
 mock.module('../lib/prisma.js', { namedExports: { prisma } });
 
 const {
-  assertContactCapacity, hasContactCapacity, scheduleSubscriptionChange, renewalCharge,
+  assertContactCapacity, hasContactCapacity, scheduleSubscriptionChange, renewalCharge, releaseMessageCredit,
 } = await import('./subscription.service.js');
 
 const setContacts = (...phones) => {
@@ -161,6 +161,24 @@ test('the Free plan cannot be cancelled and expired subscriptions cannot be chan
   await assert.rejects(() => scheduleSubscriptionChange('ws_1', { cancelAtPeriodEnd: true }), (e) => e.status === 400);
   onPlan('plan_growth', { status: 'EXPIRED' });
   await assert.rejects(() => scheduleSubscriptionChange('ws_1', { planId: 'plan_basic' }), (e) => e.status === 409);
+});
+
+test('releaseMessageCredit reports a failed release instead of throwing', async () => {
+  onPlan('plan_basic');
+  const original = prisma.usageCounter.updateMany;
+  prisma.usageCounter.updateMany = async () => { throw new Error('db down'); };
+  const errors = [];
+  const origError = console.error;
+  console.error = (...args) => errors.push(args.join(' '));
+  try {
+    const r = await releaseMessageCredit('ws_1', { source: 'QUOTA' });
+    assert.equal(r.released, false);
+    assert.equal(r.error, 'db down');
+    assert.ok(errors.some((line) => /QUOTA credit failed for ws_1/.test(line)));
+  } finally {
+    console.error = origError;
+    prisma.usageCounter.updateMany = original;
+  }
 });
 
 // ─── Renewal pricing ────────────────────────────────────────────────────────

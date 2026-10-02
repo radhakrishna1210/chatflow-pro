@@ -178,7 +178,7 @@ export async function cancelAddon(workspaceId, addonKey) {
 export async function hasAddon(workspaceId, addonKey) {
   const row = await prisma.workspaceAddon.findUnique({
     where: { workspaceId_addonKey: { workspaceId, addonKey } },
-  }).catch(() => null);
+  }).catch((err) => { console.error(`[Addons] Entitlement lookup failed for ${workspaceId}:`, err.message); return null; });
   return Boolean(row && row.status === 'ACTIVE' && row.currentPeriodEnd > new Date());
 }
 
@@ -194,7 +194,8 @@ export async function hasAddon(workspaceId, addonKey) {
 // fields. `active` is re-derived from the row rather than trusted, because a
 // cancelled add-on keeps working only until the period it paid for runs out.
 export async function addonAllowance(workspaceId, capability) {
-  const rows = await prisma.workspaceAddon.findMany({ where: { workspaceId } }).catch(() => []);
+  const rows = await prisma.workspaceAddon.findMany({ where: { workspaceId } })
+    .catch((err) => { console.error(`[Addons] Allowance lookup failed for ${workspaceId}:`, err.message); return []; });
   const now = new Date();
   let total = 0;
   for (const row of rows) {
