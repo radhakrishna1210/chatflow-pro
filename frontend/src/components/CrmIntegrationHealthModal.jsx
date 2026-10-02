@@ -71,11 +71,11 @@ export function CrmIntegrationHealthModal({ onClose }) {
             <div>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)' }}>
                 {health?.overallStatus === 'ALL_SYSTEMS_OPERATIONAL'
-                  ? 'All Ingestion & API Pipelines Operational'
-                  : 'Partial Connection / Setup Needed'}
+                  ? 'WhatsApp connected and healthy'
+                  : 'WhatsApp needs attention'}
               </div>
               <div style={{ fontSize: 12, color: 'var(--t2)', marginTop: 2 }}>
-                {health?.healthyCount || 0} of {health?.totalIntegrations || 4} channels active · Uptime: {health?.uptime || '99.98%'}
+                {health?.healthyCount || 0} of {health?.totalIntegrations || 0} integrations connected · From recorded activity, not a live probe
               </div>
             </div>
           </div>
@@ -160,20 +160,22 @@ export function CrmIntegrationHealthModal({ onClose }) {
                           fontWeight: 600,
                           padding: '2px 8px',
                           borderRadius: 6,
-                          background: 'rgba(34, 197, 94, 0.1)',
-                          border: '1px solid rgba(34, 197, 94, 0.25)',
-                          color: 'var(--green)',
+                          background: num.healthy ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                          border: `1px solid ${num.healthy ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.3)'}`,
+                          color: num.healthy ? 'var(--green)' : '#fbbf24',
                         }}
                       >
-                        {num.phoneNumber} ({num.displayName})
+                        {num.phoneNumber}{num.displayName ? ` (${num.displayName})` : ''}{num.healthy ? '' : ` · ${num.problems.join('; ')}`}
                       </span>
                     ))}
                   </div>
                 )}
 
-                {item.latencyMs && (
+                {item.provider === 'whatsapp' && item.numbers?.length > 0 && (
                   <div style={{ paddingLeft: 42, fontSize: 11, color: 'var(--t3)' }}>
-                    Gateway Response Latency: {item.latencyMs}ms · Protocol: HTTPS/REST
+                    Last inbound message: {item.lastInboundAt ? new Date(item.lastInboundAt).toLocaleString() : 'none received yet'}
+                    {' · '}Failed sends (24h): {item.failedSendsLast24h ?? 0} of {item.sendsLast24h ?? 0}
+                    {item.lastSendFailure && ` · Last failure: ${item.lastSendFailure.message || `code ${item.lastSendFailure.code}`} (${new Date(item.lastSendFailure.at).toLocaleString()})`}
                   </div>
                 )}
               </div>
