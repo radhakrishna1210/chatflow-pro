@@ -946,7 +946,7 @@ export default function PaymentsView({ initialTab } = {}) {
                     <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.description}</p>
                     {addon.active && addon.currentPeriodEnd && (
                       <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
-                        {addon.status === 'CANCELLED' ? 'Ends' : 'Renews'} {new Date(addon.currentPeriodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {addon.status === 'CANCELLED' ? 'Ends' : 'Active until'} {new Date(addon.currentPeriodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     )}
                   </div>
@@ -958,11 +958,19 @@ export default function PaymentsView({ initialTab } = {}) {
                       {addon.unavailableReason}
                     </div>
                   ) : isAdmin ? (
+                    addon.canExtend ? (
+                      // One-off 30-day packs: nothing renews them, so the last
+                      // week offers an extension on top of the time left.
+                      <Btn variant="primary" disabled={busy} onClick={() => buyAddon(addon)} style={{ width: '100%' }}>
+                        {busy ? 'Working…' : 'Extend 30 days'}
+                      </Btn>
+                    ) : (
                     <Btn variant={addon.active ? 'outline' : 'primary'} disabled={busy}
                       onClick={() => (addon.active ? cancelAddon(addon) : buyAddon(addon))}
                       style={{ width: '100%', borderColor: addon.active ? '#f8717144' : 'var(--bd)', color: addon.active ? '#f87171' : '#0a0b0e' }}>
                       {busy ? 'Working…' : addon.active ? (addon.status === 'CANCELLED' ? 'Cancelled' : 'Cancel Add-on') : 'Add to Plan'}
                     </Btn>
+                    )
                   ) : (
                     <div style={{ width: '100%', textAlign: 'center', padding: '9px 0', borderRadius: 8, border: '1px solid var(--bd)', color: 'var(--t3)', fontSize: 12 }}>
                       {addon.active ? 'Included' : 'Not included'}
