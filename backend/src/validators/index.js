@@ -592,6 +592,34 @@ export const leadSchemas = {
   }).strict(),
 };
 
+const distributionScore = z.union([z.number(), z.string().trim().max(10), z.null()]).optional();
+
+export const leadDistributionSchemas = {
+  rules: z.object({
+    enabled: z.boolean().default(true),
+    rules: z.array(z.object({
+      id: z.string().trim().max(60).optional(),
+      name: z.string().trim().max(80).default('Rule'),
+      enabled: z.boolean().default(true),
+      conditions: z.object({
+        category: z.enum(['ANY', 'HOT', 'WARM', 'COLD', '']).optional(),
+        source: z.string().trim().max(100).optional(),
+        minScore: distributionScore,
+        maxScore: distributionScore,
+        formAnswerContains: z.string().trim().max(200).optional(),
+      }).default({}),
+      assignment: z.object({
+        type: z.enum(['USER', 'ROUND_ROBIN']),
+        userId: z.union([id, z.literal(''), z.null()]).optional(),
+        poolUserIds: z.array(id).max(200).optional(),
+      }),
+    })).max(50).default([]),
+  }).strict(),
+  distribute: z.object({
+    leadIds: z.array(id).max(100).optional(),
+  }).strict(),
+};
+
 export const productSchemas = {
   create: z.object({
     name: z.string().trim().min(1, 'Product name is required').max(160),
