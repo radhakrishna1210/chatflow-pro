@@ -1,4 +1,11 @@
 // Spandan — end-to-end API test suite (runs against the live local stack)
+// Run from the repo root against a LOCAL stack (Postgres + Redis from
+// backend/.env; the app is started in-process on port 4000):
+//   node --env-file=backend/.env tests-e2e.mjs
+// The first import refuses to run unless every database URL is local — this
+// suite creates and deletes users, workspaces and plans.
+import './backend/scripts/require-local-db.js';
+import { signUpVerified } from './backend/scripts/signup-helper.mjs';
 import app from "./backend/src/app.js";
 import http from "http";
 import Redis from "./backend/node_modules/ioredis/built/index.js";
@@ -32,6 +39,15 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const { prisma } = await import('./backend/src/lib/prisma.js');
 
+
+// POST /auth/register is gone: accounts are created through the verified
+// OTP flow (/auth/register/start + /register/verify). The code is recovered
+// from the local EmailOtp row by backend/scripts/signup-helper.mjs.
+async function registerVerified(name, email) {
+  const data = await signUpVerified({ prisma, req }, { name, email });
+  return { status: 201, data };
+}
+
 // Clean up existing test data to ensure test idempotency
 try {
   const emails = ['alice@test.dev', 'bob@test.dev'];
@@ -57,7 +73,7 @@ console.log('\n■ Auth & session');
 let admin, adminWs, client;
 
 {
-  let r = await req('POST', '/auth/register', { body: { name: 'Alice Admin', email: 'alice@test.dev', password: 'password123' } });
+  let r = await registerVerified('Alice Admin', 'alice@test.dev');
   check('register creates account without a workspace', r.status === 201 && r.data.accessToken && r.data.workspace === null && r.data.user.role === null, JSON.stringify(r.data).slice(0,120));
   admin = r.data;
 
@@ -66,17 +82,19 @@ let admin, adminWs, client;
   admin = r.data; adminWs = r.data.workspace.id;
 
   // Upgrade the workspace to PRO plan and seed wallet balance so all v2/v3 campaigns/AI features succeed
-  const proPlan = await prisma.plan.findUnique({ where: { key: 'PRO' } });
+  const proPlan = await prisma.plan.findUnique({ where: { key: 'GROWTH' } });
   if (proPlan) {
     await prisma.subscription.update({ where: { workspaceId: adminWs }, data: { planId: proPlan.id } });
   }
   await prisma.workspace.update({ where: { id: adminWs }, data: { walletBalance: 100 } });
 
-  r = await req('POST', '/auth/register', { body: { name: 'Alice Admin', email: 'alice@test.dev', password: 'password123', role: 'ADMIN' } });
-  check('duplicate register rejected (409)', r.status === 409);
+  // An existing address gets the same answer as a new one (no 409 account
+  // enumeration, or 429 inside the resend cooldown) and nothing is created.
+  r = await req('POST', '/auth/register/start', { body: { name: 'Alice Admin', email: 'alice@test.dev', password: 'password123' } });
+  check('signup for an existing address creates nothing', r.status !== 201 && (await prisma.user.count({ where: { email: 'alice@test.dev' } })) === 1, `got ${r.status}`);
 
-  r = await req('POST', '/auth/register', { body: { name: 'X', email: 'not-an-email', password: 'short' } });
-  check('register validation rejects bad email/short password (400)', r.status === 400);
+  r = await req('POST', '/auth/register/start', { body: { name: 'X', email: 'not-an-email', password: 'short' } });
+  check('signup validation rejects bad email/short password (400)', r.status === 400);
 
   r = await req('POST', '/auth/login', { body: { email: 'alice@test.dev', password: 'wrongpass' } });
   check('wrong password rejected (401)', r.status === 401);
@@ -110,7 +128,7 @@ let admin, adminWs, client;
   admin = r.data;
 
   // second user (CLIENT in Alice's workspace)
-  r = await req('POST', '/auth/register', { body: { name: 'Bob Client', email: 'bob@test.dev', password: 'password123', role: 'CLIENT' } });
+  r = await registerVerified('Bob Client', 'bob@test.dev');
   client = r.data;
 }
 
@@ -137,7 +155,7 @@ console.log('\n■ Workspace security & RBAC');
   r = await req('POST', `/workspaces/${adminWs}/templates/sync-from-meta`, { token: client.accessToken });
   check('CLIENT cannot trigger Meta sync (403)', r.status === 403);
 
-  r = await req('GET', '/admin/pool', { token: admin.accessToken });
+  r = await req('GET', '/admin/numbers/pool', { token: admin.accessToken });
   check('non-super-admin blocked from /admin (403)', r.status === 403, `got ${r.status}`);
 }
 

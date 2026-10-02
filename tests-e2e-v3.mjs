@@ -1,3 +1,10 @@
+// Run from the repo root against a LOCAL stack (Postgres + Redis from
+// backend/.env; the app is started in-process on port 4000):
+//   node --env-file=backend/.env tests-e2e-v3.mjs
+// The first import refuses to run unless every database URL is local — this
+// suite creates and deletes users, workspaces and plans.
+import './backend/scripts/require-local-db.js';
+import { signUpVerified } from './backend/scripts/signup-helper.mjs';
 import app from "./backend/src/app.js";
 import http from "http";
 const _server = http.createServer(app);
@@ -18,12 +25,31 @@ process.env.PRISMA_PG_ADAPTER = '1';
 const { prisma } = await import('./backend/src/lib/prisma.js');
 const { encrypt } = await import('./backend/src/lib/encryption.js');
 
+
+// POST /auth/register is gone: accounts are created through the verified
+// OTP flow (/auth/register/start + /register/verify). The code is recovered
+// from the local EmailOtp row by backend/scripts/signup-helper.mjs.
+async function registerVerified(name, email) {
+  const data = await signUpVerified({ prisma, req }, { name, email });
+  return { status: 201, data };
+}
+
 let admin, adminWs, client;
+// Fixture accounts from a previous run would make signup a no-op.
+{
+  const fixtureEmails = ['v3admin@test.dev', 'v3client@test.dev'];
+  const users = await prisma.user.findMany({ where: { email: { in: fixtureEmails } }, include: { workspaceMembers: true } });
+  const workspaceIds = [...new Set(users.flatMap(u => u.workspaceMembers.map(m => m.workspaceId)))];
+  if (workspaceIds.length) await prisma.workspace.deleteMany({ where: { id: { in: workspaceIds } } });
+  await prisma.user.deleteMany({ where: { email: { in: fixtureEmails } } });
+}
 console.log('\n\u25a0 Setup');
 {
-  let r = await req('POST', '/auth/register', { body: { name: 'V3 Admin', email: 'v3admin@test.dev', password: 'password123', role: 'ADMIN' } });
+  // Signup creates no workspace; ADMIN comes from creating one.
+  let r = await registerVerified('V3 Admin', 'v3admin@test.dev');
+  r = await req('POST', '/workspaces', { token: r.data.accessToken, body: { name: 'V3 Admin Workspace' } });
   admin = r.data; adminWs = r.data.workspace.id;
-  r = await req('POST', '/auth/register', { body: { name: 'V3 Client', email: 'v3client@test.dev', password: 'password123', role: 'CLIENT' } });
+  r = await registerVerified('V3 Client', 'v3client@test.dev');
   client = r.data;
   await req('POST', `/workspaces/${adminWs}/members/invite`, { token: admin.accessToken, body: { email: 'v3client@test.dev', role: 'CLIENT' } });
   check('setup ok', !!admin.accessToken && !!client.accessToken);

@@ -374,7 +374,7 @@ kept in [docs/archive/BILLING_SPEC.md](docs/archive/BILLING_SPEC.md).
 | `cd backend && npm run test:otp` / `test:prisma-schema` | OTP scope suite; schema canonical-form check |
 | `cd frontend && npm test` | Frontend unit tests (`src/**/*.test.mjs`) |
 | `cd frontend && npx vite build` | Build check |
-| `node tests-e2e.mjs` (and `-v2`, `-v3`) | Scripted API end-to-end suites against a running **local** backend + Postgres + Redis. They sign up through `/auth/register/start` + `/register/verify`, reading the OTP from the local database via `backend/scripts/signup-helper.mjs`, so the backend's `.env` must point at a local DB |
+| `node --env-file=backend/.env tests-e2e.mjs` (and `-v2`, `-v3`) | Scripted API end-to-end suites. Each starts the app in-process on port 4000 against the **local** Postgres + Redis in `backend/.env`, and refuses to run if any database URL is not local. Accounts are created through `/auth/register/start` + `/register/verify`, with the OTP read from the local database by `backend/scripts/signup-helper.mjs`. v2 also needs `ALLOW_DEMO_RECHARGE=true` |
 | `npx playwright test` | Smoke specs in `tests/`; base URL `E2E_BASE_URL`, default `http://localhost:5173` |
 
 `backend/scripts/*-check.mjs` are scenario scripts against a running local

@@ -1,4 +1,12 @@
-// Spandan — v2 end-to-end suite (new features from BUGS-v2)
+// Spandan — v2 end-to-end suite (new features from docs/archive/BUGS-v2.md)
+// Run from the repo root against a LOCAL stack (Postgres + Redis from
+// backend/.env; the app is started in-process on port 4000):
+//   ALLOW_DEMO_RECHARGE=true node --env-file=backend/.env tests-e2e-v2.mjs
+// (the wallet checks use the demo top-up, which is off unless that is set).
+// The first import refuses to run unless every database URL is local — this
+// suite creates and deletes users, workspaces and plans.
+import './backend/scripts/require-local-db.js';
+import { signUpVerified } from './backend/scripts/signup-helper.mjs';
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 process.env.PRISMA_PG_ADAPTER = '1';
 import app from "./backend/src/app.js";
@@ -25,6 +33,15 @@ async function req(method, path, { body, token, headers = {} } = {}) {
 
 const { prisma } = await import('./backend/src/lib/prisma.js');
 
+
+// POST /auth/register is gone: accounts are created through the verified
+// OTP flow (/auth/register/start + /register/verify). The code is recovered
+// from the local EmailOtp row by backend/scripts/signup-helper.mjs.
+async function registerVerified(name, email) {
+  const data = await signUpVerified({ prisma, req }, { name, email });
+  return { status: 201, data };
+}
+
 let admin, adminWs, client, superAdmin, superWs;
 
 console.log('\n\u25a0 Cleanup previous fixture data (suite is not run against an ephemeral DB)');
@@ -45,7 +62,7 @@ console.log('\n\u25a0 Setup');
 {
   // Registration no longer creates a workspace — ADMIN comes only from
   // explicitly creating one via POST /workspaces.
-  let r = await req('POST', '/auth/register', { body: { name: 'V2 Admin', email: 'v2admin@test.dev', password: 'password123' } });
+  let r = await registerVerified('V2 Admin', 'v2admin@test.dev');
   check('registration returns no workspace and a null role', r.data.workspace === null && r.data.user.role === null, JSON.stringify(r.data.user));
   r = await req('POST', '/workspaces', { token: r.data.accessToken, body: { name: 'V2 Admin Workspace' } });
   check('creating a workspace grants ADMIN', r.status === 201 && r.data.user.role === 'ADMIN' && r.data.workspace?.id, JSON.stringify(r.data).slice(0, 120));
@@ -56,17 +73,17 @@ console.log('\n\u25a0 Setup');
   // assume unrestricted access — upgrade it to PRO so those keep testing what
   // they were written for. FREE-plan limit/feature-gate behavior itself is
   // covered separately below by the dedicated quotaWs/proWs fixtures.
-  const proPlanForAdmin = await prisma.plan.findUnique({ where: { key: 'PRO' } });
+  const proPlanForAdmin = await prisma.plan.findUnique({ where: { key: 'GROWTH' } });
   await prisma.subscription.update({ where: { workspaceId: adminWs }, data: { planId: proPlanForAdmin.id } });
   r = await req('POST', '/workspaces', { token: admin.accessToken, body: { name: 'Duplicate' } });
   check('second workspace for the same user rejected (409)', r.status === 409, `status=${r.status}`);
-  r = await req('POST', '/auth/register', { body: { name: 'V2 Client', email: 'v2client@test.dev', password: 'password123' } });
+  r = await registerVerified('V2 Client', 'v2client@test.dev');
   client = r.data;
   await req('POST', `/workspaces/${adminWs}/members/invite`, { token: admin.accessToken, body: { email: 'v2client@test.dev', role: 'CLIENT' } });
   r = await req('POST', '/auth/login', { body: { email: 'v2client@test.dev', password: 'password123' } });
   check('invited user logs in as CLIENT of the inviter workspace', r.data.user.role === 'CLIENT' && r.data.workspace?.id === adminWs, JSON.stringify(r.data.user));
   client = r.data;
-  r = await req('POST', '/auth/register', { body: { name: 'Super', email: 'super@spandan.test', password: 'password123' } });
+  r = await registerVerified('Super', 'super@spandan.test');
   superAdmin = r.data;
   check('super admin registration flags superAdmin', superAdmin.user.superAdmin === true, JSON.stringify(superAdmin.user));
   r = await req('POST', '/workspaces', { token: superAdmin.accessToken, body: { name: 'Super Workspace' } });
@@ -261,7 +278,7 @@ console.log('\n\u25a0 Subscription quota + wallet overage (README \u00a712.2/\u0
   const { consumeMessageCredit } = await import('./backend/src/services/subscription.service.js');
   const { encrypt } = await import('./backend/src/lib/encryption.js');
 
-  let r = await req('POST', '/auth/register', { body: { name: 'Quota Admin', email: 'quota-admin@test.dev', password: 'password123' } });
+  let r = await registerVerified('Quota Admin', 'quota-admin@test.dev');
   r = await req('POST', '/workspaces', { token: r.data.accessToken, body: { name: 'Quota Test Workspace' } });
   const quotaAdmin = r.data;
   const quotaWs = r.data.workspace.id;
@@ -319,7 +336,7 @@ console.log('\n\u25a0 Subscription quota + wallet overage (README \u00a712.2/\u0
   // Reuses quotaWs/quotaAdmin (FREE plan: memberLimit 1, contactLimit 100).
 
   // Member limit: quotaWs already has exactly 1 member (its ADMIN).
-  r = await req('POST', '/auth/register', { body: { name: 'Quota Member', email: 'quota-member@test.dev', password: 'password123' } });
+  r = await registerVerified('Quota Member', 'quota-member@test.dev');
   r = await req('POST', `/workspaces/${quotaWs}/members/invite`, { token: quotaAdmin.accessToken, body: { email: 'quota-member@test.dev', role: 'CLIENT' } });
   check('FREE workspace at member limit \u2192 invite rejected (403)', r.status === 403 && r.data.code === 'PLAN_LIMIT_REACHED', JSON.stringify(r.data));
 
@@ -337,7 +354,7 @@ console.log('\n\u25a0 Subscription quota + wallet overage (README \u00a712.2/\u0
   check('workflows endpoint on FREE \u2192 403 PLAN_FEATURE_LOCKED', r.status === 403 && r.data.code === 'PLAN_FEATURE_LOCKED' && r.data.feature === 'workflows', JSON.stringify(r.data));
 
   // Same endpoint on a PRO workspace (features.workflows === true) \u2192 allowed.
-  r = await req('POST', '/auth/register', { body: { name: 'Pro Admin', email: 'pro-admin@test.dev', password: 'password123' } });
+  r = await registerVerified('Pro Admin', 'pro-admin@test.dev');
   r = await req('POST', '/workspaces', { token: r.data.accessToken, body: { name: 'Pro Test Workspace' } });
   const proAdmin = r.data;
   const proWs = r.data.workspace.id;
@@ -346,8 +363,8 @@ console.log('\n\u25a0 Subscription quota + wallet overage (README \u00a712.2/\u0
   const paidPlan = await prisma.plan.findUnique({ where: { key: 'BASIC' } });
   const planPrice = Number(paidPlan.priceMonthly);
   const { credit } = await import('./backend/src/services/wallet.service.js');
-  // Auto-provisioned as FREE on creation — upgrade to PRO for this check.
-  await prisma.subscription.update({ where: { workspaceId: proWs }, data: { planId: proPlan.id } });
+  // Auto-provisioned as FREE on creation — upgrade to BASIC for this check.
+  await prisma.subscription.update({ where: { workspaceId: proWs }, data: { planId: paidPlan.id } });
 
   r = await req('GET', `/workspaces/${proWs}/workflows`, { token: proAdmin.accessToken });
   check('workflows endpoint on PRO \u2192 200', r.status === 200, JSON.stringify(r.data));
@@ -356,10 +373,13 @@ console.log('\n\u25a0 Subscription quota + wallet overage (README \u00a712.2/\u0
 console.log('\n\u25a0 Billing-cycle reset sweep (README \u00a712.6)');
 {
   const { runBillingCycleSweep } = await import('./backend/src/services/subscription.service.js');
-  const proPlan = await prisma.plan.findUnique({ where: { key: 'PRO' } });
+  // Declared again: the ones above are scoped to the previous block.
+  const paidPlan = await prisma.plan.findUnique({ where: { key: 'BASIC' } });
+  const planPrice = Number(paidPlan.priceMonthly);
+  const { credit } = await import('./backend/src/services/wallet.service.js');
 
   // \u2500\u2500 Renewal path, with a pending plan change applied on rollover \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-  let r = await req('POST', '/auth/register', { body: { name: 'Billing Renew', email: 'billing-renew@test.dev', password: 'password123' } });
+  let r = await registerVerified('Billing Renew', 'billing-renew@test.dev');
   r = await req('POST', '/workspaces', { token: r.data.accessToken, body: { name: 'Billing Renew Workspace' } });
   const renewWs = r.data.workspace.id;
 
@@ -418,7 +438,7 @@ console.log('\n\u25a0 Billing-cycle reset sweep (README \u00a712.6)');
   // ── Unfunded renewal: grace, then expiry ────────────────────────────────────
   {
     const DAY = 86_400_000;
-    let u = await req('POST', '/auth/register', { body: { name: 'Billing Dunning', email: 'billing-dunning@test.dev', password: 'password123' } });
+    let u = await registerVerified('Billing Dunning', 'billing-dunning@test.dev');
     u = await req('POST', '/workspaces', { token: u.data.accessToken, body: { name: 'Billing Dunning Workspace' } });
     const dueWs = u.data.workspace.id;
 
@@ -460,7 +480,7 @@ console.log('\n\u25a0 Billing-cycle reset sweep (README \u00a712.6)');
   }
 
   // \u2500\u2500 Cancellation path \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-  r = await req('POST', '/auth/register', { body: { name: 'Billing Cancel', email: 'billing-cancel@test.dev', password: 'password123' } });
+  r = await registerVerified('Billing Cancel', 'billing-cancel@test.dev');
   r = await req('POST', '/workspaces', { token: r.data.accessToken, body: { name: 'Billing Cancel Workspace' } });
   const cancelAdmin = r.data;
   const cancelWs = r.data.workspace.id;
