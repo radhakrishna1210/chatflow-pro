@@ -25,6 +25,7 @@ const { listLeads } = await import('./leads.service.js');
 const { listDeals } = await import('./deals.service.js');
 const { listTasks } = await import('./tasks.service.js');
 const { listTickets } = await import('./tickets.service.js');
+const { listActivities } = await import('./activities.service.js');
 
 // Evaluates the subset of Prisma's where-syntax the list endpoints use.
 function matches(row, where) {
@@ -34,6 +35,8 @@ function matches(row, where) {
     if (key === 'NOT') return ![].concat(cond).some((w) => matches(row, w));
     const value = row[key];
     if (cond === null || typeof cond !== 'object' || cond instanceof Date) return (value ?? null) === cond;
+    if ('is' in cond) return value != null && matches(value, cond.is);
+    if ('contains' in cond) return typeof value === 'string' && value.includes(cond.contains);
     if ('path' in cond) {
       const v = cond.path.reduce((o, k) => (o == null ? undefined : o[k]), value);
       return (v ?? null) === cond.equals;
@@ -66,6 +69,14 @@ const rows = {
     { id: 't_me', workspaceId: 'ws', assignedToUserId: 'me', status: 'PENDING', dueDate: new Date(0) },
     { id: 't_other', workspaceId: 'ws', assignedToUserId: 'other', status: 'PENDING', dueDate: new Date(0) },
   ],
+  crmActivity: [
+    { id: 'a_my_lead', workspaceId: 'ws', type: 'NOTE', content: 'x', createdByUserId: 'other', leadId: 'l1', lead: { ownerUserId: 'me' }, dealId: null, deal: null },
+    { id: 'a_other_lead', workspaceId: 'ws', type: 'NOTE', content: 'x', createdByUserId: 'other', leadId: 'l2', lead: { ownerUserId: 'other' }, dealId: null, deal: null },
+    { id: 'a_mine_on_other_lead', workspaceId: 'ws', type: 'CALL', content: 'x', createdByUserId: 'me', leadId: 'l2', lead: { ownerUserId: 'other' }, dealId: null, deal: null },
+    { id: 'a_unowned_deal', workspaceId: 'ws', type: 'MEETING', content: '{"engagementType":"Visit"}', createdByUserId: 'other', leadId: null, lead: null, dealId: 'd9', deal: { ownerUserId: null } },
+    { id: 'a_other_contact_note', workspaceId: 'ws', type: 'MEETING', content: 'x', createdByUserId: 'other', leadId: null, lead: null, dealId: null, deal: null },
+    { id: 'a_system_note', workspaceId: 'ws', type: 'NOTE', content: 'x', createdByUserId: null, leadId: null, lead: null, dealId: null, deal: null },
+  ],
   crmTicket: [
     { id: 'k_me', workspaceId: 'ws', ownerUserId: 'me', status: 'OPEN', priority: 'HIGH' },
     { id: 'k_other', workspaceId: 'ws', ownerUserId: 'other', status: 'OPEN', priority: 'HIGH' },
@@ -76,6 +87,11 @@ for (const model of Object.keys(rows)) {
   prisma[model].findMany = async ({ where }) => rows[model].filter((r) => matches(r, where));
   prisma[model].count = async ({ where }) => rows[model].filter((r) => matches(r, where)).length;
 }
+prisma.crmActivity.groupBy = async ({ where }) => {
+  const counts = {};
+  for (const r of rows.crmActivity.filter((x) => matches(x, where))) counts[r.type] = (counts[r.type] || 0) + 1;
+  return Object.entries(counts).map(([type, n]) => ({ type, _count: { _all: n } }));
+};
 prisma.workspace.findUnique = async () => ({ recordVisibility: visibility });
 prisma.teamMember.findMany = async ({ where }) => {
   if (where.userId) return teams.filter((t) => t.userId === where.userId).map(({ teamId }) => ({ teamId }));
@@ -153,4 +169,21 @@ test('a user without an id sees nothing even when a filter names an owner', asyn
   const scope = await scopeFilter('ws', {});
   const where = withScope({ workspaceId: 'ws', ownerUserId: 'other' }, scope);
   assert.equal(rows.lead.filter((r) => matches(r, where)).length, 0);
+});
+
+test("OWN: activities follow their lead/deal, plus the caller's own notes", async () => {
+  const res = await listActivities('ws', {}, me);
+  assert.deepEqual(ids(res), ['a_mine_on_other_lead', 'a_my_lead', 'a_system_note', 'a_unowned_deal']);
+  assert.equal(res.counts.ALL, 4, 'tab counts are scoped too');
+  const searched = await listActivities('ws', { search: 'x' }, me);
+  assert.ok(!searched.data.some((a) => a.id === 'a_other_lead'), 'a search OR cannot drop the scope');
+});
+
+test('visits and video calls are counted and filtered separately', async () => {
+  visibility = 'ALL';
+  const all = await listActivities('ws', {}, me);
+  assert.equal(all.counts.VISITS, 1);
+  assert.equal(all.counts.VIDEO_CALL, 1);
+  assert.deepEqual(ids(await listActivities('ws', { type: 'VISITS' }, me)), ['a_unowned_deal']);
+  assert.deepEqual(ids(await listActivities('ws', { type: 'VIDEO_CALL' }, me)), ['a_other_contact_note']);
 });

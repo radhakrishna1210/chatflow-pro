@@ -841,6 +841,10 @@ export const crmActivitySchemas = {
     leadId: optionalRef,
     dealId: optionalRef,
     contactId: optionalRef,
+    // Engagements view: tells a visit from a video call (both MEETING).
+    engagementType: z.enum(['Call', 'Video Call', 'Message', 'Visit', 'Note']).optional(),
+    status: z.string().trim().max(40).optional(),
+    notes: z.string().trim().max(5000).optional(),
   }),
 };
 

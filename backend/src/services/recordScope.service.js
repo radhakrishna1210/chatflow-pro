@@ -51,10 +51,27 @@ export async function teammateIds(workspaceId, userId) {
   return [...new Set([userId, ...peers.map((p) => p.userId)])];
 }
 
+// The owner ids whose records `user` may see — unowned records are visible on
+// top of these — or null when nothing is restricted.
+export async function visibleOwnerIds(workspaceId, user) {
+  if (user.role === 'ADMIN' || user.superAdmin === true) return null;
+
+  const mode = await getWorkspaceVisibility(workspaceId);
+  if (mode === 'ALL') return null;
+  if (mode === 'OWN') return [user.id];
+
+  // In TEAM mode a user belonging to no team sees only their own work.
+  return (await teammateIds(workspaceId, user.id)) ?? [user.id];
+}
+
+const ownedBy = (field, ids) => ({
+  OR: [{ [field]: ids.length === 1 ? ids[0] : { in: ids } }, { [field]: null }],
+});
+
 /**
  * Builds the Prisma `where` fragment restricting a query to what this user may
- * see. Returns `{}` when everything is visible, so callers can spread it
- * unconditionally.
+ * see. Returns `{}` when everything is visible. Compose it with other filters
+ * through `withScope` — never by spreading, see below.
  *
  * `ownerField` differs by model — leads and deals use `ownerUserId`, tasks use
  * `assignedToUserId`.
@@ -67,21 +84,30 @@ export async function scopeFilter(workspaceId, user, { ownerField = 'ownerUserId
     return { [ownerField]: '__no_user__' };
   }
 
-  if (user.role === 'ADMIN' || user.superAdmin === true) return {};
+  const ids = await visibleOwnerIds(workspaceId, user);
+  return ids ? ownedBy(ownerField, ids) : {};
+}
 
-  const mode = await getWorkspaceVisibility(workspaceId);
-  if (mode === 'ALL') return {};
+/**
+ * Activities have no owner of their own: they belong to the lead or deal they
+ * were logged against. One is visible when that lead or deal is, when the
+ * caller wrote it, or — for a note attached to neither — when its author is
+ * someone whose records the caller may see.
+ */
+export async function activityScopeFilter(workspaceId, user) {
+  if (!user?.id) return { createdByUserId: '__no_user__' };
 
-  if (mode === 'OWN') {
-    return { OR: [{ [ownerField]: user.id }, { [ownerField]: null }] };
-  }
-
-  const peers = await teammateIds(workspaceId, user.id);
-  if (!peers) {
-    // In TEAM mode a user belonging to no team sees only their own work.
-    return { OR: [{ [ownerField]: user.id }, { [ownerField]: null }] };
-  }
-  return { OR: [{ [ownerField]: { in: peers } }, { [ownerField]: null }] };
+  const ids = await visibleOwnerIds(workspaceId, user);
+  if (!ids) return {};
+  const owned = ownedBy('ownerUserId', ids);
+  return {
+    OR: [
+      { lead: { is: owned } },
+      { deal: { is: owned } },
+      { leadId: null, dealId: null, ...ownedBy('createdByUserId', ids) },
+      { createdByUserId: user.id },
+    ],
+  };
 }
 
 /**

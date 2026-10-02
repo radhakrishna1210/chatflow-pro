@@ -1,6 +1,14 @@
 import { prisma } from '../lib/prisma.js';
 import { resolveCrmReferences } from './crmReferences.js';
 import { autoGenerateOutcomeTask } from './crmCustomization.service.js';
+import { activityScopeFilter, assertInScope, withScope } from './recordScope.service.js';
+
+// Visits and video calls are both stored as MEETING; which one it was lives in
+// the engagement meta written by createActivity. Rows logged before the meta
+// existed have no marker and count as video calls, which is also how the list
+// labels them.
+const VISIT_MARKER = '"engagementType":"Visit"';
+const isVisit = { content: { contains: VISIT_MARKER } };
 
 const ACTIVITY_INCLUDE = {
   createdByUser: {
@@ -61,7 +69,8 @@ export async function listActivities(workspaceId, {
   status,
   limit = 200,
   page = 1,
-} = {}) {
+} = {}, user = null) {
+  const scope = user ? await activityScopeFilter(workspaceId, user) : {};
   const where = { workspaceId };
   if (leadId) where.leadId = leadId;
   if (dealId) where.dealId = dealId;
@@ -74,10 +83,12 @@ export async function listActivities(workspaceId, {
       where.type = t;
     } else if (t === 'VIDEO_CALL') {
       where.type = 'MEETING';
+      where.NOT = isVisit;
     } else if (t === 'MESSAGES') {
       where.type = { in: ['EMAIL', 'NOTE'] };
     } else if (t === 'VISITS') {
       where.type = 'MEETING';
+      where.content = isVisit.content;
     }
   }
 
@@ -94,9 +105,12 @@ export async function listActivities(workspaceId, {
 
   // If fetching strictly for a single deal and not general engagements list, keep stage history timeline merge
   if (dealId && !leadId && !contactId && !type && !search) {
+    // The stage history is the deal's own, so it is shown only for a deal the
+    // caller may open.
+    if (user) await assertInScope(workspaceId, user, 'deal', dealId);
     const [activities, stageHistory] = await Promise.all([
       prisma.crmActivity.findMany({
-        where,
+        where: withScope(where, scope),
         include: ACTIVITY_INCLUDE,
         orderBy: { createdAt: 'desc' },
       }),
@@ -122,20 +136,22 @@ export async function listActivities(workspaceId, {
     return { data: unifiedFeed, total: unifiedFeed.length };
   }
 
-  const [activities, total, allCounts] = await Promise.all([
+  const scopedWhere = withScope(where, scope);
+  const [activities, total, allCounts, visits] = await Promise.all([
     prisma.crmActivity.findMany({
-      where,
+      where: scopedWhere,
       include: ACTIVITY_INCLUDE,
       orderBy: { createdAt: 'desc' },
       take: limit,
       skip: (page - 1) * limit,
     }),
-    prisma.crmActivity.count({ where }),
+    prisma.crmActivity.count({ where: scopedWhere }),
     prisma.crmActivity.groupBy({
       by: ['type'],
-      where: { workspaceId },
+      where: withScope({ workspaceId }, scope),
       _count: { _all: true },
     }),
+    prisma.crmActivity.count({ where: withScope({ workspaceId, type: 'MEETING', ...isVisit }, scope) }),
   ]);
 
   const typeCounts = {
@@ -151,9 +167,9 @@ export async function listActivities(workspaceId, {
     typeCounts[g.type] = g._count._all;
     typeCounts.ALL += g._count._all;
   }
-  typeCounts.VIDEO_CALL = typeCounts.MEETING || 0;
+  typeCounts.VISITS = visits;
+  typeCounts.VIDEO_CALL = Math.max(0, (typeCounts.MEETING || 0) - visits);
   typeCounts.MESSAGES = (typeCounts.EMAIL || 0) + (typeCounts.NOTE || 0);
-  typeCounts.VISITS = typeCounts.MEETING || 0;
 
   // Enrich for the Engagements Table View
   const enriched = activities.map((act) => {
@@ -208,6 +224,7 @@ export async function createActivity(workspaceId, body, userId) {
   else if (body.engagementType === 'Video Call') rawType = 'MEETING';
   else if (body.engagementType === 'Visit') rawType = 'MEETING';
   else if (body.engagementType === 'Message') rawType = 'EMAIL';
+  else if (body.engagementType === 'Note') rawType = 'NOTE';
 
   // Support structured engagement payload
   let content = body.content || '';
@@ -256,8 +273,9 @@ export async function createActivity(workspaceId, body, userId) {
 }
 
 
-export async function deleteActivity(workspaceId, id) {
-  const activity = await prisma.crmActivity.findFirst({ where: { id, workspaceId }, select: { id: true } });
+export async function deleteActivity(workspaceId, id, user = null) {
+  const scope = user ? await activityScopeFilter(workspaceId, user) : {};
+  const activity = await prisma.crmActivity.findFirst({ where: withScope({ id, workspaceId }, scope), select: { id: true } });
   if (!activity) { const e = new Error('Activity not found'); e.status = 404; throw e; }
   await prisma.crmActivity.delete({ where: { id } });
 }
