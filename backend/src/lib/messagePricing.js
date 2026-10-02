@@ -15,6 +15,11 @@ export const MESSAGE_CATEGORY_RATES = {
   AUTHENTICATION: 0.13,
 };
 
+// Charged per campaign fallback SMS (fallback.service.js). Those go out on the
+// platform's Twilio account, so they are billed to the workspace wallet like
+// any other message rather than absorbed.
+export const SMS_FALLBACK_RATE = 0.25;
+
 // Meta has used both "AUTHENTICATION" and the older "OTP" spelling, and
 // templates synced from Meta arrive in whatever case the API returned.
 const ALIASES = {

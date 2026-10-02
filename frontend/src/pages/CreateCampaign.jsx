@@ -1240,6 +1240,11 @@ const StepFallback = ({ retriesActive, onSaved }) => {
       <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', opacity: canEnable ? 1 : 0.5, pointerEvents: canEnable ? 'auto' : 'none' }}>
         <ChannelCard id="sms" label="SMS Fallback" icon="phone" enabled={smsEnabled} setEnabled={setSmsEnabled} supported={caps.sms}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+            {caps.smsRate != null && (
+              <div style={{ fontSize: '11.5px', color: 'var(--t3)', lineHeight: 1.5 }}>
+                Each fallback SMS is charged {inr(caps.smsRate)} from your wallet. Contacts who opted out are never sent one.
+              </div>
+            )}
             <div>
               <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>Sender Number</label>
               <input value={smsFrom} onChange={e => setSmsFrom(e.target.value)} placeholder="e.g. +14155552671" style={fieldStyle} />
