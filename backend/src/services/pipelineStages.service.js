@@ -72,6 +72,17 @@ export async function createStage(workspaceId, { key, label, probability = 50, s
   });
 }
 
+// Deals in a stage: the enum column for built-in keys, customFields.stageKey
+// for custom ones. A built-in key also counts deals parked on it while a
+// custom stage overrides it — over-counting only ever refuses a delete.
+export async function countDealsInStage(workspaceId, key) {
+  const conditions = [{ customFields: { path: ['stageKey'], equals: key } }];
+  if (STAGE_KEYS.includes(key)) conditions.push({ stage: key });
+  return prisma.deal.count({ where: { workspaceId, OR: conditions } });
+}
+
+// Every stage deletion goes through here, including the ones Customize Your
+// Business performs when a stage is dropped from its list.
 export async function deleteStage(workspaceId, key) {
   if (CLOSED_STAGES.includes(key)) {
     const e = new Error('Terminal closed stages cannot be deleted'); e.status = 400; throw e;
@@ -79,6 +90,12 @@ export async function deleteStage(workspaceId, key) {
   const stage = await prisma.pipelineStage.findFirst({ where: { workspaceId, key } });
   if (!stage) {
     const e = new Error('Pipeline stage not found'); e.status = 404; throw e;
+  }
+  const inUse = await countDealsInStage(workspaceId, key);
+  if (inUse > 0) {
+    const e = new Error(`Cannot delete deal stage "${key}" because ${inUse} deal(s) are currently in this stage. Reassign them first.`);
+    e.status = 409;
+    throw e;
   }
   await prisma.pipelineStage.delete({ where: { id: stage.id } });
 }
