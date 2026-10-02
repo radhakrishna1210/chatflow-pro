@@ -14,11 +14,16 @@ export default defineConfig({
         // itself changes far less often than app code. Splitting both out
         // keeps the entry chunk small and lets them stay cached across
         // deploys instead of being re-downloaded with every app change.
-        // Only Recharts is worth separating. React is needed on first paint
-        // either way, so splitting it saved nothing and cost an extra
-        // request; Recharts is used by two screens and is half the bundle.
-        manualChunks: {
-          charts: ['recharts'],
+        // React has to be named too: Recharts depends on it, and a chunk
+        // listing only 'recharts' swallowed React with it, so the entry chunk
+        // imported (and index.html preloaded) the whole charts chunk on every
+        // page, the landing page included.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react';
+          // Recharts and its d3/redux/etc. dependencies — the only other
+          // runtime packages the app ships.
+          return 'charts';
         },
       },
     },
