@@ -143,6 +143,9 @@ const envSchema = z.object({
   // Razorpay test/live keys — optional until subscription checkout is configured.
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
+  // The demo /wallet/recharge credits the wallet without any payment. It only
+  // works outside production AND with this explicitly set to "true".
+  ALLOW_DEMO_RECHARGE: z.string().default('false').transform((v) => v === 'true'),
 
   // SMTP — optional until credentials are configured
   SMTP_HOST: z.string().optional(),
