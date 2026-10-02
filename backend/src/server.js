@@ -28,6 +28,8 @@ import { startSequenceWorker } from './workers/sequence.worker.js';
 import { startSequenceSweep } from './queues/sequence.queue.js';
 import { startAgentWorker } from './workers/agent.worker.js';
 import { startAgentSchedules } from './queues/agent.queue.js';
+import { startCrmMaintenanceWorker } from './workers/crmMaintenance.worker.js';
+import { crmMaintenanceQueue, scheduleCrmMaintenance } from './queues/crmMaintenance.queue.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
@@ -47,6 +49,7 @@ let billingWorker = null;
 let workflowWorker = null;
 let agentWorker = null;
 let sequenceWorker = null;
+let crmMaintenanceWorker = null;
 let httpServer = null;
 
 async function initializeSubscriptions() {
@@ -311,6 +314,7 @@ async function main() {
     sequenceWorker = startSequenceWorker();
     console.log('[Worker] Sequence worker started');
     agentWorker = startAgentWorker();
+    crmMaintenanceWorker = startCrmMaintenanceWorker();
 
     // The autonomous agent's tick and sweep. Failing to schedule them must not
     // stop the server — the rest of the product works without the agent.
@@ -344,6 +348,13 @@ async function main() {
       if (retries > 0) console.log(`[Recovery] Re-queued ${retries} pending retry job(s)`);
     } catch (err) {
       console.error('[Recovery] Pending-retry recovery failed:', err.message);
+    }
+
+    // Nightly quote expiry and lead score/category refresh.
+    try {
+      await scheduleCrmMaintenance();
+    } catch (err) {
+      console.error('[CrmMaintenance] Could not schedule the nightly sweep:', err.message);
     }
 
     // Register the daily repeatable billing-cycle job (no-op if already registered).
@@ -399,8 +410,9 @@ async function shutdown(signal) {
       billingWorker?.close(),
       workflowWorker?.close(),
       sequenceWorker?.close(),
+      crmMaintenanceWorker?.close(),
     ]);
-    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close()]);
+    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close(), crmMaintenanceQueue.close()]);
     await Promise.allSettled([redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);

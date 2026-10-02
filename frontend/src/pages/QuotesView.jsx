@@ -97,6 +97,12 @@ const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
             </div>
           </div>
 
+          {quote.status === 'DRAFT' && (
+            <div style={{ fontSize: 11.5, color: 'var(--t3)', marginBottom: 12 }}>
+              "Mark sent" only records that you shared this quote yourself; nothing is sent to the customer. Quotes past their valid-until date are marked expired overnight.
+            </div>
+          )}
+
           {!editable && (
             <div style={{ ...card, padding: '9px 13px', marginBottom: 14, fontSize: 11.5, color: 'var(--t3)', display: 'flex', gap: 8, alignItems: 'center' }}>
               <I n="lock" s={13} c="var(--t3)" />
