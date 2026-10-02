@@ -10,8 +10,8 @@ import * as walletController from '../controllers/wallet.controller.js';
 import * as aiAgentController from '../controllers/aiAgent.controller.js';
 import * as automationController from '../controllers/automation.controller.js';
 import * as publicIdentityController from '../controllers/publicIdentity.controller.js';
-import * as whatsappService from '../services/whatsapp.service.js';
-import { validate, templateSchemas, campaignSchemas } from '../validators/index.js';
+import { sendPublicMessage } from '../services/publicMessage.service.js';
+import { validate, templateSchemas, campaignSchemas, publicApiSchemas } from '../validators/index.js';
 
 const router = Router();
 
@@ -33,9 +33,9 @@ const injectWorkspace = (fn) => (req, res, next) => {
 router.get('/me', publicIdentityController.me);
 
 // --- Messages ---
-router.post('/messages', requireScope('messages:send'), async (req, res, next) => {
+router.post('/messages', requireScope('messages:send'), validate({ body: publicApiSchemas.sendMessage }), async (req, res, next) => {
   try {
-    const result = await whatsappService.sendPublicMessage(req.workspaceId, req.body);
+    const result = await sendPublicMessage(req.workspaceId, req.body);
     res.status(200).json(result);
   } catch (err) {
     next(err);

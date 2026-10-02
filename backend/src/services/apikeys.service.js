@@ -7,6 +7,7 @@ import { decrypt } from '../lib/encryption.js';
 import { countVariables } from '../lib/templateParams.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
 import { normaliseScopes, API_SCOPES, DEFAULT_SCOPES } from '../lib/apiScopes.js';
+import { chargeAndSend, recordOutboundMessage } from './meteredSend.service.js';
 
 function generateKey() {
   const raw = 'cfp_' + randomBytes(32).toString('hex');
@@ -373,13 +374,13 @@ export async function revokeApiKey(workspaceId, id) {
 /*
  * Powers the "Send Test Message" button in the API Playground.
  *
- * Sends a real WhatsApp message through the workspace's connected number.
- * This functionality is unrelated to Authentication API-key provisioning
- * and is intentionally preserved.
+ * Sends a real WhatsApp message through the workspace's connected number, so
+ * it is charged and recorded like any other send.
  */
 export async function sendTestMessage(
   workspaceId,
-  { to, templateId, message, variables = [] }
+  { to, templateId, message, variables = [] },
+  user = null
 ) {
   /*
    * Meta only accepts bare digits. Normalize numbers such as:
@@ -401,6 +402,9 @@ export async function sendTestMessage(
     where: {
       workspaceId,
     },
+    orderBy: {
+      createdAt: 'asc',
+    },
   });
 
   if (!waNumber) {
@@ -415,6 +419,20 @@ export async function sendTestMessage(
     sendWhatsAppMessage,
     sendTextMessage,
   } = await import('../lib/meta.js');
+
+  const meteredSend = async ({ reason, messageCategory = null, body, type, send }) => {
+    const { result } = await chargeAndSend(workspaceId, { reason, messageCategory, send });
+    const messageId = result?.messages?.[0]?.id ?? null;
+    await recordOutboundMessage(workspaceId, {
+      phone: recipient,
+      waNumberId: waNumber.id,
+      body,
+      type,
+      metaMessageId: messageId,
+      senderUserId: user?.id ?? null,
+    });
+    return { ok: true, messageId };
+  };
 
   try {
     if (templateId) {
@@ -438,10 +456,7 @@ export async function sendTestMessage(
         throw error;
       }
 
-      if (
-        template.status === 'PENDING' ||
-        template.status === 'REJECTED'
-      ) {
+      if (template.status !== 'APPROVED') {
         const error = new Error(
           `Template "${name}" is ${template.status.toLowerCase()} on Meta and cannot be sent yet.`
         );
@@ -500,30 +515,31 @@ export async function sendTestMessage(
           String(supplied[i] ?? '').trim() || ' ',
       });
 
-      const result = await sendWhatsAppMessage(
+      return await meteredSend({
+        reason: 'API playground template message',
+        messageCategory: template.category ?? null,
+        body: `[Template: ${template.name}]`,
+        type: 'TEMPLATE',
+        send: () => sendWhatsAppMessage(
+          waNumber.metaPhoneNumberId,
+          accessToken,
+          recipient,
+          payload
+        ),
+      });
+    }
+
+    return await meteredSend({
+      reason: 'API playground text message',
+      body: message,
+      type: 'TEXT',
+      send: () => sendTextMessage(
         waNumber.metaPhoneNumberId,
         accessToken,
         recipient,
-        payload
-      );
-
-      return {
-        ok: true,
-        messageId: result?.messages?.[0]?.id ?? null,
-      };
-    }
-
-    const result = await sendTextMessage(
-      waNumber.metaPhoneNumberId,
-      accessToken,
-      recipient,
-      message
-    );
-
-    return {
-      ok: true,
-      messageId: result?.messages?.[0]?.id ?? null,
-    };
+        message
+      ),
+    });
   } catch (err) {
     if (err.status) {
       throw err;

@@ -71,7 +71,8 @@ export async function revoke(req, res) {
 export async function testMessage(req, res) {
   const result = await apiKeysService.sendTestMessage(
     req.params.workspaceId,
-    req.body
+    req.body,
+    req.user
   );
 
   res.json(result);

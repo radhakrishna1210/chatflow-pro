@@ -13,6 +13,10 @@ import {
   assertNotOptedOut,
   normalizePhone,
 } from '../services/optout.service.js';
+import {
+  chargeAndSend,
+  recordOutboundMessage,
+} from '../services/meteredSend.service.js';
 
 const AUTHENTICATION_OTP_EXPIRATION_MINUTES = 10;
 
@@ -299,22 +303,44 @@ export async function sendAuthenticationOtp(
     waNumber.encryptedAccessToken
   );
 
+  const send = () => sendWhatsAppMessage(
+    waNumber.metaPhoneNumberId,
+    accessToken,
+    recipient,
+    buildAuthenticationPayload(
+      template,
+      generated.code
+    )
+  );
+
   try {
-    const result = await sendWhatsAppMessage(
-      waNumber.metaPhoneNumberId,
-      accessToken,
-      recipient,
-      buildAuthenticationPayload(
-        template,
-        generated.code
-      )
-    );
+    // A campaign recipient's credit is claimed by the campaign worker; every
+    // other OTP is charged here, at the AUTHENTICATION rate, and the credit is
+    // released if Meta refuses the send.
+    const result = campaignId
+      ? await send()
+      : (await chargeAndSend(workspaceId, {
+          reason: 'Authentication OTP',
+          messageCategory: template.category || 'AUTHENTICATION',
+          send,
+        })).result;
     const metaMessageId = result?.messages?.[0]?.id || null;
 
     // Meta accepted the message; inability to record its optional provider ID
     // must not make an otherwise delivered code unusable.
     await attachMetaMessageId(generated.transactionId, metaMessageId)
       .catch(error => console.error('[Authentication] Failed to store Meta message ID:', error));
+
+    // The code itself is never stored in the thread.
+    if (!campaignId) {
+      await recordOutboundMessage(workspaceId, {
+        phone: recipient,
+        waNumberId: waNumber.id,
+        body: `[Authentication OTP: ${template.name}]`,
+        type: 'TEMPLATE',
+        metaMessageId,
+      });
+    }
 
     return {
       status: 'SENT',

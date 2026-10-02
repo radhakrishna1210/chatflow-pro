@@ -173,7 +173,7 @@ export async function getMessages(workspaceId, conversationId) {
 // Meta's rejections reach the agent verbatim otherwise — "Request failed with
 // status code 400" says nothing about what to do next. The codes translated
 // here are the ones with an actual remedy.
-function describeSendFailure(err) {
+export function describeSendFailure(err) {
   const meta = err.response?.data?.error;
   if (!meta) {
     const e = new Error(`Could not reach WhatsApp: ${err.message}`);
