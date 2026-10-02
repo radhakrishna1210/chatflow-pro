@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -1179,10 +1179,24 @@ export default function LeadsView() {
       .catch(() => {});
   }, []);
 
+  // Typing shouldn't fire a request per keystroke, and a slow response for an
+  // older query must not overwrite the newer one: debounce, then abort the
+  // request in flight whenever a new one starts.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  const inflight = useRef(null);
+  useEffect(() => () => inflight.current?.abort(), []);
+
   const load = useCallback(() => {
+    inflight.current?.abort();
+    const controller = new AbortController();
+    inflight.current = controller;
     setLoading(true);
     const qs = new URLSearchParams();
-    if (search) qs.set('search', search);
+    if (debouncedSearch) qs.set('search', debouncedSearch);
     if (category) qs.set('category', category);
     if (status) qs.set('status', status);
     if (owner) qs.set('ownerUserId', owner);
@@ -1190,12 +1204,12 @@ export default function LeadsView() {
     if (tagFilter) qs.set('tag', tagFilter);
     if (preset && preset !== 'all') qs.set('preset', preset);
     qs.set('sort', sort);
-    wFetch(`/leads?${qs}`)
+    wFetch(`/leads?${qs}`, { signal: controller.signal })
       .then(r => (r.ok ? r.json() : Promise.reject(new Error('Could not load leads'))))
-      .then(d => setLeads(d.data ?? []))
-      .catch(e => setErr(e.message))
-      .finally(() => setLoading(false));
-  }, [search, category, status, owner, sourceFilter, tagFilter, preset, sort]);
+      .then(d => { if (!controller.signal.aborted) setLeads(d.data ?? []); })
+      .catch(e => { if (!controller.signal.aborted) setErr(e.message); })
+      .finally(() => { if (inflight.current === controller) setLoading(false); });
+  }, [debouncedSearch, category, status, owner, sourceFilter, tagFilter, preset, sort]);
 
   const toggleSelect = (id, e) => {
     e.stopPropagation();
