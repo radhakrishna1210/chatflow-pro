@@ -27,6 +27,7 @@ import { startWorkflowWorker } from './workers/workflow.worker.js';
 import { startSequenceWorker } from './workers/sequence.worker.js';
 import { startSequenceSweep } from './queues/sequence.queue.js';
 import { startAgentWorker } from './workers/agent.worker.js';
+import { startWebhookWorker } from './workers/webhook.worker.js';
 import { startAgentSchedules } from './queues/agent.queue.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
@@ -37,6 +38,7 @@ import { emailQueue } from './queues/email.queue.js';
 import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
 import { workflowQueue } from './queues/workflow.queue.js';
 import { sequenceQueue } from './queues/sequence.queue.js';
+import { webhookQueue } from './queues/webhook.queue.js';
 import { prisma } from './lib/prisma.js';
 import { loadPlatformSettings } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
@@ -47,6 +49,7 @@ let billingWorker = null;
 let workflowWorker = null;
 let agentWorker = null;
 let sequenceWorker = null;
+let webhookWorker = null;
 let httpServer = null;
 
 async function initializeSubscriptions() {
@@ -311,6 +314,8 @@ async function main() {
     sequenceWorker = startSequenceWorker();
     console.log('[Worker] Sequence worker started');
     agentWorker = startAgentWorker();
+    webhookWorker = startWebhookWorker();
+    console.log('[Worker] Webhook worker started');
 
     // The autonomous agent's tick and sweep. Failing to schedule them must not
     // stop the server — the rest of the product works without the agent.
@@ -399,8 +404,9 @@ async function shutdown(signal) {
       billingWorker?.close(),
       workflowWorker?.close(),
       sequenceWorker?.close(),
+      webhookWorker?.close(),
     ]);
-    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close()]);
+    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close(), webhookQueue.close()]);
     await Promise.allSettled([redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);
