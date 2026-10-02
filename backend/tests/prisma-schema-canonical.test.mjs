@@ -114,5 +114,17 @@ const generatedIndex = path.join(backendDir, 'node_modules', '.prisma', 'client'
 test('current schema.prisma matches the generated client inlineSchema', { skip: !existsSync(generatedIndex) }, () => {
   const match = readFileSync(generatedIndex, 'utf8').match(/"inlineSchema":\s*"((?:\\.|[^"\\])*)"/);
   assert.ok(match, 'generated client has an inlineSchema');
-  same(readFileSync(path.join(backendDir, 'prisma', 'schema.prisma'), 'utf8'), JSON.parse(`"${match[1]}"`));
+  const current = canonicalSchema(readFileSync(path.join(backendDir, 'prisma', 'schema.prisma'), 'utf8'));
+  const generated = canonicalSchema(JSON.parse(`"${match[1]}"`));
+  if (current === generated) return;
+  // A stale client is an environment problem, not a schema bug: name the
+  // blocks that differ and the fix, instead of dumping both 70 KB schemas.
+  const blocks = (s) => new Map(s.split(/\n(?=(?:model|enum|datasource|generator) )/).map((b) => [b.slice(0, b.indexOf('{')), b]));
+  const a = blocks(current);
+  const b = blocks(generated);
+  const changed = [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k));
+  assert.fail(
+    `The generated Prisma client (${path.relative(backendDir, generatedIndex)}) does not match prisma/schema.prisma; ` +
+    `differing blocks: ${changed.join(', ')}. Regenerate it with \`npm run db:generate\` in the checkout that owns node_modules.`,
+  );
 });
