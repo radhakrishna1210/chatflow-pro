@@ -531,18 +531,28 @@ export async function getRevenueOverview() {
 // Distinct from Transactions (the full wallet ledger, which also includes
 // non-payment debits like usage/overage) — this is strictly revenue collected.
 
-const WALLET_RECHARGE_REASON = 'Wallet recharge (Razorpay)';
+// Each gateway payment is counted once. Wallet top-ups come from the ledger
+// (gateway 'razorpay'); their mirror invoice ("Wallet recharge") is skipped.
+// Invoices only count when they carry a Razorpay payment id (pay_…): renewal
+// invoices are paid from wallet money already counted at top-up time, and
+// manual/demo credits never reached a gateway.
+const WALLET_TOPUP_INVOICE = 'Wallet recharge';
+const invoiceKind = (description) => (/plan subscription/i.test(description || '') ? 'PLAN_SUBSCRIPTION' : 'ADDON');
 
 export async function getPaymentsAnalysis({ workspaceId, from, to } = {}) {
   const dateRange = {};
   if (from) dateRange.gte = new Date(from);
   if (to) dateRange.lte = new Date(to);
 
-  const invoiceWhere = { status: 'PAID' };
+  const invoiceWhere = {
+    status: 'PAID',
+    reference: { startsWith: 'pay_' },
+    NOT: { description: WALLET_TOPUP_INVOICE },
+  };
   if (workspaceId) invoiceWhere.workspaceId = workspaceId;
   if (from || to) invoiceWhere.invoiceDate = dateRange;
 
-  const rechargeWhere = { type: 'CREDIT', reason: WALLET_RECHARGE_REASON };
+  const rechargeWhere = { type: 'CREDIT', category: 'RECHARGE', gateway: 'razorpay' };
   if (workspaceId) rechargeWhere.workspaceId = workspaceId;
   if (from || to) rechargeWhere.createdAt = dateRange;
 
@@ -559,7 +569,7 @@ export async function getPaymentsAnalysis({ workspaceId, from, to } = {}) {
 
   const payments = [
     ...invoices.map((i) => ({
-      id: i.id, kind: 'PLAN_SUBSCRIPTION', workspaceId: i.workspaceId, workspaceName: i.workspace?.name || '—',
+      id: i.id, kind: invoiceKind(i.description), workspaceId: i.workspaceId, workspaceName: i.workspace?.name || '—',
       description: i.description || 'Plan subscription', amount: Number(i.amount), currency: i.currency,
       reference: i.reference, date: i.invoiceDate,
     })),

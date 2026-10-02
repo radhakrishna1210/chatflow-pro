@@ -1039,8 +1039,8 @@ function PaymentsTab({ workspaces }) {
   const s = data?.summary;
   const rows = data?.payments || [];
 
-  const kindLabel = (k) => k === 'PLAN_SUBSCRIPTION' ? 'Plan subscription' : 'Wallet recharge';
-  const kindColor = (k) => k === 'PLAN_SUBSCRIPTION' ? '#c4ff46' : 'var(--green)';
+  const kindLabel = (k) => k === 'PLAN_SUBSCRIPTION' ? 'Plan subscription' : k === 'ADDON' ? 'Add-on' : 'Wallet recharge';
+  const kindColor = (k) => (k === 'PLAN_SUBSCRIPTION' || k === 'ADDON') ? '#c4ff46' : 'var(--green)';
 
   return (
     <div>
@@ -1061,7 +1061,7 @@ function PaymentsTab({ workspaces }) {
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 12, marginBottom: 20 }}>
             <StatCard label="Total collected" value={money(s.total)} color="var(--green)" />
-            <StatCard label="Plan revenue" value={money(s.planRevenue)} color="#c4ff46" />
+            <StatCard label="Plan & add-on revenue" value={money(s.planRevenue)} color="#c4ff46" />
             <StatCard label="Wallet recharges" value={money(s.walletRevenue)} color="#9d6bff" />
             <StatCard label="Payments" value={s.count} />
           </div>
