@@ -9,7 +9,7 @@ import { securityHeaders } from './middleware/securityHeaders.js';
 import { findOrCreateGoogleUser } from './services/auth.service.js';
 import apiRoutes from './routes/index.js';
 import widgetPublicRoutes from './routes/widgetPublic.routes.js';
-import { logToFile } from './lib/logger.js';
+import { logToFile, redactUrl } from './lib/logger.js';
 
 const app = express();
 
@@ -39,7 +39,10 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    logToFile(`${req.method} ${req.url} - Status: ${res.statusCode} (${duration}ms)`);
+    // originalUrl: req.url is rewritten by mounted routers. Never the raw URL —
+    // invite tokens, OAuth codes and the Meta verify token travel in it.
+    const url = redactUrl(req.originalUrl, { query: res.statusCode >= 400 });
+    logToFile(`${req.method} ${url} - Status: ${res.statusCode} (${duration}ms)`);
   });
   next();
 });

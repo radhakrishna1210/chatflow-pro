@@ -45,6 +45,41 @@ async function writeLine(line) {
   size += bytes;
 }
 
+// Query parameters whose values are credentials: OAuth code/state, the Google
+// one-time exchange code, invite tokens, the Meta verify token, API keys.
+const SECRET_PARAM = /token|code|state|secret|key|password|passwd|signature|sig$|otp|auth|session|jwt|challenge/i;
+// Path segments that are themselves bearer secrets.
+const SECRET_PATHS = [/^(\/api\/v1)?\/invitations\/[^/]+/];
+
+/**
+ * A URL safe to write to a log. Secret path segments and the values of
+ * credential-looking query parameters are replaced with `[redacted]`. With
+ * `query: false` the query string is dropped entirely — for successful
+ * requests it is only noise, and it also carries search terms (names, phone
+ * numbers) that have no business on disk.
+ */
+export function redactUrl(url, { query = true } = {}) {
+  const raw = String(url || '');
+  const q = raw.indexOf('?');
+  let pathPart = q === -1 ? raw : raw.slice(0, q);
+  const search = q === -1 ? '' : raw.slice(q + 1);
+
+  for (const re of SECRET_PATHS) {
+    pathPart = pathPart.replace(re, (m) => m.replace(/\/[^/]+$/, '/[redacted]'));
+  }
+  if (!search || !query) return pathPart;
+
+  const parts = search.split('&').filter(Boolean).map((pair) => {
+    const eq = pair.indexOf('=');
+    const rawName = eq === -1 ? pair : pair.slice(0, eq);
+    let name = rawName;
+    try { name = decodeURIComponent(rawName.replace(/\+/g, ' ')); } catch { /* keep raw */ }
+    if (eq === -1 || !SECRET_PARAM.test(name)) return pair;
+    return `${rawName}=[redacted]`;
+  });
+  return `${pathPart}?${parts.join('&')}`;
+}
+
 /**
  * Non-blocking append. Use for anything on the request path — a synchronous
  * write there stalls the event loop once per request.
