@@ -60,10 +60,10 @@ export function errorHandler(err, req, res, next) {
     return res.status(status).json({
       error: GENERIC_5XX,
       reference,
-      // The real message stays available where it is safe to show it. Never in
-      // production: `NODE_ENV` is the only thing standing between a Prisma
-      // error and the client.
-      ...(env.NODE_ENV === 'production' ? {} : { detail: err.message }),
+      // The real message only when a developer has explicitly asked for it,
+      // and never in production. NODE_ENV alone defaulted to "development" on
+      // a host whose .env forgot it, sending Prisma errors to the browser.
+      ...(env.EXPOSE_ERROR_DETAIL && env.NODE_ENV !== 'production' ? { detail: err.message } : {}),
     });
   }
 

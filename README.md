@@ -118,7 +118,8 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `PORT` | no | `4000` | HTTP port |
-| `NODE_ENV` | no | `development` | `development` \| `production` \| `test` |
+| `NODE_ENV` | **yes in production** | `development` | `development` \| `production` \| `test`. Must be `production` on every deployed host (Render pins it; set it in the VPS `backend/.env`) |
+| `EXPOSE_ERROR_DETAIL` | no | `false` | `true` adds the raw message of unexpected 5xx errors to API responses — local debugging only; ignored when `NODE_ENV=production` |
 | `CLIENT_URL` | no | `http://localhost:5173` | Frontend origin — used for CORS allow-list and OAuth redirects |
 | `CORS_EXTRA_ORIGINS` | no | — | Comma-separated extra allowed origins (e.g. a preview deploy) |
 | `JSON_BODY_LIMIT` | no | `2mb` | Express body size limit |

@@ -32,6 +32,11 @@ if (env.NODE_ENV === 'production' && env.TRUST_PROXY_HOPS === 0) {
   console.warn('  [Security] requests locks everyone out of login/signup/refresh. Set TRUST_PROXY_HOPS=1.');
   console.warn('');
 }
+// A public https APP_URL usually means a deployed host, where NODE_ENV
+// silently defaulting to development is a misconfiguration.
+if (env.NODE_ENV !== 'production' && /^https:\/\/(?!localhost|127\.)/.test(env.APP_URL || '')) {
+  console.warn(`[Config] NODE_ENV is "${env.NODE_ENV}" but APP_URL is ${env.APP_URL}. If this is a deployed host, set NODE_ENV=production.`);
+}
 
 app.use(securityHeaders);
 
