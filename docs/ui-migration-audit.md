@@ -697,7 +697,7 @@ Test account created for this pass and deleted again — 22 users / 20 workspace
 | What | Why |
 |---|---|
 | `render.yaml` service names (`chatflow-pro`, `chatflow-redis`) | Renaming a service in a Render blueprint **provisions a new service** rather than renaming the existing one — the live deploy, its Redis instance and every dashboard env var would be orphaned. `chatflow-redis` is also referenced by `fromService.name` for `REDIS_URL`. This is a deploy-console operation, not a code edit. |
-| Historical reports — `BUGS.md`, `BUGS-v2.md`, `STABILIZATION_REPORT*.md`, `AI_FEATURES_REPORT.md`, `issue_sheet.md` | Dated records of what happened at the time. Rewriting them falsifies history. |
+| Historical reports — `BUGS.md`, `BUGS-v2.md`, `STABILIZATION_REPORT*.md`, `AI_FEATURES_REPORT.md`, `issue_sheet.md` | Dated records of what happened at the time. Rewriting them falsifies history. Since moved, unchanged apart from a "historical" banner, to `docs/archive/`. |
 | `.env` | Not tracked, and `CHATFLOW_PRO_URL` in it is **dead** — no code reads it. |
 | The repo directory name | Filesystem path; renaming it breaks every local path and the git remote. |
 

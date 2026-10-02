@@ -1,3 +1,7 @@
+> **Historical record — superseded.** This file describes the codebase at the time it was written and is kept only as history. Its "resolved"/"passing" claims are not current status: several were found regressed or never implemented by the 2026 deep audit. The living issue list is [`audit/BUG_SHEET.md`](../../audit/BUG_SHEET.md) and its remediation status is [`audit/REMEDIATION_STATUS.md`](../../audit/REMEDIATION_STATUS.md). See [README.md](README.md).
+
+> **What changed since this patch note:** the manual SQL is at `backend/prisma/manual/003_ai_features.sql` (not `prisma/migrations/manual/`) and is already included in `migrations/20260101000000_baseline`. Inbound handling now has 14 ordered layers (opt-out, human handoff, control commands, campaign AI session, form in flight, workflows, escalation, exact keyword, intent rules, fuzzy keyword, welcome/OOO, general conversation, AI agent, fallback) — see the comment block in `backend/src/services/webhook.service.js` and `docs/QA-2-FIXES.md`. The agent can run on Ollama (`OLLAMA_URL`) as well as Gemini, and agents are also managed in the AI Agents studio (`frontend/src/pages/AiAgentsView.jsx`).
+
 # Spandan — AI Features Add-on
 
 This package contains **only** the files changed/added to build the four features that were previously marked "Coming Soon":
@@ -17,7 +21,7 @@ It is a patch on top of the v2 codebase — drop these files over your existing 
 2. **Migrate** — apply the schema changes (new: `Campaign.fallbackConfig`; `Workspace.aiAgent*` + `intentMatching*`):
    ```
    # from backend/
-   npx prisma migrate dev        # or apply prisma/migrations/manual/003_ai_features.sql
+   npx prisma migrate deploy     # originally `migrate dev` (never on a shared DB); the SQL is backend/prisma/manual/003_ai_features.sql, now folded into migrations/20260101000000_baseline
    npx prisma generate
    ```
 3. **Rebuild frontend** — `npm run build` in `frontend/`.

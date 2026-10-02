@@ -1,3 +1,5 @@
+> **Historical record — superseded.** This file describes the codebase at the time it was written and is kept only as history. Its "resolved"/"passing" claims are not current status: several were found regressed or never implemented by the 2026 deep audit. The living issue list is [`audit/BUG_SHEET.md`](../../audit/BUG_SHEET.md) and its remediation status is [`audit/REMEDIATION_STATUS.md`](../../audit/REMEDIATION_STATUS.md). See [README.md](README.md).
+
 # Spandan — Complete Issue Sheet & Task Submission Registry
 
 This registry serves as the official issue sheet documenting the technical audit, bug tracking, and stabilization sprint results for **Spandan**. It consolidates all **75 issues** identified across the codebase: **60 core issues** from Sprint 1, **11 deep architectural features/security defects** from Sprint 2, and **4 final advanced AI & integration features** from Sprint 3 (V3).
@@ -150,7 +152,7 @@ While all codebase defects have been corrected and tested successfully, a few co
    - **Action Required:** Run the Prisma database migrations to apply the schema updates required for the new feature modules. Execute:
      ```bash
      cd backend
-     npx prisma migrate dev
+     npx prisma migrate deploy   # this note originally said `migrate dev`, which can prompt to reset a shared database; never run that against Supabase
      ```
      This creates the tables and columns for wallet transactions, email OTPs, support tickets, workspace integrations, number-specific template scopes, fallbackConfigs, and AI Agent configuration variables.
 4. **Meta App Review Permissions:**

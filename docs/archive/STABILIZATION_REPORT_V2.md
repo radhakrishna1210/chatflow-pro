@@ -1,3 +1,5 @@
+> **Historical record — superseded.** This file describes the codebase at the time it was written and is kept only as history. Its "resolved"/"passing" claims are not current status: several were found regressed or never implemented by the 2026 deep audit. The living issue list is [`audit/BUG_SHEET.md`](../../audit/BUG_SHEET.md) and its remediation status is [`audit/REMEDIATION_STATUS.md`](../../audit/REMEDIATION_STATUS.md). See [README.md](README.md).
+
 # Spandan — Stabilization Sprint v2 Report
 
 This round addressed all 11 issues in the second BUGS.md, which were deeper, feature-level defects (not the surface bugs of round 1). Every issue was either **built properly end-to-end** or, where a real backend genuinely doesn't exist yet, made **honest** ("Coming Soon") instead of faking success.
@@ -7,7 +9,7 @@ Verified with two automated E2E suites against a live Postgres + Redis + BullMQ 
 - **v1 regression: passing** (the earlier 86/86 suite; scheduled-recovery proven separately — see "Testing notes")
 
 ## Before you deploy
-1. **Apply the schema migration.** Run `prisma migrate dev` (or apply `backend/prisma/migrations/manual/002_v2_features.sql`). New: `Template.waNumberId`; `Campaign.replyRules/retryConfig/trackingConfig`; `WaNumber.appSubscribed`; `Workspace.suspended/suspendedReason/walletBalance`; and new tables `WalletTransaction`, `WorkspaceIntegration`, `EmailOtp`, `SupportTicket`.
+1. **Apply the schema migration.** Apply it with `prisma migrate deploy` (originally `migrate dev`, which must never be run against a shared database), or apply `backend/prisma/migrations/manual/002_v2_features.sql`). New: `Template.waNumberId`; `Campaign.replyRules/retryConfig/trackingConfig`; `WaNumber.appSubscribed`; `Workspace.suspended/suspendedReason/walletBalance`; and new tables `WalletTransaction`, `WorkspaceIntegration`, `EmailOtp`, `SupportTicket`.
 2. **Meta Embedded Signup** uses `META_ES_CONFIG_ID` (already in your `.env`). Confirm the Facebook Login for Business config in the Meta dashboard is set to return `code` (system-user token flow) and that your app has `whatsapp_business_management` + `whatsapp_business_messaging`.
 3. **Rotate credentials** in `.env` before production (still applies from round 1).
 

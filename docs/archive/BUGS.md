@@ -1,3 +1,5 @@
+> **Historical record — superseded.** This file describes the codebase at the time it was written and is kept only as history. Its "resolved"/"passing" claims are not current status: several were found regressed or never implemented by the 2026 deep audit. The living issue list is [`audit/BUG_SHEET.md`](../../audit/BUG_SHEET.md) and its remediation status is [`audit/REMEDIATION_STATUS.md`](../../audit/REMEDIATION_STATUS.md). See [README.md](README.md).
+
 # Spandan — Complete Bugs Sheet
 
 > Every issue found across all 80+ files. From critical security holes to minor cosmetic problems.

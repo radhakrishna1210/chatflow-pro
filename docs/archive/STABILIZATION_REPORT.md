@@ -1,3 +1,5 @@
+> **Historical record — superseded.** This file describes the codebase at the time it was written and is kept only as history. Its "resolved"/"passing" claims are not current status: several were found regressed or never implemented by the 2026 deep audit. The living issue list is [`audit/BUG_SHEET.md`](../../audit/BUG_SHEET.md) and its remediation status is [`audit/REMEDIATION_STATUS.md`](../../audit/REMEDIATION_STATUS.md). See [README.md](README.md).
+
 # Spandan — Stabilization Sprint Report
 
 All 60 issues from BUGS.md were addressed, plus additional defects found during independent audit and live end-to-end testing (86/86 automated E2E checks passing against a real Postgres + Redis + BullMQ stack).
@@ -6,7 +8,7 @@ All 60 issues from BUGS.md were addressed, plus additional defects found during 
 
 1. **ROTATE ALL CREDENTIALS in `backend/.env` immediately** (BUG-001). The file was never committed to git (verified), but it contains live secrets: Meta System User Token, Twilio SID/Auth, Google OAuth secret, Gmail app password, Supabase Postgres password, Redis password, JWT secrets. Rotate every one of them and inject via your host's environment variables.
 2. **Meta App dashboard**: add `META_REDIRECT_URI` (default `<backend>/api/v1/auth/meta/callback`) to the app's Valid OAuth Redirect URIs, or Embedded Signup will fail at token exchange.
-3. Run `prisma migrate dev` (or `db push`) — the schema gained: `SCHEDULED` campaign status, `Campaign.queueJobId`, `Message.campaignRecipientId` + index, unique `(campaignId, contactId)` on recipients, unique `(workspaceId, phoneNumber)` on contacts, and `directUrl`.
+3. Apply the schema (originally `prisma migrate dev`; today use `prisma migrate deploy`, never `migrate dev` against a shared database) — the schema gained: `SCHEDULED` campaign status, `Campaign.queueJobId`, `Message.campaignRecipientId` + index, unique `(campaignId, contactId)` on recipients, unique `(workspaceId, phoneNumber)` on contacts, and `directUrl`.
 
 ## What changed (by area)
 

@@ -1,10 +1,12 @@
+> **Historical record — superseded.** This file describes the codebase at the time it was written and is kept only as history. Its "resolved"/"passing" claims are not current status: several were found regressed or never implemented by the 2026 deep audit. The living issue list is [`audit/BUG_SHEET.md`](../../audit/BUG_SHEET.md) and its remediation status is [`audit/REMEDIATION_STATUS.md`](../../audit/REMEDIATION_STATUS.md). See [README.md](README.md).
+
 # Test Evidence
 
 Verification record for the advanced CRM expansion. Each entry follows the
 reproduce → fix → reproduce discipline required by `MS_Prompt.md` §98–§99:
 a fix is not recorded here unless it was seen failing first and passing after.
 
-Last full run: **2026-08-17** — `cd backend && npm test` → **264/264 passing**.
+Last full run: **2026-08-17** — `cd backend && npm test` → **264/264 passing** at that date. This count is historical: the suite has grown since and `npm test` now needs a local database (see `backend/README.md`).
 
 Every run is preceded by `node --env-file=.env scripts/assert-local-db.js`, which
 aborts unless `DATABASE_URL` resolves to a loopback host and contains no managed-
@@ -807,7 +809,9 @@ opts in — verified:
 otherwise be invisible to the entire workspace and quietly rot, which is the
 opposite of what scoping is for.
 
-### Enforced on the server, at every path
+### Enforced on the server for list/get/update/delete on leads, deals and tasks
+
+> **Scope of this evidence (2026 audit):** only the four paths below were tested. The audit found scope bypassed elsewhere — status/stage-filtered lists (CF-015), activities and sibling read surfaces (CF-079, CF-067, CF-076), convert/task-by-id/analytics/line items (CF-021, CF-022, CF-004, CF-029, CF-027). See `audit/REMEDIATION_STATUS.md` for what was fixed.
 
 §45: *"Never rely on hidden UI."* The same filter applies to list, get-by-id,
 update and delete on leads, deals and tasks — tasks scope on
@@ -994,7 +998,9 @@ workspace writing to the *platform* about the product. Customer-facing tickets
 are a different audience entirely, and merging them would conflate the two.
 The gap analysis warned against exactly this.
 
-### SLA is stored, not computed on read
+### SLA due date is stored, not computed on read
+
+> **Scope (2026 audit, CF-081):** only `dueAt` was verified here. At audit time category `slaHours` was ignored, `firstRespondedAt` was never stamped and there was no breach job — see `audit/REMEDIATION_STATUS.md`.
 
 `dueAt` is written at creation from the priority (`URGENT` 2h, `HIGH` 8h,
 `NORMAL` 24h, `LOW` 72h). Computing it on read would mean a later change to the
