@@ -1,12 +1,18 @@
 import { Worker } from 'bullmq';
 import { createBullConnection, logRedisError } from '../lib/redis.js';
 import { env } from '../config/env.js';
-import { runNightlyCrmSweep, refreshLeadScoringForContact } from '../services/crmMaintenance.service.js';
+import { runNightlyCrmSweep, refreshLeadScoringForContact, processImportFollowUp } from '../services/crmMaintenance.service.js';
 
 async function processJob(job) {
   if (job.name === 'contact-rescore') {
     const { workspaceId, contactId } = job.data || {};
     if (workspaceId && contactId) await refreshLeadScoringForContact(workspaceId, contactId);
+    return;
+  }
+  if (job.name === 'import-followup') {
+    const { workspaceId, leadIds, distribute } = job.data || {};
+    const result = await processImportFollowUp(workspaceId, leadIds, { distribute });
+    console.log(`[CrmMaintenance] Import follow-up: scored=${result.scored} assigned=${result.assigned} failed=${result.failed}`);
     return;
   }
   if (job.name === 'nightly') {

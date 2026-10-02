@@ -4,6 +4,7 @@ import { createBullConnection } from '../lib/redis.js';
 // CRM upkeep that depends on time passing rather than on a user action:
 //  - `nightly`: expire overdue quotes and refresh stale lead scores/categories
 //  - `contact-rescore`: refresh one contact's lead after an inbound message
+//  - `import-followup`: score, categorise and distribute leads from a CSV import
 export const crmMaintenanceQueue = new Queue('crm-maintenance', {
   connection: createBullConnection('crm-maintenance-queue'),
   defaultJobOptions: {
@@ -27,6 +28,10 @@ export async function enqueueContactRescore(workspaceId, contactId) {
     removeOnComplete: true,
     removeOnFail: true,
   });
+}
+
+export async function enqueueImportFollowUp(workspaceId, leadIds, { distribute = true } = {}) {
+  return crmMaintenanceQueue.add('import-followup', { workspaceId, leadIds, distribute });
 }
 
 export async function scheduleCrmMaintenance() {

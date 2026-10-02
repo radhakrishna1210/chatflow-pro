@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
+import { evaluateAndAssignLead } from './leadDistribution.service.js';
 
 // Background upkeep for CRM values that depend on the passage of time.
 //
@@ -40,6 +41,30 @@ export async function refreshLeadScoringForContact(workspaceId, contactId) {
   const lead = await prisma.lead.findFirst({ where: { workspaceId, contactId }, select: { id: true } });
   if (!lead) return null;
   return refreshLeadScoring(workspaceId, lead.id);
+}
+
+// Imported leads are written in bulk without a score or category; this fills
+// both in and, for leads imported without an owner, applies distribution rules
+// (which may match on category or score, hence the order).
+export async function processImportFollowUp(workspaceId, leadIds = [], { distribute = true } = {}) {
+  let scored = 0;
+  let assigned = 0;
+  let failed = 0;
+  for (const leadId of Array.isArray(leadIds) ? leadIds : []) {
+    try {
+      const lead = await refreshLeadScoring(workspaceId, leadId);
+      if (!lead) continue;
+      scored += 1;
+      if (distribute && !lead.ownerUserId) {
+        const res = await evaluateAndAssignLead(workspaceId, leadId);
+        if (res?.assigned) assigned += 1;
+      }
+    } catch (err) {
+      failed += 1;
+      console.error(`[CrmMaintenance] Import follow-up failed for lead ${leadId}:`, err.message);
+    }
+  }
+  return { scored, assigned, failed };
 }
 
 export async function rescoreStaleLeads({ now = new Date() } = {}) {
