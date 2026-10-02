@@ -10,6 +10,7 @@ const ENTITY_TYPE = 'lead_distribution_rules';
 export async function getDistributionRules(workspaceId) {
   const record = await prisma.savedView.findFirst({
     where: { workspaceId, entity: ENTITY_TYPE, name: RULES_VIEW_NAME },
+    orderBy: { updatedAt: 'desc' },
   });
   if (!record || !record.filters) {
     return {
@@ -32,6 +33,7 @@ export async function getDistributionRules(workspaceId) {
 export async function saveDistributionRules(workspaceId, { enabled = true, rules = [] } = {}) {
   const existing = await prisma.savedView.findFirst({
     where: { workspaceId, entity: ENTITY_TYPE, name: RULES_VIEW_NAME },
+    orderBy: { updatedAt: 'desc' },
   });
 
   const payload = {
@@ -158,6 +160,7 @@ export async function evaluateAndAssignLead(workspaceId, leadId) {
       const nextIndex = (idx + 1) % candidateIds.length;
       const record = await prisma.savedView.findFirst({
         where: { workspaceId, entity: ENTITY_TYPE, name: RULES_VIEW_NAME },
+        orderBy: { updatedAt: 'desc' },
       });
       if (record) {
         await prisma.savedView.update({

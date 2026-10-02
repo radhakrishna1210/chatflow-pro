@@ -190,8 +190,11 @@ export async function getSection(workspaceId, sectionKey) {
   }
 
   const name = sectionViewName(sectionKey);
+  // Config rows are not unique-indexed (their author varies), so the newest
+  // one wins deterministically if a duplicate ever exists.
   const record = await prisma.savedView.findFirst({
     where: { workspaceId, entity: CUSTOMIZATION_ENTITY, name },
+    orderBy: { updatedAt: 'desc' },
   });
 
   if (!record || !record.filters) {
@@ -253,8 +256,10 @@ async function syncDealSetupWithPipelineStages(workspaceId, dealSetupConfig) {
  * Get all 10 customization sections for a workspace.
  */
 export async function getAllCustomizations(workspaceId) {
+  // Oldest first, so a later duplicate overwrites an earlier one in the map.
   const records = await prisma.savedView.findMany({
     where: { workspaceId, entity: CUSTOMIZATION_ENTITY },
+    orderBy: { updatedAt: 'asc' },
   });
 
   const map = new Map();
@@ -498,6 +503,7 @@ export async function updateSection(workspaceId, sectionKey, data, userId = null
   const name = sectionViewName(sectionKey);
   const existing = await prisma.savedView.findFirst({
     where: { workspaceId, entity: CUSTOMIZATION_ENTITY, name },
+    orderBy: { updatedAt: 'desc' },
   });
 
   let savedRecord;
