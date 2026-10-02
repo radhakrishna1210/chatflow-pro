@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
 import { env } from '../config/env.js';
 import { applyGatewayPaymentOnce } from './gatewayPayment.service.js';
+import { overageRateFor } from '../lib/messagePricing.js';
 
 const MAX_RECHARGE = 100000;
 
@@ -54,6 +55,16 @@ export function walletStatus(balance, costPerMessage) {
   return { status: 'HEALTHY', threshold, messagesRemaining: cost > 0 ? Math.floor(bal / cost) : null };
 }
 
+// The per-message rate wallet health is measured in: what a marketing
+// template costs on this workspace's plan (lib/messagePricing.js), the same
+// function overage billing uses. Workspace.costPerMessage only prices a
+// template with no recognised category, so it is just the fallback here.
+async function statusRate(workspaceId, fallback) {
+  const sub = await prisma.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
+  const rate = sub?.plan ? overageRateFor(sub.plan, 'MARKETING') : 0;
+  return rate > 0 ? rate : Number(fallback) || 0;
+}
+
 export async function getWallet(workspaceId) {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -67,7 +78,7 @@ export async function getWallet(workspaceId) {
   });
   const balance = Number(ws.walletBalance);
   const costPerMessage = Number(ws.costPerMessage);
-  const health = walletStatus(balance, costPerMessage);
+  const health = walletStatus(balance, await statusRate(workspaceId, costPerMessage));
   return {
     balance,
     costPerMessage,
@@ -348,7 +359,7 @@ export async function getWalletSummary(workspaceId) {
   const totalCampaigns = campaignStats._count._all || 0;
   const netCampaignSpend = money(Number(campaignSpend._sum.amount || 0) - Number(refunds._sum.amount || 0));
 
-  const summaryHealth = walletStatus(ws.walletBalance, ws.costPerMessage);
+  const summaryHealth = walletStatus(ws.walletBalance, await statusRate(workspaceId, ws.costPerMessage));
 
   return {
     balance: Number(ws.walletBalance),

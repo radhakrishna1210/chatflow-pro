@@ -98,6 +98,12 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
     // the charge tracks what the send actually costs. `amount` is returned so
     // releaseMessageCredit can give back exactly what was taken.
     const amount = overageRateFor(plan, messageCategory);
+    // A plan configured with a zero overage rate makes over-quota sends free;
+    // debit() rejects a zero amount, which would otherwise fail the send.
+    if (!(amount > 0)) {
+      await tx.usageCounter.update({ where: periodKey, data: { messagesUsed: { increment: 1 } } });
+      return { ok: true, source: 'QUOTA', remaining: 0 };
+    }
     const result = await debit(workspaceId, amount, { reason, category: 'USAGE' }, tx);
     if (!result.ok) return { ok: false, code: 'QUOTA_AND_WALLET_EXHAUSTED' };
     return { ok: true, source: 'WALLET', newBalance: result.balance, amount };
