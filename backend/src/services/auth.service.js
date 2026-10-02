@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 import { queueWelcomeEmail, sendOtpEmailNow } from './email.service.js';
 import { consumeInvitationAtomically } from './invitations.service.js';
 import * as refreshTokens from './refreshTokens.js';
+import { redis } from '../lib/redis.js';
 
 function generateTokens(userId, workspaceId, role, superAdmin = false) {
   // The access token carries its own `jti` so signing out can revoke *this*
@@ -103,10 +104,19 @@ export async function register({ name, email, password, role = 'CLIENT', inviteT
   };
 }
 
+// Compared against when there is no account (or no password on it), so a
+// wrong address costs the same bcrypt time as a wrong password.
+let dummyHash = null;
+const getDummyHash = () => {
+  dummyHash ||= bcrypt.hash(randomUUID(), env.BCRYPT_SALT_ROUNDS);
+  return dummyHash;
+};
+
 export async function login({ email, password }) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (!user || !user.passwordHash) {
+    await bcrypt.compare(String(password ?? ''), await getDummyHash());
     const err = new Error('Invalid credentials');
     err.status = 401;
     throw err;
@@ -309,6 +319,32 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
 const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 const RESEND_COOLDOWN_MS = 60 * 1000;
+
+// One code-sending request per address per minute, claimed *before* looking
+// the address up. A cooldown that only existed for real accounts answered a
+// quick second request with 429 for them and 200 for everyone else, which
+// is an account lookup service.
+const memoryCooldowns = new Map();
+
+async function claimSendCooldown(scope, normalizedEmail) {
+  const key = `otp:cooldown:${scope}:${createHash('sha256').update(normalizedEmail).digest('hex')}`;
+  let claimed = null;
+  try {
+    if (redis.status === 'ready') claimed = (await redis.set(key, '1', 'PX', RESEND_COOLDOWN_MS, 'NX')) === 'OK';
+  } catch { /* fall back to memory */ }
+  if (claimed === null) {
+    const now = Date.now();
+    for (const [k, until] of memoryCooldowns) if (until <= now) memoryCooldowns.delete(k);
+    claimed = !(memoryCooldowns.get(key) > now);
+    if (claimed) memoryCooldowns.set(key, now + RESEND_COOLDOWN_MS);
+  }
+  if (!claimed) {
+    const e = new Error('A code was just sent — please wait a minute before requesting another.');
+    e.status = 429;
+    e.code = 'OTP_COOLDOWN';
+    throw e;
+  }
+}
 const hashCode = (code) => createHash('sha256').update(String(code)).digest('hex');
 
 // Six digits from a CSPRNG. randomInt is rejection-sampled, so every code in
@@ -413,6 +449,11 @@ export async function startSignup({ name, email, password }) {
   //
   // This used to throw 409 "Email already in use", which turned signup into a
   // free lookup service for "does this person have an account here".
+  await claimSendCooldown('signup', normalizedEmail);
+  // Hashed on both branches so the existing-account path is not measurably
+  // faster than the new-account one.
+  const passwordHash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
+
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) {
     await deliverOtpOrThrow('signup-exists', { email: normalizedEmail, name: existing.name, code: null });
@@ -442,7 +483,6 @@ export async function startSignup({ name, email, password }) {
   });
 
   const code = generateOtp();
-  const passwordHash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
 
   await prisma.emailOtp.create({
     data: {
@@ -458,6 +498,7 @@ export async function startSignup({ name, email, password }) {
 
 export async function resendSignupOtp({ email }) {
   const normalizedEmail = String(email).trim().toLowerCase();
+  await claimSendCooldown('signup', normalizedEmail);
   const pending = await prisma.emailOtp.findFirst({
     where: { email: normalizedEmail, purpose: 'SIGNUP', consumed: false },
     orderBy: { createdAt: 'desc' },
@@ -564,6 +605,7 @@ export async function verifySignup({ email, code, inviteToken }) {
 // hash so nothing is applied to the User row until the code is verified.
 export async function startPasswordReset({ email }) {
   const normalizedEmail = String(email).trim().toLowerCase();
+  await claimSendCooldown('reset', normalizedEmail);
   const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   // Don't reveal whether the email exists — always respond the same way.
   if (!user) return { message: 'If an account exists for this email, a reset code has been sent.' };
