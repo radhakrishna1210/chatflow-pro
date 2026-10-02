@@ -780,6 +780,12 @@ model ApiKey {
   lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())
   revokedAt   DateTime?
+  // Who created (or, for a connected app, approved) the key. Null for keys
+  // issued before this was recorded.
+  createdByUserId String?
+  // The OAuth client a connected-app key was issued to, so /oauth/revoke only
+  // touches that client's own keys.
+  oauthClientId   String?
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   authenticationConfig AuthenticationConfig?

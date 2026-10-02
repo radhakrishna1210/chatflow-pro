@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import { wFetch } from '../lib/api.js';
+import { canManageIntegrations } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 // The exact same template builder/editor, live preview and preview modal the
@@ -735,6 +736,9 @@ export default function AuthenticationDashboard({ header }) {
   const [apiKeyMetadata, setApiKeyMetadata] =
     useState(null);
 
+  // API keys are admin-managed; other members see the configuration only.
+  const canManageKeys = canManageIntegrations();
+
   // Regenerate confirmation + the one-time reveal of the freshly rotated key.
   // Kept separate from `apiKey` above (which is the first-time-provisioning
   // reveal) so closing this modal can drop the raw value without touching
@@ -785,8 +789,8 @@ export default function AuthenticationDashboard({ header }) {
       setTemplateId(data.templateId || '');
       setWaNumberId(data.waNumberId || '');
 
-      // Retrieve an existing key's safe metadata (or provision the dedicated
-      // key once). The raw value is returned only on first provisioning.
+      // Retrieve an existing key's safe metadata. Provisioning is a separate,
+      // explicit action (Generate Key).
       await loadApiKey();
     } catch (err) {
       setError(
@@ -849,14 +853,18 @@ export default function AuthenticationDashboard({ header }) {
     }
   }
 
-  async function loadApiKey() {
+  async function loadApiKey(provision = false) {
     setError('');
     setSuccess('');
 
     try {
       const res = await wFetch(
-        '/api-keys/authentication'
+        '/api-keys/authentication',
+        provision ? { method: 'POST' } : undefined
       );
+
+      // Only admins manage API keys; for anyone else there is no key to show.
+      if (res.status === 403 && !provision) return;
 
       const data = await res.json();
 
@@ -867,6 +875,12 @@ export default function AuthenticationDashboard({ header }) {
             `Failed to load Authentication API key (${res.status})`
           )
         );
+      }
+
+      if (data.provisioned === false) {
+        setApiKey(null);
+        setApiKeyMetadata(null);
+        return;
       }
 
       setApiKey(data.rawKey || data.keyPrefix || null);
@@ -1232,8 +1246,8 @@ export default function AuthenticationDashboard({ header }) {
             </code>
 
             <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center' }}>
-              {!configuration?.apiKeyId && (
-                <Btn size="sm" variant="ghost" onClick={loadApiKey}>
+              {canManageKeys && !configuration?.apiKeyId && (
+                <Btn size="sm" variant="ghost" onClick={() => loadApiKey(true)}>
                   Generate Key
                 </Btn>
               )}
@@ -1247,7 +1261,7 @@ export default function AuthenticationDashboard({ header }) {
                 />
               )}
 
-              {(configuration?.apiKeyId || apiKeyMetadata?.id) && (
+              {canManageKeys && (configuration?.apiKeyId || apiKeyMetadata?.id) && (
                 <Btn
                   size="sm"
                   variant="ghost"

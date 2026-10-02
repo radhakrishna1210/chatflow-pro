@@ -37,6 +37,8 @@ const CODE_TTL_MS = 2 * 60_000;
 
 const sha256 = (s) => createHash('sha256').update(String(s)).digest('hex');
 
+const connectedAppKeyName = (client) => `${client.name} (connected app)`;
+
 const SCOPE_LABELS = new Map(API_SCOPES.map((s) => [s.id, s.label]));
 
 /**
@@ -174,6 +176,47 @@ export async function issueAuthorizationCode({ clientId, userId, workspaceId, sc
   return code;
 }
 
+const INACTIVE_SUBSCRIPTION = new Set(['CANCELLED', 'EXPIRED']);
+
+/**
+ * Why `userId` may not connect an application to `workspaceId` right now, or
+ * null if they may.
+ *
+ * Read from the database on every call, never from the access token: a token
+ * outlives a removal or a role change by up to its lifetime, and what this
+ * grants is a permanent key. Connecting an app mints an API key, which is
+ * admin-only everywhere else, and a suspended or billing-inactive workspace
+ * may not gain new credentials.
+ */
+export async function grantRefusal(userId, workspaceId) {
+  const member = await prisma.workspaceMember.findUnique({
+    where: { userId_workspaceId: { userId, workspaceId } },
+    select: {
+      role: true,
+      workspace: { select: { suspended: true, subscription: { select: { status: true } } } },
+    },
+  });
+  if (!member) {
+    return { error: 'You are not a member of this workspace.', code: 'NOT_A_MEMBER' };
+  }
+  if (member.role !== 'ADMIN') {
+    return {
+      error: 'Only a workspace admin can connect an application. Ask an admin of this workspace to approve the request.',
+      code: 'ROLE_NOT_PERMITTED',
+    };
+  }
+  if (member.workspace?.suspended) {
+    return { error: 'This workspace has been suspended. Please contact support.', code: 'WORKSPACE_SUSPENDED' };
+  }
+  if (INACTIVE_SUBSCRIPTION.has(member.workspace?.subscription?.status)) {
+    return {
+      error: 'This workspace\'s subscription is inactive. Renew your plan before connecting an application.',
+      code: 'SUBSCRIPTION_INACTIVE',
+    };
+  }
+  return null;
+}
+
 /** Remember the approval, so a reconnect need not ask again. */
 export async function recordConsent({ userId, workspaceId, clientId, scopes }) {
   await prisma.oAuthConsent.upsert({
@@ -243,13 +286,20 @@ export async function exchangeAuthorizationCode({ code, clientId, clientSecret, 
     throw new OAuthRedirectError('invalid_grant', 'redirect_uri does not match the one this code was issued for.');
   }
 
+  // The approval is at most two minutes old, but re-check it: the approving
+  // admin may have been removed or demoted, or the workspace suspended, since.
+  if (await grantRefusal(row.userId, row.workspaceId)) {
+    throw new OAuthRedirectError('invalid_grant', 'The user who approved this request can no longer grant access to the workspace.');
+  }
+
   const scopes = parseJsonArray(row.scopes);
   let created;
   try {
     created = await createApiKey(
       row.workspaceId,
-      { name: `${client.name} (connected app)`, environment: 'production', scopes },
+      { name: connectedAppKeyName(client), environment: 'production', scopes },
       null,
+      { createdByUserId: row.userId, oauthClientId: client.clientId },
     );
   } catch (err) {
     // assertWithinLimit throws here when the workspace is at its plan's API key
@@ -286,9 +336,18 @@ export async function revokeIssuedKey({ clientId, clientSecret, token }) {
     throw new OAuthRedirectError('invalid_client', 'Client authentication failed.');
   }
 
+  // Only keys this client was issued. Keys minted before oauthClientId was
+  // recorded are recognised by the name the exchange gives them.
   const keyHash = sha256(String(token || ''));
   const result = await prisma.apiKey.updateMany({
-    where: { keyHash, revokedAt: null },
+    where: {
+      keyHash,
+      revokedAt: null,
+      OR: [
+        { oauthClientId: client.clientId },
+        { oauthClientId: null, name: connectedAppKeyName(client) },
+      ],
+    },
     data: { revokedAt: new Date() },
   });
 

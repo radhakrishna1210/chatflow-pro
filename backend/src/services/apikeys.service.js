@@ -21,13 +21,43 @@ function generateKey() {
   };
 }
 
+const AUTH_KEY_SELECT = {
+  id: true,
+  name: true,
+  keyPrefix: true,
+  environment: true,
+  scopes: true,
+  lastUsedAt: true,
+  createdAt: true,
+};
+
 /**
- * Get the workspace's dedicated Authentication API key.
+ * Read the workspace's dedicated Authentication API key, if one exists.
+ *
+ * Never creates one: a GET used to provision a send-capable key as a side
+ * effect, which handed it to any member who could load the page.
+ */
+export async function getAuthenticationApiKey(workspaceId) {
+  const config = await prisma.authenticationConfig.findUnique({
+    where: { workspaceId },
+    select: { apiKeyId: true },
+  });
+  if (!config?.apiKeyId) return { provisioned: false };
+
+  const key = await prisma.apiKey.findFirst({
+    where: { id: config.apiKeyId, workspaceId, revokedAt: null },
+    select: AUTH_KEY_SELECT,
+  });
+  return key ? { provisioned: true, ...key } : { provisioned: false };
+}
+
+/**
+ * Get or provision the workspace's dedicated Authentication API key.
  *
  * The raw secret is returned only when a new key is provisioned.
  * Existing secrets are never stored in plaintext and cannot be recovered.
  */
-export async function getOrCreateAuthenticationApiKey(workspaceId) {
+export async function getOrCreateAuthenticationApiKey(workspaceId, user = null) {
   if (!workspaceId) {
     const error = new Error('Workspace ID is required');
     error.status = 400;
@@ -64,7 +94,7 @@ export async function getOrCreateAuthenticationApiKey(workspaceId) {
     });
 
     if (existingKey) {
-      return existingKey;
+      return { provisioned: true, ...existingKey };
     }
   }
 
@@ -139,6 +169,7 @@ export async function getOrCreateAuthenticationApiKey(workspaceId) {
           keyPrefix: prefix,
           environment: 'production',
           scopes: ['authentication:send'],
+          createdByUserId: user?.id ?? null,
         },
         select: {
           id: true,
@@ -177,6 +208,7 @@ export async function getOrCreateAuthenticationApiKey(workspaceId) {
   );
 
   return {
+    provisioned: true,
     ...result.key,
     ...(result.rawKey
       ? {
@@ -268,7 +300,8 @@ export function listApiScopes() {
 export async function createApiKey(
   workspaceId,
   { name, environment = 'production', scopes },
-  user
+  user,
+  { createdByUserId = user?.id ?? null, oauthClientId = null } = {}
 ) {
   await assertWithinLimit(workspaceId, 'apiKey');
 
@@ -283,6 +316,8 @@ export async function createApiKey(
       keyPrefix: prefix,
       environment,
       scopes: granted,
+      createdByUserId,
+      oauthClientId,
     },
   });
 

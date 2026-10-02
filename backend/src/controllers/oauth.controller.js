@@ -106,6 +106,9 @@ export async function consentInfo(req, res) {
     });
   }
 
+  const refusal = await oauth.grantRefusal(req.user.id, workspace.id);
+  if (refusal) return res.status(403).json(refusal);
+
   const alreadyGranted = await oauth.hasConsent({
     userId: req.user.id,
     workspaceId: workspace.id,
@@ -155,6 +158,9 @@ export async function decide(req, res) {
   if (!workspaceId) {
     return res.status(409).json({ error: 'Create a workspace before connecting an application.', code: 'NO_WORKSPACE' });
   }
+
+  const refusal = await oauth.grantRefusal(req.user.id, workspaceId);
+  if (refusal) return res.status(403).json(refusal);
 
   await oauth.recordConsent({
     userId: req.user.id,

@@ -900,3 +900,13 @@ export const publicApiSchemas = {
     }),
   ], { errorMap: () => ({ message: '`type` must be "template" or "text"' }) }),
 };
+
+export const whatsappSchemas = {
+  connectOwn: z.object({
+    phoneNumber: z.string().trim().min(6, 'phoneNumber is required').max(30),
+    metaPhoneNumberId: z.string().trim().regex(/^\d{5,30}$/, 'metaPhoneNumberId must be the numeric phone number ID from Meta'),
+    wabaId: z.string().trim().regex(/^\d{5,30}$/, 'wabaId must be the numeric WhatsApp Business Account ID'),
+    accessToken: z.string().trim().min(20, 'accessToken is required').max(1024),
+    displayName: z.string().trim().max(120).optional(),
+  }),
+};

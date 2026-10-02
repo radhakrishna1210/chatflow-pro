@@ -54,8 +54,8 @@ const rank = (user) => (user?.superAdmin === true ? RANK.ADMIN : (RANK[workspace
 
 const isWorkspaceAdmin = (user) => workspaceRole(user) === 'ADMIN' || user?.superAdmin === true;
 
-// Operational work: campaigns, templates, automations, numbers, API keys,
-// settings. Member and above.
+// Operational work: campaigns, templates, automations, settings. Member and
+// above.
 export function canManage(user = currentUser()) {
   return rank(user) >= RANK.CLIENT;
 }
@@ -83,5 +83,11 @@ export function canBill(user = currentUser()) {
 
 // Invites, role changes, removing members.
 export function canManageMembers(user = currentUser()) {
+  return isWorkspaceAdmin(user);
+}
+
+// Credentials and connections: API keys, the webhook destination, WhatsApp
+// numbers and the OTP configuration.
+export function canManageIntegrations(user = currentUser()) {
   return isWorkspaceAdmin(user);
 }
