@@ -36,6 +36,17 @@ supabase URL     -> [db-guard] BLOCKED — points at a managed provider ("supaba
 db.example.com   -> [db-guard] BLOCKED — host is "db.example.com", which is not local  exit 1
 ```
 
+The guard is also wired in automatically:
+
+- `npm test` / `npm run test:otp` load `backend/tests/setup.mjs` first. If
+  `backend/.env.test` exists it replaces `.env` for the whole run (git-ignored;
+  put a local `DATABASE_URL` and the other required keys in it). Without it,
+  `.env` is still read, but only if its database is local.
+- Every `scripts/*-check.mjs` and seed/reset script imports
+  `scripts/require-local-db.js` as its first import. It checks the process
+  value and every `.env` file dotenv or Prisma could fall back to, and exits 1
+  before any connection is opened.
+
 ## Setup
 
 PostgreSQL is not installed on this machine; Docker is. The database runs as a

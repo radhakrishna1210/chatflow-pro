@@ -8,6 +8,7 @@
 // Run with the server up:
 //   node --env-file=.env scripts/waba-check.mjs
 
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env.js';
 

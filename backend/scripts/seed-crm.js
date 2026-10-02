@@ -1,3 +1,4 @@
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();

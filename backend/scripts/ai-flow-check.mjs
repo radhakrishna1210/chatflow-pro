@@ -11,6 +11,7 @@
 // payloads at the webhook, which is what makes "does the flow respect the
 // messaging rules?" answerable rather than assumed.
 
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import { createHmac } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env.js';

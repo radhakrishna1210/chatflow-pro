@@ -15,6 +15,7 @@
 // have "happened", it writes the outbound row the way the service does and then
 // drives the delivery webhook over it.
 
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import { createHmac } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env.js';

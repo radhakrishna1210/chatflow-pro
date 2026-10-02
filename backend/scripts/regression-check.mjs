@@ -10,6 +10,7 @@
 // configured workspace, and creates a real Razorpay *order* — no payment is
 // captured, and no WhatsApp message is sent to anyone.
 
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import { createHmac } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';

@@ -1,3 +1,4 @@
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/lib/prisma.js';
 
