@@ -2,7 +2,8 @@ import { Worker } from 'bullmq';
 import { createBullConnection, logRedisError } from '../lib/redis.js';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
-import { advanceRun, sendReplyReminder } from '../services/workflowEngine.service.js';
+import { advanceRun, sendReplyReminder, sweepDueRuns } from '../services/workflowEngine.service.js';
+import { startWorkflowSweep } from '../queues/workflow.queue.js';
 import { sendAutomatedReply } from '../services/outbound.service.js';
 
 async function processResume(job) {
@@ -66,6 +67,7 @@ async function processReplyReminder(job) {
 
 async function processJob(job) {
   if (job.name === 'resume') return processResume(job);
+  if (job.name === 'sweep') return sweepDueRuns();
   if (job.name === 'reply-reminder') return processReplyReminder(job);
   if (job.name === 'delayed-response') return processDelayedResponse(job);
   console.warn(`[WorkflowWorker] Unknown job name "${job.name}" — ignoring.`);
@@ -81,6 +83,11 @@ export function startWorkflowWorker() {
 
   worker.on('error', (err) => logRedisError('workflow-worker', err));
   worker.on('failed', (job, err) => console.error(`[WorkflowWorker] Job ${job?.id} failed:`, err.message));
+
+  // The repeating sweep recovers runs whose delayed job was lost with Redis —
+  // resumeAt lives in the database. Failing to schedule it must not stop the
+  // worker; delays then still run off their own jobs.
+  startWorkflowSweep().catch((err) => console.error('[WorkflowWorker] Could not schedule the sweep:', err.message));
 
   return worker;
 }

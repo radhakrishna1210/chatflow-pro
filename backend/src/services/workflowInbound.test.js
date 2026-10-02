@@ -170,12 +170,14 @@ prisma.workflowRun.update = async ({ where, data }) => {
   db.runs.set(where.id, run);
   return clone(run);
 };
+prisma.workflowRun.updateMany = async (args) => updateManyRuns(() => db.runs.values(), args);
 const runFilter = (where) => [...db.runs.values()].filter((r) => r.workspaceId === where.workspaceId
   && (!where.conversationId || r.conversationId === where.conversationId)
   && statusMatches(r.status, where.status));
 prisma.workflowRun.findMany = async ({ where }) => clone(runFilter(where).sort((a, b) => b.startedAt - a.startedAt));
 prisma.workflowRun.count = async ({ where }) => runFilter(where).length;
 
+const { updateManyRuns } = await import('./workflowRunStore.testutil.js');
 const { processWebhook } = await import('./webhook.service.js');
 const engine = await import('./workflowEngine.service.js');
 const { __testing: generator, keywordMatches } = await import('./automation.service.js');

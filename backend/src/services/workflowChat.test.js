@@ -22,6 +22,7 @@ mock.module('./outbound.service.js', {
 
 const { prisma } = await import('../lib/prisma.js');
 const engine = await import('./workflowEngine.service.js');
+const { updateManyRuns } = await import('./workflowRunStore.testutil.js');
 
 const WS = 'ws_chat';
 const CONV = 'conv_chat';
@@ -43,6 +44,7 @@ prisma.workflowRun.update = async ({ where, data }) => {
   runs.set(where.id, run);
   return { ...run };
 };
+prisma.workflowRun.updateMany = async (args) => updateManyRuns(() => runs.values(), args);
 prisma.workflowRun.findMany = async ({ where }) => [...runs.values()]
   .filter((r) => r.conversationId === where.conversationId && r.status === where.status)
   .sort((a, b) => b.startedAt - a.startedAt)

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { cancelRunsForWorkflow } from './workflowEngine.service.js';
 
 export async function listWorkflows(workspaceId) {
   return prisma.workflow.findMany({
@@ -32,11 +33,20 @@ export async function updateWorkflow(workspaceId, id, updates) {
   if (updates.isActive !== undefined) data.isActive = updates.isActive;
   if (updates.nodes !== undefined) data.nodes = updates.nodes;
   if (updates.edges !== undefined) data.edges = updates.edges;
-  
-  return prisma.workflow.update({
+
+  const updated = await prisma.workflow.update({
     where: { id },
     data,
   });
+
+  // Switching a workflow off must also stop the runs it already started —
+  // otherwise a run parked on a delay or a question carries on messaging the
+  // customer after the workflow was deactivated.
+  if (workflow.isActive && updates.isActive === false) {
+    await cancelRunsForWorkflow(workspaceId, id, 'The workflow was deactivated')
+      .catch((err) => console.error(`[Workflow] Could not cancel the runs of workflow ${id}:`, err.message));
+  }
+  return updated;
 }
 
 export async function deleteWorkflow(workspaceId, id) {
