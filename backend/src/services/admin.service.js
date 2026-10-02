@@ -705,7 +705,7 @@ export async function getWorkspaceAnalytics() {
 
 // Feature flags enforced elsewhere (requireFeature / hasFeature). Surfaced to
 // the admin UI as known toggles; arbitrary extra flags are still accepted.
-export const KNOWN_FEATURE_FLAGS = ['automation', 'workflows', 'aiOnboarding', 'integrations'];
+export const KNOWN_FEATURE_FLAGS = ['automation', 'workflows', 'aiOnboarding', 'integrations', 'campaignAi'];
 
 const badRequest = (message) => { const e = new Error(message); e.status = 400; throw e; };
 
