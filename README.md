@@ -399,5 +399,6 @@ remaining gaps at the time of writing:
 
 ## 12. Licence
 
-Proprietary — all rights reserved; see [LICENSE](LICENSE). Third-party notices
+No project licence has been chosen yet: there is no LICENSE file, and
+`package.json` still carries npm's default `ISC` value. Third-party notices
 are in [ATTRIBUTION.md](ATTRIBUTION.md).

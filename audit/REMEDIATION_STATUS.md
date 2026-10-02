@@ -9,8 +9,8 @@ steps for this release are in [`DEPLOY.md`](../DEPLOY.md#4-upgrading-to-the-audi
 
 | Status | Issues |
 |---|---|
-| FIXED | 199 |
-| PARTIAL | 26 |
+| FIXED | 198 |
+| PARTIAL | 27 |
 | ALREADY-FIXED | 0 |
 | NOT-A-BUG | 1 |
 | NO CHANGE | 1 |
@@ -240,7 +240,7 @@ Notes for FIXED rows are the fixing commit's subject.
 | CF-217 | Info | Analytics (Chat analytics / Insights) | Conversation "insights" sentiment/topics are keyword heuristics presented as AI analysis | **FIXED** | fix(analytics): workspace-timezone day buckets and correct populations | 286abc1 |
 | CF-218 | Info | Contacts / Segments | Segments are static membership lists; no rule evaluation exists (docs already say so) | **FIXED** | fix(contacts): label segments as hand-picked static lists | 7580571 |
 | CF-219 | Info | Docs / AI features | AI_FEATURES_REPORT.md: wrong migration path, stale reply order, `migrate dev` instruction, UI location moved | **FIXED** | AI features note archived with corrected SQL path, inbound order, Ollama and studio notes | f3c513f |
-| CF-220 | Info | Docs / Licensing | ATTRIBUTION.md is accurate; project licence is inconsistent elsewhere | **FIXED** | Proprietary LICENSE added; root package UNLICENSED/private; README aligned | ebb97a2 |
+| CF-220 | Info | Docs / Licensing | ATTRIBUTION.md is accurate; project licence is inconsistent elsewhere | **PARTIAL** | Licence choice is the owner's decision: README now states no licence is chosen; package.json keeps ISC and is marked private | ebb97a2 |
 | CF-221 | Info | Docs / Redis | backend/docs/local-redis-setup.md says Redis backs only the campaign and email queues | **FIXED** | Redis doc lists every queue and Redis dependency | aaa0d92 |
 | CF-222 | Info | Docs / Testing | TESTING_WALKTHROUGH.md test count (277) disagrees with TEST_EVIDENCE.md (264) and the tree; `npm test` needs a live local DB | **FIXED** | Hard-coded test counts removed; DB-backed suites and .env.test explained | aaa0d92 |
 | CF-223 | Info | Frontend-Shell / Auth | Client decides super-admin from a `superAdmin` flag persisted in the localStorage `user` object — server re-verifies, so no security impact | **NOT-A-BUG** | Client flag is display-only; the server re-verifies super-admin on every request |  |
