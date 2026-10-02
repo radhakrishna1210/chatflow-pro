@@ -5,6 +5,7 @@ import { computeLeadCategory } from './leadSegmentation.service.js';
 import { validateCrmCustomFields } from './customFields.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 import { scopeFilter, withScope } from './recordScope.service.js';
+import { assertRecordReferences } from './crmReferences.js';
 import { awardXp, unlockAchievement } from './gamification.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { getSection } from './crmCustomization.service.js';
@@ -255,6 +256,7 @@ export async function getLead(workspaceId, id, user = null) {
 // lead never carries its own copy of name/phone.
 export async function createLead(workspaceId, body) {
   let contactId = body.contactId;
+  await assertRecordReferences(workspaceId, { ownerUserId: body.ownerUserId });
 
   // 1. Prospecting criteria validation
   const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch(() => null);
@@ -409,6 +411,7 @@ export async function updateLead(workspaceId, id, updates, user = null) {
     select: { id: true, status: true, customFields: true, contactId: true, ownerUserId: true },
   });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
+  await assertRecordReferences(workspaceId, { ownerUserId: updates.ownerUserId });
 
   // Update tags on Contact if provided
   if (Array.isArray(updates.tags)) {
@@ -544,6 +547,7 @@ export async function recalculateScore(workspaceId, id, user = null) {
 // Transactional by design: a conversion that created a Deal but failed to mark
 // the Lead converted would let the same lead be converted twice.
 export async function convertLead(workspaceId, id, body, userId) {
+  await assertRecordReferences(workspaceId, { ownerUserId: body.ownerUserId });
   return prisma.$transaction(async (tx) => {
     const lead = await tx.lead.findFirst({ where: { id, workspaceId } });
     if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
@@ -589,6 +593,7 @@ export async function bulkAssignLeads(workspaceId, ids = [], ownerUserId = null,
   if (!Array.isArray(ids) || ids.length === 0) {
     const e = new Error('At least one lead ID is required'); e.status = 400; throw e;
   }
+  await assertRecordReferences(workspaceId, { ownerUserId });
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const res = await prisma.lead.updateMany({
     where: { id: { in: ids }, workspaceId, ...scope },

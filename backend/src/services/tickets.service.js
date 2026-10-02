@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { scopeFilter, withScope } from './recordScope.service.js';
+import { assertRecordReferences } from './crmReferences.js';
 import { awardXp } from './gamification.service.js';
 import { getSection } from './crmCustomization.service.js';
 
@@ -104,11 +105,7 @@ export async function getTicket(workspaceId, id, user = null) {
 }
 
 export async function createTicket(workspaceId, body) {
-  for (const [field, model] of [['contactId', 'contact'], ['teamId', 'team'], ['conversationId', 'conversation']]) {
-    if (!body[field]) continue;
-    const row = await prisma[model].findFirst({ where: { id: body[field], workspaceId }, select: { id: true } });
-    if (!row) { const e = new Error(`${model} not found in this workspace`); e.status = 404; throw e; }
-  }
+  await assertRecordReferences(workspaceId, body);
 
   const priority = body.priority || 'NORMAL';
 
@@ -157,6 +154,7 @@ export async function updateTicket(workspaceId, id, updates, user = null) {
     select: { id: true, priority: true, createdAt: true, status: true },
   });
   if (!ticket) { const e = new Error('Ticket not found'); e.status = 404; throw e; }
+  await assertRecordReferences(workspaceId, updates);
 
   const data = { ...updates };
 
