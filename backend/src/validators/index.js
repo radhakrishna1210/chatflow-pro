@@ -860,6 +860,44 @@ export const copilotSchemas = {
   }).strict(),
 };
 
+// AI Agents studio (/ai-agents). Agent and channel config is stored as JSON,
+// so these bound every key and length rather than letting a body be spread in.
+const studioAgentFields = {
+  name: meaningfulText(z.string().trim().min(1).max(80), 'Agent name'),
+  description: z.string().trim().max(500),
+  purpose: z.string().trim().max(2000),
+  systemPrompt: z.string().trim().max(4000),
+  guidelines: z.array(z.string().trim().min(1).max(80)).max(20),
+  actions: z.array(z.string().trim().min(1).max(60)).max(10),
+  knowledgeTypes: z.array(z.string().trim().min(1).max(60)).max(20),
+  enabled: z.boolean(),
+};
+
+export const aiAgentsStudioSchemas = {
+  createAgent: z.object(studioAgentFields).partial().required({ name: true }).strict(),
+  updateAgent: z.object(studioAgentFields).partial().strict(),
+  channelParams: z.object({ channelKey: z.enum(['whatsapp']) }).passthrough(),
+  updateChannel: z.object({
+    assignedAgentId: id.max(100).optional(),
+    enabled: z.boolean().optional(),
+  }).strict(),
+  executeAction: z.object({
+    actionId: z.string().trim().min(1).max(60),
+    params: z.object({
+      leadId: id.optional(),
+      contactId: id.optional(),
+      conversationId: id.optional(),
+      assignedToUserId: id.optional(),
+      title: z.string().trim().max(200).optional(),
+      note: z.string().trim().max(1000).optional(),
+      dueInDays: z.number().int().min(0).max(365).optional(),
+    }).strict().default({}),
+  }).strict(),
+  test: z.object({
+    message: z.string().trim().min(1, 'Type a message to test').max(2000),
+  }).strict(),
+};
+
 export const workflowCompilerSchemas = {
   compile: z.object({
     description: z.string().trim().min(1, 'Describe the automation you want').max(1000),
