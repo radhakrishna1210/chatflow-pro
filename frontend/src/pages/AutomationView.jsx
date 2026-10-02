@@ -98,7 +98,7 @@ const TABS = [
   { id: 'ig-quick',  label: 'Instagram Quickflows',      icon: 'insta' },
   { id: 'voice-ai',  label: 'Voice AI - Inbound Calls',  icon: 'phone' },
   { id: 'wa-forms',  label: 'WhatsApp Forms',            icon: 'note'  },
-  { id: 'interactive', label: 'Smart Lists',             icon: 'users' },
+  { id: 'interactive', label: 'Contact Lists',           icon: 'users' },
 ];
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -3735,7 +3735,7 @@ const SmartListsTab = () => {
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <TabHeader icon="users" color="var(--t2)" bg="rgba(255,255,255,0.04)"
-        title="Smart Lists" subtitle="Segment your contacts for targeted messaging">
+        title="Contact Lists" subtitle="Hand-picked lists for targeted messaging. Membership is fixed: contacts are added and removed by hand, not by rules.">
         <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Create Segment</Btn>
       </TabHeader>
 
@@ -3765,7 +3765,7 @@ const SmartListsTab = () => {
           </div>
           <div>
             <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:17, color:'var(--t1)', marginBottom:6 }}>No Segments Yet</p>
-            <p style={{ fontSize:13, color:'var(--t2)' }}>Create your first customer segment to get started.</p>
+            <p style={{ fontSize:13, color:'var(--t2)' }}>Create a list, then add the contacts that belong in it. Lists do not update automatically.</p>
           </div>
           <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Create First Segment</Btn>
         </div>
