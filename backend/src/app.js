@@ -25,6 +25,13 @@ app.disable('x-powered-by');
 // in front of the app; set TRUST_PROXY_HOPS if yours differs. It stays 0 in
 // local development, where there is no proxy and the header is pure input.
 app.set('trust proxy', env.TRUST_PROXY_HOPS);
+if (env.NODE_ENV === 'production' && env.TRUST_PROXY_HOPS === 0) {
+  console.warn('');
+  console.warn('  [Security] TRUST_PROXY_HOPS is 0 in production. Behind Render or a reverse proxy every');
+  console.warn('  [Security] client then shares ONE rate-limit bucket (the proxy address), so a handful of');
+  console.warn('  [Security] requests locks everyone out of login/signup/refresh. Set TRUST_PROXY_HOPS=1.');
+  console.warn('');
+}
 
 app.use(securityHeaders);
 

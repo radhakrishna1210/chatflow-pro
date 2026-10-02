@@ -122,6 +122,7 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `CLIENT_URL` | no | `http://localhost:5173` | Frontend origin — used for CORS allow-list and OAuth redirects |
 | `CORS_EXTRA_ORIGINS` | no | — | Comma-separated extra allowed origins (e.g. a preview deploy) |
 | `JSON_BODY_LIMIT` | no | `2mb` | Express body size limit |
+| `TRUST_PROXY_HOPS` | **yes in production** | `0` | Reverse-proxy hops in front of the app whose `X-Forwarded-For` is believed. Set `1` on Render and on the VPS (nginx in front); left at 0 every client shares the proxy's rate-limit bucket. The app warns at boot in production when it is 0 |
 | `DATABASE_URL` | **yes** | — | Postgres connection string (pooled, used at runtime) |
 | `DIRECT_URL` | no | falls back to `DATABASE_URL` | Non-pooled connection for Prisma migrations |
 | `REDIS_URL` | no | `redis://localhost:6379` | BullMQ + ioredis connection |

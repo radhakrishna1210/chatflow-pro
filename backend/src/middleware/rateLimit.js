@@ -79,6 +79,45 @@ async function peek(key) {
   return peekMemory(key);
 }
 
+// The bucket a request's client address falls into.
+//
+// IPv4-mapped IPv6 (`::ffff:1.2.3.4`) collapses to the IPv4 address so a
+// dual-stack listener does not give one client two buckets. A native IPv6
+// client is bucketed by its /64: a single subscriber is routinely handed a
+// whole /64, so keying on the full address would let them rotate through
+// 2^64 fresh buckets.
+export function clientBucket(ip) {
+  if (typeof ip !== 'string' || !ip) return 'unknown';
+  let addr = ip.trim().toLowerCase();
+  const zone = addr.indexOf('%');
+  if (zone !== -1) addr = addr.slice(0, zone);
+  if (addr.startsWith('::ffff:') && addr.includes('.')) return addr.slice(7);
+  if (!addr.includes(':')) return addr;
+
+  const [head, tail = ''] = addr.split('::');
+  const headGroups = head ? head.split(':') : [];
+  const tailGroups = tail ? tail.split(':') : [];
+  const missing = addr.includes('::') ? 8 - headGroups.length - tailGroups.length : 0;
+  const groups = [...headGroups, ...Array(Math.max(0, missing)).fill('0'), ...tailGroups];
+  if (groups.length < 4) return addr;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
+// Behind a proxy with `trust proxy` left at 0, req.ip is the proxy itself and
+// every user shares one bucket. Say so once, loudly, the first time we see a
+// forwarded request — the boot-time check in app.js only covers production.
+let warnedUntrustedForward = false;
+function warnIfForwardedButUntrusted(req) {
+  if (warnedUntrustedForward || !req.headers?.['x-forwarded-for']) return;
+  const trust = req.app?.get?.('trust proxy');
+  if (trust && trust !== 0) return;
+  warnedUntrustedForward = true;
+  console.warn(
+    '[RateLimit] Requests arrive with X-Forwarded-For but TRUST_PROXY_HOPS is 0: every client is being '
+    + 'rate-limited as the proxy address. Set TRUST_PROXY_HOPS to the number of proxies in front of the app.',
+  );
+}
+
 function tooMany(res, resetAt) {
   const retryAfter = Math.max(1, Math.ceil((resetAt - Date.now()) / 1000));
   res.setHeader('Retry-After', String(retryAfter));
@@ -110,7 +149,8 @@ export function rateLimit({
   return async (req, res, next) => {
     // `req.ip` respects app.set('trust proxy', …) — it is only taken from
     // X-Forwarded-For for as many hops as we have actually configured.
-    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    warnIfForwardedButUntrusted(req);
+    const ip = clientBucket(req.ip || req.socket?.remoteAddress);
     const ipKey = `rl:${keyPrefix}:ip:${ip}`;
     const subjectValue = subject ? subject(req) : null;
     const subjectKey = subjectValue ? `rl:${keyPrefix}:sub:${subjectValue}` : null;
