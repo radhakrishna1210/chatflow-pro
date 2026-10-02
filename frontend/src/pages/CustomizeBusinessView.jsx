@@ -24,6 +24,8 @@ const TABS = [
 ];
 
 export default function CustomizeBusinessView({ user, initialTab }) {
+  // Saving and resetting are admin-only on the server; mirror that here.
+  const isAdmin = user?.role === 'ADMIN' || user?.superAdmin === true;
   const [activeTab, setActiveTab] = useState(() => {
     if (initialTab && TABS.some((t) => t.id === initialTab)) return initialTab;
     return 'lead_lifecycle';
@@ -204,6 +206,9 @@ export default function CustomizeBusinessView({ user, initialTab }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {!isAdmin && (
+            <span style={{ fontSize: 12, color: 'var(--t3)' }}>Only a workspace admin can change these settings.</span>
+          )}
           {hasUnsavedChanges && (
             <span
               style={{
@@ -226,7 +231,7 @@ export default function CustomizeBusinessView({ user, initialTab }) {
           <Btn
             variant="ghost"
             onClick={() => setResetModalOpen(true)}
-            disabled={loading || saving}
+            disabled={!isAdmin || loading || saving}
             style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
           >
             <I n="rotate" s={14} />
@@ -236,7 +241,7 @@ export default function CustomizeBusinessView({ user, initialTab }) {
           <Btn
             variant="primary"
             onClick={handleSaveActiveTab}
-            disabled={loading || saving || !hasUnsavedChanges}
+            disabled={!isAdmin || loading || saving || !hasUnsavedChanges}
             style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
           >
             <I n="check" s={14} />
