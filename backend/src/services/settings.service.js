@@ -138,6 +138,15 @@ export async function updateSettings(workspaceId, updates) {
   }
   assertBranding(data);
   if (data.webhookUrl !== undefined) await assertWebhookUrl(data.webhookUrl);
+  if (data.webhookUrl) {
+    // Every delivery is signed with this, so a workspace setting a URL gets a
+    // real secret rather than the empty default anybody could sign with.
+    const current = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { webhookVerifyToken: true } });
+    if (current && !current.webhookVerifyToken) {
+      const { generateWebhookSecret } = await import('./outgoingWebhook.service.js');
+      data.webhookVerifyToken = generateWebhookSecret();
+    }
+  }
   await prisma.workspace.update({ where: { id: workspaceId }, data });
   // Return the same shape GET does, so a save and a reload can never disagree
   // about what the workspace now looks like.
@@ -277,7 +286,8 @@ export async function testWebhook(workspaceId) {
   // unsigned {event:'test'} body, so a receiver that verified signatures — the
   // thing the test is meant to prove works — rejected the test and accepted
   // production traffic, or vice versa.
-  const { signPayload } = await import('./outgoingWebhook.service.js');
+  const { signPayload, ensureWebhookSecret } = await import('./outgoingWebhook.service.js');
+  const secret = await ensureWebhookSecret(workspaceId, ws.webhookVerifyToken);
   const { randomUUID } = await import('crypto');
   const deliveryId = randomUUID();
   const body = JSON.stringify({
@@ -301,7 +311,7 @@ export async function testWebhook(workspaceId) {
         'User-Agent': 'ChatFlowPro-Webhook/1',
         'X-ChatFlow-Event': 'test',
         'X-ChatFlow-Delivery': deliveryId,
-        'X-ChatFlow-Signature-256': signPayload(body, ws.webhookVerifyToken),
+        'X-ChatFlow-Signature-256': signPayload(body, secret),
       },
     });
 
