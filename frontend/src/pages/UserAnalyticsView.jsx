@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { Avatar } from '../components/Avatar.jsx';
 
 // ─── User analytics ──────────────────────────────────────────────────────────
 //
@@ -43,16 +44,6 @@ const SectionTitle = ({ title, sub, right }) => (
   </div>
 );
 
-const Avatar = ({ name = '?', size = 30 }) => {
-  const init = String(name).split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?';
-  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
-  const c = colors[init.charCodeAt(0) % colors.length];
-  return (
-    <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size * 0.34, fontWeight:700, color:c, flexShrink:0 }}>
-      {init}
-    </div>
-  );
-};
 
 // ─── growth ──────────────────────────────────────────────────────────────────
 
@@ -234,7 +225,7 @@ export default function UserAnalyticsView() {
                         <tr key={c.id} style={{ borderBottom:'1px solid var(--bd)' }}>
                           <td style={{ padding:'11px 12px' }}>
                             <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
-                              <Avatar name={c.name || c.phoneNumber} />
+                              <Avatar name={c.name || c.phoneNumber} size={30} />
                               <div style={{ minWidth:0 }}>
                                 <div style={{ fontSize:13, fontWeight:600, color:'var(--t1)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.name || c.phoneNumber}</div>
                                 <div style={{ fontSize:11, color:'var(--t3)' }}>{c.phoneNumber}</div>

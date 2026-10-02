@@ -5,6 +5,7 @@ import { apiFetch } from '../lib/api.js';
 import QuickLinksGrid from '../components/QuickLinksGrid.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import ProgressPanel from '../components/ProgressPanel.jsx';
+import { Avatar } from '../components/Avatar.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -55,16 +56,6 @@ function validateProfileForm(form) {
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 const fmtDateTime = (d) => d ? new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
-const Avatar = ({ name = '?', size = 34, showRing = false }) => {
-  const init = name.split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?';
-  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
-  const col = colors[init.charCodeAt(0) % colors.length];
-  return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: `${col}18`, border: `1.5px solid ${showRing ? col : col + '44'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * .36 + 'px', fontWeight: 700, color: col, flexShrink: 0 }}>
-      {init}
-    </div>
-  );
-};
 
 const Badge = ({ label, tone = 'green' }) => {
   const tones = {

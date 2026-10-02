@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { I } from './Icons.jsx';
 import { Btn } from './Btn.jsx';
 import { wFetch } from '../lib/api.js';
+import { Avatar } from './Avatar.jsx';
 
 // Contact details for whichever conversation is open in the inbox.
 //
@@ -10,16 +11,6 @@ import { wFetch } from '../lib/api.js';
 // added from the inbox is the same tag the contact list filters on. Nothing on
 // this panel keeps its own copy of a contact.
 
-const Avatar = ({ name = '?', size = 52 }) => {
-  const init = String(name).split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?';
-  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
-  const c = colors[init.charCodeAt(0) % colors.length];
-  return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: `${c}18`, border: `1.5px solid ${c}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * .34 + 'px', fontWeight: 700, color: c, flexShrink: 0 }}>
-      {init}
-    </div>
-  );
-};
 
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');

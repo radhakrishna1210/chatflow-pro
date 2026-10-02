@@ -12,6 +12,7 @@ import {
 import { I } from '../Icons.jsx';
 import { wFetch } from '../../lib/api.js';
 import MobileNavButton from '../MobileNavButton.jsx';
+import { Avatar } from '../Avatar.jsx';
 
 // Shared surface used across all dashboard cards.
 const card = {
@@ -58,16 +59,6 @@ const SectionTitle = ({ title, sub }) => (
   </div>
 );
 
-const Avatar = ({ name = '?', size = 28 }) => {
-  const init = name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
-  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
-  const c = colors[init.charCodeAt(0) % colors.length];
-  return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: `${c}18`, border: `1.5px solid ${c}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.33 + 'px', fontWeight: 700, color: c, flexShrink: 0 }}>
-      {init}
-    </div>
-  );
-};
 
 export default function ChatAnalytics({ workspaceId }) {
   const [days, setDays] = useState(30);
@@ -283,7 +274,7 @@ export default function ChatAnalytics({ workspaceId }) {
                         <tr key={agent.agentId} style={{ borderBottom: index < topAgents.length - 1 ? '1px solid var(--bd)' : 'none' }}>
                           <td style={{ padding: '13px 20px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                              <Avatar name={agent.name} />
+                              <Avatar name={agent.name} size={28} />
                               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{agent.name}</span>
                             </div>
                           </td>

@@ -8,6 +8,7 @@ import BlockedNumbers from '../components/BlockedNumbers.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { TeamsAdmin } from '../components/TeamsAdmin.jsx';
 import { LeadCaptureSetting } from '../components/LeadCaptureSetting.jsx';
+import { Avatar } from '../components/Avatar.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
@@ -78,16 +79,6 @@ const INDUSTRIES = [
   'Real estate', 'Travel', 'Professional services', 'Agency', 'Other',
 ];
 
-const Avatar = ({ name='?', size=30 }) => {
-  const init = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B'];
-  const c = colors[init.charCodeAt(0) % colors.length];
-  return (
-    <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
-      {init}
-    </div>
-  );
-};
 
 const statusBadge = s => {
   const cfg = { Paid:{ bg:'var(--gbg)', bd:'var(--gbd)', c:'var(--green)' }, Pending:{ bg:'rgba(245,158,11,.1)', bd:'rgba(245,158,11,.25)', c:'#fbbf24' }, Failed:{ bg:'rgba(239,68,68,.08)', bd:'rgba(239,68,68,.2)', c:'#f87171' } };
@@ -664,7 +655,7 @@ export default function SettingsView() {
                   <tr key={m.userId} style={{ borderBottom: i < members.length-1 ? '1px solid var(--bd)' : 'none' }}>
                     <td style={{ padding:'10px 12px' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <Avatar name={m.user.name} />
+                        <Avatar name={m.user.name} size={30} />
                         <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{m.user.name}</span>
                         {isSelf && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:5, background:'rgba(255,255,255,0.05)', border:'1px solid var(--bd)', color:'var(--t3)' }}>You</span>}
                         {m.isOwner && <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:5, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)' }}>Owner</span>}

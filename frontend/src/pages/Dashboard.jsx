@@ -54,35 +54,9 @@ import LegalCenter from '../components/LegalCenter.jsx';
 import { LEGAL_DOCS } from '../lib/legalContent.js';
 import AuthenticationDashboard from './AuthenticationDashboard.jsx';
 import ResourceCenter from './ResourceCenter.jsx';
+import { Avatar } from '../components/Avatar.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
-
-
-// Identity mark. The design set paints these as a filled brand gradient with
-// dark ink initials, not a tinted outline — it is the one place colour is
-// allowed to be loud. The pair is chosen from the name so two people in a list
-// stay tellable apart, rather than every avatar being identical.
-const AVATAR_GRADS = [
-  'linear-gradient(135deg,#9d6bff,#35e8f2)',
-  'linear-gradient(135deg,#35e8f2,#c4ff46)',
-  'linear-gradient(135deg,#c4ff46,#9d6bff)',
-  'linear-gradient(135deg,#f59e0b,#c4ff46)',
-  'linear-gradient(135deg,#f472b6,#9d6bff)',
-];
-const Avatar = ({ name = '?', size = 34, showRing = false }) => {
-  const init = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-  const seed = [...init].reduce((a, c) => a + c.charCodeAt(0), 0);
-  const grad = AVATAR_GRADS[seed % AVATAR_GRADS.length];
-  return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: grad,
-      boxShadow: showRing ? '0 0 0 2px rgba(53,232,242,0.28), inset 0 1px 0 rgba(255,255,255,0.3)' : 'inset 0 1px 0 rgba(255,255,255,0.28)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * .38 + 'px', fontWeight: 800, color: 'var(--ink)',
-      letterSpacing: '-.02em', flexShrink: 0 }}>
-      {init}
-    </div>
-  );
-};
 
 
 // ─── Profile menu (top-right) ─────────────────────────────────
@@ -160,7 +134,7 @@ const ProfileMenu = () => {
         aria-expanded={open}
         aria-haspopup="true"
         style={{ background:'none', border:'none', padding:0, cursor:'pointer', borderRadius:'50%' }}>
-        <Avatar name={name} size={34} showRing />
+        <Avatar variant="gradient" name={name} size={34} showRing />
       </button>
 
       {open && (
@@ -179,7 +153,7 @@ const ProfileMenu = () => {
         }}>
           {/* Header — identity */}
           <div style={{ padding:'16px 18px', display:'flex', alignItems:'center', gap:12, borderBottom:'1px solid var(--bd)', background:'linear-gradient(135deg, rgba(53,232,242,0.06), transparent)' }}>
-            <Avatar name={name} size={44} showRing />
+            <Avatar variant="gradient" name={name} size={44} showRing />
             <div style={{ flex:1, minWidth:0 }}>
               <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:2 }}>{name}</p>
               <p style={{ fontSize:11, color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{email}</p>
@@ -690,7 +664,7 @@ const LiveConversations = () => {
         {top.map(c => (
           <button key={c.id} onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'inbox' }))}
             style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0', background: 'none', border: 'none', borderBottom: '1px solid var(--bd)', cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: "'Manrope',sans-serif" }}>
-            <Avatar name={c.contact?.name || c.contact?.phoneNumber || '?'} size={30} />
+            <Avatar variant="gradient" name={c.contact?.name || c.contact?.phoneNumber || '?'} size={30} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {c.contact?.name || c.contact?.phoneNumber || 'Unknown'}
@@ -2889,7 +2863,7 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
       )}
       <div style={{ padding: '10px 8px', borderTop: '1px solid var(--bd)', flexShrink: 0 }}>
         {!col && <div style={{ padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '9px' }}>
-          <Avatar name={user?.name || 'User'} size={28} showRing />
+          <Avatar variant="gradient" name={user?.name || 'User'} size={28} showRing />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--t1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.name || 'User'}</p>
             <p style={{ fontFamily: 'var(--mono)', fontSize: '9.5px', letterSpacing: '.08em', textTransform: 'uppercase', color: isAdmin ? 'var(--accent)' : 'var(--t2)' }}>{planLabel}</p>
