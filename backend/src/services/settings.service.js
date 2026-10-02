@@ -1,5 +1,22 @@
-import axios from 'axios';
 import { prisma } from '../lib/prisma.js';
+import { assertResolvesPublic, safeRequest, UnsafeUrlError } from '../lib/safeUrl.js';
+
+const MAX_WEBHOOK_URL_LENGTH = 2048;
+
+// Every event the workspace subscribes to is POSTed to this URL by the server,
+// so it has to be a public address. Checked here rather than only in the
+// dashboard's zod schema because the public API saves it too.
+async function assertWebhookUrl(value) {
+  if (value === '' || value === null) return;
+  if (typeof value !== 'string' || value.length > MAX_WEBHOOK_URL_LENGTH) {
+    const e = new Error('Webhook URL must be a URL of at most 2048 characters'); e.status = 400; throw e;
+  }
+  try {
+    await assertResolvesPublic(value);
+  } catch (err) {
+    const e = new Error(`Webhook URL rejected: ${err.message}`); e.status = 400; throw e;
+  }
+}
 
 export async function getSettings(workspaceId) {
   const ws = await prisma.workspace.findUnique({
@@ -120,6 +137,7 @@ export async function updateSettings(workspaceId, updates) {
     if (updates[key] !== undefined) data[key] = updates[key];
   }
   assertBranding(data);
+  if (data.webhookUrl !== undefined) await assertWebhookUrl(data.webhookUrl);
   await prisma.workspace.update({ where: { id: workspaceId }, data });
   // Return the same shape GET does, so a save and a reload can never disagree
   // about what the workspace now looks like.
@@ -270,10 +288,14 @@ export async function testWebhook(workspaceId) {
     data: { message: 'This is a test delivery from Spandan.' },
   });
 
+  // Same guarded transport as real deliveries: public addresses only, the
+  // connection pinned to the address that was checked, and no redirects.
   try {
-    const res = await axios.post(ws.webhookUrl, body, {
+    const res = await safeRequest(ws.webhookUrl, {
+      method: 'POST',
+      data: body,
       timeout: 8000,
-      validateStatus: () => true,
+      maxBytes: 64 * 1024,
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': 'ChatFlowPro-Webhook/1',
@@ -288,15 +310,22 @@ export async function testWebhook(workspaceId) {
     }
     const e = new Error(`Webhook endpoint responded with status ${res.status}`);
     e.status = 502;
+    e.expose = true;
     throw e;
   } catch (err) {
+    if (err instanceof UnsafeUrlError) {
+      const e = new Error('The webhook URL does not point to a public address.'); e.status = 400; throw e;
+    }
     if (err.status) throw err;
+    // One message for every network failure: which of refused / reset /
+    // unreachable it was is a port-scan oracle, not something a user acts on.
     const e = new Error(
       err.code === 'ECONNABORTED'
         ? 'Webhook request timed out'
-        : `Could not reach webhook URL (${err.code || err.message})`
+        : 'Could not reach the webhook URL'
     );
     e.status = 502;
+    e.expose = true;
     throw e;
   }
 }

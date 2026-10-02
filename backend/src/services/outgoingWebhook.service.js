@@ -1,6 +1,6 @@
-import axios from 'axios';
 import { createHmac, randomUUID } from 'crypto';
 import { prisma } from '../lib/prisma.js';
+import { safeRequest, UnsafeUrlError } from '../lib/safeUrl.js';
 
 // Outgoing webhooks: telling the customer's own system what happened here.
 //
@@ -48,18 +48,17 @@ function wantsEvent(workspace, event) {
   return selected.length === 0 || selected.includes(event);
 }
 
+// The URL was vetted when it was saved, but DNS can change since: every
+// attempt goes through the guarded transport, which refuses to connect to a
+// non-public address and follows no redirects.
 async function deliverOnce(url, body, headers, timeoutMs = 10_000) {
   try {
-    const res = await axios.post(url, body, {
-      headers, timeout: timeoutMs,
-      // We validate the status ourselves so a 4xx does not throw and lose the
-      // response we want to record.
-      validateStatus: () => true,
-      maxRedirects: 0,
+    const res = await safeRequest(url, {
+      method: 'POST', data: body, headers, timeout: timeoutMs, maxBytes: 1024 * 1024,
     });
     return { status: res.status, ok: res.status >= 200 && res.status < 300 };
   } catch (err) {
-    return { status: null, ok: false, error: err.message };
+    return { status: null, ok: false, error: err.message, unsafe: err instanceof UnsafeUrlError };
   }
 }
 
@@ -102,6 +101,10 @@ export async function dispatchWebhook(workspaceId, event, data) {
     if (result.ok) {
       if (attempt > 0) console.log(`[Webhook:out] ${event} delivered on attempt ${attempt + 1}`);
       return { delivered: true, attempts: attempt + 1, deliveryId };
+    }
+    if (result.unsafe) {
+      console.warn(`[Webhook:out] ${event} not sent — the webhook URL for ${workspaceId} does not resolve to a public address.`);
+      return { delivered: false, attempts: attempt + 1, reason: 'unsafe_url', deliveryId };
     }
     if (!isRetryable(result.status)) {
       // A 4xx is the receiver saying "this request is wrong". Repeating it

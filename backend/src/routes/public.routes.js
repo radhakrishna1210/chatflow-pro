@@ -5,14 +5,14 @@ import { requireScope } from '../lib/apiScopes.js';
 import * as templatesController from '../controllers/templates.controller.js';
 import * as campaignsController from '../controllers/campaigns.controller.js';
 import * as contactsController from '../controllers/contacts.controller.js';
-import * as settingsController from '../controllers/settings.controller.js';
+import * as settingsService from '../services/settings.service.js';
 import * as analyticsController from '../controllers/analytics.controller.js';
 import * as walletController from '../controllers/wallet.controller.js';
 import * as aiAgentController from '../controllers/aiAgent.controller.js';
 import * as automationController from '../controllers/automation.controller.js';
 import * as publicIdentityController from '../controllers/publicIdentity.controller.js';
 import { sendPublicMessage } from '../services/publicMessage.service.js';
-import { validate, templateSchemas, campaignSchemas, publicApiSchemas } from '../validators/index.js';
+import { validate, templateSchemas, campaignSchemas, settingsSchemas, publicApiSchemas } from '../validators/index.js';
 
 const router = Router();
 
@@ -90,23 +90,20 @@ router.post('/ai-agent/query', requireScope('ai-agent:write'), injectWorkspace(a
 router.get('/automations', requireScope('automations:read'), injectWorkspace(automationController.list));
 
 // --- Webhooks ---
-// Allow customers to register their webhook URL by updating workspace settings
-router.post('/webhooks', requireScope('webhooks:write'), async (req, res, next) => {
+// Register the workspace webhook URL (and optionally which events it gets).
+// Validated by the dashboard's own schema, and the service refuses any URL
+// that does not resolve to a public address.
+const publicWebhookBody = settingsSchemas.update
+  .pick({ webhookUrl: true, webhookEvents: true })
+  .refine((v) => v.webhookUrl !== undefined, { message: 'webhookUrl is required', path: ['webhookUrl'] });
+
+router.post('/webhooks', requireScope('webhooks:write'), validate({ body: publicWebhookBody }), async (req, res, next) => {
   try {
-    const { webhookUrl } = req.body;
-    if (typeof webhookUrl !== 'string') {
-      return res.status(400).json({ error: 'webhookUrl must be a string' });
-    }
-    
-    // Create a mock req object to pass to the settings controller
-    const mockReq = { 
-      params: { workspaceId: req.workspaceId }, 
-      body: { webhookUrl } 
-    };
-    
-    // We can't easily use the controller directly because it calls res.json()
-    // but here we just call the controller with the real res.
-    await settingsController.updateSettings(mockReq, res);
+    const { webhookUrl, webhookEvents } = req.body;
+    const settings = await settingsService.updateSettings(req.workspaceId, { webhookUrl, webhookEvents });
+    // Same body the dashboard gets, including the signing secret the receiver
+    // needs to verify deliveries.
+    res.json(settings);
   } catch (err) {
     next(err);
   }

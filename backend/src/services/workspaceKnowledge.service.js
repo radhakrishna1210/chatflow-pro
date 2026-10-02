@@ -1,8 +1,8 @@
-import axios from 'axios';
 import { prisma } from '../lib/prisma.js';
 import { syncIndex, invalidateIndexCache } from './siteKnowledge.service.js';
 import { embeddingsAvailable } from '../lib/embeddings.js';
 import { extractDocumentText } from '../lib/documentText.js';
+import { assertSafeUrl, safeRequest } from '../lib/safeUrl.js';
 
 // The customer's own website knowledge — what their Smart Website Widget
 // answers from.
@@ -28,31 +28,20 @@ const docId = (workspaceId, sourceId) => `ws:${workspaceId}:${sourceId}`;
 
 // ─── URL fetching ────────────────────────────────────────────────────────────
 
-// Hosts a customer must not be able to point us at. Fetching runs server-side
-// with the platform's network position, so an unchecked URL turns this feature
-// into a request proxy into private infrastructure.
-//
-// Hostname-level only: it stops the obvious cases (localhost, RFC1918 literals,
-// the cloud metadata endpoint) without a DNS round trip. A hostname that
-// resolves to a private address still gets through, so this is a guard rail
-// rather than a boundary — the fetcher is also capped in time and size, and
-// only ever returns text to the workspace that asked for it.
-const BLOCKED_HOST = /^(localhost|127\.|0\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$)/i;
-
+// Fetching runs server-side with the platform's network position, so an
+// unchecked URL turns this feature into a request proxy into private
+// infrastructure. lib/safeUrl.js does the real work: every address the name
+// resolves to must be public, the connection is pinned to it, and each
+// redirect is re-checked. This is the cheap up-front check for a readable
+// error when the source is added.
 export function assertFetchableUrl(raw) {
-  let parsed;
   try {
-    parsed = new URL(String(raw).trim());
-  } catch {
-    fail('That does not look like a valid URL.');
+    return assertSafeUrl(raw).toString();
+  } catch (err) {
+    fail(/valid URL|Only/.test(err.message)
+      ? 'Enter a full http:// or https:// URL.'
+      : 'That address is not reachable from the internet, so it cannot be indexed.');
   }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    fail('Only http:// and https:// URLs can be indexed.');
-  }
-  if (BLOCKED_HOST.test(parsed.hostname)) {
-    fail('That address is not reachable from the internet, so it cannot be indexed.');
-  }
-  return parsed.toString();
 }
 
 const ENTITIES = {
@@ -106,20 +95,21 @@ export function htmlToText(html) {
 export async function fetchSourceContent(url) {
   try {
     const target = assertFetchableUrl(url);
-    const res = await axios.get(target, {
+    const res = await safeRequest(target, {
       timeout: FETCH_TIMEOUT_MS,
-      maxContentLength: MAX_FETCH_BYTES,
+      maxBytes: MAX_FETCH_BYTES,
       maxRedirects: 3,
-      responseType: 'text',
       // Some sites serve a different (or no) page to an unrecognised client.
       headers: { 'User-Agent': 'SpandanBot/1.0 (+website widget indexer)', Accept: 'text/html,*/*' },
-      validateStatus: (s) => s >= 200 && s < 400,
     });
+    if (res.status < 200 || res.status >= 300) {
+      return { ok: false, error: `The page responded ${res.status}.` };
+    }
     const type = String(res.headers?.['content-type'] || '');
     if (type && !/text\/html|text\/plain|application\/xhtml/i.test(type)) {
       return { ok: false, error: `That URL returned ${type.split(';')[0]}, which has no text to index.` };
     }
-    const { title, text } = htmlToText(res.data);
+    const { title, text } = htmlToText(res.data.toString('utf8'));
     if (!text || text.length < 40) {
       return { ok: false, error: 'That page had no readable text — it may render entirely in JavaScript.' };
     }
