@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
+import { authorize } from '../middleware/authorize.js';
 
 import * as authenticationConfigController from './authentication-config.controller.js';
 
@@ -28,9 +29,11 @@ router.get(
   authenticationConfigController.getConfiguration
 );
 
-// Save Authentication configuration.
+// Save Authentication configuration. Admin-only: it chooses which number and
+// template every OTP is sent (and charged) through.
 router.patch(
   '/',
+  authorize('ADMIN'),
   authenticationConfigController.updateConfiguration
 );
 

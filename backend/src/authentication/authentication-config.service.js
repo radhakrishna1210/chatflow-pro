@@ -299,34 +299,93 @@ export async function updateAuthenticationConfiguration(
  * intentionally have campaignId = NULL and must be visible alongside OTPs
  * issued by Authentication campaigns. A Meta message id proves acceptance;
  * a Meta delivery/read webhook sets deliveredAt separately.
+ *
+ * `from`/`to` bound everything — the KPI tiles and the transaction list — so
+ * a "last 7 days" view means the same thing in both. The other filters and
+ * `page` apply to the transaction list only.
  */
-export async function getAuthenticationUsage(workspaceId) {
+export const USAGE_PAGE_SIZE = 20;
+
+export async function getAuthenticationUsage(workspaceId, {
+  from = null,
+  to = null,
+  status = null,
+  source = null,
+  templateId = null,
+  search = '',
+  page = 1,
+  pageSize = USAGE_PAGE_SIZE,
+} = {}) {
   if (!workspaceId) {
     throw createError('Workspace is required.', 400);
   }
 
   const now = new Date();
-  const [statusRows, pendingExpired, acceptedByWhatsApp, delivered, recent] = await Promise.all([
+  const range = {
+    workspaceId,
+    ...(from || to
+      ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
+      : {}),
+  };
+
+  // Search matches a template name, a campaign name, or the recipient's
+  // number — template names live on another table, so they are resolved
+  // to ids first.
+  const q = String(search || '').trim();
+  let searchFilter = {};
+  if (q) {
+    const digits = q.replace(/\D/g, '');
+    const matchingTemplates = await prisma.template.findMany({
+      where: { workspaceId, name: { contains: q, mode: 'insensitive' } },
+      select: { id: true },
+      take: 200,
+    });
+    searchFilter = {
+      OR: [
+        ...(matchingTemplates.length ? [{ templateId: { in: matchingTemplates.map((t) => t.id) } }] : []),
+        { campaign: { name: { contains: q, mode: 'insensitive' } } },
+        ...(digits.length >= 3 ? [{ phone: { contains: digits } }] : []),
+      ],
+    };
+  }
+
+  const listWhere = {
+    ...range,
+    ...(status ? { status } : {}),
+    ...(source === 'API' ? { campaignId: null } : {}),
+    ...(source === 'CAMPAIGN' ? { campaignId: { not: null } } : {}),
+    ...(templateId ? { templateId } : {}),
+    ...searchFilter,
+  };
+  const take = Math.min(Math.max(Number(pageSize) || USAGE_PAGE_SIZE, 1), 100);
+  const skip = (Math.max(Number(page) || 1, 1) - 1) * take;
+
+  const [statusRows, pendingExpired, acceptedByWhatsApp, delivered, fromCampaigns, total, recent] = await Promise.all([
     prisma.authenticationTransaction.groupBy({
       by: ['status'],
-      where: { workspaceId },
+      where: range,
       _count: { _all: true },
     }),
     // Expiry is a fact of time even if the customer never submits the code and
     // therefore never drives otp.service.js through its EXPIRED transition.
     prisma.authenticationTransaction.count({
-      where: { workspaceId, status: 'PENDING', expiresAt: { lte: now } },
+      where: { ...range, status: 'PENDING', expiresAt: { lte: now } },
     }),
     prisma.authenticationTransaction.count({
-      where: { workspaceId, metaMessageId: { not: null } },
+      where: { ...range, metaMessageId: { not: null } },
     }),
     prisma.authenticationTransaction.count({
-      where: { workspaceId, deliveredAt: { not: null } },
+      where: { ...range, deliveredAt: { not: null } },
     }),
+    prisma.authenticationTransaction.count({
+      where: { ...range, campaignId: { not: null } },
+    }),
+    prisma.authenticationTransaction.count({ where: listWhere }),
     prisma.authenticationTransaction.findMany({
-      where: { workspaceId },
+      where: listWhere,
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      skip,
+      take,
       select: {
         id: true,
         templateId: true,
@@ -351,7 +410,7 @@ export async function getAuthenticationUsage(workspaceId) {
   const templateNameById = new Map(templates.map((template) => [template.id, template.name]));
 
   const counts = Object.fromEntries(statusRows.map((row) => [row.status, row._count._all]));
-  const otpRequests = statusRows.reduce((total, row) => total + row._count._all, 0);
+  const otpRequests = statusRows.reduce((sum, row) => sum + row._count._all, 0);
   const verified = counts.VERIFIED || 0;
 
   return {
@@ -364,12 +423,17 @@ export async function getAuthenticationUsage(workspaceId) {
       verified,
       expired: (counts.EXPIRED || 0) + pendingExpired,
       failed: counts.FAILED || 0,
+      pending: Math.max(0, (counts.PENDING || 0) - pendingExpired),
+      bySource: { API: otpRequests - fromCampaigns, CAMPAIGN: fromCampaigns },
       verificationRate: otpRequests > 0
         ? Number(((verified / otpRequests) * 100).toFixed(1))
         : null,
       deliveryTrackingAvailable: true,
       cost: null,
     },
+    page: Math.floor(skip / take) + 1,
+    pageSize: take,
+    total,
     recent: recent.map((transaction) => ({
       id: transaction.id,
       templateId: transaction.templateId,

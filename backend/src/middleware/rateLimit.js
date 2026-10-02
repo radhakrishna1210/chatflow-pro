@@ -157,6 +157,11 @@ function tooMany(res, resetAt) {
  *                                             email being tried), so a spray
  *                                             across many IPs still trips.
  * @param {number}   opts.subjectMax     allowance for the subject bucket
+ * @param {(req) => string|null} opts.by  replaces the client address as the
+ *                                        primary bucket (e.g. the API key), for
+ *                                        callers whose identity is not an IP.
+ *                                        Falls back to the address when it
+ *                                        returns nothing.
  */
 export function rateLimit({
   windowMs = 60_000,
@@ -165,13 +170,16 @@ export function rateLimit({
   countFailuresOnly = false,
   subject = null,
   subjectMax = null,
+  by = null,
 } = {}) {
   return async (req, res, next) => {
     // `req.ip` respects app.set('trust proxy', …) — it is only taken from
     // X-Forwarded-For for as many hops as we have actually configured.
     warnIfForwardedButUntrusted(req);
+    // `by` keys the limit to an identity (an API key) instead of the address.
+    const identity = by ? by(req) : null;
     const ip = clientBucket(req.ip || req.socket?.remoteAddress);
-    const ipKey = `rl:${keyPrefix}:ip:${ip}`;
+    const ipKey = identity ? `rl:${keyPrefix}:id:${identity}` : `rl:${keyPrefix}:ip:${ip}`;
     const subjectValue = subject ? subject(req) : null;
     const subjectKey = subjectValue ? `rl:${keyPrefix}:sub:${subjectValue}` : null;
 
@@ -206,6 +214,18 @@ export function rateLimit({
     next();
   };
 }
+
+// The API key a request authenticated with, as a rateLimit `by` identity, so a
+// public-API limit follows the key rather than whichever address it calls from.
+// authenticateApiKey must run first.
+export const apiKeyIdentity = (req) => (req.apiKey?.id ? `key:${req.apiKey.id}` : null);
+
+// The phone number named in body[field], scoped to the sending workspace, so
+// one recipient cannot be flooded however many keys or addresses are used.
+export const recipientIdentity = (field) => (req) => {
+  const digits = String(req.body?.[field] ?? '').replace(/\D/g, '');
+  return digits && req.workspaceId ? `${req.workspaceId}:${digits}` : null;
+};
 
 // Shared subject extractor: the account an auth attempt names. Normalised the
 // same way auth.service.js normalises emails, so "A@x.com" and "a@x.com" share

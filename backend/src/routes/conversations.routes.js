@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as conversationsController from '../controllers/conversations.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
-import { uploader, verifyFileContents, ACCEPTS } from '../lib/uploadGuard.js';
+import { uploader, verifyFileContents, uploadRateLimit, ACCEPTS } from '../lib/uploadGuard.js';
 
 const router = Router({ mergeParams: true });
 
@@ -28,6 +28,7 @@ router.post('/:id/template', conversationsController.sendTemplate);
 // Attachments. Same guards as a text reply (opt-out, the 24-hour window, a
 // message credit), plus the upload validation every other file route uses.
 router.post('/:id/media',
+  uploadRateLimit,
   uploader(ACCEPTS.outboundMedia, 100 * 1024 * 1024).single('file'),
   verifyFileContents,
   conversationsController.sendMedia);

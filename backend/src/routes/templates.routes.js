@@ -3,7 +3,7 @@ import * as templatesController from '../controllers/templates.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { validate, templateSchemas } from '../validators/index.js';
-import { uploader, verifyFileContents, ACCEPTS } from '../lib/uploadGuard.js';
+import { uploader, verifyFileContents, uploadRateLimit, ACCEPTS } from '../lib/uploadGuard.js';
 
 const router = Router({ mergeParams: true });
 
@@ -21,7 +21,7 @@ router.post('/',                  validate({ body: templateSchemas.create }), te
 // Literal paths before '/:id' so they are not read as a template id.
 // `upload.single` also parses the multipart body; a JSON body (the generated
 // image arriving as a data URI) passes straight through it untouched.
-router.post('/media',             upload.single('file'), verifyFileContents, templatesController.uploadMedia);
+router.post('/media',             uploadRateLimit, upload.single('file'), verifyFileContents, templatesController.uploadMedia);
 router.get('/media/:assetId',     templatesController.headerImage);
 router.get('/ai/suggestions',     templatesController.aiSuggestions);
 router.post('/ai/draft',          templatesController.aiDraft);

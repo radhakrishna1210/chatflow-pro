@@ -216,6 +216,8 @@ ws.use('/ai-agents', aiAgentsRoutes);
 ws.use('/intents', intentRoutes);
 ws.use('/invitations', invitationsRoutes);
 ws.use('/switch', workspaceSwitchRoutes);
+// AI drafting (templates, campaigns) and the workflow simulator.
+ws.use('/ai', aiRoutes);
 
 // -----------------------------------------------------------------------------
 // Website assistant
@@ -226,8 +228,6 @@ ws.use('/switch', workspaceSwitchRoutes);
 router.use('/assistant', assistantRoutes);
 
 router.use('/onboarding', onboardingRoutes);
-
-router.use('/ai', aiRoutes);
 
 // POST /workspaces (create) must not shadow the :workspaceId routes below.
 router.use('/workspaces', workspacesRoutes);

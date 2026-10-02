@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { canManage, canBill, canManageMembers, ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions.js';
+import { canManage, canBill, canManageMembers, canManageIntegrations, ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
@@ -493,7 +493,7 @@ export default function SettingsView() {
         <SectionCard icon="globe" title="Webhook">
           <div style={{ marginBottom:14 }}>
             <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Webhook URL</label>
-            <FInput value={webhookUrl} onChange={e=>{ setWebhookUrl(e.target.value); setWebhookError(null); }} placeholder="https://your-server.com/webhook" disabled={!isAdmin}
+            <FInput value={webhookUrl} onChange={e=>{ setWebhookUrl(e.target.value); setWebhookError(null); }} placeholder="https://your-server.com/webhook" disabled={!canManageIntegrations(currentUser)}
               style={webhookError ? { borderColor:'#f87171' } : {}} />
             {webhookError && <p style={{ fontSize:11.5, color:'#f87171', marginTop:6 }}>{webhookError}</p>}
           </div>
@@ -510,7 +510,7 @@ export default function SettingsView() {
               </div>
             </div>
           )}
-          {isAdmin && (
+          {canManageIntegrations(currentUser) && (
             <div style={{ display:'flex', gap:8 }}>
               <Btn onClick={saveWebhook}>Save</Btn>
               <Btn variant="outline">Test</Btn>

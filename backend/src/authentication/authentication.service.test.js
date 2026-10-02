@@ -43,6 +43,17 @@ mock.module(new URL('./otp.service.js', import.meta.url).href, {
 mock.module(new URL('../services/optout.service.js', import.meta.url).href, {
   namedExports: { assertNotOptedOut: async () => {}, normalizePhone: (raw) => String(raw ?? '').replace(/\D/g, '') },
 });
+// Metering of API OTPs is covered in authentication.metering.test.js; here
+// every credit is granted so the sender choice is what is under test.
+mock.module(new URL('../services/subscription.service.js', import.meta.url).href, {
+  namedExports: {
+    consumeMessageCredit: async () => ({ ok: true, source: 'QUOTA' }),
+    releaseMessageCredit: async () => ({ released: true }),
+  },
+});
+mock.module(new URL('../services/conversations.service.js', import.meta.url).href, {
+  namedExports: { describeSendFailure: (err) => err },
+});
 
 const { sendAuthenticationOtp } = await import('./authentication.service.js');
 

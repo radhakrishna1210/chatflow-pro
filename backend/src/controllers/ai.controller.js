@@ -1,25 +1,14 @@
 import { prisma } from '../lib/prisma.js';
 import { simulateWorkflow } from '../services/workflow.service.js';
 
-// All routes here run behind `authenticate`; workspace scoping uses the
-// JWT workspaceId but every mutation re-verifies membership against the DB
-// so a stale token cannot touch workspaces the user has left.
-async function assertMembership(userId, workspaceId) {
-  const member = await prisma.workspaceMember.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId } },
-  });
-  if (!member) {
-    const e = new Error('Not a member of this workspace');
-    e.status = 403;
-    throw e;
-  }
-  return member;
-}
+// Every route here runs behind authenticate + workspaceContext +
+// authorize('CLIENT') (routes/ai.routes.js), so the workspace comes from the
+// URL and has already been checked for membership, role, suspension and an
+// active subscription.
 
 export const createTemplate = async (req, res, next) => {
   try {
-    const { workspaceId, id: userId } = req.user;
-    await assertMembership(userId, workspaceId);
+    const { workspaceId } = req.params;
     const { name, category, language, body } = req.body;
     if (!name || !body) return res.status(400).json({ error: 'name and body are required' });
 
@@ -44,8 +33,7 @@ export const createTemplate = async (req, res, next) => {
 
 export const createCampaign = async (req, res, next) => {
   try {
-    const { workspaceId, id: userId } = req.user;
-    await assertMembership(userId, workspaceId);
+    const { workspaceId } = req.params;
     const { name, templateId } = req.body;
     if (!name || !templateId) return res.status(400).json({ error: 'name and templateId are required' });
 
@@ -71,8 +59,7 @@ export const createCampaign = async (req, res, next) => {
 
 export const updateCampaign = async (req, res, next) => {
   try {
-    const { workspaceId, id: userId } = req.user;
-    await assertMembership(userId, workspaceId);
+    const { workspaceId } = req.params;
     const { id, status } = req.body;
     const allowed = ['DRAFT', 'CANCELLED'];
     if (!allowed.includes(status)) {
@@ -93,8 +80,7 @@ export const updateCampaign = async (req, res, next) => {
 
 export const updateTemplate = async (req, res, next) => {
   try {
-    const { workspaceId, id: userId } = req.user;
-    await assertMembership(userId, workspaceId);
+    const { workspaceId } = req.params;
     const { id, body } = req.body;
     if (!body) return res.status(400).json({ error: 'body is required' });
     const result = await prisma.template.updateMany({
@@ -113,25 +99,10 @@ export const executeWorkflow = async (req, res, next) => {
     const { workflowId, sampleMessage, replies } = req.body;
     if (!workflowId) return res.status(400).json({ error: 'workflowId is required' });
 
-    // Find the workflow to get its workspaceId
-    const wf = await prisma.workflow.findUnique({
-      where: { id: workflowId },
-      select: { id: true, workspaceId: true },
-    });
-
-    const targetWorkspaceId = wf?.workspaceId || req.user?.workspaceId;
-    if (!targetWorkspaceId) {
-      return res.status(404).json({ error: 'Workflow not found' });
-    }
-
-    const { id: userId, superAdmin } = req.user;
-    if (!superAdmin) {
-      await assertMembership(userId, targetWorkspaceId);
-    }
-
     // Runs a real interpretation of the workflow's nodes and returns an honest
-    // trace — no more canned "success" for empty/nonsensical workflows.
-    const result = await simulateWorkflow(targetWorkspaceId, workflowId, sampleMessage || 'Hi', { replies });
+    // trace — no more canned "success" for empty/nonsensical workflows. The
+    // lookup is scoped to this workspace, so another tenant's id is a 404.
+    const result = await simulateWorkflow(req.params.workspaceId, workflowId, sampleMessage || 'Hi', { replies });
     res.json(result);
   } catch (error) {
     next(error);

@@ -20,6 +20,7 @@ import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
 import { carouselCards, buildCardBodyComponent, buildCardButtonComponents } from '../lib/templateParams.js';
 import { uploadPhoneMedia } from '../lib/meta.js';
+import { assertSafeUrl, safeRequest } from '../lib/safeUrl.js';
 
 let _ai = null;
 let _aiKey = null;
@@ -462,7 +463,7 @@ export async function headerImageComponent(template, { phoneNumberId, accessToke
     throw e;
   }
 
-  const asset = await prisma.templateAsset.findUnique({ where: { id: assetId } });
+  const asset = await prisma.templateAsset.findFirst({ where: { id: assetId, workspaceId: template.workspaceId } });
   if (!asset) {
     const e = new Error(`The header image for template "${template.name}" is missing. Re-upload it.`);
     e.status = 422;
@@ -523,19 +524,32 @@ const handleUrl = (header) => {
   return /^https?:\/\//i.test(String(value || '')) ? String(value) : null;
 };
 
+// The component JSON is editable, so the handle is only trusted when it points
+// at Meta's own media CDN.
+const META_MEDIA_HOST = /(^|\.)(whatsapp\.net|fbcdn\.net|fbsbx\.com|facebook\.com)$/i;
+
 async function adoptMediaFromHandle(workspaceId, header, { label }) {
   const url = handleUrl(header);
   if (!url) return null;
 
   let res;
   try {
-    res = await axios.get(url, { responseType: 'arraybuffer', timeout: HANDLE_FETCH_TIMEOUT_MS });
+    const target = assertSafeUrl(url, { protocols: ['https:'] });
+    if (!META_MEDIA_HOST.test(target.hostname)) {
+      console.warn(`[TemplateImage] The approved sample for ${label} is not on Meta's media CDN — not fetching it.`);
+      return null;
+    }
+    res = await safeRequest(target.toString(), { timeout: HANDLE_FETCH_TIMEOUT_MS, maxBytes: MAX_IMAGE_BYTES });
   } catch (err) {
     console.warn(`[TemplateImage] Could not re-fetch ${label} from its approved sample: ${err.message}`);
     return null;
   }
+  if (res.status !== 200) {
+    console.warn(`[TemplateImage] Could not re-fetch ${label} from its approved sample: status ${res.status}`);
+    return null;
+  }
 
-  const buffer = Buffer.from(res.data);
+  const buffer = res.data;
   const mimeType = sniffImageType(buffer);
   // Only a real, sendable image is adopted — never whatever an expired signed
   // URL happens to answer with.
@@ -604,9 +618,11 @@ export async function carouselComponent(
       e.status = 422;
       throw e;
     }
+    // `_assetId` comes from editable component JSON, so it is only honoured
+    // for an asset this template's own workspace owns.
     const asset = resolveMediaId
       ? { id: assetId }
-      : await prisma.templateAsset.findUnique({ where: { id: assetId } });
+      : await prisma.templateAsset.findFirst({ where: { id: assetId, workspaceId: template.workspaceId } });
     if (!asset) {
       const e = new Error(`The media for card ${index + 1} of template "${template.name}" is missing. Re-upload it.`);
       e.status = 422;

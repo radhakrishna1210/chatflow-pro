@@ -237,12 +237,12 @@ console.log('\n\u25a0 AI onboarding (bug #1)');
 console.log('\n\u25a0 Workflow simulation (bug #8)');
 {
   const wf = await prisma.workflow.findFirst({ where: { workspaceId: adminWs }, orderBy: { createdAt: 'desc' } });
-  let r = await req('POST', '/ai/workflow/execute', { token: admin.accessToken, body: { workflowId: wf.id, sampleMessage: 'random unrelated text' } });
+  let r = await req('POST', `/workspaces/${adminWs}/ai/workflow/execute`, { token: admin.accessToken, body: { workflowId: wf.id, sampleMessage: 'random unrelated text' } });
   check('non-matching message reports ran:false honestly', r.status === 200 && r.data.ran === false && r.data.reason, JSON.stringify(r.data).slice(0,160));
   const empty = await prisma.workflow.create({ data: { workspaceId: adminWs, name: 'Empty', nodes: [], edges: [] } });
-  r = await req('POST', '/ai/workflow/execute', { token: admin.accessToken, body: { workflowId: empty.id } });
+  r = await req('POST', `/workspaces/${adminWs}/ai/workflow/execute`, { token: admin.accessToken, body: { workflowId: empty.id } });
   check('empty workflow simulation is honest (ran:false)', r.status === 200 && r.data.ran === false);
-  r = await req('POST', '/ai/workflow/execute', { token: admin.accessToken, body: { workflowId: 'nonexistent' } });
+  r = await req('POST', `/workspaces/${adminWs}/ai/workflow/execute`, { token: admin.accessToken, body: { workflowId: 'nonexistent' } });
   check('simulating unknown workflow → 404', r.status === 404);
 }
 

@@ -1039,3 +1039,47 @@ export const aiAgentsStudioSchemas = {
 export const autonomousAgentSchemas = {
   settings: z.object({ enabled: z.boolean() }).strict(),
 };
+
+// Public API (x-api-key). A missing or malformed body used to reach the send
+// path and crash there; it is a 400 here instead.
+const publicRecipient = z.union([z.string(), z.number()])
+  .transform((v) => String(v).trim())
+  .pipe(z.string().min(1, '`to` (recipient phone number) is required').max(32));
+const publicWaNumberId = z.string().trim().min(1).max(64).optional();
+
+export const publicApiSchemas = {
+  sendMessage: z.discriminatedUnion('type', [
+    z.object({
+      type: z.literal('template'),
+      to: publicRecipient,
+      waNumberId: publicWaNumberId,
+      template: z.object({
+        name: z.string().trim().min(1, 'template.name is required').max(512),
+        // Meta's shape is { code: 'en_US' }; a bare string is accepted too.
+        language: z.union([
+          z.string().trim().min(1).max(15).transform((code) => ({ code })),
+          z.object({ code: z.string().trim().min(1).max(15) }),
+        ]).optional(),
+        // Values for {{1}}, {{2}}, … in order.
+        variables: z.array(z.union([z.string().max(1024), z.number()]).transform(String)).max(100).optional(),
+      }, { required_error: '`template` is required when type is "template"' }),
+    }),
+    z.object({
+      type: z.literal('text'),
+      to: publicRecipient,
+      waNumberId: publicWaNumberId,
+      body: z.string({ required_error: '`body` is required when type is "text"' })
+        .trim().min(1, '`body` is required when type is "text"').max(4096),
+    }),
+  ], { errorMap: () => ({ message: '`type` must be "template" or "text"' }) }),
+};
+
+export const whatsappSchemas = {
+  connectOwn: z.object({
+    phoneNumber: z.string().trim().min(6, 'phoneNumber is required').max(30),
+    metaPhoneNumberId: z.string().trim().regex(/^\d{5,30}$/, 'metaPhoneNumberId must be the numeric phone number ID from Meta'),
+    wabaId: z.string().trim().regex(/^\d{5,30}$/, 'wabaId must be the numeric WhatsApp Business Account ID'),
+    accessToken: z.string().trim().min(20, 'accessToken is required').max(1024),
+    displayName: z.string().trim().max(120).optional(),
+  }),
+};

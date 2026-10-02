@@ -11,6 +11,7 @@ router.use(authenticate, workspaceContext);
 router.get('/', controller.getAllCustomizations);
 router.get('/:sectionKey/check-delete', controller.checkSafeDelete);
 router.get('/:sectionKey', controller.getSection);
+// Rewriting the workspace's CRM structure is an admin decision.
 router.put('/:sectionKey', authorize('ADMIN'), controller.updateSection);
 router.post('/:sectionKey/reset', authorize('ADMIN'), controller.resetSection);
 

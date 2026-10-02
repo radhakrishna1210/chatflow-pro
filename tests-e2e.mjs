@@ -232,7 +232,7 @@ let waNumberId, templateId;
   check('template validation rejects bad name/empty components (400)', r.status === 400);
 
   // AI route creates a local PENDING template (no Meta call) — use it for campaigns
-  r = await req('POST', '/ai/template/create', { token: admin.accessToken, body: { name: 'diwali_offer', body: 'Happy Diwali {{1}}! 30% off today.' } });
+  r = await req('POST', `/workspaces/${adminWs}/ai/template/create`, { token: admin.accessToken, body: { name: 'diwali_offer', body: 'Happy Diwali {{1}}! 30% off today.' } });
   check('AI template created as PENDING (not fake-APPROVED)', r.status === 200 && r.data.status === 'PENDING' && r.data.aiGenerated === true, JSON.stringify(r.data).slice(0,140));
   templateId = r.data.id;
 
@@ -486,10 +486,10 @@ console.log('\n■ Workflows, analytics, settings, API keys');
 // ─── 12. AI ROUTE SCOPING ────────────────────────────────────────────────────
 console.log('\n■ AI routes — scoping');
 {
-  let r = await req('POST', '/ai/campaign/update', { token: admin.accessToken, body: { id: 'nonexistent', status: 'CANCELLED' } });
+  let r = await req('POST', `/workspaces/${adminWs}/ai/campaign/update`, { token: admin.accessToken, body: { id: 'nonexistent', status: 'CANCELLED' } });
   check('AI update of unknown campaign → 404 (workspace scoped)', r.status === 404);
 
-  r = await req('POST', '/ai/campaign/update', { token: admin.accessToken, body: { id: campaignId, status: 'RUNNING' } });
+  r = await req('POST', `/workspaces/${adminWs}/ai/campaign/update`, { token: admin.accessToken, body: { id: campaignId, status: 'RUNNING' } });
   check('AI cannot force RUNNING status (whitelist)', r.status === 400);
 }
 

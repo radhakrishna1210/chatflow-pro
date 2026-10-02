@@ -8,14 +8,25 @@ export async function list(req, res) {
   res.json(keys);
 }
 
-// Get or provision the dedicated Authentication API key.
+// The dedicated Authentication API key's metadata, or { provisioned: false }.
+export async function getAuthentication(req, res) {
+  const result =
+    await apiKeysService.getAuthenticationApiKey(
+      req.params.workspaceId
+    );
+
+  res.json(result);
+}
+
+// Provision the dedicated Authentication API key if it does not exist yet.
 //
 // The raw key is returned only when the Authentication key
 // is newly provisioned. Existing keys are returned as metadata.
-export async function getAuthentication(req, res) {
+export async function provisionAuthentication(req, res) {
   const result =
     await apiKeysService.getOrCreateAuthenticationApiKey(
-      req.params.workspaceId
+      req.params.workspaceId,
+      req.user
     );
 
   res.json(result);
@@ -71,7 +82,8 @@ export async function revoke(req, res) {
 export async function testMessage(req, res) {
   const result = await apiKeysService.sendTestMessage(
     req.params.workspaceId,
-    req.body
+    req.body,
+    req.user
   );
 
   res.json(result);

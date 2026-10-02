@@ -28,6 +28,7 @@ import { startSequenceWorker } from './workers/sequence.worker.js';
 import { startSequenceSweep } from './queues/sequence.queue.js';
 import { startAgentWorker } from './workers/agent.worker.js';
 import { startWebhookWorker } from './workers/webhook.worker.js';
+import { startOutgoingWebhookWorker } from './workers/outgoingWebhook.worker.js';
 import { agentQueue, startAgentSchedules } from './queues/agent.queue.js';
 import { startCrmMaintenanceWorker } from './workers/crmMaintenance.worker.js';
 import { crmMaintenanceQueue, scheduleCrmMaintenance } from './queues/crmMaintenance.queue.js';
@@ -42,6 +43,7 @@ import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js
 import { workflowQueue } from './queues/workflow.queue.js';
 import { sequenceQueue } from './queues/sequence.queue.js';
 import { webhookQueue } from './queues/webhook.queue.js';
+import { outgoingWebhookQueue } from './queues/outgoingWebhook.queue.js';
 import { prisma } from './lib/prisma.js';
 import { loadPlatformSettings, startPlatformSettingsRefresh } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
@@ -54,6 +56,7 @@ let workflowWorker = null;
 let agentWorker = null;
 let sequenceWorker = null;
 let webhookWorker = null;
+let outgoingWebhookWorker = null;
 let crmMaintenanceWorker = null;
 let httpServer = null;
 
@@ -373,6 +376,7 @@ async function main() {
     console.log('[Worker] Sequence worker started');
     agentWorker = startAgentWorker();
     webhookWorker = startWebhookWorker();
+    outgoingWebhookWorker = startOutgoingWebhookWorker();
     console.log('[Worker] Webhook worker started');
     crmMaintenanceWorker = startCrmMaintenanceWorker();
 
@@ -481,10 +485,11 @@ async function shutdown(signal) {
       workflowWorker?.close(),
       sequenceWorker?.close(),
       webhookWorker?.close(),
+      outgoingWebhookWorker?.close(),
       crmMaintenanceWorker?.close(),
       agentWorker?.close(),
     ]);
-    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close(), webhookQueue.close(), crmMaintenanceQueue.close(), agentQueue.close()]);
+    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close(), webhookQueue.close(), outgoingWebhookQueue.close(), crmMaintenanceQueue.close(), agentQueue.close()]);
     await Promise.allSettled([redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);

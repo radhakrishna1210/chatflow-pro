@@ -1,4 +1,9 @@
 import multer from 'multer';
+import { promises as fsp } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { rateLimit } from '../middleware/rateLimit.js';
 
 // Upload validation.
 //
@@ -59,6 +64,56 @@ function reject(message, code = 'UNSUPPORTED_FILE') {
   return e;
 }
 
+// Routes that take large files (media up to Meta's 100 MB) stream the upload
+// to a temp file instead of buffering it in the heap while it arrives: a slow
+// client, or ten at once, would otherwise pin that memory in the one process
+// that also runs every worker. The bytes are loaded only once the whole file
+// has arrived and passed the content check, a few files at a time.
+const UPLOAD_DIR = path.join(os.tmpdir(), 'spandan-uploads');
+const DISK_THRESHOLD_BYTES = 10 * 1024 * 1024;
+const MAX_LARGE_FILES_IN_MEMORY = 4;
+
+const diskStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    fsp.mkdir(UPLOAD_DIR, { recursive: true }).then(() => cb(null, UPLOAD_DIR), cb);
+  },
+  filename: (req, file, cb) => cb(null, randomBytes(16).toString('hex')),
+});
+
+let largeFilesInMemory = 0;
+const waitingForMemory = [];
+function acquireMemorySlot() {
+  if (largeFilesInMemory < MAX_LARGE_FILES_IN_MEMORY) {
+    largeFilesInMemory += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => waitingForMemory.push(resolve));
+}
+function releaseMemorySlot() {
+  const next = waitingForMemory.shift();
+  if (next) next();
+  else largeFilesInMemory -= 1;
+}
+
+async function readHead(filePath, bytes = 512) {
+  const handle = await fsp.open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buffer, 0, bytes, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+// Per member: large uploads are the expensive request in this process.
+export const uploadRateLimit = rateLimit({
+  windowMs: 10 * 60_000,
+  max: 60,
+  keyPrefix: 'uploads',
+  by: (req) => (req.user?.id ? `user:${req.user.id}` : null),
+});
+
 /**
  * A configured multer instance that accepts only `allowed` mime types.
  *
@@ -68,7 +123,7 @@ function reject(message, code = 'UNSUPPORTED_FILE') {
 export function uploader(allowed, maxBytes) {
   const allowedSet = new Set(allowed);
   return multer({
-    storage: multer.memoryStorage(),
+    storage: maxBytes > DISK_THRESHOLD_BYTES ? diskStorage : multer.memoryStorage(),
     limits: { fileSize: maxBytes, files: 1 },
     // First gate: the declared type. Cheap, and rejects before any bytes are
     // buffered.
@@ -89,22 +144,44 @@ export function uploader(allowed, maxBytes) {
  * Second gate, after multer has the bytes: the content must match the type it
  * claimed. Mount immediately after the uploader on any route that takes a file.
  */
-export function verifyFileContents(req, res, next) {
+export async function verifyFileContents(req, res, next) {
   const files = req.file ? [req.file] : (Array.isArray(req.files) ? req.files : []);
-  for (const file of files) {
-    const declared = String(file.mimetype || '').split(';')[0].trim().toLowerCase();
-    if (!file.buffer || file.buffer.length === 0) {
-      return next(reject('That file is empty.'));
-    }
-    if (!looksLike(file.buffer, declared)) {
-      return next(reject(
-        `${file.originalname || 'That file'} does not look like a ${declared} file. `
-        + 'It may be corrupt, or renamed from another format — re-export it and try again.',
-        'FILE_CONTENT_MISMATCH',
-      ));
-    }
+  const onDisk = files.filter((f) => f.path && !f.buffer);
+  // Temp files go when the response does, however the handler ends.
+  if (onDisk.length) {
+    res.once('close', () => { for (const f of onDisk) fsp.unlink(f.path).catch(() => {}); });
   }
-  return next();
+
+  try {
+    for (const file of files) {
+      const declared = String(file.mimetype || '').split(';')[0].trim().toLowerCase();
+      const size = file.buffer ? file.buffer.length : file.size;
+      if (!size) return next(reject('That file is empty.'));
+      const head = file.buffer ?? await readHead(file.path);
+      if (!looksLike(head, declared)) {
+        return next(reject(
+          `${file.originalname || 'That file'} does not look like a ${declared} file. `
+          + 'It may be corrupt, or renamed from another format — re-export it and try again.',
+          'FILE_CONTENT_MISMATCH',
+        ));
+      }
+    }
+
+    // Handlers read file.buffer, so a verified disk upload is loaded for
+    // them — bounded, so a burst of large uploads queues instead of stacking
+    // up in memory.
+    if (onDisk.length) {
+      await acquireMemorySlot();
+      let released = false;
+      const release = () => { if (!released) { released = true; releaseMemorySlot(); } };
+      res.once('close', release);
+      if (res.destroyed || res.writableFinished) { release(); return undefined; }
+      for (const file of onDisk) file.buffer = await fsp.readFile(file.path);
+    }
+    return next();
+  } catch (err) {
+    return next(err);
+  }
 }
 
 // The sets each route accepts, named so the intent is visible at the mount.
