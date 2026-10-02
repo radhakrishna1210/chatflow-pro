@@ -19,6 +19,9 @@ mock.module('../services/wallet.service.js', {
 mock.module('../services/notification.service.js', {
   namedExports: { notifyWorkspace: async () => {} },
 });
+mock.module('../services/subscription.service.js', {
+  namedExports: { retryPastDueRenewal: async () => null },
+});
 
 const { recharge, isDemoRechargeEnabled } = await import('./wallet.controller.js');
 

@@ -1,6 +1,6 @@
 import { getRazorpayClient, normalizeRazorpayError } from '../lib/razorpay.js';
 import { applyTopupPayment } from './wallet.service.js';
-import { applyCheckoutPayment } from './subscription.service.js';
+import { applyCheckoutPayment, retryPastDueRenewal } from './subscription.service.js';
 import { applyAddonPayment } from './addons.service.js';
 import { notifyWorkspace } from './notification.service.js';
 
@@ -38,6 +38,8 @@ export async function handleRazorpayEvent(event) {
   if (type === 'wallet_topup') {
     const result = await applyTopupPayment(workspaceId, order, payment.id, 'WEBHOOK');
     if (!result.alreadyProcessed) {
+      retryPastDueRenewal(workspaceId)
+        .catch((err) => console.error(`[RazorpayWebhook] Renewal retry after top-up failed for ${workspaceId}:`, err.message));
       notifyWorkspace(workspaceId, {
         type: 'WALLET_RECHARGE',
         title: 'Wallet recharged',

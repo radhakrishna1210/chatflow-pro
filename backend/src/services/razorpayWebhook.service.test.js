@@ -25,6 +25,7 @@ mock.module('./subscription.service.js', {
       calls.push(['plan', ws, paymentId, source]);
       return { applied: 'immediately' };
     },
+    retryPastDueRenewal: async (ws) => { calls.push(['retry', ws]); return null; },
   },
 });
 mock.module('./addons.service.js', {
@@ -49,7 +50,7 @@ test('order.paid for a wallet top-up credits via applyTopupPayment from the sign
   calls.length = 0;
   const r = await handleRazorpayEvent(paymentEvent('order.paid', { order: order({ workspaceId: 'ws_1', type: 'wallet_topup' }) }));
   assert.equal(r.handled, true);
-  assert.deepEqual(calls, [['topup', 'ws_1', 'pay_1', 'WEBHOOK']]);
+  assert.deepEqual(calls, [['topup', 'ws_1', 'pay_1', 'WEBHOOK'], ['retry', 'ws_1']]);
 });
 
 test('payment.captured reads the order back from the gateway', async () => {

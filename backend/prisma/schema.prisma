@@ -1272,6 +1272,9 @@ model Subscription {
   currentPeriodStart DateTime  @default(now())
   currentPeriodEnd   DateTime
   cancelAtPeriodEnd  Boolean   @default(false)
+  // monthly | quarterly, set at checkout. Null on older rows: renewal then
+  // infers the cycle from the period length.
+  billingCycle       String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

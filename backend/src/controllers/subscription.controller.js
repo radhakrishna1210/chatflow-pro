@@ -1,5 +1,8 @@
 import { prisma } from '../lib/prisma.js';
-import { getPlanLimits, listPlans, createCheckoutOrder, verifyCheckoutPayment } from '../services/subscription.service.js';
+import {
+  getPlanLimits, listPlans, createCheckoutOrder, verifyCheckoutPayment,
+  scheduleSubscriptionChange, renewSubscriptionNow,
+} from '../services/subscription.service.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import * as addons from '../services/addons.service.js';
 
@@ -53,6 +56,17 @@ export async function createCheckout(req, res) {
 export async function verifyCheckout(req, res) {
   const result = await verifyCheckoutPayment(req.params.workspaceId, req.body);
   res.json(result);
+}
+
+// PATCH /subscription — schedule a downgrade, or cancel / resume renewal at
+// the end of the paid period.
+export async function updateSubscription(req, res) {
+  res.json(await scheduleSubscriptionChange(req.params.workspaceId, req.body));
+}
+
+// POST /subscription/renew — pay an overdue or expired renewal from the wallet now.
+export async function renewNow(req, res) {
+  res.json(await renewSubscriptionNow(req.params.workspaceId));
 }
 
 // ─── Add-ons ─────────────────────────────────────────────────────────────────

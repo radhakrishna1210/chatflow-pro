@@ -1,8 +1,17 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import * as controller from '../controllers/subscription.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { authorize } from '../middleware/authorize.js';
+import { validate } from '../validators/index.js';
+
+// Exactly one change per request: a scheduled plan (null clears it) or the
+// cancel-at-period-end flag.
+const updateSubscriptionSchema = z.union([
+  z.object({ planId: z.string().trim().min(1).max(64).nullable() }).strict(),
+  z.object({ cancelAtPeriodEnd: z.boolean() }).strict(),
+]);
 
 const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
@@ -14,6 +23,9 @@ router.get('/pricing', controller.getMessagePricing);
 // restriction already used for wallet recharge.
 router.post('/checkout', authorize('ADMIN'), controller.createCheckout);
 router.post('/checkout/verify', authorize('ADMIN'), controller.verifyCheckout);
+// Downgrade / cancel at period end (no proration), and renew-from-wallet.
+router.patch('/', authorize('ADMIN'), validate({ body: updateSubscriptionSchema }), controller.updateSubscription);
+router.post('/renew', authorize('ADMIN'), controller.renewNow);
 
 // Add-ons. Reading the catalogue is open to any member (the Payments screen
 // shows it); buying and cancelling change what the workspace pays, so they sit

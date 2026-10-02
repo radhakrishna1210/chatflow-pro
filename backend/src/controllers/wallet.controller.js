@@ -1,5 +1,6 @@
 import * as walletService from '../services/wallet.service.js';
 import { notifyWorkspace } from '../services/notification.service.js';
+import { retryPastDueRenewal } from '../services/subscription.service.js';
 import { env } from '../config/env.js';
 
 // The demo recharge mints balance without a payment, so it must never be
@@ -63,6 +64,11 @@ export async function verifyCheckout(req, res) {
   const result = await walletService.verifyTopupPayment(req.params.workspaceId, req.body);
 
   if (!result.alreadyProcessed) {
+    // A top-up is usually the customer fixing a failed renewal, so retry it
+    // now rather than leaving them waiting for the nightly sweep.
+    retryPastDueRenewal(req.params.workspaceId)
+      .catch((err) => console.error(`[Wallet] Renewal retry after top-up failed for ${req.params.workspaceId}:`, err.message));
+
     notifyWorkspace(req.params.workspaceId, {
       type: 'WALLET_RECHARGE',
       title: 'Wallet recharged',
