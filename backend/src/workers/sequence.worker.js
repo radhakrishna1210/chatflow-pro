@@ -1,87 +1,9 @@
 import { Worker } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
-import { prisma } from '../lib/prisma.js';
+import { createBullConnection, logRedisError } from '../lib/redis.js';
+import { env } from '../config/env.js';
 import { advanceEnrollment, findDueEnrollments } from '../services/sequenceEngine.service.js';
+import { sendSequenceMessage } from '../services/sequenceSender.js';
 import { enqueueAdvance } from '../queues/sequence.queue.js';
-import { sendTextMessage } from '../lib/meta.js';
-import { decrypt } from '../lib/encryption.js';
-
-// Sends one sequence message. Kept here rather than in the engine so the
-// engine stays free of provider concerns and testable without a live number.
-//
-// Messages are written into the contact's existing conversation so a sequence
-// message and a human reply sit in one thread, which is what makes
-// exit-on-reply meaningful.
-async function sendSequenceMessage({ enrollment, body }) {
-  const contact = await prisma.contact.findUnique({
-    where: { id: enrollment.contactId },
-    select: { id: true, phoneNumber: true, optedOut: true },
-  });
-  if (!contact) throw new Error('Contact no longer exists');
-  if (contact.optedOut) throw new Error('Contact opted out');
-
-  let conversation = await prisma.conversation.findFirst({
-    where: { workspaceId: enrollment.workspaceId, contactId: contact.id },
-    orderBy: { lastMessageAt: 'desc' },
-    include: { waNumber: true },
-  });
-
-  if (!conversation) {
-    const waNumber = await prisma.waNumber.findFirst({
-      where: { workspaceId: enrollment.workspaceId, status: 'ACTIVE' },
-    });
-    conversation = await prisma.conversation.create({
-      data: { workspaceId: enrollment.workspaceId, contactId: contact.id, status: 'OPEN', waNumberId: waNumber?.id },
-      include: { waNumber: true },
-    });
-  } else if (!conversation.waNumberId) {
-    const waNumber = await prisma.waNumber.findFirst({
-      where: { workspaceId: enrollment.workspaceId, status: 'ACTIVE' },
-    });
-    if (waNumber) {
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { waNumberId: waNumber.id },
-      });
-      conversation.waNumber = waNumber;
-      conversation.waNumberId = waNumber.id;
-    }
-  }
-
-  let metaMsgId = null;
-  if (conversation.waNumber?.encryptedAccessToken && conversation.waNumber?.metaPhoneNumberId) {
-    try {
-      const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
-      const res = await sendTextMessage(
-        conversation.waNumber.metaPhoneNumberId,
-        accessToken,
-        contact.phoneNumber,
-        body
-      );
-      metaMsgId = res?.messages?.[0]?.id || null;
-    } catch (err) {
-      console.error('[SequenceWorker] Failed to dispatch WhatsApp message via Meta API:', err.message);
-    }
-  }
-
-  await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      body,
-      direction: 'OUTBOUND',
-      sentAt: new Date(),
-      status: metaMsgId ? 'SENT' : 'DELIVERED',
-      metaMessageId: metaMsgId,
-    },
-  });
-
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: { lastMessageAt: new Date() },
-  });
-
-  return `Dispatched to ${contact.phoneNumber}${metaMsgId ? ` (Meta ID: ${metaMsgId})` : ''}`;
-}
 
 export function startSequenceWorker() {
   const worker = new Worker(
@@ -96,9 +18,7 @@ export function startSequenceWorker() {
       const { enrollmentId } = job.data;
 
       // Instant steps (message, task, field update) chain inside this one job
-      // rather than re-queueing. Re-queueing used the same deterministic job
-      // id as the job currently running, so the remove-then-add collided with
-      // the in-flight job and the chain stalled after the first step.
+      // rather than re-queueing.
       //
       // Bounded so a pathological sequence cannot spin a worker forever; the
       // remainder is picked up by the next sweep.
@@ -111,11 +31,13 @@ export function startSequenceWorker() {
 
       // A wait short enough to be worth its own job gets one; anything longer
       // is left to the sweep, which survives a Redis restart because
-      // `nextRunAt` lives in the database.
+      // `nextRunAt` lives in the database. The follow-up gets its own id —
+      // this job still holds the enrollment's sweep id.
       if (result?.status === 'WAITING' && result.nextRunAt) {
-        const delay = Math.max(0, new Date(result.nextRunAt).getTime() - Date.now());
+        const dueAtMs = new Date(result.nextRunAt).getTime();
+        const delay = Math.max(0, dueAtMs - Date.now());
         if (delay < 5 * 60_000) {
-          await enqueueAdvance(enrollmentId, delay).catch((err) => {
+          await enqueueAdvance(enrollmentId, delay, { dueAtMs }).catch((err) => {
             console.error(`[Sequence] Could not schedule the next step for ${enrollmentId}:`, err.message);
           });
         }
@@ -123,9 +45,15 @@ export function startSequenceWorker() {
 
       return result;
     },
-    { connection: createBullConnection('sequence-worker'), concurrency: 5 },
+    {
+      connection: createBullConnection('sequence-worker'),
+      concurrency: 5,
+      drainDelay: env.WORKER_DRAIN_DELAY_SEC,
+      stalledInterval: env.WORKER_STALLED_INTERVAL_MS,
+    },
   );
 
+  worker.on('error', (err) => logRedisError('sequence-worker', err));
   worker.on('failed', (job, err) => {
     console.error(`[Sequence] job ${job?.id} failed:`, err?.message);
   });

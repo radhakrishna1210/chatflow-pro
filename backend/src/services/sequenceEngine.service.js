@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { isWithinBusinessHours } from './businessHours.service.js';
+import { isOptedOut } from './optout.service.js';
 
 export const STEP_KINDS = ['MESSAGE', 'WAIT', 'TASK', 'UPDATE_FIELD', 'EXIT'];
 
@@ -9,6 +10,10 @@ const DAY = 24 * HOUR;
 
 // Upper bound on a single wait so a typo cannot park someone for a decade.
 const MAX_WAIT_DAYS = 90;
+
+// How long a claimed step may run before the sweep treats its worker as dead
+// and moves the enrollment on.
+const STEP_LEASE_MS = 10 * MINUTE;
 
 export function validateSteps(steps) {
   if (!Array.isArray(steps) || steps.length === 0) {
@@ -93,11 +98,9 @@ export async function findExitReason(enrollment) {
   if (sequence.status === 'PAUSED') return null; // handled by the caller as a hold, not an exit
 
   // A blocked number must never be messaged, whatever the cadence says.
-  const blocked = await prisma.optOut.findFirst({
-    where: { workspaceId, phoneNumber: contact.phoneNumber },
-    select: { id: true },
-  }).catch(() => null);
-  if (blocked) return 'Number is on the blocked list';
+  // isOptedOut normalises the number (OptOut rows are bare digits, contacts
+  // usually carry a "+") and honours an unblocked row's `active: false`.
+  if (await isOptedOut(workspaceId, contact.phoneNumber)) return 'Number is on the blocked list';
 
   // Someone replying is the signal to stop automating and let a human take
   // over. Any inbound message after enrolment counts.
@@ -144,6 +147,23 @@ export async function recordStep(enrollment, stepIndex, kind, outcome, detail = 
 }
 
 /**
+ * Atomically takes ownership of the enrollment's current step. Returns false
+ * when another job got there first (the cursor or due time no longer match).
+ */
+export async function claimStep(enrollment, now = new Date()) {
+  const claimed = await prisma.sequenceEnrollment.updateMany({
+    where: {
+      id: enrollment.id,
+      cursor: enrollment.cursor,
+      status: { in: ['ACTIVE', 'WAITING'] },
+      OR: [{ nextRunAt: null }, { nextRunAt: { lte: now } }],
+    },
+    data: { cursor: enrollment.cursor + 1, status: 'ACTIVE', nextRunAt: new Date(now.getTime() + STEP_LEASE_MS) },
+  });
+  return claimed.count > 0;
+}
+
+/**
  * Runs one step of one enrollment and schedules whatever comes next.
  *
  * Returns { status, nextRunAt } describing where the enrollment now stands.
@@ -158,6 +178,11 @@ export async function advanceEnrollment(enrollmentId, { now = new Date(), send }
   if (!enrollment) return { status: 'MISSING' };
   if (['COMPLETED', 'EXITED', 'FAILED'].includes(enrollment.status)) {
     return { status: enrollment.status };
+  }
+  // Not due yet: a parked wait, or a step another job has claimed and is still
+  // running (the claim below pushes nextRunAt out as a lease).
+  if (enrollment.nextRunAt && new Date(enrollment.nextRunAt) > now) {
+    return { status: 'NOT_DUE', nextRunAt: enrollment.nextRunAt };
   }
 
   // A paused sequence holds its enrollments where they are rather than
@@ -203,6 +228,12 @@ export async function advanceEnrollment(enrollmentId, { now = new Date(), send }
       return { status: 'WAITING', nextRunAt: deferUntil, deferred: 'outside business hours' };
     }
   }
+
+  // Claim the step before running it. The cursor moves past it first, so two
+  // jobs reaching the same enrollment (the sweep and a scheduled follow-up)
+  // cannot both run it, and a crash mid-send is never re-sent by the next
+  // sweep: the lease brings the enrollment back at the following step.
+  if (!(await claimStep(enrollment, now))) return { status: 'BUSY' };
 
   try {
     switch (step.kind) {
