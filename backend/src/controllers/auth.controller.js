@@ -96,8 +96,11 @@ export async function exchangeOneTimeCode(req, res) {
   let raw = null;
   
   if (redis.status === 'ready') {
-    raw = await redis.get(key);
-    if (raw) await redis.del(key);
+    // Read and delete in one MULTI so two concurrent exchanges of the same
+    // code cannot both receive the session (GETDEL needs Redis 6.2+).
+    const [[getErr, value]] = await redis.multi().get(key).del(key).exec();
+    if (getErr) throw getErr;
+    raw = value;
   } else {
     raw = memoryCodes.get(code);
     memoryCodes.delete(code);
