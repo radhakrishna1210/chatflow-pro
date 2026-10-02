@@ -29,7 +29,9 @@ services:
     plan: starter # free tier spins down after 15 min idle and stalls the queue workers
     rootDir: backend
     region: singapore
-    healthCheckPath: /api/v1/health
+    # Readiness: 503 until boot finishes and Postgres + Redis answer, so a
+    # release that cannot reach either never takes traffic.
+    healthCheckPath: /api/v1/health/ready
     # `npm ci` is enough: backend/scripts/render-build.js runs as a postinstall
     # hook and handles `prisma generate` plus the frontend/dist build, so a
     # service created by hand in the dashboard (default build command) works too.

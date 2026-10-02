@@ -40,6 +40,7 @@ import { sequenceQueue } from './queues/sequence.queue.js';
 import { prisma } from './lib/prisma.js';
 import { loadPlatformSettings } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
+import { markReady, markNotReady } from './lib/readiness.js';
 
 let campaignWorker = null;
 let emailWorker = null;
@@ -169,42 +170,53 @@ async function initializeSubscriptions() {
       }
     }
 
-    const workspaces = await prisma.workspace.findMany({
-      include: { subscription: true }
-    });
-
+    // Runs on every boot, so it reads only workspaces still missing a
+    // subscription, only the two columns it uses, and in id-ordered pages —
+    // never every tenant's full row (tokens, prompts) at once.
+    const BACKFILL_PAGE = 500;
     let created = 0;
     const CYCLE_DAYS = 30;
-    for (const ws of workspaces) {
-      if (ws.subscription) continue;
-
-      const plan = planByKey.get(ws.plan) || freePlan;
-      const currentPeriodStart = new Date();
-      const currentPeriodEnd = new Date(currentPeriodStart.getTime() + CYCLE_DAYS * 24 * 60 * 60 * 1000);
-
-      await prisma.subscription.create({
-        data: {
-          workspaceId: ws.id,
-          planId: plan.id,
-          status: 'ACTIVE',
-          currentPeriodStart,
-          currentPeriodEnd,
-        },
+    let afterId;
+    for (;;) {
+      const page = await prisma.workspace.findMany({
+        where: { subscription: { is: null }, ...(afterId ? { id: { gt: afterId } } : {}) },
+        select: { id: true, plan: true },
+        orderBy: { id: 'asc' },
+        take: BACKFILL_PAGE,
       });
+      if (page.length === 0) break;
+      afterId = page[page.length - 1].id;
 
-      await prisma.usageCounter.upsert({
-        where: { workspaceId_periodStart: { workspaceId: ws.id, periodStart: currentPeriodStart } },
-        update: {},
-        create: {
-          workspaceId: ws.id,
-          periodStart: currentPeriodStart,
-          periodEnd: currentPeriodEnd,
-          messagesUsed: 0,
-        },
-      });
+      for (const ws of page) {
+        const plan = planByKey.get(ws.plan) || freePlan;
+        const currentPeriodStart = new Date();
+        const currentPeriodEnd = new Date(currentPeriodStart.getTime() + CYCLE_DAYS * 24 * 60 * 60 * 1000);
 
-      created += 1;
-      console.log(`[Init] Backfilled subscription for workspace ${ws.id} -> plan ${plan.key}`);
+        await prisma.subscription.create({
+          data: {
+            workspaceId: ws.id,
+            planId: plan.id,
+            status: 'ACTIVE',
+            currentPeriodStart,
+            currentPeriodEnd,
+          },
+        });
+
+        await prisma.usageCounter.upsert({
+          where: { workspaceId_periodStart: { workspaceId: ws.id, periodStart: currentPeriodStart } },
+          update: {},
+          create: {
+            workspaceId: ws.id,
+            periodStart: currentPeriodStart,
+            periodEnd: currentPeriodEnd,
+            messagesUsed: 0,
+          },
+        });
+
+        created += 1;
+        console.log(`[Init] Backfilled subscription for workspace ${ws.id} -> plan ${plan.key}`);
+      }
+      if (page.length < BACKFILL_PAGE) break;
     }
 
     console.log(`[Init] Subscription initialization done. Created ${created} subscription(s).`);
@@ -267,12 +279,22 @@ async function main() {
     // Before anything reads a credential: platform keys stored in the database
     // override the environment, and every client below is built from `env`.
     await loadPlatformSettings();
-    // The plan upsert and subscription backfill write to the shared database,
-    // so only the process that owns background work runs them.
-    if (env.RUN_WORKERS) await initializeSubscriptions();
   } catch (err) {
     console.error('[DB] Post-connect initialization failed:', err.message);
   }
+
+  // Listen as soon as the schema and credentials are in place. The rest of
+  // boot (backfill, Redis, workers, recovery, sweeps) can take a while, and a
+  // dark port made deploy health checks time out on a healthy release;
+  // /health/ready answers 503 until markReady() below.
+  httpServer = app.listen(env.PORT, () => {
+    console.log(`[Server] Spandan backend running on port ${env.PORT}`);
+    console.log(`[Server] Environment: ${env.NODE_ENV}`);
+  });
+
+  // The plan upsert and subscription backfill write to the shared database,
+  // so only the process that owns background work runs them.
+  if (env.RUN_WORKERS) await initializeSubscriptions();
 
   // Website assistant knowledge index. Deliberately not awaited: it embeds
   // whatever content changed since the last boot, which is a network round
@@ -375,6 +397,9 @@ async function main() {
     }
   }
 
+  markReady();
+  console.log('[Server] Ready');
+
   // Run the overdue-subscription sweep once immediately on boot, so cycles
   // missed while the server was down are caught up without waiting for the
   // next 02:00 tick — mirrors recoverScheduledCampaigns() above.
@@ -388,11 +413,6 @@ async function main() {
       console.error('[Recovery] Billing cycle sweep failed:', err.message);
     }
   }
-
-  httpServer = app.listen(env.PORT, () => {
-    console.log(`[Server] Spandan backend running on port ${env.PORT}`);
-    console.log(`[Server] Environment: ${env.NODE_ENV}`);
-  });
 }
 
 main().catch((err) => {
@@ -409,6 +429,7 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[Server] ${signal} received — shutting down gracefully`);
+  markNotReady();
   const timeout = setTimeout(() => {
     console.error('[Server] Shutdown timed out — forcing exit');
     process.exit(1);

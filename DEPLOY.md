@@ -147,7 +147,8 @@ Substitute your real hostname:
 ## 7. Verify
 
 ```bash
-curl https://<host>/api/v1/health          # {"status":"ok","ts":"..."}
+curl https://<host>/api/v1/health          # liveness: {"status":"ok","ts":"..."}
+curl https://<host>/api/v1/health/ready    # readiness: 200 once boot, Postgres and Redis are ok, else 503 with per-check detail
 curl -I https://<host>/dashboard           # 200 text/html (SPA fallback)
 curl -I https://<host>/api/v1/nope         # 404 application/json
 ```

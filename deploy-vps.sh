@@ -25,7 +25,8 @@ APP_DIR="/root/apps/chatflow-pro"
 PM2_APP="chatflow-backend"
 NODE22_BIN="/root/.nvm/versions/node/v22.23.2/bin"
 SYSTEM_NODE="/usr/bin/node"
-HEALTH_URL="http://127.0.0.1:4400/api/v1/health"
+# Readiness, not liveness: 503 until boot has finished and Postgres + Redis answer.
+HEALTH_URL="http://127.0.0.1:4400/api/v1/health/ready"
 BRANCH="${1:-}"
 # Background-work owner (see the RUN_WORKERS note in render.yaml). This
 # database is shared with the Render deployment and exactly ONE of the two may
@@ -83,7 +84,7 @@ NODE_ENV=production RUN_WORKERS="$RUN_WORKERS" "$SYSTEM_NODE" "$PM2_BIN" restart
 
 # --- Verify ----------------------------------------------------------------
 log "Waiting for health check"
-for i in $(seq 1 20); do
+for i in $(seq 1 90); do
   if curl -fsS --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then
     printf '\033[1;32m[ok] healthy after %ss — %s\033[0m\n' "$i" "$(curl -fsS "$HEALTH_URL")"
     log "Deployed: $(git log --oneline -1)"
@@ -92,6 +93,6 @@ for i in $(seq 1 20); do
   sleep 1
 done
 
-warn "No healthy response after 20s. Recent logs:"
+warn "No healthy response after 90s. Recent logs:"
 "$SYSTEM_NODE" "$PM2_BIN" logs "$PM2_APP" --lines 40 --nostream --err
 die "Deploy finished but $PM2_APP is not answering on $HEALTH_URL."
