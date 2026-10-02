@@ -217,9 +217,11 @@ dashboard.
 wiped on every deploy and restart. CSV contact imports processed within one
 request are fine; anything expected to persist needs a Render Disk or S3.
 
-**Migrations run at boot, not at build.** `start:prod` is
-`prisma migrate deploy && node src/server.js`. A failed migration therefore shows
-up as a crash-looping deploy rather than a failed build — check the deploy logs
+**Migrations run at boot, not at build.** `src/server.js` runs
+`prisma migrate deploy` before connecting whenever `NODE_ENV` is not
+`development`, and exits non-zero if it fails (it used to log and serve on the
+old schema). A failed migration therefore shows up as a crash-looping deploy
+rather than a failed build — check the deploy logs
 for `prisma migrate` output, not the build logs. `backend/prisma/manual/` is *not*
 applied automatically; those need a shell (Render paid plans) or a one-off local
 run against `DATABASE_URL`.

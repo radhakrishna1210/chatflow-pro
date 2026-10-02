@@ -227,7 +227,12 @@ async function main() {
       console.log('[Migration] Skipped migrate deploy in development (use db push).');
     }
   } catch (err) {
-    console.error('[Migration] Failed to run migration:', err);
+    // Serving on a schema the code does not match turns every request that
+    // touches a new column into a 500 behind a "healthy" process. Exit so the
+    // orchestrator keeps the previous release instead.
+    console.error('[Migration] Failed to run migration — refusing to start:', err.message);
+    logToFileSync('Migration failed', err);
+    process.exit(1);
   }
 
   let connected = false;

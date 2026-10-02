@@ -14,7 +14,7 @@
     "test": "node --import ./tests/setup.mjs --experimental-test-module-mocks --test \"src/**/*.test.js\"",
     "postinstall": "node scripts/ensure-prisma-client.js && node scripts/render-build.js",
     "prestart:prod": "node scripts/ensure-prisma-client.js",
-    "start:prod": "node scripts/prisma-cli.js migrate deploy && node src/server.js",
+    "start:prod": "node src/server.js",
     "db:generate": "node scripts/ensure-prisma-client.js",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
