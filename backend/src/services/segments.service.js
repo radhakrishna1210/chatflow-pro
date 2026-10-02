@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { setContactOptOut } from './optout.service.js';
 
 // List all segments for a workspace. Contacts are capped per segment and a
 // _count is included, so a 10k-contact segment no longer ships 10k rows on
@@ -100,7 +101,7 @@ export async function updateContactInSegment(workspaceId, segmentId, contactId, 
   if (!association || association.contacts.length === 0) { const e = new Error('Contact not linked to segment'); e.status = 404; throw e; }
   // Whitelist contact fields — blocks workspaceId/id/createdAt overwrite.
   const data = {};
-  for (const key of ['name', 'phoneNumber', 'email', 'tags', 'optedOut']) {
+  for (const key of ['name', 'phoneNumber', 'email', 'tags']) {
     if (updates[key] !== undefined) data[key] = updates[key];
   }
   // Legacy alias: older clients send `phone` instead of `phoneNumber`.
@@ -110,7 +111,11 @@ export async function updateContactInSegment(workspaceId, segmentId, contactId, 
     if (!phoneNumber) { const e = new Error('Phone number is required'); e.status = 400; throw e; }
     data.phoneNumber = phoneNumber;
   }
-  return prisma.contact.update({ where: { id: contactId }, data });
+  const updated = await prisma.contact.update({ where: { id: contactId }, data });
+  if (typeof updates.optedOut !== 'boolean' || updates.optedOut === updated.optedOut) return updated;
+  // Through the OptOut list, so the flag and the blocked-numbers list agree.
+  await setContactOptOut(workspaceId, contactId, updates.optedOut);
+  return prisma.contact.findUnique({ where: { id: contactId } });
 }
 
 // Remove contact from segment (does not delete contact entirely)

@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { parse } from 'csv-parse/sync';
 import { assertWithinLimit } from './subscription.service.js';
+import { setContactOptOut } from './optout.service.js';
 
 // Normalize to E.164-ish: strip everything but digits, keep a leading '+'.
 export function normalizePhone(raw) {
@@ -249,7 +250,8 @@ export async function deleteContact(workspaceId, id) {
 export async function updateContact(workspaceId, id, updates) {
   const contact = await prisma.contact.findFirst({ where: { id, workspaceId } });
   if (!contact) { const e = new Error('Contact not found'); e.status = 404; throw e; }
-  const data = { ...updates };
+  // The opt-out flag goes through the OptOut list so both sources agree.
+  const { optedOut, ...data } = updates;
   if (data.phoneNumber !== undefined) {
     if (!isValidPhone(data.phoneNumber)) { const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e; }
     data.phoneNumber = normalizePhone(data.phoneNumber);
@@ -260,7 +262,10 @@ export async function updateContact(workspaceId, id, updates) {
     const patch = await validateCustomFields(workspaceId, data.customFields);
     data.customFields = { ...(contact.customFields || {}), ...(patch || {}) };
   }
-  return prisma.contact.update({ where: { id }, data });
+  const updated = await prisma.contact.update({ where: { id }, data });
+  if (optedOut === undefined || optedOut === contact.optedOut) return updated;
+  await setContactOptOut(workspaceId, id, optedOut);
+  return prisma.contact.findUnique({ where: { id } });
 }
 
 // ─── Export ──────────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { isWithinBusinessHours } from './businessHours.service.js';
+import { isOptedOut } from './optout.service.js';
 
 export const STEP_KINDS = ['MESSAGE', 'WAIT', 'TASK', 'UPDATE_FIELD', 'EXIT'];
 
@@ -93,11 +94,7 @@ export async function findExitReason(enrollment) {
   if (sequence.status === 'PAUSED') return null; // handled by the caller as a hold, not an exit
 
   // A blocked number must never be messaged, whatever the cadence says.
-  const blocked = await prisma.optOut.findFirst({
-    where: { workspaceId, phoneNumber: contact.phoneNumber },
-    select: { id: true },
-  }).catch(() => null);
-  if (blocked) return 'Number is on the blocked list';
+  if (await isOptedOut(workspaceId, contact.phoneNumber, { contact })) return 'Number is on the blocked list';
 
   // Someone replying is the signal to stop automating and let a human take
   // over. Any inbound message after enrolment counts.

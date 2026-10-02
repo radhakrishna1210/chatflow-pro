@@ -128,37 +128,57 @@ export async function recordOptOut({
   });
 
   // Keep Contact.optedOut in step — the contacts UI and older code read that
-  // flag, and the two must never disagree.
-  if (contactId) {
-    await prisma.contact
-      .update({ where: { id: contactId }, data: { optedOut: true, optedOutAt: new Date() } })
-      .catch(() => {});
-  } else {
-    await prisma.contact
-      .updateMany({
-        where: { workspaceId, phoneNumber: { in: [String(phoneNumber), digits, `+${digits}`] } },
-        data: { optedOut: true, optedOutAt: new Date() },
-      })
-      .catch(() => {});
-  }
+  // flag. The OptOut row written above already blocks every send path (see
+  // isOptedOut), so a failure here is logged rather than failing the opt-out.
+  const flag = { optedOut: true, optedOutAt: new Date() };
+  const sync = contactId
+    ? prisma.contact.update({ where: { id: contactId }, data: flag })
+    : prisma.contact.updateMany({ where: { workspaceId, phoneNumber: { in: phoneVariants(phoneNumber) } }, data: flag });
+  await sync.catch((err) => console.error(`[OptOut] Could not flag contact for ${digits}:`, err.message));
 
   return row;
 }
 
-export async function isOptedOut(workspaceId, phoneNumber) {
+// Every stored spelling a contact's number may have for the same digits.
+function phoneVariants(phoneNumber) {
   const digits = normalizePhone(phoneNumber);
-  if (!workspaceId || !digits) return false;
+  return [...new Set([String(phoneNumber), digits, `+${digits}`])];
+}
+
+/**
+ * The single opt-out check every send path uses (inbox, automated replies,
+ * campaigns, sequences, public API, OTP). A number is opted out when the
+ * workspace's OptOut list has an active row for it OR a contact with that
+ * number is flagged `optedOut`. The two are written together (recordOptOut,
+ * unblockNumbers, setContactOptOut); reading both means any divergence fails
+ * closed.
+ *
+ * Pass `contact` when the caller already loaded it ({ optedOut }) to skip the
+ * contact lookup.
+ */
+export async function isOptedOut(workspaceId, phoneNumber, { contact } = {}) {
+  const digits = normalizePhone(phoneNumber);
+  if (!workspaceId || !digits) return contact?.optedOut === true;
+  if (contact?.optedOut === true) return true;
+
   const row = await prisma.optOut.findUnique({
     where: { workspaceId_phoneNumber: { workspaceId, phoneNumber: digits } },
     select: { active: true },
   });
-  return !!row?.active;
+  if (row?.active) return true;
+  if (contact) return false;
+
+  const flagged = await prisma.contact.findFirst({
+    where: { workspaceId, optedOut: true, phoneNumber: { in: phoneVariants(phoneNumber) } },
+    select: { id: true },
+  });
+  return !!flagged;
 }
 
 // Throws a 403 the API layer can return verbatim. Used by every
 // caller-facing send path (public API, playground, direct sends).
-export async function assertNotOptedOut(workspaceId, phoneNumber) {
-  if (await isOptedOut(workspaceId, phoneNumber)) {
+export async function assertNotOptedOut(workspaceId, phoneNumber, options) {
+  if (await isOptedOut(workspaceId, phoneNumber, options)) {
     const e = new Error('Recipient opted out');
     e.status = 403;
     e.code = 'RECIPIENT_OPTED_OUT';
@@ -172,11 +192,17 @@ export async function assertNotOptedOut(workspaceId, phoneNumber) {
 export async function getOptedOutPhoneSet(workspaceId, phoneNumbers = []) {
   const digits = [...new Set(phoneNumbers.map(normalizePhone).filter(Boolean))];
   if (!workspaceId || digits.length === 0) return new Set();
-  const rows = await prisma.optOut.findMany({
-    where: { workspaceId, active: true, phoneNumber: { in: digits } },
-    select: { phoneNumber: true },
-  });
-  return new Set(rows.map((r) => r.phoneNumber));
+  const [rows, flagged] = await Promise.all([
+    prisma.optOut.findMany({
+      where: { workspaceId, active: true, phoneNumber: { in: digits } },
+      select: { phoneNumber: true },
+    }),
+    prisma.contact.findMany({
+      where: { workspaceId, optedOut: true, phoneNumber: { in: [...new Set(phoneNumbers.flatMap(phoneVariants))] } },
+      select: { phoneNumber: true },
+    }),
+  ]);
+  return new Set([...rows.map((r) => r.phoneNumber), ...flagged.map((c) => normalizePhone(c.phoneNumber))]);
 }
 
 // Splits contacts into those that may be messaged and those that must be
@@ -235,12 +261,43 @@ export async function unblockNumbers(workspaceId, ids = [], userId = null) {
     data: { active: false, unblockedAt: new Date(), unblockedByUserId: userId },
   });
 
+  // Not swallowed: a contact left flagged keeps the number blocked (isOptedOut
+  // reads both), so a failure here means the unblock did not take effect.
   const phones = rows.flatMap((r) => [r.phoneNumber, `+${r.phoneNumber}`, ...(r.rawPhone ? [r.rawPhone] : [])]);
   await prisma.contact
-    .updateMany({ where: { workspaceId, phoneNumber: { in: [...new Set(phones)] } }, data: { optedOut: false, optedOutAt: null } })
-    .catch(() => {});
+    .updateMany({ where: { workspaceId, phoneNumber: { in: [...new Set(phones)] } }, data: { optedOut: false, optedOutAt: null } });
 
   return { unblocked: count };
+}
+
+// A workspace member flipping a contact's opt-out flag (Contacts screen,
+// segment editor). Routed through the OptOut list so both sources agree.
+export async function setContactOptOut(workspaceId, contactId, optedOut, user = null) {
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId },
+    select: { id: true, phoneNumber: true },
+  });
+  if (!contact) { const e = new Error('Contact not found'); e.status = 404; throw e; }
+
+  if (optedOut) {
+    await recordOptOut({
+      workspaceId,
+      phoneNumber: contact.phoneNumber,
+      contactId: contact.id,
+      reason: 'Marked as opted out by a workspace member',
+      source: 'Contacts',
+      blockedByUserId: user?.id ?? null,
+      blockedByName: user?.name ?? null,
+    });
+    return;
+  }
+
+  const rows = await prisma.optOut.findMany({
+    where: { workspaceId, phoneNumber: normalizePhone(contact.phoneNumber), active: true },
+    select: { id: true },
+  });
+  if (rows.length > 0) await unblockNumbers(workspaceId, rows.map((r) => r.id), user?.id ?? null);
+  await prisma.contact.update({ where: { id: contact.id }, data: { optedOut: false, optedOutAt: null } });
 }
 
 // Manual block from the admin UI — same row shape as a customer-initiated
