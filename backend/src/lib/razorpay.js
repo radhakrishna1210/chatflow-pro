@@ -1,5 +1,5 @@
 import Razorpay from 'razorpay';
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { env } from '../config/env.js';
 
 // Keyed on the credentials, so keys rotated from the admin screen are picked
@@ -27,10 +27,24 @@ export function getRazorpayClient() {
 // signature returned to the browser. Never trust the client-supplied planId —
 // callers should instead read back the order's `notes` (see subscription.service.js).
 export function verifyPaymentSignature({ orderId, paymentId, signature }) {
-  const expected = createHmac('sha256', env.RAZORPAY_KEY_SECRET)
+  const secret = env.RAZORPAY_KEY_SECRET;
+  if (!secret) {
+    const e = new Error('Razorpay is not configured on this server'); e.status = 503; e.expose = true; throw e;
+  }
+  const expected = createHmac('sha256', secret)
     .update(`${orderId}|${paymentId}`)
     .digest('hex');
-  return expected === signature;
+  return safeEqualHex(expected, signature);
+}
+
+// Constant-time comparison of two hex digests. A length mismatch (including a
+// missing signature) is simply "not equal" — timingSafeEqual would throw.
+export function safeEqualHex(expected, received) {
+  if (typeof expected !== 'string' || typeof received !== 'string') return false;
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(received, 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 // The Razorpay SDK rejects with a plain { statusCode, error: { description } }
