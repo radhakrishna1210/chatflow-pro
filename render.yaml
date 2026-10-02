@@ -44,6 +44,10 @@ services:
         value: production
       - key: PORT
         value: "10000" # Render's default injected port
+      # Render's load balancer is the one proxy in front of the app; without
+      # this every client shares the proxy's rate-limit bucket.
+      - key: TRUST_PROXY_HOPS
+        value: "1"
 
       # Supabase pooler, session mode (port 5432 — NOT 6543/transaction mode,
       # which breaks prepared statements and `prisma migrate deploy`).

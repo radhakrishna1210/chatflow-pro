@@ -9,7 +9,7 @@ import { securityHeaders } from './middleware/securityHeaders.js';
 import { findOrCreateGoogleUser } from './services/auth.service.js';
 import apiRoutes from './routes/index.js';
 import widgetPublicRoutes from './routes/widgetPublic.routes.js';
-import { logToFile } from './lib/logger.js';
+import { logToFile, redactUrl } from './lib/logger.js';
 
 const app = express();
 
@@ -25,6 +25,18 @@ app.disable('x-powered-by');
 // in front of the app; set TRUST_PROXY_HOPS if yours differs. It stays 0 in
 // local development, where there is no proxy and the header is pure input.
 app.set('trust proxy', env.TRUST_PROXY_HOPS);
+if (env.NODE_ENV === 'production' && env.TRUST_PROXY_HOPS === 0) {
+  console.warn('');
+  console.warn('  [Security] TRUST_PROXY_HOPS is 0 in production. Behind Render or a reverse proxy every');
+  console.warn('  [Security] client then shares ONE rate-limit bucket (the proxy address), so a handful of');
+  console.warn('  [Security] requests locks everyone out of login/signup/refresh. Set TRUST_PROXY_HOPS=1.');
+  console.warn('');
+}
+// A public https APP_URL usually means a deployed host, where NODE_ENV
+// silently defaulting to development is a misconfiguration.
+if (env.NODE_ENV !== 'production' && /^https:\/\/(?!localhost|127\.)/.test(env.APP_URL || '')) {
+  console.warn(`[Config] NODE_ENV is "${env.NODE_ENV}" but APP_URL is ${env.APP_URL}. If this is a deployed host, set NODE_ENV=production.`);
+}
 
 app.use(securityHeaders);
 
@@ -32,7 +44,10 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    logToFile(`${req.method} ${req.url} - Status: ${res.statusCode} (${duration}ms)`);
+    // originalUrl: req.url is rewritten by mounted routers. Never the raw URL —
+    // invite tokens, OAuth codes and the Meta verify token travel in it.
+    const url = redactUrl(req.originalUrl, { query: res.statusCode >= 400 });
+    logToFile(`${req.method} ${url} - Status: ${res.statusCode} (${duration}ms)`);
   });
   next();
 });

@@ -6,6 +6,7 @@ import ContactDetailsPanel from '../components/ContactDetailsPanel.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { Avatar } from '../components/Avatar.jsx';
+import { notify, confirmDialog } from '../components/Feedback.jsx';
 
 const labelCfg = {
   urgent:   { bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.22)',   c:'#f87171' },
@@ -483,12 +484,12 @@ export default function InboxView() {
   };
 
   const deleteNote = async (noteId) => {
-    if (!activeId || !window.confirm('Delete this note? This cannot be undone.')) return;
+    if (!activeId || !await confirmDialog('Delete this note? This cannot be undone.', { danger: true, confirmLabel: 'Delete' })) return;
     const res = await wFetch(`/conversations/${activeId}/notes/${noteId}`, { method: 'DELETE' }).catch(() => null);
     if (res?.ok) setNotes(list => list.filter(n => n.id !== noteId));
     else {
       const d = await res?.json().catch(() => ({}));
-      window.alert(d?.error || 'Could not delete the note');
+      notify(d?.error || 'Could not delete the note');
     }
   };
 

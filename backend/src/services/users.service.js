@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { hashRefreshToken, revokeOtherFamilies } from './refreshTokens.js';
 
 export async function getProfile(userId, workspaceId) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -14,7 +15,7 @@ export async function getProfile(userId, workspaceId) {
     : null;
 
   const sessionsCount = await prisma.refreshToken.count({
-    where: { userId, expiresAt: { gt: new Date() } },
+    where: { userId, rotatedAt: null, expiresAt: { gt: new Date() } },
   });
 
   return {
@@ -80,22 +81,23 @@ export async function changePassword(userId, currentPassword, newPassword) {
 }
 
 // `currentToken` (the caller's own refresh token) is only ever compared
-// server-side — the raw token value is never included in the response.
+// server-side — no token or hash is included in the response. Rotated rows are
+// kept for reuse detection and are not sessions, so they are left out.
 export async function listSessions(userId, currentToken) {
   const sessions = await prisma.refreshToken.findMany({
-    where: { userId, expiresAt: { gt: new Date() } },
-    select: { id: true, token: true, createdAt: true, expiresAt: true },
+    where: { userId, rotatedAt: null, expiresAt: { gt: new Date() } },
+    select: { id: true, token: true, tokenHash: true, createdAt: true, expiresAt: true },
     orderBy: { createdAt: 'desc' },
   });
-  return sessions.map(({ token, ...rest }) => ({ ...rest, isCurrent: token === currentToken }));
+  const currentHash = currentToken ? hashRefreshToken(currentToken) : null;
+  return sessions.map(({ token, tokenHash, ...rest }) => ({
+    ...rest,
+    isCurrent: Boolean(currentToken) && (tokenHash === currentHash || token === currentToken),
+  }));
 }
 
 export async function revokeOtherSessions(userId, keepToken) {
-  const where = keepToken
-    ? { userId, token: { not: keepToken } }
-    : { userId };
-  const result = await prisma.refreshToken.deleteMany({ where });
-  return { revoked: result.count };
+  return { revoked: await revokeOtherFamilies(userId, keepToken) };
 }
 
 // ─── Account deletion ────────────────────────────────────────────────────────

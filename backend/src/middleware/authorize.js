@@ -1,10 +1,10 @@
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { ROLE_RANK } from './roleCapabilities.js';
 
-// Ordered by capability. VIEWER and AGENT sit below CLIENT, so every existing
-// `authorize('CLIENT')` on a route automatically excludes them — which is
-// correct: writing a campaign or a template is member-level work.
-const ROLE_HIERARCHY = { VIEWER: 0, AGENT: 1, CLIENT: 2, ADMIN: 3 };
+// Ordered by capability (ROLE_RANK). VIEWER and AGENT sit below CLIENT, so every
+// existing `authorize('CLIENT')` on a route automatically excludes them — which
+// is correct: writing a campaign or a template is member-level work.
 
 // What the four workspace roles actually mean here:
 //
@@ -54,8 +54,8 @@ export function authorize(...roles) {
       req.user.workspaceRoleVerified = true;
     }
 
-    const userLevel = ROLE_HIERARCHY[role] ?? -1;
-    const required = Math.max(...roles.map((r) => ROLE_HIERARCHY[r] ?? 99));
+    const userLevel = ROLE_RANK[role] ?? -1;
+    const required = Math.max(...roles.map((r) => ROLE_RANK[r] ?? 99));
     if (userLevel < required) return res.status(403).json({ error: 'Insufficient permissions' });
 
     next();
@@ -74,6 +74,8 @@ export async function requireSuperAdmin(req, res, next) {
     if (!user || user.email.toLowerCase() !== env.ADMIN_EMAIL.toLowerCase()) {
       return res.status(403).json({ error: 'Super admin access required' });
     }
+    // The access token carries no email; the audit trail records this one.
+    req.user.email = user.email;
     next();
   } catch (err) {
     next(err);

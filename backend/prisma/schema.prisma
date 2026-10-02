@@ -21,6 +21,9 @@ model User {
   timezone              String?
   language              String?
   lastLoginAt           DateTime?
+  // Set by a platform admin to lock the account: sign-in, Google sign-in and
+  // token refresh are refused, and live sessions are revoked.
+  disabledAt            DateTime?
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @default(now()) @updatedAt
   messages              Message[]
@@ -943,12 +946,27 @@ model GatewayPayment {
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
-  userId    String
-  token     String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  userId      String
+  // Legacy plaintext token. Rows written since hashing leave it null; a legacy
+  // row is hashed the first time it is used (services/refreshTokens.js).
+  token       String?   @unique
+  // sha256 hex of the refresh JWT.
+  tokenHash   String?   @unique
+  // Every rotation of one sign-in shares a family, so presenting an already
+  // rotated token (reuse) revokes the whole chain.
+  familyId    String?
+  // The workspace the session is scoped to; refresh re-mints for it.
+  workspaceId String?
+  // Set when the token was exchanged for a successor. Kept until expiry for
+  // reuse detection.
+  rotatedAt   DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([userId])
 }
 
 enum Role {

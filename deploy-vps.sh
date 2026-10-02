@@ -37,6 +37,14 @@ die()  { printf '\033[1;31m[fail] %s\033[0m\n' "$*" >&2; exit 1; }
 [ -x "$NODE22_BIN/node" ]        || die "Node 22 missing at $NODE22_BIN. Run: nvm install 22"
 [ -f "$APP_DIR/backend/.env" ]   || die "backend/.env missing — never generated, copy it manually."
 
+# The app sits behind the box's reverse proxy (it listens on 127.0.0.1:4400), so
+# exactly one X-Forwarded-For hop is ours. Without it every visitor shares the
+# proxy's rate-limit bucket. Only added when absent — a hand-set value wins.
+if ! grep -qE '^[[:space:]]*TRUST_PROXY_HOPS=' "$APP_DIR/backend/.env"; then
+  warn "TRUST_PROXY_HOPS missing from backend/.env — adding TRUST_PROXY_HOPS=1"
+  printf '\nTRUST_PROXY_HOPS=1\n' >> "$APP_DIR/backend/.env"
+fi
+
 PM2_BIN="$(command -v pm2 || true)"
 [ -n "$PM2_BIN" ] || die "pm2 not found on PATH."
 

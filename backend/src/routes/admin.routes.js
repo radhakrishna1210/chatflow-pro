@@ -2,11 +2,12 @@ import { Router } from 'express';
 import * as adminController from '../controllers/admin.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireSuperAdmin } from '../middleware/authorize.js';
+import { auditAdminWrites } from '../middleware/adminAudit.js';
 import { validate, invitationSchemas } from '../validators/index.js';
 
 const router = Router();
 
-router.use(authenticate, requireSuperAdmin);
+router.use(authenticate, requireSuperAdmin, auditAdminWrites);
 
 // Pool management
 router.get('/numbers/pool',             adminController.getPool);
@@ -67,6 +68,8 @@ router.get('/platform/payments',                 adminController.paymentsAnalysi
 // User management — search across every workspace, plus impersonation
 router.get('/platform/users',                    adminController.listUsers);
 router.post('/platform/users/:id/impersonate',   adminController.impersonateUser);
+router.post('/platform/users/:id/sign-out',     adminController.signOutUser);
+router.patch('/platform/users/:id/disabled',    adminController.setUserDisabled);
 
 // Plan / billing configuration (prices, quotas, rate limits, features)
 // ── Audit & security ──

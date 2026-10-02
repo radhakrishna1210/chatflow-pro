@@ -42,6 +42,11 @@ function hitMemory(key, windowMs) {
   return { count: bucket.count, resetAt: bucket.resetAt };
 }
 
+function unhitMemory(key) {
+  const bucket = buckets.get(key);
+  if (bucket && bucket.resetAt > Date.now() && bucket.count > 0) bucket.count -= 1;
+}
+
 function peekMemory(key) {
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt <= Date.now()) return null;
@@ -59,6 +64,14 @@ async function hitRedis(key, windowMs) {
   return { count: Number(count), resetAt: Date.now() + (ttl > 0 ? ttl : windowMs) };
 }
 
+// Never below zero, and never on a key that has already expired — a bare DECR
+// there would create a counter with no TTL.
+const UNHIT_SCRIPT = "local v = redis.call('GET', KEYS[1]) if v and tonumber(v) > 0 then return redis.call('DECR', KEYS[1]) end return 0";
+
+async function unhitRedis(key) {
+  await redis.eval(UNHIT_SCRIPT, 1, key);
+}
+
 async function peekRedis(key) {
   const [count, ttl] = await Promise.all([redis.get(key), redis.pttl(key)]);
   if (count === null) return null;
@@ -72,11 +85,57 @@ async function hit(key, windowMs) {
   return hitMemory(key, windowMs);
 }
 
+async function unhit(key) {
+  try {
+    if (redis.status === 'ready') return await unhitRedis(key);
+  } catch { /* fall through to memory */ }
+  return unhitMemory(key);
+}
+
 async function peek(key) {
   try {
     if (redis.status === 'ready') return await peekRedis(key);
   } catch { /* fall through to memory */ }
   return peekMemory(key);
+}
+
+// The bucket a request's client address falls into.
+//
+// IPv4-mapped IPv6 (`::ffff:1.2.3.4`) collapses to the IPv4 address so a
+// dual-stack listener does not give one client two buckets. A native IPv6
+// client is bucketed by its /64: a single subscriber is routinely handed a
+// whole /64, so keying on the full address would let them rotate through
+// 2^64 fresh buckets.
+export function clientBucket(ip) {
+  if (typeof ip !== 'string' || !ip) return 'unknown';
+  let addr = ip.trim().toLowerCase();
+  const zone = addr.indexOf('%');
+  if (zone !== -1) addr = addr.slice(0, zone);
+  if (addr.startsWith('::ffff:') && addr.includes('.')) return addr.slice(7);
+  if (!addr.includes(':')) return addr;
+
+  const [head, tail = ''] = addr.split('::');
+  const headGroups = head ? head.split(':') : [];
+  const tailGroups = tail ? tail.split(':') : [];
+  const missing = addr.includes('::') ? 8 - headGroups.length - tailGroups.length : 0;
+  const groups = [...headGroups, ...Array(Math.max(0, missing)).fill('0'), ...tailGroups];
+  if (groups.length < 4) return addr;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
+// Behind a proxy with `trust proxy` left at 0, req.ip is the proxy itself and
+// every user shares one bucket. Say so once, loudly, the first time we see a
+// forwarded request — the boot-time check in app.js only covers production.
+let warnedUntrustedForward = false;
+function warnIfForwardedButUntrusted(req) {
+  if (warnedUntrustedForward || !req.headers?.['x-forwarded-for']) return;
+  const trust = req.app?.get?.('trust proxy');
+  if (trust && trust !== 0) return;
+  warnedUntrustedForward = true;
+  console.warn(
+    '[RateLimit] Requests arrive with X-Forwarded-For but TRUST_PROXY_HOPS is 0: every client is being '
+    + 'rate-limited as the proxy address. Set TRUST_PROXY_HOPS to the number of proxies in front of the app.',
+  );
 }
 
 function tooMany(res, resetAt) {
@@ -110,7 +169,8 @@ export function rateLimit({
   return async (req, res, next) => {
     // `req.ip` respects app.set('trust proxy', …) — it is only taken from
     // X-Forwarded-For for as many hops as we have actually configured.
-    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    warnIfForwardedButUntrusted(req);
+    const ip = clientBucket(req.ip || req.socket?.remoteAddress);
     const ipKey = `rl:${keyPrefix}:ip:${ip}`;
     const subjectValue = subject ? subject(req) : null;
     const subjectKey = subjectValue ? `rl:${keyPrefix}:sub:${subjectValue}` : null;
@@ -128,11 +188,20 @@ export function rateLimit({
     }
 
     // Count only failures: a correct password must never spend a legitimate
-    // user's allowance, but every wrong one has to be paid for.
+    // user's allowance, but every wrong one has to be paid for. The attempt is
+    // counted *before* it runs and refunded if it succeeds — counting after
+    // the response let a parallel burst all pass the check before any of its
+    // failures had been recorded.
+    const [ipHits, subHits] = await Promise.all([hit(ipKey, windowMs), subjectKey ? hit(subjectKey, windowMs) : null]);
+    const refund = () => {
+      unhit(ipKey).catch(() => {});
+      if (subjectKey) unhit(subjectKey).catch(() => {});
+    };
+    if (ipHits.count > max) { refund(); return tooMany(res, ipHits.resetAt); }
+    if (subHits && subjectMax && subHits.count > subjectMax) { refund(); return tooMany(res, subHits.resetAt); }
+
     res.on('finish', () => {
-      if (res.statusCode < 400 || res.statusCode === 429) return;
-      hit(ipKey, windowMs).catch(() => {});
-      if (subjectKey) hit(subjectKey, windowMs).catch(() => {});
+      if (res.statusCode < 400 || res.statusCode === 429) refund();
     });
     next();
   };

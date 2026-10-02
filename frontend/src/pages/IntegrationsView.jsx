@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { promptDialog } from '../components/Feedback.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 // Integration connection state is stored server-side (workspace-scoped,
@@ -355,7 +356,7 @@ function ConnectModal({ intg, onClose, onSave }) {
         if (backendProvider) {
           const body = {};
           if (backendProvider === 'shopify') {
-            const shop = window.prompt('Enter your shop domain (e.g. mystore.myshopify.com):', '');
+            const shop = await promptDialog('Enter your Shopify shop domain.', { title: 'Connect Shopify', label: 'Shop domain', placeholder: 'mystore.myshopify.com', minLength: 3, confirmLabel: 'Continue' });
             if (!shop) { setSaving(false); return; }
             body.shop = shop.trim();
           }

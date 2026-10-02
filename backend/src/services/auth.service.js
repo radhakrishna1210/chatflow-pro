@@ -5,6 +5,9 @@ import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { queueWelcomeEmail, sendOtpEmailNow } from './email.service.js';
 import { consumeInvitationAtomically } from './invitations.service.js';
+import * as refreshTokens from './refreshTokens.js';
+import { redis } from '../lib/redis.js';
+import { revokeAllUserAccessTokens } from '../lib/tokenDenylist.js';
 
 function generateTokens(userId, workspaceId, role, superAdmin = false) {
   // The access token carries its own `jti` so signing out can revoke *this*
@@ -36,11 +39,20 @@ function parseDurationMs(value, fallbackMs) {
 
 const REFRESH_TTL_MS = parseDurationMs(env.JWT_REFRESH_EXPIRES_IN, 7 * 86_400_000);
 
-async function storeRefreshToken(userId, token) {
+// `workspaceId` is the workspace the session is scoped to, so a refresh
+// re-mints for it rather than for whichever workspace was joined first.
+async function storeRefreshToken(userId, token, { workspaceId = null, familyId = null } = {}) {
   const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
-  await prisma.refreshToken.create({ data: { userId, token, expiresAt } });
-  // Opportunistic cleanup so expired tokens don't pile up forever.
-  prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => {});
+  await refreshTokens.storeRefreshToken({ userId, token, expiresAt, workspaceId, familyId });
+}
+
+function assertNotDisabled(user) {
+  if (user?.disabledAt) {
+    const e = new Error('This account has been disabled. Contact support if you think this is a mistake.');
+    e.status = 403;
+    e.code = 'ACCOUNT_DISABLED';
+    throw e;
+  }
 }
 
 // Platform-level super admin, identified solely by the configured ADMIN_EMAIL.
@@ -91,7 +103,7 @@ export async function register({ name, email, password, role = 'CLIENT', inviteT
   // ADMIN only when they explicitly create one (createWorkspace), or CLIENT
   // when an invite joins them to an existing workspace.
   const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId: joined?.workspaceId });
 
   queueWelcomeEmail({ email: user.email, name: user.name }).catch(() => {});
 
@@ -102,10 +114,19 @@ export async function register({ name, email, password, role = 'CLIENT', inviteT
   };
 }
 
+// Compared against when there is no account (or no password on it), so a
+// wrong address costs the same bcrypt time as a wrong password.
+let dummyHash = null;
+const getDummyHash = () => {
+  dummyHash ||= bcrypt.hash(randomUUID(), env.BCRYPT_SALT_ROUNDS);
+  return dummyHash;
+};
+
 export async function login({ email, password }) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (!user || !user.passwordHash) {
+    await bcrypt.compare(String(password ?? ''), await getDummyHash());
     const err = new Error('Invalid credentials');
     err.status = 401;
     throw err;
@@ -117,6 +138,9 @@ export async function login({ email, password }) {
     err.status = 401;
     throw err;
   }
+  // Only after the password check, so a disabled account is not revealed to
+  // someone who does not know its password.
+  assertNotDisabled(user);
 
   // A user without a workspace is still allowed to log in — the client sends
   // them to workspace setup (create one, or wait for an invite).
@@ -129,7 +153,7 @@ export async function login({ email, password }) {
   const superAdmin = isPlatformAdmin(user.email);
   const role = member?.role ?? null;
   const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, role, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId: member?.workspaceId });
   prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
 
   return {
@@ -140,56 +164,94 @@ export async function login({ email, password }) {
   };
 }
 
+function refreshRejected(message, code) {
+  const err = new Error(message);
+  err.status = 401;
+  if (code) err.code = code;
+  return err;
+}
+
 export async function refresh(token) {
   let payload;
   try {
     payload = jwt.verify(token, env.JWT_REFRESH_SECRET);
   } catch {
-    const err = new Error('Invalid refresh token');
-    err.status = 401;
-    throw err;
+    throw refreshRejected('Invalid refresh token');
   }
 
-  const stored = await prisma.refreshToken.findUnique({ where: { token } });
-  if (!stored || stored.expiresAt < new Date()) {
-    if (stored) await prisma.refreshToken.delete({ where: { token } }).catch(() => {});
-    const err = new Error('Refresh token expired or not found');
-    err.status = 401;
-    throw err;
+  const stored = await refreshTokens.findRefreshToken(token);
+  if (!stored || stored.userId !== payload.sub) {
+    throw refreshRejected('Refresh token expired or not found');
   }
 
-  await prisma.refreshToken.delete({ where: { token } });
+  if (stored.rotatedAt) {
+    // Another tab of the same browser just rotated it: refuse, revoke nothing.
+    if (refreshTokens.isWithinRotationGrace(stored)) {
+      throw refreshRejected('Refresh token already used', 'REFRESH_TOKEN_ROTATED');
+    }
+    // A token that was exchanged earlier is being replayed, so someone else
+    // holds this chain. End the whole sign-in for both parties.
+    await refreshTokens.revokeFamily(stored);
+    console.warn(`[Auth] Refresh token reuse detected for user ${stored.userId}; session revoked`);
+    throw refreshRejected('Refresh token expired or not found', 'REFRESH_TOKEN_REUSED');
+  }
 
-  const member = await prisma.workspaceMember.findFirst({
-    where: { userId: payload.sub },
-    include: { workspace: true },
-    orderBy: { joinedAt: 'asc' },
-  });
+  if (stored.expiresAt < new Date()) {
+    await refreshTokens.revokeFamily(stored).catch(() => {});
+    throw refreshRejected('Refresh token expired or not found');
+  }
+
+  if (!(await refreshTokens.claimForRotation(stored, token))) {
+    throw refreshRejected('Refresh token already used', 'REFRESH_TOKEN_ROTATED');
+  }
 
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-  if (!user) {
-    const err = new Error('User not found');
-    err.status = 401;
-    throw err;
+  if (!user) throw refreshRejected('User not found');
+  if (user.disabledAt) {
+    await refreshTokens.revokeFamily(stored).catch(() => {});
+    throw refreshRejected('This account has been disabled.', 'ACCOUNT_DISABLED');
+  }
+
+  // Stay in the workspace the session was scoped to (switchWorkspace, invite
+  // accept). Fall back to the earliest membership only when there is none on
+  // record, or the user has since left it.
+  let member = stored.workspaceId
+    ? await prisma.workspaceMember.findUnique({
+        where: { userId_workspaceId: { userId: user.id, workspaceId: stored.workspaceId } },
+        include: { workspace: { select: { id: true, name: true } } },
+      })
+    : null;
+  if (!member) {
+    member = await prisma.workspaceMember.findFirst({
+      where: { userId: user.id },
+      include: { workspace: { select: { id: true, name: true } } },
+      orderBy: { joinedAt: 'asc' },
+    });
   }
 
   const superAdmin = isPlatformAdmin(user.email);
   const role = member?.role ?? null;
-  const { accessToken, refreshToken: newRefreshToken } = generateTokens(
-    payload.sub,
-    member?.workspaceId ?? null,
-    role,
-    superAdmin
-  );
-  await storeRefreshToken(payload.sub, newRefreshToken);
+  const workspaceId = member?.workspaceId ?? null;
+  const { accessToken, refreshToken: newRefreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
+  await storeRefreshToken(user.id, newRefreshToken, {
+    workspaceId,
+    familyId: stored.familyId || stored.id,
+  });
 
-  return { accessToken, refreshToken: newRefreshToken };
+  return {
+    accessToken,
+    refreshToken: newRefreshToken,
+    role,
+    workspace: member ? { id: member.workspace.id, name: member.workspace.name } : null,
+  };
 }
 
+// Ends the whole sign-in the token belongs to, including its rotated
+// predecessors, so none of them can be replayed afterwards.
 export async function logout(token) {
-  if (token) {
-    await prisma.refreshToken.deleteMany({ where: { token } });
-  }
+  if (!token) return;
+  const stored = await refreshTokens.findRefreshToken(token);
+  if (stored) await refreshTokens.revokeFamily(stored);
 }
 
 export async function findOrCreateGoogleUser({ googleId, email, name, inviteToken }) {
@@ -244,11 +306,13 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
         orderBy: { joinedAt: 'asc' },
       });
 
+  assertNotDisabled(user);
+
   const superAdmin = isPlatformAdmin(user.email);
   const role = joined?.role ?? member?.role ?? null;
   const workspaceId = joined?.workspaceId ?? member?.workspaceId ?? null;
   const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId });
   prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
 
   // Existing users are never auto-joined to an invited workspace here (that
@@ -274,6 +338,32 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
 const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 const RESEND_COOLDOWN_MS = 60 * 1000;
+
+// One code-sending request per address per minute, claimed *before* looking
+// the address up. A cooldown that only existed for real accounts answered a
+// quick second request with 429 for them and 200 for everyone else, which
+// is an account lookup service.
+const memoryCooldowns = new Map();
+
+async function claimSendCooldown(scope, normalizedEmail) {
+  const key = `otp:cooldown:${scope}:${createHash('sha256').update(normalizedEmail).digest('hex')}`;
+  let claimed = null;
+  try {
+    if (redis.status === 'ready') claimed = (await redis.set(key, '1', 'PX', RESEND_COOLDOWN_MS, 'NX')) === 'OK';
+  } catch { /* fall back to memory */ }
+  if (claimed === null) {
+    const now = Date.now();
+    for (const [k, until] of memoryCooldowns) if (until <= now) memoryCooldowns.delete(k);
+    claimed = !(memoryCooldowns.get(key) > now);
+    if (claimed) memoryCooldowns.set(key, now + RESEND_COOLDOWN_MS);
+  }
+  if (!claimed) {
+    const e = new Error('A code was just sent — please wait a minute before requesting another.');
+    e.status = 429;
+    e.code = 'OTP_COOLDOWN';
+    throw e;
+  }
+}
 const hashCode = (code) => createHash('sha256').update(String(code)).digest('hex');
 
 // Six digits from a CSPRNG. randomInt is rejection-sampled, so every code in
@@ -378,6 +468,11 @@ export async function startSignup({ name, email, password }) {
   //
   // This used to throw 409 "Email already in use", which turned signup into a
   // free lookup service for "does this person have an account here".
+  await claimSendCooldown('signup', normalizedEmail);
+  // Hashed on both branches so the existing-account path is not measurably
+  // faster than the new-account one.
+  const passwordHash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
+
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   if (existing) {
     await deliverOtpOrThrow('signup-exists', { email: normalizedEmail, name: existing.name, code: null });
@@ -407,7 +502,6 @@ export async function startSignup({ name, email, password }) {
   });
 
   const code = generateOtp();
-  const passwordHash = await bcrypt.hash(password, env.BCRYPT_SALT_ROUNDS);
 
   await prisma.emailOtp.create({
     data: {
@@ -423,6 +517,7 @@ export async function startSignup({ name, email, password }) {
 
 export async function resendSignupOtp({ email }) {
   const normalizedEmail = String(email).trim().toLowerCase();
+  await claimSendCooldown('signup', normalizedEmail);
   const pending = await prisma.emailOtp.findFirst({
     where: { email: normalizedEmail, purpose: 'SIGNUP', consumed: false },
     orderBy: { createdAt: 'desc' },
@@ -512,7 +607,7 @@ export async function verifySignup({ email, code, inviteToken }) {
   }
 
   const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId: joined?.workspaceId });
   prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
   purgeDeadOtps(normalizedEmail, 'SIGNUP');
 
@@ -529,6 +624,7 @@ export async function verifySignup({ email, code, inviteToken }) {
 // hash so nothing is applied to the User row until the code is verified.
 export async function startPasswordReset({ email }) {
   const normalizedEmail = String(email).trim().toLowerCase();
+  await claimSendCooldown('reset', normalizedEmail);
   const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   // Don't reveal whether the email exists — always respond the same way.
   if (!user) return { message: 'If an account exists for this email, a reset code has been sent.' };
@@ -584,6 +680,8 @@ export async function resetPassword({ email, code, newPassword }) {
   // Invalidate every existing session — a leaked/expired password shouldn't
   // leave old refresh tokens usable after a reset.
   await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+  // A reset usually follows a suspected compromise: live access tokens go too.
+  await revokeAllUserAccessTokens(user.id, ACCESS_REVOKE_TTL_SEC);
 
   return { message: 'Password updated — please sign in with your new password.' };
 }
@@ -622,7 +720,7 @@ export async function createWorkspace(userId, { name } = {}) {
   // swap its session in place.
   const superAdmin = isPlatformAdmin(user.email);
   const { accessToken, refreshToken } = generateTokens(user.id, workspace.id, role, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId: workspace.id });
 
   return {
     accessToken, refreshToken,
@@ -645,7 +743,7 @@ export async function mintSessionForWorkspace(userId, workspaceId, role) {
 
   const superAdmin = isPlatformAdmin(user.email);
   const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId });
 
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, name: true } });
 
@@ -665,11 +763,18 @@ export async function switchWorkspace(userId, targetWorkspaceId) {
   return mintSessionForWorkspace(userId, targetWorkspaceId, member.role);
 }
 
-// Platform-admin impersonation: mint a session for the target user's default
-// (earliest-joined) workspace, exactly as if they'd logged in themselves.
+// Platform-admin impersonation. The session is deliberately not a normal one:
+// a single access token, short-lived, with no refresh token (so it never shows
+// up in the target's session list and cannot outlive IMPERSONATION_TTL), and
+// carrying `imp` — the super admin's user id — so the server can tell it apart
+// (req.user.impersonatedBy) and refuse the few actions that would turn it into
+// a lasting credential (middleware/authenticate.js).
 // Impersonating the platform admin account is blocked — no legitimate use,
 // and it would silently hand out a super-admin session from a user-id lookup.
-export async function impersonateUser(targetUserId) {
+export const IMPERSONATION_TTL_SEC = 30 * 60;
+
+export async function impersonateUser(targetUserId, { impersonatorId } = {}) {
+  if (!impersonatorId) { const e = new Error('Impersonator required'); e.status = 400; throw e; }
   const user = await prisma.user.findUnique({ where: { id: targetUserId } });
   if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
   if (isPlatformAdmin(user.email)) { const e = new Error('Cannot impersonate the platform admin'); e.status = 400; throw e; }
@@ -679,18 +784,63 @@ export async function impersonateUser(targetUserId) {
     orderBy: { joinedAt: 'asc' },
   });
 
-  const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, member?.role ?? null, false);
-  await storeRefreshToken(user.id, refreshToken);
+  const accessToken = jwt.sign(
+    {
+      sub: user.id,
+      workspaceId: member?.workspaceId ?? null,
+      role: member?.role ?? null,
+      superAdmin: false,
+      imp: impersonatorId,
+      jti: randomUUID(),
+    },
+    env.JWT_ACCESS_SECRET,
+    { expiresIn: IMPERSONATION_TTL_SEC },
+  );
 
   const workspace = member
     ? await prisma.workspace.findUnique({ where: { id: member.workspaceId }, select: { id: true, name: true } })
     : null;
 
   return {
-    accessToken, refreshToken,
+    accessToken,
+    refreshToken: null,
+    impersonation: { impersonatorId, expiresAt: new Date(Date.now() + IMPERSONATION_TTL_SEC * 1000).toISOString() },
     user: { id: user.id, name: user.name, email: user.email, role: member?.role ?? null, superAdmin: false },
     workspace,
   };
+}
+
+// ─── Incident response ─────────────────────────────────────────────────────────
+
+// Long enough to outlive any access token we issue, impersonation included.
+const ACCESS_REVOKE_TTL_SEC = Math.max(
+  Math.ceil(parseDurationMs(env.JWT_EXPIRES_IN, 15 * 60_000) / 1000),
+  IMPERSONATION_TTL_SEC,
+) + 60;
+
+// Ends every session the user has: refresh tokens are deleted and every access
+// token issued before now is refused.
+export async function signOutEverywhere(userId) {
+  const { count } = await prisma.refreshToken.deleteMany({ where: { userId, rotatedAt: null } });
+  await prisma.refreshToken.deleteMany({ where: { userId } });
+  await revokeAllUserAccessTokens(userId, ACCESS_REVOKE_TTL_SEC);
+  return { revokedSessions: count };
+}
+
+// Disabling also signs the user out everywhere; enabling just lifts the lock.
+export async function setUserDisabled(userId, disabled) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+  if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
+  if (disabled && isPlatformAdmin(user.email)) {
+    const e = new Error('The platform admin account cannot be disabled'); e.status = 400; throw e;
+  }
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { disabledAt: disabled ? new Date() : null },
+    select: { id: true, email: true, disabledAt: true },
+  });
+  const signedOut = disabled ? await signOutEverywhere(userId) : { revokedSessions: 0 };
+  return { ...updated, ...signedOut };
 }
 
 export async function listMyWorkspaces(userId) {

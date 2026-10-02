@@ -670,6 +670,7 @@ export async function listUsers({ search, page, limit } = {}) {
       id: u.id, name: u.name, email: u.email, createdAt: u.createdAt,
       superAdmin: u.email.toLowerCase() === env.ADMIN_EMAIL.toLowerCase(),
       authMethod: u.googleId ? 'Google' : 'Password',
+      disabledAt: u.disabledAt ?? null,
       workspaces: u.workspaceMembers.map((m) => ({ id: m.workspace.id, name: m.workspace.name, role: m.role })),
     })),
     total, page: currentPage, limit: take,

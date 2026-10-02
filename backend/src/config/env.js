@@ -9,6 +9,9 @@ const envSchema = z.object({
   // Extra allowed CORS origins (comma-separated), e.g. a preview deployment.
   CORS_EXTRA_ORIGINS: z.string().optional(),
   JSON_BODY_LIMIT: z.string().default('2mb'),
+  // Adds the raw message of unexpected 5xx errors to responses. Off unless
+  // explicitly enabled — never rely on NODE_ENV alone for this.
+  EXPOSE_ERROR_DETAIL: z.string().default('false').transform((v) => v === 'true'),
   // Number of reverse-proxy hops in front of this service that are ours, and
   // whose X-Forwarded-For entries may therefore be believed. Express uses it to
   // derive req.ip, which every rate limit is keyed on. 0 (no proxy) is the safe
@@ -32,6 +35,8 @@ const envSchema = z.object({
 
   // 32 ASCII chars or 64 hex chars — validated in lib/encryption.js
   ENCRYPTION_KEY: z.string().min(32),
+  // Comma-separated keys still accepted for decryption during a key rotation.
+  ENCRYPTION_KEYS_PREVIOUS: z.string().optional(),
 
   META_APP_ID: z.string().min(1),
   META_APP_SECRET: z.string().min(1),

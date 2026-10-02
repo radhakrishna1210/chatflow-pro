@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual, randomUUID } from 'crypto';
 import { env } from '../config/env.js';
 import { redis } from '../lib/redis.js';
 import * as ig from '../services/instagram.service.js';
+import { answerVerifyChallenge } from './webhook.controller.js';
 
 const STATE_TTL_SEC = 600;
 
@@ -112,12 +113,7 @@ export async function deleteFlow(req, res) {
 // ── Public webhook (Meta) ──────────────────────────────────────────────────
 
 export function verifyWebhook(req, res) {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  if (mode === 'subscribe' && token === env.META_WEBHOOK_VERIFY_TOKEN) {
-    return res.status(200).send(req.query['hub.challenge']);
-  }
-  res.status(403).json({ error: 'Verification failed' });
+  return answerVerifyChallenge(req, res);
 }
 
 export async function receiveWebhook(req, res) {

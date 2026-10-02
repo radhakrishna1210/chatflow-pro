@@ -27,6 +27,17 @@ export function confirmDialog(message, { title = 'Are you sure?', confirmLabel =
   });
 }
 
+// Resolves the trimmed text when confirmed, null when cancelled or dismissed.
+export function promptDialog(message, { title = 'Are you sure?', label = '', placeholder = '', minLength = 0, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = false } = {}) {
+  if (listeners.size === 0) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    emit({
+      type: 'confirm',
+      confirm: { id: ++seq, message, title, confirmLabel, cancelLabel, danger, input: { label, placeholder, minLength }, resolve },
+    });
+  });
+}
+
 const TONES = {
   error:   { bd: 'rgba(239,68,68,0.45)',  fg: '#fca5a5' },
   success: { bd: 'var(--gbd)',            fg: 'var(--green)' },
@@ -50,11 +61,14 @@ export function FeedbackHost() {
     return () => listeners.delete(onEvent);
   }, []);
 
-  const settle = (item, value) => {
-    item.resolve(value);
+  const [text, setText] = useState('');
+  const settle = (item, ok) => {
+    item.resolve(item.input ? (ok ? text.trim() : null) : ok);
+    setText('');
     setConfirms((c) => c.filter((x) => x.id !== item.id));
   };
   const active = confirms[0];
+  const inputShort = active?.input && text.trim().length < active.input.minLength;
 
   return (
     <>
@@ -74,9 +88,17 @@ export function FeedbackHost() {
         <Modal key={active.id} title={active.title} width={420} zIndex={1050} onClose={() => settle(active, false)}
           footer={<>
             <Btn variant="ghost" size="sm" onClick={() => settle(active, false)}>{active.cancelLabel}</Btn>
-            <Btn variant={active.danger ? 'danger' : 'primary'} size="sm" autoFocus onClick={() => settle(active, true)}>{active.confirmLabel}</Btn>
+            <Btn variant={active.danger ? 'danger' : 'primary'} size="sm" autoFocus={!active.input} disabled={inputShort} onClick={() => settle(active, true)}>{active.confirmLabel}</Btn>
           </>}>
           <p style={{ fontSize: 13.5, color: 'var(--t2)', lineHeight: 1.55, whiteSpace: 'pre-line' }}>{active.message}</p>
+          {active.input && (
+            <label style={{ display: 'block', marginTop: 12, fontSize: 12.5, color: 'var(--t2)' }}>
+              {active.input.label}
+              <input autoFocus value={text} placeholder={active.input.placeholder} onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !inputShort) settle(active, true); }}
+                style={{ display: 'block', width: '100%', marginTop: 6, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--bd)', background: 'var(--surf)', color: 'var(--t1)', fontSize: 13.5 }} />
+            </label>
+          )}
         </Modal>
       )}
     </>

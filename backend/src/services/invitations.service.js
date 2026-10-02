@@ -290,52 +290,22 @@ export async function acceptInvitation(rawToken, userId) {
   }
 
   if (!member) {
-    // This invitation is still PENDING here — exclude it so it isn't counted
-    // both as a pending seat and as the member it's about to become.
-    await assertWithinLimit(invitation.workspaceId, 'member', { ignoreInvitationId: invitation.id });
     try {
-      member = await prisma.workspaceMember.create({
-        data: { userId, workspaceId: invitation.workspaceId, role: invitation.role },
-      });
+      member = await prisma.$transaction((tx) => joinThroughInvitation(tx, invitation, userId));
     } catch (err) {
       // P2002 (unique violation on userId+workspaceId): a concurrent request
-      // for the same invite (double-click, duplicate submit, two tabs) won
-      // the race and already created this membership — not an error, just
-      // means we're now idempotently converging on the same result. Not run
-      // inside the transaction below: on Postgres, a failed statement poisons
-      // the rest of that transaction, so this needs its own try/catch outside
-      // of it rather than being swallowed mid-transaction.
-      if (err.code !== 'P2002') throw err;
+      // for the same invite (double-click, two tabs) already created this
+      // membership. A lost claim (410) means the same thing when it was this
+      // user who won it. Either way, converge on the existing membership — the
+      // transaction rolled back, so no use was burned twice.
+      if (err.code !== 'P2002' && err.status !== 410) throw err;
       member = await prisma.workspaceMember.findUnique({
         where: { userId_workspaceId: { userId, workspaceId: invitation.workspaceId } },
       });
+      if (!member) throw err;
     }
-  }
-
-  // Guarded by status so a concurrent request that already flipped this to
-  // ACCEPTED (or the token being reused after expiry raced it to EXPIRED)
-  // doesn't get clobbered back — this update is a no-op if so, not an error.
-  if (invitation.kind === 'LINK') {
-    if (!alreadyMember) {
-      // A link stays PENDING and keeps working until it runs out of uses,
-      // expires, or is revoked. The increment is done in the same guarded
-      // update so two people accepting at once can't share one use.
-      const { count } = await prisma.invitation.updateMany({
-        where: {
-          id: invitation.id,
-          status: 'PENDING',
-          ...(invitation.maxUses ? { useCount: { lt: invitation.maxUses } } : {}),
-        },
-        data: { useCount: { increment: 1 } },
-      });
-      if (count && invitation.maxUses && invitation.useCount + 1 >= invitation.maxUses) {
-        await prisma.invitation.updateMany({
-          where: { id: invitation.id, status: 'PENDING', useCount: { gte: invitation.maxUses } },
-          data: { status: 'ACCEPTED', acceptedAt: new Date() },
-        });
-      }
-    }
-  } else {
+  } else if (invitation.kind === 'EMAIL') {
+    // Already a member: an email invite has nothing left to do.
     await prisma.invitation.updateMany({
       where: { id: invitation.id, status: 'PENDING' },
       data: { status: 'ACCEPTED', acceptedAt: new Date(), useCount: { increment: 1 } },
@@ -343,6 +313,59 @@ export async function acceptInvitation(rawToken, userId) {
   }
 
   return { workspaceId: invitation.workspaceId, role: member.role };
+}
+
+// Lock the workspace row so concurrent accepts into one workspace run one at a
+// time: the seat count below is then exact, not a check-then-act race that N
+// simultaneous redeemers of one link all pass.
+async function lockWorkspaceSeats(tx, workspaceId) {
+  await tx.$queryRaw`SELECT "id" FROM "Workspace" WHERE "id" = ${workspaceId} FOR UPDATE`;
+}
+
+// Check the seat limit under the workspace lock, claim one use of the
+// invitation atomically, and create the membership. Throws 410 when
+// the claim is lost (link exhausted, invite already used or revoked) and 403
+// PLAN_LIMIT_REACHED when the plan is full.
+async function joinThroughInvitation(tx, invitation, userId) {
+  await lockWorkspaceSeats(tx, invitation.workspaceId);
+
+  // Checked before anything is written, so a full plan leaves no trace even
+  // when the caller swallows the error (signup). This invitation is excluded
+  // from the pending count so it isn't counted both as a pending seat and as
+  // the member it is about to become.
+  await assertWithinLimit(invitation.workspaceId, 'member', { ignoreInvitationId: invitation.id, db: tx });
+
+  const now = new Date();
+  const claimable = { id: invitation.id, status: 'PENDING', expiresAt: { gt: now } };
+  const { count } = invitation.kind === 'LINK'
+    ? await tx.invitation.updateMany({
+        where: { ...claimable, ...(invitation.maxUses ? { useCount: { lt: invitation.maxUses } } : {}) },
+        data: { useCount: { increment: 1 } },
+      })
+    : await tx.invitation.updateMany({
+        where: claimable,
+        data: { status: 'ACCEPTED', acceptedAt: now, useCount: { increment: 1 } },
+      });
+  if (count !== 1) {
+    const e = new Error(invitation.kind === 'LINK'
+      ? 'This invite link has been used the maximum number of times'
+      : 'This invite is no longer valid');
+    e.status = 410;
+    throw e;
+  }
+
+  const member = await tx.workspaceMember.create({
+    data: { userId, workspaceId: invitation.workspaceId, role: invitation.role },
+  });
+
+  // A link stays PENDING and keeps working until it runs out of uses.
+  if (invitation.kind === 'LINK' && invitation.maxUses) {
+    await tx.invitation.updateMany({
+      where: { id: invitation.id, status: 'PENDING', useCount: { gte: invitation.maxUses } },
+      data: { status: 'ACCEPTED', acceptedAt: now },
+    });
+  }
+  return member;
 }
 
 // Used from inside verifySignup's transaction (new-account-via-invite path).
@@ -360,20 +383,10 @@ export async function consumeInvitationAtomically(tx, rawToken, userEmail, userI
     if (invitation.kind === 'EMAIL' && String(invitation.email).toLowerCase() !== String(userEmail).trim().toLowerCase()) return null;
     if (invitation.kind === 'LINK' && invitation.maxUses && invitation.useCount >= invitation.maxUses) return null;
 
-    // Best-effort limit check inside the transaction — if it throws
-    // (plan full), fall through to the catch below and skip joining.
-    await assertWithinLimit(invitation.workspaceId, 'member', { ignoreInvitationId: invitation.id });
-
-    await tx.workspaceMember.create({ data: { userId, workspaceId: invitation.workspaceId, role: invitation.role } });
-    // A link keeps working for the next person unless this use exhausts it.
-    const exhausts = invitation.kind === 'EMAIL' || (invitation.maxUses && invitation.useCount + 1 >= invitation.maxUses);
-    await tx.invitation.update({
-      where: { id: invitation.id },
-      data: {
-        useCount: { increment: 1 },
-        ...(exhausts ? { status: 'ACCEPTED', acceptedAt: new Date() } : {}),
-      },
-    });
+    // Same atomic claim and locked seat count as an explicit accept. If the
+    // plan is full or the claim is lost, fall through to the catch below and
+    // skip joining.
+    await joinThroughInvitation(tx, invitation, userId);
 
     const workspace = await tx.workspace.findUnique({ where: { id: invitation.workspaceId }, select: { id: true, name: true } });
     return { workspaceId: invitation.workspaceId, role: invitation.role, workspace };

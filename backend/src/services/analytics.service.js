@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { validTimeZone, zonedDayKey, zonedDayWindow, weekdayOfKey } from '../lib/zonedTime.js';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -16,7 +17,16 @@ const clampRangeDays = (value) => {
 
 const percent = (part, total) => (total > 0 ? +((part / total) * 100).toFixed(1) : 0);
 
-const toIsoDay = (date) => date.toISOString().slice(0, 10);
+// Day buckets follow the workspace's own calendar (Settings -> Workspace), not
+// the server's TZ or a hard-coded India.
+async function workspaceTimeZone(workspaceId) {
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { timezone: true } });
+  return validTimeZone(ws?.timezone);
+}
+
+// A recipient the network accepted. FAILED/SKIPPED rows can carry a sentAt
+// from an attempt and are not sends.
+const SENT_STATUSES = ['SENT', 'DELIVERED', 'READ'];
 
 // Average of (eventAt - sentAt) across campaign recipients that have both
 // timestamps. Returns milliseconds (0 when there is nothing to average).
@@ -32,13 +42,13 @@ const averageLatencyMs = (items, field) => {
 
 export async function getOverview(workspaceId, daysParam) {
   const days = clampRangeDays(daysParam);
-  // Midnight `days - 1` days ago, so "7 days" means seven whole days including
-  // today rather than a rolling 168 hours — which is what the label promises.
-  const since = new Date();
-  since.setDate(since.getDate() - (days - 1));
-  since.setHours(0, 0, 0, 0);
+  // Local midnight `days - 1` days ago in the workspace's zone, so "7 days"
+  // means seven whole days including today rather than a rolling 168 hours —
+  // which is what the label promises.
+  const timeZone = await workspaceTimeZone(workspaceId);
+  const { since } = zonedDayWindow(days, timeZone);
 
-  const [messagesSent, totalCampaigns, totalContacts, optOuts, statusGroups] = await Promise.all([
+  const [messagesSent, totalCampaigns, newContacts, totalContacts, optOuts, statusGroups] = await Promise.all([
     // Outbound only, and only within the range.
     //
     // This counted every Message row in the workspace and then added the
@@ -50,9 +60,11 @@ export async function getOverview(workspaceId, daysParam) {
       where: { conversation: { workspaceId }, direction: 'OUTBOUND', sentAt: { gte: since } },
     }),
     prisma.campaign.count({ where: { workspaceId, createdAt: { gte: since } } }),
-    // Contacts and opt-outs are "added in this period", matching how every
-    // other figure on the page reads.
+    // New contacts and opt-outs are "in this period", like every other figure
+    // on the page; the opt-out rate is over the whole base, since anyone in it
+    // could opt out — not over this period's sign-ups, which let it pass 100%.
     prisma.contact.count({ where: { workspaceId, createdAt: { gte: since } } }),
+    prisma.contact.count({ where: { workspaceId } }),
     prisma.contact.count({ where: { workspaceId, optedOut: true, optedOutAt: { gte: since } } }),
     // Delivery outcomes come from the recipients themselves rather than
     // Campaign's denormalised counters, which are incremented from four
@@ -76,9 +88,11 @@ export async function getOverview(workspaceId, daysParam) {
     // Echoed so the page can label what it is showing instead of assuming.
     days,
     since,
+    timeZone,
     messagesSent,
     totalCampaigns,
     totalContacts,
+    newContacts,
     optOuts,
     deliveryRate: percent(delivered, sent),
     optOutRate: percent(optOuts, totalContacts),
@@ -91,11 +105,10 @@ export async function getOverview(workspaceId, daysParam) {
 
 export async function getDeliveryStats(workspaceId, daysParam) {
   const days = clampRangeDays(daysParam);
-  // One query for the whole window, bucketed in memory — replaces the
-  // previous 14 sequential COUNT round-trips.
-  const windowStart = new Date();
-  windowStart.setDate(windowStart.getDate() - (days - 1));
-  windowStart.setHours(0, 0, 0, 0);
+  // One query for the whole window, bucketed in memory by the workspace's
+  // calendar day.
+  const timeZone = await workspaceTimeZone(workspaceId);
+  const { keys, since: windowStart } = zonedDayWindow(days, timeZone);
 
   const recipients = await prisma.campaignRecipient.findMany({
     where: {
@@ -105,32 +118,27 @@ export async function getDeliveryStats(workspaceId, daysParam) {
         { deliveredAt: { gte: windowStart } },
       ],
     },
-    select: { sentAt: true, deliveredAt: true },
+    select: { status: true, sentAt: true, deliveredAt: true },
   });
 
   const buckets = new Map();
-  const daysList = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    date.setHours(0, 0, 0, 0);
-    const key = date.toISOString().split('T')[0];
-    const entry = { date: DAY_NAMES[date.getDay()], iso: key, sent: 0, delivered: 0, rate: 0 };
+  const daysList = keys.map((key) => {
+    const entry = { date: DAY_NAMES[weekdayOfKey(key)], iso: key, sent: 0, delivered: 0, rate: 0 };
     buckets.set(key, entry);
-    daysList.push(entry);
-  }
-
-  const keyOf = (d) => {
-    const local = new Date(d);
-    local.setHours(0, 0, 0, 0);
-    return local.toISOString().split('T')[0];
-  };
+    return entry;
+  });
 
   for (const r of recipients) {
-    if (r.sentAt) buckets.get(keyOf(r.sentAt)) && buckets.get(keyOf(r.sentAt)).sent++;
-    if (r.deliveredAt) buckets.get(keyOf(r.deliveredAt)) && buckets.get(keyOf(r.deliveredAt)).delivered++;
+    if (r.sentAt && SENT_STATUSES.includes(r.status)) {
+      const bucket = buckets.get(zonedDayKey(r.sentAt, timeZone));
+      if (bucket) bucket.sent += 1;
+    }
+    if (r.deliveredAt) {
+      const bucket = buckets.get(zonedDayKey(r.deliveredAt, timeZone));
+      if (bucket) bucket.delivered += 1;
+    }
   }
-  for (const d of daysList) d.rate = d.sent > 0 ? +((d.delivered / d.sent) * 100).toFixed(1) : 0;
+  for (const d of daysList) d.rate = percent(Math.min(d.delivered, d.sent), d.sent);
   return daysList;
 }
 
@@ -154,22 +162,32 @@ export async function getAgentStats(workspaceId, daysParam) {
     include: { user: { select: { id: true, name: true } } },
   });
 
+  // One row per (member, conversation) they replied in: the number of rows is
+  // the chats they handled, the counts summed are the messages they sent. A
+  // member who sends 40 messages in one thread has handled one chat.
   const msgGroups = await prisma.message.groupBy({
-    by: ['senderUserId'],
+    by: ['senderUserId', 'conversationId'],
     where: {
       conversation: { workspaceId },
+      direction: 'OUTBOUND',
       sentAt: { gte: since },
       senderUserId: { in: members.map((m) => m.userId) },
     },
     _count: { _all: true },
   });
 
-  const countMap = new Map(msgGroups.map((g) => [g.senderUserId, g._count._all]));
+  const chats = new Map();
+  const sent = new Map();
+  for (const g of msgGroups) {
+    chats.set(g.senderUserId, (chats.get(g.senderUserId) || 0) + 1);
+    sent.set(g.senderUserId, (sent.get(g.senderUserId) || 0) + g._count._all);
+  }
 
   return members.map((m) => ({
     agentId: m.userId,
     name: m.user.name,
-    chatsHandled: countMap.get(m.userId) || 0,
+    chatsHandled: chats.get(m.userId) || 0,
+    messagesSent: sent.get(m.userId) || 0,
   }));
 }
 
@@ -180,11 +198,8 @@ export async function getAgentStats(workspaceId, daysParam) {
 // query because Prisma has no portable DATE() grouping helper.
 export async function getChatAnalytics(workspaceId, daysParam = 30) {
   const days = clampDays(daysParam);
-  const nowIst = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-  const startDateIst = new Date(nowIst);
-  startDateIst.setUTCHours(0, 0, 0, 0);
-  startDateIst.setUTCDate(startDateIst.getUTCDate() - (days - 1));
-  const startDate = new Date(startDateIst.getTime() - 5.5 * 60 * 60 * 1000);
+  const timeZone = await workspaceTimeZone(workspaceId);
+  const { keys: dayKeys, since: startDate, today } = zonedDayWindow(days, timeZone);
 
   // Messages in this workspace within the date window. All message-based
   // counts below reuse this filter.
@@ -257,17 +272,19 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
       orderBy: { _count: { senderUserId: 'desc' } },
       take: 5,
     }),
+    // Grouped by position: each ${timeZone} is its own bind parameter, so the
+    // SELECT and GROUP BY expressions would not compare equal to Postgres.
     prisma.$queryRaw`
       SELECT
-        DATE(m."sentAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::text AS date,
+        DATE(m."sentAt" AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone})::text AS date,
         COUNT(*) FILTER (WHERE m."direction" = 'OUTBOUND')::int AS sent,
         COUNT(*) FILTER (WHERE m."direction" = 'INBOUND')::int AS received
       FROM "Message" m
       INNER JOIN "Conversation" c ON c."id" = m."conversationId"
       WHERE c."workspaceId" = ${workspaceId}
         AND m."sentAt" >= ${startDate}
-      GROUP BY DATE(m."sentAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-      ORDER BY DATE(m."sentAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') ASC
+      GROUP BY 1
+      ORDER BY 1 ASC
     `,
   ]);
 
@@ -295,13 +312,7 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
       },
     ])
   );
-  const dailyVolume = [];
-  for (let i = 0; i < days; i += 1) {
-    const date = new Date(startDateIst);
-    date.setUTCDate(startDateIst.getUTCDate() + i);
-    const iso = toIsoDay(date);
-    dailyVolume.push(dailyByDate.get(iso) ?? { date: iso, sent: 0, received: 0 });
-  }
+  const dailyVolume = dayKeys.map((iso) => dailyByDate.get(iso) ?? { date: iso, sent: 0, received: 0 });
 
   const campaignSent      = campaignTotals._sum.sent      ?? 0;
   const campaignDelivered = campaignTotals._sum.delivered ?? 0;
@@ -317,7 +328,8 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
 
   return {
     days,
-    range: { from: toIsoDay(startDateIst), to: toIsoDay(nowIst) },
+    timeZone,
+    range: { from: dayKeys[0], to: today },
     messages: {
       sent: directionCounts.OUTBOUND ?? 0,
       received: directionCounts.INBOUND ?? 0,
@@ -363,14 +375,14 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
 
 export async function getPaidMessagesInsights(workspaceId, daysParam = 7) {
   const days = clampDays(daysParam);
-  const startDate = new Date();
-  startDate.setUTCHours(0, 0, 0, 0);
-  startDate.setUTCDate(startDate.getUTCDate() - (days - 1));
+  const timeZone = await workspaceTimeZone(workspaceId);
+  const { keys, since: startDate } = zonedDayWindow(days, timeZone);
 
   const recipients = await prisma.campaignRecipient.findMany({
     where: {
       campaign: { workspaceId },
       sentAt: { gte: startDate },
+      status: { in: SENT_STATUSES },
     },
     include: {
       campaign: {
@@ -390,17 +402,14 @@ export async function getPaidMessagesInsights(workspaceId, daysParam = 7) {
   };
 
   const buckets = new Map();
-  const chartData = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(startDate);
-    date.setUTCDate(startDate.getUTCDate() + (days - 1 - i));
-    // Formatting date to 'MMM DD' like 'Jun 19' to match UI
-    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const key = toIsoDay(date);
+  const chartData = keys.map((key) => {
+    // 'MMM DD' like 'Jun 19' to match the UI. The key is a calendar date, so
+    // format it as one (UTC) rather than re-zoning it.
+    const dateStr = new Date(`${key}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
     const entry = { date: dateStr, val: 0 };
     buckets.set(key, entry);
-    chartData.push(entry);
-  }
+    return entry;
+  });
 
   for (const r of recipients) {
     if (!r.sentAt) continue;
@@ -409,7 +418,7 @@ export async function getPaidMessagesInsights(workspaceId, daysParam = 7) {
     else if (cat === 'MARKETING') totals.marketing++;
     else if (cat === 'AUTHENTICATION') totals.authMessages++;
 
-    const key = toIsoDay(r.sentAt);
+    const key = zonedDayKey(r.sentAt, timeZone);
     if (buckets.has(key)) {
       buckets.get(key).val++;
     }
@@ -755,6 +764,9 @@ export async function getConversationInsights(workspaceId, daysParam = 30) {
 
   return {
     days,
+    // Keyword matching, not a model: topics are word-list hits and sentiment
+    // counts positive/negative words. Reported so the UI can say so.
+    method: 'keyword-heuristic',
     analysed: messages.length,
     clusteredBy: intentRules.length ? 'intents' : 'default',
     topics: topicRows,
@@ -788,24 +800,28 @@ export async function getPerformance(workspaceId, daysParam = 14) {
   const days = clampRangeDays(daysParam);
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  const [recipientAgg, readCount, aiSessions, inboundReplies, conversations, campaigns] = await Promise.all([
-    prisma.campaignRecipient.groupBy({
-      by: ['status'],
-      where: { campaign: { workspaceId }, sentAt: { gte: since } },
-      _count: { _all: true },
+  // Every funnel stage is measured on one population: campaign recipients the
+  // network accepted in the window. Mixing in organic inbox traffic let
+  // "Replied" exceed "Delivered".
+  const [recipients, lastInbound, aiSessions, conversations, campaigns] = await Promise.all([
+    prisma.campaignRecipient.findMany({
+      where: { campaign: { workspaceId }, sentAt: { gte: since }, status: { in: SENT_STATUSES } },
+      select: { contactId: true, status: true, sentAt: true, readAt: true },
     }),
-    prisma.campaignRecipient.count({ where: { campaign: { workspaceId }, readAt: { gte: since } } }),
-    // A customer who tapped the campaign's CTA and opened a chat. This is the
-    // deepest engagement step the product can actually observe.
-    prisma.campaignAiSession.count({ where: { workspaceId, activatedAt: { gte: since } } }),
-    // Distinct conversations that received an inbound message in the window.
-    prisma.message.findMany({
+    // Each conversation's latest inbound message in the window; a recipient
+    // replied if their contact wrote in at or after the send.
+    prisma.message.groupBy({
+      by: ['conversationId'],
       where: { direction: 'INBOUND', sentAt: { gte: since }, conversation: { workspaceId } },
-      select: { conversationId: true },
-      distinct: ['conversationId'],
+      _max: { sentAt: true },
     }),
-    // Enough of each conversation to say who resolved it. Outbound messages
-    // carry senderUserId; a null sender is the bot.
+    // A recipient who tapped the campaign's CTA and opened a chat. This is the
+    // deepest engagement step the product can actually observe.
+    prisma.campaignAiSession.count({
+      where: { workspaceId, campaignRecipient: { sentAt: { gte: since }, status: { in: SENT_STATUSES } } },
+    }),
+    // Enough of each conversation to say who answered it. Outbound messages
+    // carry senderUserId; a null sender is the bot or an automation.
     prisma.conversation.findMany({
       where: { workspaceId, lastMessageAt: { gte: since } },
       select: {
@@ -831,10 +847,30 @@ export async function getPerformance(workspaceId, daysParam = 14) {
     }),
   ]);
 
-  const byStatus = Object.fromEntries(recipientAgg.map((r) => [r.status, r._count._all]));
-  const sent = recipientAgg.reduce((total, r) => total + r._count._all, 0);
-  const delivered = (byStatus.DELIVERED || 0) + (byStatus.READ || 0);
-  const replied = inboundReplies.length;
+  const inboundConversationIds = lastInbound.map((row) => row.conversationId);
+  const conversationContacts = inboundConversationIds.length
+    ? await prisma.conversation.findMany({
+        where: { id: { in: inboundConversationIds } },
+        select: { id: true, contactId: true },
+      })
+    : [];
+  const contactOf = new Map(conversationContacts.map((c) => [c.id, c.contactId]));
+  const lastInboundByContact = new Map();
+  for (const row of lastInbound) {
+    const contactId = contactOf.get(row.conversationId);
+    const at = row._max.sentAt;
+    if (!contactId || !at) continue;
+    const prev = lastInboundByContact.get(contactId);
+    if (!prev || at > prev) lastInboundByContact.set(contactId, at);
+  }
+
+  const sent = recipients.length;
+  const delivered = recipients.filter((r) => r.status === 'DELIVERED' || r.status === 'READ').length;
+  const readCount = recipients.filter((r) => r.status === 'READ' || r.readAt).length;
+  const replied = recipients.filter((r) => {
+    const at = lastInboundByContact.get(r.contactId);
+    return at && r.sentAt && at >= r.sentAt;
+  }).length;
 
   const stage = (label, value, note) => ({
     label,
@@ -844,22 +880,26 @@ export async function getPerformance(workspaceId, daysParam = 14) {
   });
 
   const funnel = [
-    stage('Sent', sent, 'Recipients the campaign reached the network for'),
+    stage('Sent', sent, 'Recipients the network accepted'),
     stage('Delivered', delivered, 'Confirmed on the handset'),
     stage('Read', readCount, 'Blue ticks returned by Meta'),
-    stage('Replied', replied, 'Conversations with an inbound message'),
+    stage('Replied', replied, 'Recipients who wrote back after the send'),
     stage('Started an AI chat', aiSessions, 'Tapped the CTA and asked something'),
   ];
 
-  // ── AI vs human ──
+  // ── who answered ──
+  //
+  // "By automation" needs an automated reply and no human one; a conversation
+  // closed with no reply at all is counted as such, not credited to the AI.
   let byAi = 0;
   let byHuman = 0;
+  let noReply = 0;
   let open = 0;
   for (const c of conversations) {
     if (c.status === 'OPEN') { open += 1; continue; }
-    const touchedByPerson = c.messages.some((m) => m.senderUserId != null);
-    if (touchedByPerson) byHuman += 1;
-    else byAi += 1;
+    if (c.messages.some((m) => m.senderUserId != null)) byHuman += 1;
+    else if (c.messages.length > 0) byAi += 1;
+    else noReply += 1;
   }
   const resolvedTotal = conversations.length;
 
@@ -885,6 +925,7 @@ export async function getPerformance(workspaceId, daysParam = 14) {
       total: resolvedTotal,
       byAi:    { count: byAi,    pct: percent(byAi, resolvedTotal) },
       byHuman: { count: byHuman, pct: percent(byHuman, resolvedTotal) },
+      noReply: { count: noReply, pct: percent(noReply, resolvedTotal) },
       open:    { count: open,    pct: percent(open, resolvedTotal) },
     },
     leaderboard,

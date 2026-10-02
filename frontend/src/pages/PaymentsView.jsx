@@ -5,6 +5,7 @@ import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { confirmDialog } from '../components/Feedback.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -790,8 +791,8 @@ export default function PaymentsView({ initialTab } = {}) {
                 </Btn>
               ) : (
                 <Btn variant="outline" disabled={planActionBusy}
-                  onClick={() => {
-                    if (window.confirm('Cancel at the end of this billing period? The workspace will be locked once the period ends. To keep using it for free, switch to the Free plan instead.')) {
+                  onClick={async () => {
+                    if (await confirmDialog('The workspace will be locked once the period ends. To keep using it for free, switch to the Free plan instead.', { title: 'Cancel at the end of this billing period?', danger: true, confirmLabel: 'Cancel at period end', cancelLabel: 'Keep plan' })) {
                       scheduleChange({ cancelAtPeriodEnd: true }, 'Your subscription will end at the close of this billing period.');
                     }
                   }}>

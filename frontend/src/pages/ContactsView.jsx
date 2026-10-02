@@ -4,6 +4,7 @@ import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { Avatar } from '../components/Avatar.jsx';
+import { notify, confirmDialog } from '../components/Feedback.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -706,7 +707,7 @@ export default function ContactsView() {
   }, []);
 
   const deleteCluster = async (c) => {
-    if (!window.confirm(`Delete the cluster "${c.name}"? The contacts in it are not deleted.`)) return;
+    if (!await confirmDialog(`Delete the cluster "${c.name}"? The contacts in it are not deleted.`, { danger: true, confirmLabel: 'Delete' })) return;
     try {
       const res = await wFetch(`/clusters/${c.id}`, { method: 'DELETE' });
       if (!res.ok) {
@@ -716,7 +717,7 @@ export default function ContactsView() {
       if (selectedCluster === c.id) setSelectedCluster('');
       loadClusters();
     } catch (e) {
-      window.alert(e.message);
+      notify(e.message);
     }
   };
 

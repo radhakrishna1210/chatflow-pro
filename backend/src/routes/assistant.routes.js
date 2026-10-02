@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as controller from '../controllers/assistant.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireSuperAdmin } from '../middleware/authorize.js';
+import { auditAdminWrites } from '../middleware/adminAudit.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 
 const router = Router();
@@ -20,6 +21,6 @@ router.post('/chat', rateLimit({ windowMs: 60_000, max: 12, keyPrefix: 'assistan
 router.get('/status', controller.status);
 
 // Rebuilding the index is a platform-wide action that spends embedding quota.
-router.post('/reindex', authenticate, requireSuperAdmin, controller.reindex);
+router.post('/reindex', authenticate, requireSuperAdmin, auditAdminWrites, controller.reindex);
 
 export default router;

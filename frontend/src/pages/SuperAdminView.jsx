@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { adminFetch } from '../lib/api.js';
+import { startImpersonation } from '../lib/tabSession.js';
 import { useMessageRates } from '../lib/pricing.js';
 import ApiManagementTab from './ApiManagementTab.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions.js';
-import { notify, confirmDialog } from '../components/Feedback.jsx';
+import { notify, confirmDialog, promptDialog } from '../components/Feedback.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14 };
 
@@ -915,30 +916,69 @@ function UsersTab() {
   }, [debounced, page]);
 
   const impersonate = async (u) => {
-    if (!await confirmDialog(`Impersonate ${u.name} (${u.email})? You'll see the app exactly as they do until you return to admin.`)) return;
+    const reason = await promptDialog(
+      'This tab only will act as them for up to 30 minutes; your other tabs stay signed in as you. The reason is recorded in the audit log.',
+      { title: `Impersonate ${u.name} (${u.email})?`, label: 'Reason', placeholder: 'e.g. Support ticket #1234', minLength: 3, confirmLabel: 'Impersonate' },
+    );
+    if (reason === null) return;
     setImpersonatingId(u.id);
     try {
-      const res = await adminFetch(`/platform/users/${u.id}/impersonate`, { method: 'POST' });
+      const res = await adminFetch(`/platform/users/${u.id}/impersonate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
       const body = await res.json();
       if (!res.ok) { notify(body.error || 'Impersonation failed'); return; }
 
-      // Stash the admin's own session so the in-app banner can restore it.
-      const adminToken = localStorage.getItem('accessToken');
-      const adminRefresh = localStorage.getItem('refreshToken');
-      const adminUser = localStorage.getItem('user');
-      if (adminToken && adminUser) {
-        sessionStorage.setItem('impersonatorSession', JSON.stringify({ accessToken: adminToken, refreshToken: adminRefresh, user: adminUser }));
-      }
-
-      localStorage.setItem('accessToken', body.accessToken);
-      localStorage.setItem('refreshToken', body.refreshToken);
-      localStorage.setItem('user', JSON.stringify({
-        id: body.user.id, name: body.user.name, email: body.user.email, role: body.user.role,
-        superAdmin: body.user.superAdmin === true, workspaceId: body.workspace?.id ?? null, workspaceName: body.workspace?.name ?? null,
-      }));
+      // Tab-scoped: the customer's token goes to this tab's sessionStorage and
+      // the admin's own session in localStorage is left exactly as it is.
+      startImpersonation({
+        accessToken: body.accessToken,
+        impersonation: body.impersonation,
+        user: {
+          id: body.user.id, name: body.user.name, email: body.user.email, role: body.user.role,
+          superAdmin: false, workspaceId: body.workspace?.id ?? null, workspaceName: body.workspace?.name ?? null,
+        },
+      });
       window.location.href = '/dashboard';
     } finally {
       setImpersonatingId(null);
+    }
+  };
+
+  const [busyId, setBusyId] = useState(null);
+
+  const signOutUser = async (u) => {
+    if (!await confirmDialog(`Sign ${u.email} out of every session?`, { danger: true, confirmLabel: 'Sign out' })) return;
+    setBusyId(u.id);
+    try {
+      const res = await adminFetch(`/platform/users/${u.id}/sign-out`, { method: 'POST', body: '{}' });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) notify(`Signed out of ${body.revokedSessions ?? 0} session(s).`, 'success');
+      else notify(body.error || 'Could not sign the user out');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const toggleDisabled = async (u) => {
+    const disabling = !u.disabledAt;
+    const reason = await promptDialog(
+      disabling ? 'They will be signed out everywhere and unable to sign in.' : 'They will be able to sign in again.',
+      { title: `${disabling ? 'Disable' : 'Enable'} ${u.email}?`, label: 'Reason (recorded in the audit log)', confirmLabel: disabling ? 'Disable' : 'Enable', danger: disabling },
+    );
+    if (reason === null) return;
+    setBusyId(u.id);
+    try {
+      const res = await adminFetch(`/platform/users/${u.id}/disabled`, {
+        method: 'PATCH',
+        body: JSON.stringify({ disabled: disabling, reason: reason.trim() || null }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { notify(body.error || 'Could not update the user'); return; }
+      setData((d) => d && ({ ...d, users: d.users.map((x) => (x.id === u.id ? { ...x, disabledAt: body.disabledAt } : x)) }));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -973,6 +1013,7 @@ function UsersTab() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{u.name}</span>
                         {u.superAdmin && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', textTransform: 'uppercase' }}>Super Admin</span>}
+                        {u.disabledAt && <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.3)', color: '#f87171', textTransform: 'uppercase' }}>Disabled</span>}
                       </div>
                     </td>
                     <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--t2)' }}>{u.email}</td>
@@ -987,10 +1028,20 @@ function UsersTab() {
                     </td>
                     <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--t2)' }}>{new Date(u.createdAt).toLocaleDateString('en-IN')}</td>
                     <td style={{ padding: '12px 16px' }}>
-                      <Btn variant="outline" size="sm" onClick={() => impersonate(u)} disabled={u.superAdmin || impersonatingId === u.id}
-                        title={u.superAdmin ? "Can't impersonate the platform admin" : ''}>
-                        {impersonatingId === u.id ? 'Starting…' : 'Impersonate'}
-                      </Btn>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <Btn variant="outline" size="sm" onClick={() => impersonate(u)} disabled={u.superAdmin || impersonatingId === u.id}
+                          title={u.superAdmin ? "Can't impersonate the platform admin" : ''}>
+                          {impersonatingId === u.id ? 'Starting…' : 'Impersonate'}
+                        </Btn>
+                        <Btn variant="outline" size="sm" onClick={() => signOutUser(u)} disabled={busyId === u.id}
+                          title="End every session this user has">
+                          Sign out
+                        </Btn>
+                        <Btn variant="outline" size="sm" onClick={() => toggleDisabled(u)} disabled={u.superAdmin || busyId === u.id}
+                          title={u.superAdmin ? "Can't disable the platform admin" : (u.disabledAt ? 'Allow this user to sign in again' : 'Block sign-in and end all sessions')}>
+                          {u.disabledAt ? 'Enable' : 'Disable'}
+                        </Btn>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1344,8 +1395,11 @@ export default function SuperAdminView({ tab }) {
     const suspend = !ws.suspended;
     let reason = null;
     if (suspend) {
-      reason = window.prompt(`Reason for suspending "${ws.name}"?`, 'Policy violation');
+      reason = await promptDialog('The workspace is blocked until it is reinstated.', {
+        title: `Suspend "${ws.name}"?`, label: 'Reason', placeholder: 'Policy violation', confirmLabel: 'Suspend', danger: true,
+      });
       if (reason === null) return;
+      reason = reason || 'Policy violation';
     } else if (!await confirmDialog(`Reinstate "${ws.name}"?`)) return;
     const res = await adminFetch(`/platform/workspaces/${ws.id}/suspend`, {
       method: 'PATCH', body: JSON.stringify({ suspended: suspend, reason }),

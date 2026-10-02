@@ -118,10 +118,12 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `PORT` | no | `4000` | HTTP port |
-| `NODE_ENV` | no | `development` | `development` \| `production` \| `test` |
+| `NODE_ENV` | **yes in production** | `development` | `development` \| `production` \| `test`. Must be `production` on every deployed host (Render pins it; set it in the VPS `backend/.env`) |
+| `EXPOSE_ERROR_DETAIL` | no | `false` | `true` adds the raw message of unexpected 5xx errors to API responses — local debugging only; ignored when `NODE_ENV=production` |
 | `CLIENT_URL` | no | `http://localhost:5173` | Frontend origin — used for CORS allow-list and OAuth redirects |
 | `CORS_EXTRA_ORIGINS` | no | — | Comma-separated extra allowed origins (e.g. a preview deploy) |
 | `JSON_BODY_LIMIT` | no | `2mb` | Express body size limit |
+| `TRUST_PROXY_HOPS` | **yes in production** | `0` | Reverse-proxy hops in front of the app whose `X-Forwarded-For` is believed. Set `1` on Render and on the VPS (nginx in front); left at 0 every client shares the proxy's rate-limit bucket. The app warns at boot in production when it is 0 |
 | `DATABASE_URL` | **yes** | — | Postgres connection string (pooled, used at runtime) |
 | `DIRECT_URL` | no | falls back to `DATABASE_URL` | Non-pooled connection for Prisma migrations |
 | `REDIS_URL` | no | `redis://localhost:6379` | BullMQ + ioredis connection |
@@ -131,7 +133,8 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `JWT_REFRESH_EXPIRES_IN` | no | `7d` | Refresh token TTL |
 | `ADMIN_EMAIL` | **yes** | — | The single email treated as the **platform super admin** (`superAdmin: true` on JWT, unlocks `/admin/platform/*`) — not a workspace role |
 | `BCRYPT_SALT_ROUNDS` | no | `12` | |
-| `ENCRYPTION_KEY` | **yes** (min 32 chars, 32 ASCII or 64 hex) | — | AES-256-CBC key used to encrypt WhatsApp access tokens & integration credentials at rest. Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `ENCRYPTION_KEY` | **yes** (min 32 chars, 32 ASCII or 64 hex) | — | AES-256-GCM key used to encrypt WhatsApp access tokens & integration credentials at rest (values written before GCM, in CBC, are still read). Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `ENCRYPTION_KEYS_PREVIOUS` | no | — | Comma-separated old keys still accepted for decryption while rotating `ENCRYPTION_KEY`. Rotate: set the new key + list the old one here, deploy, run `node scripts/reencrypt-secrets.js --apply`, then remove this |
 | `META_APP_ID` | **yes** | — | Meta developer app ID |
 | `META_APP_SECRET` | **yes** | — | Used for webhook HMAC signature verification and OAuth code exchange |
 | `META_BUSINESS_ID` | **yes** | — | |
