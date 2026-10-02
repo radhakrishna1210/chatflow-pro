@@ -5,7 +5,9 @@ export async function list(req, res) {
   res.json(await formsService.listForms(req.params.workspaceId));
 }
 export async function get(req, res) {
-  res.json(await formsService.getForm(req.params.workspaceId, req.params.id));
+  res.json(await formsService.getForm(req.params.workspaceId, req.params.id, {
+    includeSubmissions: req.user?.role !== 'VIEWER',
+  }));
 }
 export async function create(req, res) {
   res.status(201).json(await formsService.createForm(req.params.workspaceId, req.body));
