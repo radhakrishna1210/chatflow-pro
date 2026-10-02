@@ -9,7 +9,8 @@ import { rateLimit, emailSubject } from '../middleware/rateLimit.js';
 import { validate, authSchemas } from '../validators/index.js';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
-import { signState, verifyState } from '../lib/oauthState.js';
+import { signState, verifyState, readCookie, nonceMatches } from '../lib/oauthState.js';
+import { encrypt, decrypt } from '../lib/encryption.js';
 
 const router = Router();
 
@@ -138,10 +139,22 @@ router.post(
 // Google OAuth
 // ─────────────────────────────────────────────────────────────────────────────
 
-// A signed `state` value binds the callback to the browser that initiated the
-// flow (CSRF protection) without requiring server-side sessions. It also
-// carries an in-flight invite token through the round trip to Google, so
-// "Continue with Google" from an invite link doesn't silently drop the invite.
+// The signed `state` proves the callback came from a flow we started; the
+// nonce cookie proves it is *this browser's* flow. Without the cookie, anyone
+// could start a sign-in as themselves and send a victim the callback URL,
+// signing the victim into the attacker's account (login CSRF). The state also
+// carries an in-flight invite token through the round trip to Google —
+// encrypted, since the state travels through Google's redirect and URLs.
+
+const GOOGLE_NONCE_COOKIE = 'g_oauth_nonce';
+const googleNonceCookie = {
+  httpOnly: true,
+  // Lax, not Strict: Google's redirect back is a cross-site top-level GET.
+  sameSite: 'lax',
+  secure: env.NODE_ENV === 'production',
+  path: '/api/v1/auth/google',
+  maxAge: 10 * 60_000,
+};
 
 router.get('/google', (req, res, next) => {
   const inviteToken =
@@ -149,10 +162,13 @@ router.get('/google', (req, res, next) => {
       ? req.query.invite
       : null;
 
+  const nonce = randomBytes(16).toString('hex');
+  res.cookie(GOOGLE_NONCE_COOKIE, nonce, googleNonceCookie);
+
   const state = signState({
-    n: randomBytes(8).toString('hex'),
+    n: nonce,
     ts: Date.now(),
-    inviteToken,
+    ...(inviteToken ? { inv: encrypt(inviteToken) } : {}),
   });
 
   passport.authenticate(
@@ -179,9 +195,25 @@ router.get('/google/callback', (req, res, next) => {
     );
   }
 
+  const cookieNonce = readCookie(req, GOOGLE_NONCE_COOKIE);
+  res.clearCookie(GOOGLE_NONCE_COOKIE, { ...googleNonceCookie, maxAge: undefined });
+  if (!nonceMatches(statePayload.n, cookieNonce)) {
+    console.warn(
+      `[Google OAuth] Rejected callback: ${cookieNonce ? 'nonce mismatch' : 'nonce cookie missing'} `
+      + '(possible login CSRF, or sign-in started on a different host than the callback).'
+    );
+    return res.redirect(
+      `${env.CLIENT_URL}/login?oauth_error=invalid_state`
+    );
+  }
+
   // Read by the passport strategy (`passReqToCallback: true`) so a pending
   // invite survives the round trip to Google and back.
-  req.inviteToken = statePayload.inviteToken || null;
+  let inviteToken = null;
+  if (statePayload.inv) {
+    try { inviteToken = decrypt(statePayload.inv); } catch { inviteToken = null; }
+  }
+  req.inviteToken = inviteToken;
 
   passport.authenticate(
     'google',
