@@ -61,6 +61,10 @@ const OTP_PREVIEW = {
 // ─── New Template Dialog ───────────────────────────────────────
 const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedCategory = null }) => {
   const isEdit = !!template;
+  // Meta only accepts content edits to an approved template and none while it
+  // is in review; the server enforces both, this just says so up front.
+  const approvedOnMeta = isEdit && !!template.metaTemplateId && template.status === 'APPROVED';
+  const inReview = isEdit && !!template.metaTemplateId && template.status === 'PENDING';
   const comps = isEdit && Array.isArray(template.components) ? template.components : [];
   const findComp = (t) => comps.find(c => (c.type || '').toUpperCase() === t);
   const initialBody   = isEdit ? (findComp('BODY')?.text ?? '') : (seed?.body ?? '');
@@ -515,7 +519,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
   // What makes a template submittable differs by category: an authentication
   // template has no body to fill in — Meta writes it — so gating on one would
   // leave its Submit button permanently disabled.
-  const canSubmit = !saving && nameValid && (isAuth ? !!otpButtonLabel.trim() : !!body.trim());
+  const canSubmit = !saving && !inReview && nameValid && (isAuth ? !!otpButtonLabel.trim() : !!body.trim());
 
   const inputBase = {
     width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)',
@@ -619,7 +623,11 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
         <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
             <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{isEdit ? 'Edit Template' : 'New Message Template'}</p>
-            <p style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>{isEdit ? 'Changes to a rejected template are re-submitted to Meta.' : 'Will be submitted to Meta for review.'}</p>
+            <p style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>
+              {!isEdit ? 'Will be submitted to Meta for review.'
+                : approvedOnMeta ? 'Saving sends the new content to Meta for re-review. Name, language and category cannot change.'
+                : 'Changes are re-submitted to Meta for review.'}
+            </p>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
             <I n="x" s={18} c="var(--t2)" />
@@ -631,11 +639,16 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
           {err && (
             <div style={{ padding:'10px 13px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12, lineHeight:1.55 }}>{err}</div>
           )}
+          {inReview && (
+            <div style={{ padding:'10px 13px', borderRadius:8, background:'rgba(251,191,36,.06)', border:'1px solid rgba(251,191,36,.25)', color:'#fbbf24', fontSize:12, lineHeight:1.55 }}>
+              This template is in review with Meta and cannot be edited until it is approved or rejected.
+            </div>
+          )}
 
           {/* Name */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Template Name <span style={{ color:'#f87171' }}>*</span></label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="order_confirmation_v1" style={inputBase} />
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="order_confirmation_v1" disabled={approvedOnMeta} style={{ ...inputBase, ...(approvedOnMeta ? { opacity:.6 } : {}) }} />
             <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>
               Submits as <code style={{ fontFamily:'monospace', color:'var(--t2)' }}>{slug || '—'}</code>. Lowercase letters, numbers, underscores only.
             </p>
@@ -662,9 +675,9 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Category <span style={{ color:'#f87171' }}>*</span></label>
             <div className="rgrid-3" style={{ display:'grid', gridTemplateColumns:`repeat(${cats.length},1fr)`, gap:8 }} role="radiogroup" aria-label="Template category">
               {cats.map(c => (
-                <div key={c.id} onClick={() => setCategory(c.id)}
-                  tabIndex={0} role="radio" aria-checked={category === c.id}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCategory(c.id); } }}
+                <div key={c.id} onClick={() => { if (!approvedOnMeta) setCategory(c.id); }}
+                  tabIndex={0} role="radio" aria-checked={category === c.id} aria-disabled={approvedOnMeta}
+                  onKeyDown={e => { if (!approvedOnMeta && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setCategory(c.id); } }}
                   style={{ padding:'10px 12px', borderRadius:8, border:`1.5px solid ${category === c.id ? 'var(--green)' : 'var(--bd)'}`, background: category === c.id ? 'var(--gbg)' : 'rgba(255,255,255,0.02)', cursor:'pointer', outline:'none' }}
                   onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--green)'; }}
                   onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}>
@@ -705,8 +718,8 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
           {/* Language */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Language <span style={{ color:'#f87171' }}>*</span></label>
-            <select value={language} onChange={e => setLanguage(e.target.value)}
-              style={{ ...inputBase, appearance:'auto', colorScheme:'dark' }}>
+            <select value={language} onChange={e => setLanguage(e.target.value)} disabled={approvedOnMeta}
+              style={{ ...inputBase, appearance:'auto', colorScheme:'dark', ...(approvedOnMeta ? { opacity:.6 } : {}) }}>
               {langs.map(l => <option key={l.code} value={l.code}>{l.label} ({l.code})</option>)}
             </select>
           </div>

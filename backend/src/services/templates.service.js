@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { createMetaTemplate, deleteMetaTemplate, getWabaTemplates, uploadTemplateMedia } from '../lib/meta.js';
+import { createMetaTemplate, editMetaTemplate, deleteMetaTemplate, getWabaTemplates, uploadTemplateMedia } from '../lib/meta.js';
 import { decrypt } from '../lib/encryption.js';
 import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.js';
 import { normalizeTemplateComponents, detectTemplateType, toMetaComponents, preserveInternalFields } from '../lib/templateStructure.js';
@@ -301,19 +301,65 @@ export async function updateTemplate(workspaceId, id, updates) {
     updates.components = normalizeTemplateComponents(updates.category || template.category, updates.components);
   }
 
-  if (template.status === 'REJECTED' && (updates.components || updates.name)) {
-    // Resubmit against THIS template's own number, not "the newest number".
+  // The stored content is what campaigns build their sends from, so it must
+  // never drift from what Meta approved. Anything Meta has seen is either
+  // pushed to Meta first or refused with the reason.
+  // Components are compared as Meta sees them, so internal fields alone do
+  // not count as an edit.
+  const asSent = (key, value) => (key === 'components' ? toMetaComponents(value) : value);
+  const changed = (key) => updates[key] !== undefined
+    && JSON.stringify(asSent(key, updates[key])) !== JSON.stringify(asSent(key, template[key]));
+  const identityChanged = changed('name') || changed('language');
+  const contentChanged = changed('components') || changed('category');
+  const onMeta = (!!template.metaTemplateId && template.status !== 'DELETED') || template.status === 'REJECTED';
+
+  if (onMeta && (identityChanged || contentChanged)) {
+    const refuse = (message) => { const e = new Error(message); e.status = 409; e.expose = true; throw e; };
+    if (template.status === 'PENDING') {
+      refuse('This template is in review with Meta and cannot be edited until it is approved or rejected.');
+    }
+    if (template.status === 'APPROVED' && identityChanged) {
+      refuse('Meta does not allow renaming an approved template or changing its language. Create a new template instead.');
+    }
+    if (template.status === 'APPROVED' && changed('category')) {
+      refuse("Meta does not allow changing an approved template's category. Create a new template instead.");
+    }
+
+    // Against THIS template's own number, not "the newest number".
     const waNumber = template.waNumberId
       ? await prisma.waNumber.findFirst({ where: { id: template.waNumberId, workspaceId } })
       : await resolveWaNumber(workspaceId, null, { required: false });
-    if (waNumber) {
-      await createMetaTemplate(waNumber.wabaId, {
-        name: updates.name || template.name,
-        category: updates.category || template.category,
-        language: updates.language || template.language,
-        components: toMetaComponents(updates.components || template.components),
-      }, decrypt(waNumber.encryptedAccessToken)).catch(() => null);
+    if (!waNumber) refuse('The WhatsApp number this template belongs to is no longer connected, so the edit cannot be sent to Meta.');
+
+    const next = {
+      name: updates.name ?? template.name,
+      category: updates.category ?? template.category,
+      language: updates.language ?? template.language,
+      components: toMetaComponents(updates.components ?? template.components),
+    };
+    try {
+      const accessToken = decrypt(waNumber.encryptedAccessToken);
+      if (identityChanged || !template.metaTemplateId) {
+        // A rejected template under a new name or language is a new template
+        // on Meta's side.
+        const created = await createMetaTemplate(waNumber.wabaId, next, accessToken);
+        updates.metaTemplateId = created?.id ? String(created.id) : template.metaTemplateId;
+      } else {
+        await editMetaTemplate(template.metaTemplateId, {
+          components: next.components,
+          // Only a rejected template may change category.
+          ...(template.status === 'REJECTED' ? { category: next.category } : {}),
+        }, accessToken);
+      }
+    } catch (err) {
+      const m = err.response?.data?.error;
+      const reason = m ? `${m.message}${m.error_user_msg ? ' — ' + m.error_user_msg : ''} (code ${m.code}${m.error_subcode ? '/' + m.error_subcode : ''})` : err.message;
+      const e = new Error(`Meta did not accept the edit, so nothing was changed: ${reason}`);
+      e.status = err.response?.status && err.response.status < 500 ? 400 : 502;
+      e.expose = true;
+      throw e;
     }
+    // Meta re-reviews every edit; the webhook moves it on from here.
     updates.status = 'PENDING';
   }
   return prisma.template.update({ where: { id }, data: updates });
