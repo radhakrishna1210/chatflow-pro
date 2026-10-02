@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { validateSteps } from './sequenceEngine.service.js';
+import { normalizePhone } from './optout.service.js';
 
 const SEQUENCE_INCLUDE = {
   _count: { select: { enrollments: true } },
@@ -134,7 +135,7 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
     : [];
   const leadByContact = new Map(leadRows.map((l) => [l.contactId, l.id]));
 
-  const wanted = [...new Set([...contactIds, ...leadRows.map((l) => l.contactId)])];
+  const wanted = [...new Set([...contactIds, ...leadRows.map((l) => l.contactId).filter(Boolean)])];
   if (wanted.length === 0) {
     const e = new Error('Select at least one contact'); e.status = 400; throw e;
   }
@@ -151,47 +152,69 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
       where: { sequenceId, contactId: { in: wanted } },
       select: { contactId: true },
     }),
-    prisma.optOut.findMany({ where: { workspaceId }, select: { phoneNumber: true } }).catch(() => []),
+    // OptOut rows are stored as bare digits; only active rows block.
+    prisma.optOut.findMany({ where: { workspaceId, active: true }, select: { phoneNumber: true } }).catch(() => []),
   ]);
 
   const alreadyIn = new Set(existing.map((e) => e.contactId));
-  const blockedNumbers = new Set(blocked.map((b) => b.phoneNumber));
+  const blockedNumbers = new Set(blocked.map((b) => normalizePhone(b.phoneNumber)));
 
-  const enrolled = [];
   const skipped = [];
   const now = new Date();
+  const toCreate = [];
 
   for (const contact of contacts) {
     if (alreadyIn.has(contact.id)) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Already in this sequence' }); continue; }
     if (contact.optedOut) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Opted out' }); continue; }
-    if (blockedNumbers.has(contact.phoneNumber)) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Number is blocked' }); continue; }
+    if (blockedNumbers.has(normalizePhone(contact.phoneNumber))) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Number is blocked' }); continue; }
 
-    const created = await prisma.sequenceEnrollment.create({
-      data: {
-        workspaceId,
-        sequenceId,
-        contactId: contact.id,
-        leadId: leadByContact.get(contact.id) ?? null,
-        // The steps are snapshotted here, so editing the sequence later does
-        // not move this contact into a different cadence mid-flight.
-        steps: sequence.steps,
-        status: 'ACTIVE',
-        nextRunAt: now,
-      },
-      select: { id: true, contactId: true },
+    toCreate.push({
+      workspaceId,
+      sequenceId,
+      contactId: contact.id,
+      leadId: leadByContact.get(contact.id) ?? null,
+      // The steps are snapshotted here, so editing the sequence later does
+      // not move this contact into a different cadence mid-flight.
+      steps: sequence.steps,
+      status: 'ACTIVE',
+      nextRunAt: now,
     });
-    enrolled.push(created);
+  }
+
+  // One statement, duplicates skipped. A concurrent enrol of an overlapping
+  // set (a double-click, or the Sales Inbox and the Sequences view at once)
+  // used to hit the (sequenceId, contactId) unique key half-way through a
+  // row-by-row loop and 500 with part of the list enrolled.
+  const enrolled = toCreate.length
+    ? await prisma.sequenceEnrollment.createManyAndReturn({
+      data: toCreate,
+      skipDuplicates: true,
+      select: { id: true, contactId: true },
+    })
+    : [];
+  const createdFor = new Set(enrolled.map((e) => e.contactId));
+  for (const row of toCreate) {
+    if (!createdFor.has(row.contactId)) skipped.push({ contactId: row.contactId, reason: 'Already in this sequence' });
   }
 
   const missing = wanted.filter((id) => !contacts.some((c) => c.id === id));
   for (const id of missing) skipped.push({ contactId: id, reason: 'Contact not found in this workspace' });
+  const foundLeads = new Set(leadRows.map((l) => l.id));
+  for (const id of leadIds) {
+    if (!foundLeads.has(id)) skipped.push({ leadId: id, reason: 'Lead not found in this workspace' });
+  }
+  for (const lead of leadRows) {
+    if (!lead.contactId) skipped.push({ leadId: lead.id, reason: 'Lead has no contact to message' });
+  }
 
   return { enrolled: enrolled.length, skipped, enrollmentIds: enrolled.map((e) => e.id) };
 }
 
-export async function unenroll(workspaceId, enrollmentId, reason = 'Unenrolled manually') {
+// `sequenceId`, when given, must match: the route is
+// /sequences/:id/enrollments/:enrollmentId and used to ignore the :id.
+export async function unenroll(workspaceId, enrollmentId, reason = 'Unenrolled manually', { sequenceId } = {}) {
   const enrollment = await prisma.sequenceEnrollment.findFirst({
-    where: { id: enrollmentId, workspaceId }, select: { id: true, status: true },
+    where: { id: enrollmentId, workspaceId, ...(sequenceId ? { sequenceId } : {}) }, select: { id: true, status: true },
   });
   if (!enrollment) { const e = new Error('Enrollment not found'); e.status = 404; throw e; }
   if (['COMPLETED', 'EXITED'].includes(enrollment.status)) return enrollment;

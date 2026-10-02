@@ -610,25 +610,34 @@ export default function CrmSalesInboxView() {
     if (!selectedSequenceId || !enrollTarget) return;
     setEnrolling(true);
     try {
-      const payload = enrollTarget.type === 'lead'
-        ? { leadIds: [enrollTarget.leadId] }
-        : { leadIds: enrollTarget.leadIds };
+      const leadIds = enrollTarget.type === 'lead' ? [enrollTarget.leadId] : (enrollTarget.leadIds || []);
 
-      const res = await wFetch(`/sequences/${selectedSequenceId}/enroll`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || errData.message || 'Failed to enroll');
+      // The endpoint takes at most 1000 leads per request, so a large segment
+      // is sent in batches and the results are added up.
+      const BATCH = 1000;
+      let enrolled = 0;
+      let skipped = 0;
+      for (let i = 0; i < leadIds.length; i += BATCH) {
+        const res = await wFetch(`/sequences/${selectedSequenceId}/enroll`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ leadIds: leadIds.slice(i, i + BATCH) }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const done = enrolled ? ` (${enrolled} lead(s) were enrolled before this error)` : '';
+          throw new Error(`${errData.error || errData.message || 'Failed to enroll'}${done}`);
+        }
+        const resData = await res.json();
+        enrolled += resData.enrolled || 0;
+        skipped += Array.isArray(resData.skipped) ? resData.skipped.length : 0;
       }
 
-      const resData = await res.json();
       setShowEnrollModal(false);
       setSelectedSequenceId('');
-      alert(`Successfully enrolled ${resData.enrolled} lead(s) into the sequence!`);
+      alert(skipped
+        ? `Enrolled ${enrolled} lead(s); ${skipped} skipped (already enrolled, opted out, blocked or not found).`
+        : `Successfully enrolled ${enrolled} lead(s) into the sequence!`);
     } catch (err) {
       alert(`Sequence enrollment failed: ${err.message}`);
     } finally {
