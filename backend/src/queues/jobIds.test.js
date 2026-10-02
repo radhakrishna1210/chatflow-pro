@@ -1,54 +1,60 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Job } from 'bullmq';
+import {
+  workflowResumeJobId,
+  delayedResponseJobId,
+  replyReminderJobId,
+  sequenceAdvanceJobId,
+  sequenceFollowUpJobId,
+  retryJobId,
+} from './jobIds.js';
 
-// BullMQ validates custom job ids against its own Redis key names and rejects
-// several shapes with "Custom Id cannot contain :". A rejected id throws at
-// enqueue time, which — when the caller swallows the error — means the job
-// silently never runs.
-//
-// That is exactly what happened to the delayed-response automation: its id
-// began with `delayed`, colliding with BullMQ's own `<queue>:delayed` key, so
-// the feature never fired for anyone who enabled it.
-//
-// These are pure string checks so they run without Redis.
+// A rejected custom id throws at enqueue time, which — when the caller
+// swallows the error — means the job silently never runs. These tests run the
+// real builders through BullMQ's own validator (no Redis needed: the check is
+// synchronous and only reads the options), and additionally refuse any colon,
+// which BullMQ currently tolerates only through a legacy exception it has
+// marked for removal.
 
-const buildDelayedResponseId = (conversationId) => `dresp-${conversationId}`;
-const buildAdvanceId = (enrollmentId) => `advance-${enrollmentId}`;
+const stubQueue = { opts: {}, client: Promise.resolve(), toKey: (k) => k, keys: {} };
 
-// Words BullMQ uses for its own structures. An id starting with one of these
-// is the dangerous case.
-const RESERVED_PREFIXES = [
-  'delayed', 'wait', 'active', 'completed', 'failed', 'paused',
-  'repeat', 'meta', 'events', 'stalled', 'limiter', 'priority', 'id',
-];
+function bullmqAccepts(jobId) {
+  new Job(stubQueue, 'probe', {}, { jobId }).validateOptions({ data: '{}' });
+  return true;
+}
 
-const isSafeJobId = (jobId) => {
-  if (jobId.includes(':')) return false;
-  const head = jobId.split(/[-_]/)[0].toLowerCase();
-  return !RESERVED_PREFIXES.includes(head);
+const ALL_IDS = {
+  workflowResume: workflowResumeJobId('run_1', 3),
+  delayedResponse: delayedResponseJobId('conv_1'),
+  replyReminder: replyReminderJobId('run_1', 4),
+  sequenceAdvance: sequenceAdvanceJobId('enr_1'),
+  sequenceFollowUp: sequenceFollowUpJobId('enr_1', 1_700_000_000_000),
+  retry: retryJobId('rcp_1', 2),
 };
 
-test('the delayed-response job id no longer collides with a BullMQ key', () => {
-  const id = buildDelayedResponseId('conv123');
-  assert.ok(isSafeJobId(id), `"${id}" would be rejected by BullMQ`);
-  assert.ok(!id.startsWith('delayed'), 'the id must not begin with BullMQ\'s reserved "delayed" key');
+for (const [name, id] of Object.entries(ALL_IDS)) {
+  test(`${name} job id is accepted by BullMQ and has no colon`, () => {
+    assert.ok(bullmqAccepts(id));
+    assert.ok(!id.includes(':'), `"${id}" relies on BullMQ's legacy colon exception`);
+    assert.notEqual(`${parseInt(id, 10)}`, id);
+  });
+}
+
+test('the validator really rejects the shapes that used to break enqueueing', () => {
+  assert.throws(() => bullmqAccepts('delayed:conv123'), /cannot contain/);
+  assert.throws(() => bullmqAccepts('12345'), /integers/);
 });
 
-test('the sequence advance job id is safe', () => {
-  const id = buildAdvanceId('enr456');
-  assert.ok(isSafeJobId(id), `"${id}" would be rejected by BullMQ`);
+test('ids are deterministic per entity so a re-enqueue replaces rather than duplicates', () => {
+  assert.equal(sequenceAdvanceJobId('a'), sequenceAdvanceJobId('a'));
+  assert.notEqual(sequenceAdvanceJobId('a'), sequenceAdvanceJobId('b'));
+  assert.equal(workflowResumeJobId('r', 1), workflowResumeJobId('r', 1));
+  assert.notEqual(workflowResumeJobId('r', 1), workflowResumeJobId('r', 2));
+  assert.notEqual(retryJobId('x', 1), retryJobId('x', 2));
 });
 
-test('job ids stay unique per entity so a re-enqueue replaces rather than duplicates', () => {
-  assert.notEqual(buildAdvanceId('a'), buildAdvanceId('b'));
-  assert.equal(buildAdvanceId('a'), buildAdvanceId('a'));
-});
-
-test('the shapes that previously failed are recognised as unsafe', () => {
-  // Regression guards: these are the exact ids that threw.
-  assert.ok(!isSafeJobId('delayed:conv123'));
-  assert.ok(!isSafeJobId('advance:enr456'));
-  // A colon anywhere is treated as unsafe, which is the simplest rule that
-  // keeps every id out of trouble.
-  assert.ok(!isSafeJobId('resume:run123:2'));
+test('a sequence follow-up never reuses the id of the advance job that schedules it', () => {
+  assert.notEqual(sequenceFollowUpJobId('enr_1', Date.now()), sequenceAdvanceJobId('enr_1'));
+  assert.notEqual(sequenceFollowUpJobId('enr_1', 1000), sequenceFollowUpJobId('enr_1', 2000));
 });

@@ -1,12 +1,14 @@
 import { Queue } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createBullConnection, logRedisError } from '../lib/redis.js';
+import { workflowResumeJobId, delayedResponseJobId, replyReminderJobId } from './jobIds.js';
 
-// Carries three kinds of deferred automation work:
+// Carries four kinds of deferred automation work:
 //  - `resume`: a workflow run parked on a delay step
 //  - `reply-reminder`: a nudge for a customer who has not answered a
 //    wait_reply step within its `remindAfter`
 //  - `delayed-response`: the "Delayed Response Message" basic automation,
 //    which must check N minutes later whether a human ever replied
+//  - `sweep`: a repeating tick that recovers parked runs from the database
 export const workflowQueue = new Queue('workflows', {
   connection: createBullConnection('workflow-queue'),
   defaultJobOptions: {
@@ -17,10 +19,10 @@ export const workflowQueue = new Queue('workflows', {
   },
 });
 
-workflowQueue.on('error', () => {});
+workflowQueue.on('error', (err) => logRedisError('workflow-queue', err));
 
 // BullMQ refuses to add a job whose jobId already exists — including one that
-// has already completed but is still retained by removeOnComplete. Both helpers
+// has already completed but is still retained by removeOnComplete. The helpers
 // below therefore clear the previous job before re-adding, and keep nothing
 // after finishing, so an id can be reused on the next wave.
 async function addReplacing(name, jobId, data, delayMs) {
@@ -34,36 +36,38 @@ async function addReplacing(name, jobId, data, delayMs) {
   });
 }
 
-// BullMQ rejects a custom job id containing ':' — it is the delimiter in its own
-// Redis key scheme. Both ids below used colons, so every add() threw
-// "Custom Id cannot contain :" and was swallowed by the caller's catch: no
-// workflow ever resumed after a delay step, and the delayed-response auto-reply
-// never fired at all. '__' separates the parts instead.
-const jobKey = (...parts) => parts.join('__');
-
 // The cursor is part of the id because a workflow may park on several delay
 // steps; a run-only id would be silently rejected on the second delay and
 // strand the run in WAITING forever.
 export async function enqueueWorkflowResume(runId, cursor, delayMs) {
-  return addReplacing('resume', jobKey('resume', runId, cursor), { runId }, delayMs);
+  return addReplacing('resume', workflowResumeJobId(runId, cursor), { runId }, delayMs);
 }
 
 // One pending check per conversation — a customer sending five messages in a
 // row should not queue five delayed-response replies, and re-arming restarts
 // the timer from their latest message.
-//
-// The id must not begin with `delayed`: BullMQ keeps its own `<queue>:delayed`
-// key, and a custom id starting with that word is rejected outright
-// ("Custom Id cannot contain :"). This previously threw on every call, so the
-// delayed-response automation never actually fired — the error was swallowed
-// by the caller's try/catch in webhook.service.js and only logged.
 export async function enqueueDelayedResponseCheck(conversationId, delayMs) {
-  return addReplacing('delayed-response', jobKey('delayed', conversationId), { conversationId }, delayMs);
+  return addReplacing('delayed-response', delayedResponseJobId(conversationId), { conversationId }, delayMs);
 }
 
 // "Remind them if they haven't answered in 5 minutes" on a wait_reply step.
 // Keyed by run and cursor like a resume, so re-parking on the same step
 // replaces the timer rather than stacking a second reminder.
 export async function enqueueReplyReminder(runId, cursor, delayMs) {
-  return addReplacing('reply-reminder', jobKey('remind', runId, cursor), { runId, cursor }, delayMs);
+  return addReplacing('reply-reminder', replyReminderJobId(runId, cursor), { runId, cursor }, delayMs);
+}
+
+export const WORKFLOW_SWEEP_INTERVAL_MS = 60_000;
+
+// The delayed jobs above live only in Redis, which on this deployment has no
+// persistence. Each parked run also records its due time in
+// WorkflowRun.resumeAt, and this repeating sweep re-enqueues whatever is
+// overdue, so a Redis restart delays a follow-up instead of losing it.
+export async function startWorkflowSweep() {
+  return workflowQueue.add('sweep', {}, {
+    jobId: 'workflow-sweep',
+    repeat: { every: WORKFLOW_SWEEP_INTERVAL_MS },
+    removeOnComplete: true,
+    removeOnFail: true,
+  });
 }
