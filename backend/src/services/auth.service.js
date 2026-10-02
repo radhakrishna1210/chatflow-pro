@@ -7,6 +7,7 @@ import { queueWelcomeEmail, sendOtpEmailNow } from './email.service.js';
 import { consumeInvitationAtomically } from './invitations.service.js';
 import * as refreshTokens from './refreshTokens.js';
 import { redis } from '../lib/redis.js';
+import { revokeAllUserAccessTokens } from '../lib/tokenDenylist.js';
 
 function generateTokens(userId, workspaceId, role, superAdmin = false) {
   // The access token carries its own `jti` so signing out can revoke *this*
@@ -43,6 +44,15 @@ const REFRESH_TTL_MS = parseDurationMs(env.JWT_REFRESH_EXPIRES_IN, 7 * 86_400_00
 async function storeRefreshToken(userId, token, { workspaceId = null, familyId = null } = {}) {
   const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
   await refreshTokens.storeRefreshToken({ userId, token, expiresAt, workspaceId, familyId });
+}
+
+function assertNotDisabled(user) {
+  if (user?.disabledAt) {
+    const e = new Error('This account has been disabled. Contact support if you think this is a mistake.');
+    e.status = 403;
+    e.code = 'ACCOUNT_DISABLED';
+    throw e;
+  }
 }
 
 // Platform-level super admin, identified solely by the configured ADMIN_EMAIL.
@@ -128,6 +138,9 @@ export async function login({ email, password }) {
     err.status = 401;
     throw err;
   }
+  // Only after the password check, so a disabled account is not revealed to
+  // someone who does not know its password.
+  assertNotDisabled(user);
 
   // A user without a workspace is still allowed to log in — the client sends
   // them to workspace setup (create one, or wait for an invite).
@@ -194,6 +207,10 @@ export async function refresh(token) {
 
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
   if (!user) throw refreshRejected('User not found');
+  if (user.disabledAt) {
+    await refreshTokens.revokeFamily(stored).catch(() => {});
+    throw refreshRejected('This account has been disabled.', 'ACCOUNT_DISABLED');
+  }
 
   // Stay in the workspace the session was scoped to (switchWorkspace, invite
   // accept). Fall back to the earliest membership only when there is none on
@@ -288,6 +305,8 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
         include: { workspace: true },
         orderBy: { joinedAt: 'asc' },
       });
+
+  assertNotDisabled(user);
 
   const superAdmin = isPlatformAdmin(user.email);
   const role = joined?.role ?? member?.role ?? null;
@@ -661,6 +680,8 @@ export async function resetPassword({ email, code, newPassword }) {
   // Invalidate every existing session — a leaked/expired password shouldn't
   // leave old refresh tokens usable after a reset.
   await prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+  // A reset usually follows a suspected compromise: live access tokens go too.
+  await revokeAllUserAccessTokens(user.id, ACCESS_REVOKE_TTL_SEC);
 
   return { message: 'Password updated — please sign in with your new password.' };
 }
@@ -787,6 +808,39 @@ export async function impersonateUser(targetUserId, { impersonatorId } = {}) {
     user: { id: user.id, name: user.name, email: user.email, role: member?.role ?? null, superAdmin: false },
     workspace,
   };
+}
+
+// ─── Incident response ─────────────────────────────────────────────────────────
+
+// Long enough to outlive any access token we issue, impersonation included.
+const ACCESS_REVOKE_TTL_SEC = Math.max(
+  Math.ceil(parseDurationMs(env.JWT_EXPIRES_IN, 15 * 60_000) / 1000),
+  IMPERSONATION_TTL_SEC,
+) + 60;
+
+// Ends every session the user has: refresh tokens are deleted and every access
+// token issued before now is refused.
+export async function signOutEverywhere(userId) {
+  const { count } = await prisma.refreshToken.deleteMany({ where: { userId, rotatedAt: null } });
+  await prisma.refreshToken.deleteMany({ where: { userId } });
+  await revokeAllUserAccessTokens(userId, ACCESS_REVOKE_TTL_SEC);
+  return { revokedSessions: count };
+}
+
+// Disabling also signs the user out everywhere; enabling just lifts the lock.
+export async function setUserDisabled(userId, disabled) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+  if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
+  if (disabled && isPlatformAdmin(user.email)) {
+    const e = new Error('The platform admin account cannot be disabled'); e.status = 400; throw e;
+  }
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { disabledAt: disabled ? new Date() : null },
+    select: { id: true, email: true, disabledAt: true },
+  });
+  const signedOut = disabled ? await signOutEverywhere(userId) : { revokedSessions: 0 };
+  return { ...updated, ...signedOut };
 }
 
 export async function listMyWorkspaces(userId) {

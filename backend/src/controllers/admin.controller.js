@@ -251,6 +251,27 @@ export async function impersonateUser(req, res) {
   res.json(result);
 }
 
+// Incident response: end every session a user has, or lock the account.
+export async function signOutUser(req, res) {
+  const result = await authService.signOutEverywhere(req.params.id);
+  await recordFor(req, {
+    action: 'user.sign_out_everywhere', targetType: 'user', targetLabel: req.params.id,
+    meta: { userId: req.params.id, ...result },
+  });
+  res.json(result);
+}
+
+export async function setUserDisabled(req, res) {
+  const disabled = req.body?.disabled === true;
+  const result = await authService.setUserDisabled(req.params.id, disabled);
+  await recordFor(req, {
+    action: disabled ? 'user.disable' : 'user.enable', targetType: 'user',
+    targetLabel: result?.email || req.params.id,
+    meta: { userId: req.params.id, revokedSessions: result?.revokedSessions ?? 0 },
+  });
+  res.json(result);
+}
+
 // ─── Plan management ──────────────────────────────────────────
 export async function listPlans(req, res) {
   res.json({ plans: await adminService.listAllPlans(), knownFeatures: adminService.KNOWN_FEATURE_FLAGS });

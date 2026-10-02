@@ -196,3 +196,15 @@ test('impersonation mints a short, marked access token and no refresh token', as
 test('impersonation requires the impersonator', async () => {
   await assert.rejects(auth.impersonateUser('u1'), (e) => e.status === 400);
 });
+
+test('a disabled account cannot refresh and its family is revoked', async () => {
+  const token = mintRefresh();
+  await store.storeRefreshToken({ userId: 'u1', token, expiresAt: future() });
+  users[0].disabledAt = new Date();
+  try {
+    await assert.rejects(auth.refresh(token), (e) => e.status === 401 && e.code === 'ACCOUNT_DISABLED');
+    assert.equal(rows.length, 0);
+  } finally {
+    users[0].disabledAt = null;
+  }
+});

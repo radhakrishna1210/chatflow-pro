@@ -52,10 +52,10 @@ export async function authenticate(req, res, next) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
-  // Signing out revokes the access token by jti (lib/tokenDenylist.js). A valid
-  // signature is no longer sufficient on its own — the token must also not have
-  // been handed back.
-  if (await isAccessTokenRevoked(payload.jti)) {
+  // Signing out revokes the access token by jti, and disabling an account or
+  // "sign out everywhere" revokes every token the user held (lib/tokenDenylist.js).
+  // A valid signature is no longer sufficient on its own.
+  if (await isAccessTokenRevoked(payload.jti, { userId: payload.sub, iat: payload.iat })) {
     return res.status(401).json({ error: 'Session ended. Please sign in again.' });
   }
 
