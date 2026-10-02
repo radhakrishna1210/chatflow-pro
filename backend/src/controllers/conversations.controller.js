@@ -115,11 +115,3 @@ export function assign(req, res) {
 export function setStatus(req, res) {
   return handle(res, () => conversationsService.setConversationStatus(req.params.workspaceId, req.params.id, req.body?.status), 'Failed to update the conversation');
 }
-
-export function reopenWindow(req, res) {
-  return handle(res, () => conversationsService.reopenWindow(req.params.workspaceId, req.params.id), 'Failed to reopen 24h window');
-}
-
-export function simulateInbound(req, res) {
-  return handle(res, () => conversationsService.simulateInboundMessage(req.params.workspaceId, req.params.id, req.body || {}), 'Failed to simulate inbound message');
-}
