@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { findMatchingTrigger } from './automation.service.js';
 import { matchIntent, generateAgentReply } from './aiAgent.service.js';
@@ -18,6 +19,14 @@ import { routeByIntent, escalateToHuman, escalationReason } from './intentRoutin
 import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPLIES } from './conversationControl.service.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
+
+// A failure of the database itself (connection, timeout, constraint), as
+// opposed to a bug in the query or the code around it.
+function isPrismaError(err) {
+  return err instanceof Prisma.PrismaClientKnownRequestError
+    || err instanceof Prisma.PrismaClientUnknownRequestError
+    || err instanceof Prisma.PrismaClientInitializationError;
+}
 
 export async function processWebhook(body) {
   const entries = body?.entry || [];
@@ -351,21 +360,25 @@ async function handleInboundMessage(value, msg) {
   // Attribute only when Meta provides exact evidence: the CTA payload or an
   // explicit reply context pointing at an outbound campaign message. Generic
   // inbound messages have no reliable campaign identity and stay unlinked.
+  const workspaceId = waNumber.workspaceId;
   const payloadRecipientId = parseCampaignCtaPayload(buttonPayload);
+  const quotedMessageId = msg.context?.id || null;
   let campaignRecipient = null;
-  try {
-    campaignRecipient = await prisma.campaignRecipient.findFirst({
-      where: payloadRecipientId
-        ? { id: payloadRecipientId, contactId: contact.id, campaign: { workspaceId, waNumberId: waNumber.id } }
-        : msg.context?.id
-          ? { contactId: contact.id, campaign: { workspaceId, waNumberId: waNumber.id }, messages: { some: { metaMessageId: msg.context.id } } }
-          : { id: '__no_campaign_attribution__' },
-      select: { id: true },
-    });
-  } catch (error) {
-    // Attribution is optional analytics metadata; never reject a valid webhook
-    // delivery because this lookup is unavailable.
-    console.error('[Inbound] Campaign attribution lookup failed:', error.message);
+  if (payloadRecipientId || quotedMessageId) {
+    try {
+      campaignRecipient = await prisma.campaignRecipient.findFirst({
+        where: payloadRecipientId
+          ? { id: payloadRecipientId, contactId: contact.id, campaign: { workspaceId, waNumberId: waNumber.id } }
+          : { contactId: contact.id, campaign: { workspaceId, waNumberId: waNumber.id }, messages: { some: { metaMessageId: quotedMessageId } } },
+        select: { id: true },
+      });
+    } catch (error) {
+      // Attribution is optional analytics metadata: a database error here must
+      // not cost the customer's message. A bug in this code is not that, so it
+      // is rethrown rather than hidden behind a log line.
+      if (!isPrismaError(error)) throw error;
+      console.error(`[Inbound] Campaign attribution lookup failed for ${msg.id}:`, error);
+    }
   }
   try {
     await prisma.message.create({
@@ -406,8 +419,6 @@ async function handleInboundMessage(value, msg) {
       lastInboundAt: sentAt,
     },
   });
-
-  const workspaceId = waNumber.workspaceId;
 
   // Immediately exit active sequence cadences with exitOnReply enabled
   await prisma.sequenceEnrollment.updateMany({
