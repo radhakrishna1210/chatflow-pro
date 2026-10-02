@@ -137,6 +137,11 @@ export async function updateDeal(workspaceId, id, updates, user = null) {
   await assertRecordReferences(workspaceId, { ownerUserId: updates.ownerUserId, contactId: updates.contactId });
 
   const data = { ...updates };
+  // An itemised deal's value is the sum of its lines (dealLineItems.service.js);
+  // a hand-typed figure would contradict them.
+  if (data.value !== undefined && await prisma.dealLineItem.count({ where: { workspaceId, dealId: id } }) > 0) {
+    delete data.value;
+  }
   const customFields = await validateCrmCustomFields(workspaceId, 'deal', updates.customFields, deal.customFields);
   if (customFields === undefined) delete data.customFields;
   else data.customFields = customFields;
