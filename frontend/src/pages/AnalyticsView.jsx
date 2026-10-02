@@ -293,17 +293,19 @@ export default function AnalyticsView() {
                   <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:38, color:'var(--lime)', letterSpacing:'-.03em', lineHeight:1 }}>
                     {perf.resolution.byAi.pct}%
                   </div>
-                  <div style={{ fontSize:12, color:'var(--t2)', marginTop:6 }}>closed without a person</div>
+                  <div style={{ fontSize:12, color:'var(--t2)', marginTop:6 }}>answered by automation only</div>
                 </div>
                 <div style={{ display:'flex', height:9, borderRadius:9, overflow:'hidden', marginBottom:14 }}>
                   <div style={{ width:`${perf.resolution.byAi.pct}%`, background:'var(--lime)' }} />
                   <div style={{ width:`${perf.resolution.byHuman.pct}%`, background:'var(--violet)' }} />
+                  <div style={{ width:`${perf.resolution.noReply?.pct ?? 0}%`, background:'rgba(248,113,113,0.55)' }} />
                   <div style={{ width:`${perf.resolution.open.pct}%`, background:'rgba(255,255,255,0.18)' }} />
                 </div>
                 <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
                   {[
-                    ['Resolved without a person', perf.resolution.byAi, 'var(--lime)'],
+                    ['Answered by automation only', perf.resolution.byAi, 'var(--lime)'],
                     ['Handled by a teammate', perf.resolution.byHuman, 'var(--violet)'],
+                    ['Closed with no reply', perf.resolution.noReply ?? { count: 0 }, 'rgba(248,113,113,0.8)'],
                     ['Still open', perf.resolution.open, 'rgba(255,255,255,0.45)'],
                   ].map(([label, value, colour]) => (
                     <div key={label} style={{ display:'flex', alignItems:'center', gap:9 }}>
@@ -322,7 +324,7 @@ export default function AnalyticsView() {
         {topics && topics.length > 0 && (
           <div style={{ ...card, padding:'20px 22px' }}>
             <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:4 }}>What customers ask about</h3>
-            <p style={{ fontSize:12, color:'var(--t2)', marginBottom:16 }}>Inbound messages over the last 30 days, clustered by topic</p>
+            <p style={{ fontSize:12, color:'var(--t2)', marginBottom:16 }}>Inbound messages in this range, grouped by keyword match (not AI)</p>
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
               {topics.slice(0, 6).map(t => (
                 <div key={t.name} style={{ display:'flex', alignItems:'center', gap:12 }}>

@@ -308,7 +308,7 @@ export default function ChatAnalytics({ workspaceId }) {
                 <SectionTitle
                   title="Topics customers raise"
                   sub={insights
-                    ? `${fmt(insights.analysed)} inbound messages · clustered by ${insights.clusteredBy === 'intents' ? 'your intent rules' : 'the default taxonomy'}`
+                    ? `${fmt(insights.analysed)} inbound messages · keyword-matched to ${insights.clusteredBy === 'intents' ? 'your intent rules' : 'the default taxonomy'}`
                     : 'Reading conversations…'}
                 />
                 {!insights && <p style={{ fontSize: 12.5, color: 'var(--t3)' }}>Loading…</p>}
@@ -343,7 +343,7 @@ export default function ChatAnalytics({ workspaceId }) {
 
               {/* ── Sentiment ── */}
               <div style={{ ...card, padding: '20px 22px' }}>
-                <SectionTitle title="Sentiment mix" sub="Inbound messages, by tone" />
+                <SectionTitle title="Sentiment mix" sub="Inbound messages, estimated from positive/negative keywords (not AI)" />
                 {!insights && <p style={{ fontSize: 12.5, color: 'var(--t3)' }}>Loading…</p>}
                 {insights && insights.sentiment.total === 0 && (
                   <p style={{ fontSize: 12.5, color: 'var(--t3)' }}>Nothing to read yet.</p>
