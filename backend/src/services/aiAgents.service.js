@@ -3,6 +3,7 @@ import { updateLead } from './leads.service.js';
 import { createTask } from './tasks.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
+import { escalateToHuman } from './intentRouting.service.js';
 
 // Pre-configured default agent templates matching user's reference specification
 const DEFAULT_AGENTS = [
@@ -143,15 +144,24 @@ export async function listAgents(workspaceId) {
   });
 }
 
+// The author recorded on the SavedView row. The controllers always pass the
+// acting user; without one the row is attributed to one of this workspace's
+// admins — never to a user from another tenant.
 async function resolveUserId(workspaceId, explicitUserId) {
   if (explicitUserId) return explicitUserId;
-  const member = await prisma.workspaceMember.findFirst({
-    where: { workspaceId },
+  const admin = await prisma.workspaceMember.findFirst({
+    where: { workspaceId, role: 'ADMIN' },
+    orderBy: { joinedAt: 'asc' },
     select: { userId: true },
   });
-  if (member?.userId) return member.userId;
-  const user = await prisma.user.findFirst({ select: { id: true } });
-  return user?.id || null;
+  if (admin?.userId) return admin.userId;
+  throw httpError(400, 'A workspace user is required to save this.');
+}
+
+function httpError(status, message) {
+  const e = new Error(message);
+  e.status = status;
+  return e;
 }
 
 /**
@@ -231,7 +241,7 @@ export async function updateAgent(workspaceId, agentId, patch, userId) {
     where: { id: agentId, workspaceId, entity: 'ai_agent' },
   });
   if (!existing) {
-    throw new Error('Agent not found');
+    throw httpError(404, 'Agent not found');
   }
 
   const currentFilters = typeof existing.filters === 'object' && existing.filters !== null ? existing.filters : {};
@@ -299,26 +309,42 @@ export function listActions() {
   return ACTION_REGISTRY;
 }
 
+// Every id an action receives comes from the caller, so each one is resolved
+// inside this workspace before anything is written against it.
+async function scopedLead(workspaceId, leadId) {
+  const lead = await prisma.lead.findFirst({ where: { id: leadId, workspaceId }, select: { id: true, contactId: true } });
+  if (!lead) throw httpError(404, 'Lead not found');
+  return lead;
+}
+
+async function scopedContactId(workspaceId, contactId) {
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { id: true } });
+  if (!contact) throw httpError(404, 'Contact not found');
+  return contact.id;
+}
+
 /**
  * Execute an AI Action Tool against the CRM
  */
-export async function executeAction(workspaceId, actionId, params = {}) {
-  const { leadId, contactId, userId, note, dueInDays } = params;
+export async function executeAction(workspaceId, actionId, params = {}, user = null) {
+  const { leadId, contactId, conversationId, assignedToUserId, note, dueInDays, title } = params;
 
   switch (actionId) {
     case 'crm.qualify_lead': {
-      if (!leadId) throw new Error('leadId is required to qualify lead');
-      const updated = await updateLead(leadId, workspaceId, {
+      if (!leadId) throw httpError(400, 'leadId is required to qualify lead');
+      // updateLead resolves the lead inside this workspace (and the acting
+      // user's record scope), so a foreign id is a 404 here.
+      const updated = await updateLead(workspaceId, leadId, {
         status: 'QUALIFIED',
         score: 85,
         category: 'HOT',
-      });
-      // Log activity
+      }, user);
       await prisma.crmActivity.create({
         data: {
           workspaceId,
-          leadId,
+          leadId: updated.id,
           contactId: updated.contactId,
+          createdByUserId: user?.id ?? null,
           type: 'NOTE',
           content: `[AI Agent Action] Automatically qualified lead based on screening criteria. Score adjusted to 85 (HOT).`,
         },
@@ -327,30 +353,36 @@ export async function executeAction(workspaceId, actionId, params = {}) {
     }
 
     case 'crm.assign_rep': {
-      if (!leadId) throw new Error('leadId is required to assign rep');
-      const assigned = await evaluateAndAssignLead(workspaceId, leadId);
+      if (!leadId) throw httpError(400, 'leadId is required to assign rep');
+      const lead = await scopedLead(workspaceId, leadId);
+      const assigned = await evaluateAndAssignLead(workspaceId, lead.id);
       return { success: true, assignment: assigned };
     }
 
     case 'crm.create_task': {
+      // createTask checks that the lead, contact and assignee belong to this
+      // workspace before writing.
       const task = await createTask(workspaceId, {
-        title: params.title || 'Follow up with qualified prospect',
+        title: title || 'Follow up with qualified prospect',
         description: note || 'AI Agent scheduled follow up based on customer interest',
         dueDate: new Date(Date.now() + (dueInDays || 1) * 86400000).toISOString(),
         leadId,
         contactId,
-        assignedToUserId: userId,
-      });
+        assignedToUserId,
+      }, user?.id);
       return { success: true, task };
     }
 
     case 'crm.book_meeting': {
-      if (!leadId) throw new Error('leadId is required');
+      if (!leadId) throw httpError(400, 'leadId is required');
+      const lead = await scopedLead(workspaceId, leadId);
+      const activityContactId = contactId ? await scopedContactId(workspaceId, contactId) : lead.contactId;
       const act = await prisma.crmActivity.create({
         data: {
           workspaceId,
-          leadId,
-          contactId,
+          leadId: lead.id,
+          contactId: activityContactId,
+          createdByUserId: user?.id ?? null,
           type: 'MEETING',
           content: `[AI Meeting Booked] ${note || 'Introductory consultation scheduled with partner team.'}`,
         },
@@ -359,17 +391,26 @@ export async function executeAction(workspaceId, actionId, params = {}) {
     }
 
     case 'crm.escalate_human': {
-      if (contactId) {
-        await prisma.conversation.updateMany({
-          where: { workspaceId, contactId },
-          data: { updatedAt: new Date() },
-        });
-      }
-      return { success: true, message: 'Escalated to human rep in CRM Sales Inbox' };
+      if (!conversationId && !contactId) throw httpError(400, 'conversationId or contactId is required');
+      const conversation = await prisma.conversation.findFirst({
+        where: conversationId ? { id: conversationId, workspaceId } : { contactId, workspaceId },
+        orderBy: { lastMessageAt: 'desc' },
+        select: { id: true, contact: { select: { id: true, name: true, phoneNumber: true } } },
+      });
+      if (!conversation) throw httpError(404, 'Conversation not found');
+      // The same handoff the live WhatsApp agent uses: reopens the thread
+      // unassigned, stops automation on it and notifies the workspace.
+      await escalateToHuman({
+        workspaceId,
+        conversationId: conversation.id,
+        contact: conversation.contact,
+        reason: note || 'Escalated by an AI agent action',
+      });
+      return { success: true, conversationId: conversation.id, message: 'Conversation handed to a human in the inbox' };
     }
 
     default:
-      throw new Error(`Unknown action: ${actionId}`);
+      throw httpError(400, `Unknown action: ${actionId}`);
   }
 }
 
