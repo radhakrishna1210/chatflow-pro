@@ -1,7 +1,12 @@
 import { prisma } from '../src/lib/prisma.js';
 
-// Keep in sync with initializeSubscriptions() in src/server.js — that list is
-// upserted on every boot, so a change made only here would be overwritten.
+// Keep in sync with initializeSubscriptions() in src/server.js, which creates
+// missing plans on boot but never overwrites existing ones.
+//
+// By default this also only creates missing plans, so super-admin edits made
+// from the admin screen survive. `--force` overwrites every field of the
+// plans below with these values.
+const FORCE = process.argv.includes('--force');
 const PLANS = [
   {
     key: 'FREE',
@@ -72,11 +77,11 @@ async function main() {
     const { key, ...data } = plan;
     const result = await prisma.plan.upsert({
       where: { key },
-      update: data,
+      update: FORCE ? data : {},
       create: { key, ...data },
     });
     planByKey.set(result.key, result);
-    console.log(`Upserted plan: ${result.key}`);
+    console.log(`${FORCE ? 'Overwrote' : 'Ensured'} plan: ${result.key}`);
   }
 
   // Deactivated rather than deleted: Subscription.planId still references
