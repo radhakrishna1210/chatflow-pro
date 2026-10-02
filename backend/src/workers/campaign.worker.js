@@ -341,6 +341,34 @@ if (isAuthenticationCampaign(campaign)) {
   }
 }
 
+// Ends a campaign that cannot be sent. Never overwrites a CANCELLED/COMPLETED
+// one. A campaign that died before sending (a disconnected number, an expired
+// token) has already taken the money, so everything that never went out is
+// given back — otherwise FAILED is a dead end with no refund path, since
+// cancel() refuses terminal campaigns.
+async function failCampaign(campaignId, message) {
+  const res = await prisma.campaign.updateMany({
+    where: { id: campaignId, status: { in: ['RUNNING', 'SCHEDULED', 'DRAFT'] } },
+    data: { status: 'FAILED' },
+  });
+  if (res.count === 0) return;
+  console.error(`[CampaignWorker] Campaign ${campaignId} failed: ${message}`);
+
+  const failed = await prisma.campaign.findUnique({ where: { id: campaignId } }).catch(() => null);
+  if (!failed) return;
+  await settleCampaignRefund(failed.id, 'Refund for failed campaign').catch((e) =>
+    console.error(`[Campaign] Settlement failed for ${failed.id}:`, e.message));
+
+  queueCampaignFailedEmail(failed).catch(() => {});
+  notifyWorkspace(failed.workspaceId, {
+    type: 'CAMPAIGN_FAILED',
+    title: `Campaign "${failed.name}" failed`,
+    body: message,
+    link: 'campaigns',
+    meta: { campaignId: failed.id },
+  }).catch(() => {});
+}
+
 async function processCampaign(job) {
   if (job.name === 'retry-recipient' || job.data?.type === 'retry') {
     await processRetryJob(job);
@@ -367,10 +395,21 @@ async function processCampaign(job) {
     console.log(`[CampaignWorker] Campaign ${campaignId} is ${campaign.status} — skipping`);
     return;
   }
+  // Both are permanent: retrying the job cannot fix them, and a retry that
+  // found the campaign already FAILED used to return quietly, so the refund
+  // in the final-attempt handler never ran.
   if (!campaign.waNumber) {
-    await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'FAILED' } });
-    throw new Error(`Campaign ${campaignId} has no WhatsApp number`);
+    await failCampaign(campaignId, `Campaign ${campaignId} has no WhatsApp number`);
+    return;
   }
+  let accessToken;
+  try {
+    accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
+  } catch {
+    await failCampaign(campaignId, 'The WhatsApp access token for this number could not be read — reconnect the number in Number Setup, then relaunch.');
+    return;
+  }
+  const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
 
   // Atomic status guard: only transition to RUNNING if the campaign wasn't
   // cancelled or paused in the meantime (closes the cancel race with getJobs()).
@@ -379,24 +418,27 @@ async function processCampaign(job) {
     data: { status: 'RUNNING', launchedAt: campaign.launchedAt || new Date() },
   });
   if (claimed.count === 0) {
-    // RUNNING is deliberately *not* claimable above. It used to be, which meant
-    // two deliveries of the same job (a stalled worker being redelivered, a
-    // double launch) could both claim it and both iterate the same PENDING
-    // recipients — sending every message twice. A resume is the one legitimate
-    // way back into RUNNING, and it comes through resumeCampaign().
-    const current = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
-    if (current?.status === 'RUNNING' && !job.data?.resume) {
-      console.warn(`[CampaignWorker] Campaign ${campaignId} is already being sent by another job — refusing to send it twice.`);
-      return;
-    }
+    // RUNNING is deliberately not claimable above, so an unrelated second job
+    // (a double launch) cannot start another loop over the same recipients.
+    // Re-entry is legitimate for a resume or recovery job (flagged `resume`)
+    // and for a redelivery of the very job that owns the campaign — a stalled
+    // worker, or BullMQ's own retry after a throw mid-run. Without the latter
+    // the retry returned "success" and the campaign stayed RUNNING forever.
+    // Each recipient is still claimed PENDING -> SENDING before it is sent,
+    // which is what actually rules out a double send.
+    const current = await prisma.campaign.findUnique({
+      where: { id: campaignId }, select: { status: true, queueJobId: true },
+    });
     if (current?.status !== 'RUNNING') {
       console.log(`[CampaignWorker] Campaign ${campaignId} could not be claimed (${current?.status}) — skipping`);
       return;
     }
+    const ownsCampaign = Boolean(current.queueJobId) && String(job.id) === current.queueJobId;
+    if (!job.data?.resume && !ownsCampaign) {
+      console.warn(`[CampaignWorker] Campaign ${campaignId} is already being sent by another job — refusing to send it twice.`);
+      return;
+    }
   }
-
-  const accessToken = decrypt(campaign.waNumber.encryptedAccessToken);
-  const phoneNumberId = campaign.waNumber.metaPhoneNumberId;
 
   const recipients = await prisma.campaignRecipient.findMany({
     where: { campaignId, status: 'PENDING' },
@@ -649,34 +691,13 @@ export function startCampaignWorker() {
   worker.on('completed', (job) => console.log(`[CampaignWorker] Job ${job.id} completed`));
   worker.on('failed', async (job, err) => {
     console.error(`[CampaignWorker] Job ${job?.id} failed:`, err.message);
-    // Only flag FAILED after the final attempt, and never overwrite a
-    // CANCELLED/COMPLETED campaign.
+    // Only flag FAILED after the final attempt of a main send job. A retry
+    // job failing is one recipient's problem, never the whole campaign's.
     const isFinalAttempt = job && job.attemptsMade >= (job.opts?.attempts ?? 1);
-    if (isFinalAttempt && job?.data?.campaignId) {
-      const res = await prisma.campaign.updateMany({
-        where: { id: job.data.campaignId, status: { in: ['RUNNING', 'SCHEDULED', 'DRAFT'] } },
-        data: { status: 'FAILED' },
-      }).catch(() => null);
-      if (res?.count > 0) {
-        const failed = await prisma.campaign.findUnique({ where: { id: job.data.campaignId } }).catch(() => null);
-        if (failed) {
-          // A campaign that died before sending (a disconnected number, an
-          // expired token) has already taken the money. Give back everything
-          // that never went out — otherwise a FAILED campaign is a dead end
-          // with no refund path, since cancel() refuses terminal campaigns.
-          await settleCampaignRefund(failed.id, 'Refund for failed campaign').catch((e) =>
-            console.error(`[Campaign] Settlement failed for ${failed.id}:`, e.message));
-
-          queueCampaignFailedEmail(failed).catch(() => {});
-          notifyWorkspace(failed.workspaceId, {
-            type: 'CAMPAIGN_FAILED',
-            title: `Campaign "${failed.name}" failed`,
-            body: err.message,
-            link: 'campaigns',
-            meta: { campaignId: failed.id },
-          }).catch(() => {});
-        }
-      }
+    const isSendJob = job?.name === 'send-campaign' && job?.data?.type !== 'retry';
+    if (isFinalAttempt && isSendJob && job?.data?.campaignId) {
+      await failCampaign(job.data.campaignId, err.message).catch((e) =>
+        console.error(`[CampaignWorker] Could not mark ${job.data.campaignId} failed:`, e.message));
     }
   });
 

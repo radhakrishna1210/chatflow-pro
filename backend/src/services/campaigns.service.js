@@ -1001,7 +1001,13 @@ export async function pauseCampaign(workspaceId, campaignId) {
     e.status = 400; throw e;
   }
 
-  await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'PAUSED' } });
+  const claimed = await prisma.campaign.updateMany({
+    where: { id: campaignId, workspaceId, status: { in: ['RUNNING', 'SCHEDULED'] } },
+    data: { status: 'PAUSED' },
+  });
+  if (claimed.count === 0) {
+    const e = new Error('This campaign changed state while it was being paused — refresh and try again.'); e.status = 409; throw e;
+  }
   if (String(campaign.template?.category || '').toUpperCase() === 'AUTHENTICATION') {
     await prisma.campaignRecipient.updateMany({
       where: { campaignId, status: 'RETRYING' },
@@ -1032,21 +1038,60 @@ export async function resumeCampaign(workspaceId, campaignId) {
   }
 
   const remaining = await prisma.campaignRecipient.count({ where: { campaignId, status: 'PENDING' } });
-  if (remaining === 0) {
-    await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'COMPLETED', completedAt: new Date() } });
-    return { ok: true, status: 'COMPLETED', remaining: 0 };
-  }
 
   // The template can have been rejected by Meta while the campaign sat paused.
-  const template = await prisma.template.findUnique({ where: { id: campaign.templateId } });
-  assertTemplateSendable(template);
+  if (remaining > 0) {
+    const template = await prisma.template.findUnique({ where: { id: campaign.templateId } });
+    assertTemplateSendable(template);
+  }
 
-  await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'RUNNING' } });
-  const isAuthentication = String(template?.category || '').toUpperCase() === 'AUTHENTICATION';
-  const job = await campaignQueue.add(
-    'send-campaign',
-    isAuthentication ? { campaignId, workspaceId, resume: true } : { campaignId, workspaceId },
-  );
+  // A campaign paused before its scheduled time goes back to waiting for it.
+  const delay = !campaign.launchedAt && campaign.scheduledAt
+    ? Math.max(0, campaign.scheduledAt.getTime() - Date.now())
+    : 0;
+  const nextStatus = delay > 0 && remaining > 0 ? 'SCHEDULED' : 'RUNNING';
+
+  // Atomic, so two resume clicks cannot both start a send loop.
+  const claimed = await prisma.campaign.updateMany({
+    where: { id: campaignId, workspaceId, status: 'PAUSED' },
+    data: { status: nextStatus },
+  });
+  if (claimed.count === 0) {
+    const e = new Error('This campaign is no longer paused.'); e.status = 409; throw e;
+  }
+
+  if (nextStatus === 'SCHEDULED') {
+    let job;
+    try {
+      job = await campaignQueue.add('send-campaign', { campaignId, workspaceId }, { delay });
+    } catch (err) {
+      await prisma.campaign.updateMany({ where: { id: campaignId, status: 'SCHEDULED' }, data: { status: 'PAUSED' } });
+      throw err;
+    }
+    await prisma.campaign.update({ where: { id: campaignId }, data: { queueJobId: String(job.id) } });
+    return { ok: true, status: 'SCHEDULED', remaining };
+  }
+
+  if (remaining === 0) {
+    // Nothing left for the main loop. Completing through the normal path
+    // (rather than writing COMPLETED here) reconciles the counters and
+    // settles the unspent reservation.
+    const { checkAndCompleteCampaign } = await import('./retry.service.js');
+    const completed = await checkAndCompleteCampaign(campaignId);
+    return { ok: true, status: completed ? 'COMPLETED' : 'RUNNING', remaining: 0 };
+  }
+
+  // Every resume carries `resume: true`. The worker's claim only accepts
+  // DRAFT/SCHEDULED, so without the flag it treated the job as a duplicate of
+  // a run already in progress and silently dropped it, leaving the campaign
+  // RUNNING with nothing sending.
+  let job;
+  try {
+    job = await campaignQueue.add('send-campaign', { campaignId, workspaceId, resume: true });
+  } catch (err) {
+    await prisma.campaign.updateMany({ where: { id: campaignId, status: 'RUNNING' }, data: { status: 'PAUSED' } });
+    throw err;
+  }
   await prisma.campaign.update({ where: { id: campaignId }, data: { queueJobId: String(job.id) } });
 
   return { ok: true, status: 'RUNNING', remaining };
