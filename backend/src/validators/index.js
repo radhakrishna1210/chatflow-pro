@@ -421,6 +421,8 @@ export const settingsSchemas = {
     timezone: z.string().trim().min(1).max(64).optional(),
     brandColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Use a 6-digit hex colour').optional(),
     brandLogoUrl: z.union([z.string().trim().url().max(500), z.literal('')]).optional(),
+    // Settings -> lead capture: create a lead when a contact replies to a campaign.
+    autoLeadFromReply: z.boolean().optional(),
   }),
 };
 
@@ -863,6 +865,50 @@ export const savedViewSchemas = {
     filters: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
     isShared: z.boolean().optional(),
   }).strict(),
+};
+
+// CRM custom reports. Status and stage stay free strings (max 50) because
+// custom lifecycle/stage keys are valid filters; the service maps them.
+const reportFilterValue = z.string().trim().max(50).optional();
+const reportConfig = z.object({
+  entity: z.enum(['leads', 'deals', 'activities']).default('leads'),
+  metric: z.enum(['count', 'sum_value', 'avg_score']).default('count'),
+  groupBy: z.enum(['owner', 'source', 'category', 'status', 'stage', 'type']).default('source'),
+  chartType: z.enum(['bar', 'pie', 'table', 'funnel']).optional(),
+  filters: z.object({
+    category: reportFilterValue,
+    status: reportFilterValue,
+    stage: reportFilterValue,
+    type: z.enum(CRM_ACTIVITY_TYPES).optional(),
+    ownerUserId: z.string().trim().max(64).optional(),
+    source: z.string().trim().max(100).optional(),
+  }).default({}),
+});
+const segmentFilters = {
+  category: z.enum(['HOT', 'WARM', 'COLD', 'ALL', '']).optional(),
+  source: z.string().trim().max(100).optional(),
+  // Custom lifecycle keys are valid statuses, so this stays a bounded string.
+  status: z.string().trim().max(50).optional(),
+};
+export const crmSalesInboxSchemas = {
+  audience: z.object({ ...segmentFilters, search: z.string().trim().max(100).optional() }),
+  launch: z.object({
+    ...segmentFilters,
+    name: z.string().trim().max(120).optional(),
+    templateId: id,
+    waNumberId: id,
+  }),
+};
+
+export const reportSchemas = {
+  query: reportConfig.extend({
+    range: z.enum(['7d', '30d', '90d', 'this_month', 'all']).default('30d'),
+  }),
+  save: z.object({
+    name: z.string().trim().min(1, 'Report name is required').max(100),
+    config: reportConfig,
+    isShared: z.boolean().optional().default(true),
+  }),
 };
 
 export const dealSchemas = {

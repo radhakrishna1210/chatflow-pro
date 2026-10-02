@@ -77,6 +77,6 @@ export async function recalculateScore(req, res) {
 }
 
 export async function convert(req, res) {
-  const result = await leadsService.convertLead(req.params.workspaceId, req.params.id, req.body, req.user.id);
+  const result = await leadsService.convertLead(req.params.workspaceId, req.params.id, req.body, req.user.id, req.user);
   res.status(201).json(result);
 }

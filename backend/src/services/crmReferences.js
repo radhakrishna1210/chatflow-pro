@@ -14,6 +14,39 @@ async function assertOwned(model, id, workspaceId, label) {
   }
 }
 
+// A user id is only a valid owner/assignee if that user is a member of this
+// workspace. The FK alone accepts a removed member or someone from another
+// workspace, whose name and email the record's include would then disclose.
+export async function assertWorkspaceMember(workspaceId, userId, label = 'Owner') {
+  const member = await prisma.workspaceMember.findUnique({
+    where: { userId_workspaceId: { userId, workspaceId } },
+    select: { userId: true },
+  });
+  if (!member) {
+    const e = new Error(`${label} is not a member of this workspace`);
+    e.status = 404;
+    throw e;
+  }
+}
+
+const OWNED_REFERENCES = [
+  ['teamId', 'team', 'Team'],
+  ['contactId', 'contact', 'Contact'],
+  ['conversationId', 'conversation', 'Conversation'],
+];
+
+// Checks the owner/team (and, where present, contact/conversation) ids on a
+// lead, deal or ticket payload. Absent or null ids are left alone: null is how
+// a caller clears an owner.
+export async function assertRecordReferences(workspaceId, body = {}) {
+  const checks = [];
+  if (body.ownerUserId) checks.push(assertWorkspaceMember(workspaceId, body.ownerUserId, 'Owner'));
+  for (const [field, model, label] of OWNED_REFERENCES) {
+    if (body[field]) checks.push(assertOwned(model, body[field], workspaceId, label));
+  }
+  await Promise.all(checks);
+}
+
 // Resolves the shared lead/deal/contact/assignee references on a task or
 // activity payload. Returns only the keys that were supplied, so callers can
 // spread the result over an update without resurrecting absent fields.
@@ -37,19 +70,7 @@ export async function resolveCrmReferences(workspaceId, body, { includeAssignee 
   if (includeAssignee && body.assignedToUserId !== undefined) {
     resolved.assignedToUserId = body.assignedToUserId;
     if (body.assignedToUserId) {
-      checks.push(
-        (async () => {
-          const member = await prisma.workspaceMember.findUnique({
-            where: { userId_workspaceId: { userId: body.assignedToUserId, workspaceId } },
-            select: { userId: true },
-          });
-          if (!member) {
-            const e = new Error('Assignee is not a member of this workspace');
-            e.status = 404;
-            throw e;
-          }
-        })(),
-      );
+      checks.push(assertWorkspaceMember(workspaceId, body.assignedToUserId, 'Assignee'));
     }
   }
 

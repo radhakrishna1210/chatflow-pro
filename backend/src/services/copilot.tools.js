@@ -8,6 +8,7 @@ import { getRecommendations } from './nextBestAction.service.js';
 import { listTickets, updateTicket } from './tickets.service.js';
 import { listMembers } from './members.service.js';
 import { prisma } from '../lib/prisma.js';
+import { scopedWhere } from './recordScope.service.js';
 
 // Tools the CRM copilot may use.
 //
@@ -162,24 +163,24 @@ export const TOOLS = {
     description: 'Propose marking a task as completed. Requires confirmation.',
     params: { taskId: 'string (task id or exact task title)' },
     summarise: (args) => `Mark task ${args.taskTitle ? `"${args.taskTitle}"` : args.taskId} as completed`,
-    execute: async ({ workspaceId, args }) => {
+    execute: async ({ workspaceId, user, args }) => {
       let task = null;
       if (args.taskId) {
         task = await prisma.task.findFirst({
-          where: { workspaceId, id: args.taskId },
+          where: await scopedWhere(workspaceId, asUser(user), { workspaceId, id: args.taskId }, { ownerField: 'assignedToUserId' }),
           select: { id: true, title: true },
         });
       }
       if (!task && (args.taskTitle || args.taskId)) {
         const query = String(args.taskTitle || args.taskId).trim();
         task = await prisma.task.findFirst({
-          where: {
+          where: await scopedWhere(workspaceId, asUser(user), {
             workspaceId,
             OR: [
               { title: { equals: query, mode: 'insensitive' } },
               { title: { contains: query, mode: 'insensitive' } },
             ],
-          },
+          }, { ownerField: 'assignedToUserId' }),
           select: { id: true, title: true },
         });
       }
@@ -188,7 +189,7 @@ export const TOOLS = {
         e.status = 404;
         throw e;
       }
-      return updateTask(workspaceId, task.id, { status: 'COMPLETED' });
+      return updateTask(workspaceId, task.id, { status: 'COMPLETED' }, asUser(user));
     },
   },
 

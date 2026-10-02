@@ -1353,7 +1353,9 @@ export default function CrmSalesInboxView() {
           <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>
-                2. Audience Review ({(audienceData?.leads || []).length} Leads)
+                2. Audience Review ({audienceData?.truncated
+                  ? `showing ${(audienceData?.leads || []).length} of ${audienceData.matchingCount} leads`
+                  : `${(audienceData?.leads || []).length} Leads`})
               </h3>
 
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -1523,12 +1525,12 @@ export default function CrmSalesInboxView() {
 
             <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--card-shadow)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Opted Out / Skipped
+                Skipped
               </div>
               <div style={{ fontSize: 26, fontWeight: 800, color: '#fbbf24', marginTop: 4 }}>
-                {campaignAnalytics?.summary?.totalOptedOut || 0}
+                {campaignAnalytics?.summary?.totalSkipped || 0}
               </div>
-              <div style={{ fontSize: 11.5, color: '#fbbf24', marginTop: 2 }}>DNC Protected</div>
+              <div style={{ fontSize: 11.5, color: '#fbbf24', marginTop: 2 }}>Opted out or not sendable</div>
             </div>
           </div>
 
@@ -1559,7 +1561,7 @@ export default function CrmSalesInboxView() {
                     <th style={{ padding: 10 }}>Delivered</th>
                     <th style={{ padding: 10 }}>Read</th>
                     <th style={{ padding: 10 }}>Failed</th>
-                    <th style={{ padding: 10 }}>Opted Out</th>
+                    <th style={{ padding: 10 }}>Skipped</th>
                     <th style={{ padding: 10 }}>Launched</th>
                   </tr>
                 </thead>
@@ -1610,8 +1612,8 @@ export default function CrmSalesInboxView() {
                           </span>
                         </td>
                         <td style={{ padding: 10 }}>
-                          <span style={{ color: c.optedOut > 0 ? '#fbbf24' : 'var(--t3)', fontWeight: c.optedOut > 0 ? 700 : 400 }}>
-                            {c.optedOut}
+                          <span style={{ color: c.skipped > 0 ? '#fbbf24' : 'var(--t3)', fontWeight: c.skipped > 0 ? 700 : 400 }}>
+                            {c.skipped}
                           </span>
                         </td>
                         <td style={{ padding: 10, color: 'var(--t2)', fontSize: 12 }}>

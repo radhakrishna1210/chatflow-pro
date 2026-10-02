@@ -37,8 +37,9 @@ export function LeadDistributionModal({ onClose, members = [], onDistributed }) 
         setMsg({ type: 'success', text: 'Distribution rules saved successfully.' });
         setTimeout(() => setMsg(null), 3500);
       } else {
+        // Only workspace admins may change distribution rules.
         const d = await res.json().catch(() => ({}));
-        setMsg({ type: 'error', text: d.error || 'Failed to save distribution rules.' });
+        setMsg({ type: 'error', text: res.status === 403 ? 'Only a workspace admin can change distribution rules.' : (d.error || 'Failed to save distribution rules.') });
       }
     } catch (e) {
       setMsg({ type: 'error', text: 'Failed to save distribution rules.' });

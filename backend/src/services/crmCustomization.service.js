@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
-import { ensureStages, listStages, STAGE_KEYS, CLOSED_STAGES } from './pipelineStages.service.js';
+import { ensureStages, listStages, STAGE_KEYS, CLOSED_STAGES, deleteStage, countDealsInStage } from './pipelineStages.service.js';
+import { parseSectionPayload } from '../validators/crmCustomization.schemas.js';
 
 export const CUSTOMIZATION_ENTITY = 'crm_customization';
 
@@ -135,41 +136,6 @@ export const DEFAULT_CUSTOMIZATIONS = {
       { id: 'tcat_5', name: 'General Inquiry', slaHours: 48, priority: 'LOW', color: '#10b981', description: 'Standard inquiries and customer questions' },
     ],
   },
-
-  document_categories: {
-    categories: [
-      {
-        id: 'doc_1',
-        name: 'Contracts & Legal',
-        color: '#6366f1',
-        subcategories: ['Master Services Agreement (MSA)', 'Non-Disclosure Agreement (NDA)', 'Service Level Agreement (SLA)', 'Statement of Work (SOW)'],
-      },
-      {
-        id: 'doc_2',
-        name: 'Proposals & Quotes',
-        color: '#3b82f6',
-        subcategories: ['Commercial Proposal', 'Price Quotation', 'RFP Response', 'Pitch Deck'],
-      },
-      {
-        id: 'doc_3',
-        name: 'Invoices & Billing',
-        color: '#10b981',
-        subcategories: ['Tax Invoice', 'Purchase Order (PO)', 'Payment Receipt', 'Credit Note'],
-      },
-      {
-        id: 'doc_4',
-        name: 'KYC & Identification',
-        color: '#f59e0b',
-        subcategories: ['Business Registration Certificate', 'Tax ID / PAN / GST', 'Authorized Signatory Proof', 'Bank Account Verification'],
-      },
-      {
-        id: 'doc_5',
-        name: 'Technical & Product',
-        color: '#8b5cf6',
-        subcategories: ['Architecture Diagram', 'Security Compliance / SOC2', 'Product Specification', 'Integration Guide'],
-      },
-    ],
-  },
 };
 
 export const SECTION_KEYS = Object.keys(DEFAULT_CUSTOMIZATIONS);
@@ -189,8 +155,11 @@ export async function getSection(workspaceId, sectionKey) {
   }
 
   const name = sectionViewName(sectionKey);
+  // Config rows are not unique-indexed (their author varies), so the newest
+  // one wins deterministically if a duplicate ever exists.
   const record = await prisma.savedView.findFirst({
     where: { workspaceId, entity: CUSTOMIZATION_ENTITY, name },
+    orderBy: { updatedAt: 'desc' },
   });
 
   if (!record || !record.filters) {
@@ -249,11 +218,13 @@ async function syncDealSetupWithPipelineStages(workspaceId, dealSetupConfig) {
 }
 
 /**
- * Get all 10 customization sections for a workspace.
+ * Get every customization section for a workspace.
  */
 export async function getAllCustomizations(workspaceId) {
+  // Oldest first, so a later duplicate overwrites an earlier one in the map.
   const records = await prisma.savedView.findMany({
     where: { workspaceId, entity: CUSTOMIZATION_ENTITY },
+    orderBy: { updatedAt: 'asc' },
   });
 
   const map = new Map();
@@ -286,18 +257,18 @@ export async function getAllCustomizations(workspaceId) {
 }
 
 const PRISMA_LEAD_STATUSES = new Set(['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST']);
-const PRISMA_DEAL_STAGES = new Set(['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST']);
 
 /**
  * Check if an item can be safely deleted without breaking foreign key/usage constraints.
  */
 export async function checkSafeDeletion(workspaceId, sectionKey, itemKeyOrId) {
   if (sectionKey === 'lead_lifecycle') {
-    if (!PRISMA_LEAD_STATUSES.has(itemKeyOrId)) {
-      return { safe: true };
-    }
+    // Custom lifecycle keys live in customFields.statusKey; they were reported
+    // safe without counting the leads sitting in them.
+    const conditions = [{ customFields: { path: ['statusKey'], equals: itemKeyOrId } }];
+    if (PRISMA_LEAD_STATUSES.has(itemKeyOrId)) conditions.push({ status: itemKeyOrId });
     const leadCount = await prisma.lead.count({
-      where: { workspaceId, status: itemKeyOrId },
+      where: { workspaceId, OR: conditions },
     });
     if (leadCount > 0) {
       return {
@@ -329,18 +300,7 @@ export async function checkSafeDeletion(workspaceId, sectionKey, itemKeyOrId) {
       };
     }
 
-    const conditions = [];
-    if (PRISMA_DEAL_STAGES.has(itemKeyOrId)) {
-      conditions.push({ stage: itemKeyOrId });
-    }
-    conditions.push({ customFields: { path: ['stageKey'], equals: itemKeyOrId } });
-
-    const dealCount = await prisma.deal.count({
-      where: {
-        workspaceId,
-        OR: conditions,
-      },
-    });
+    const dealCount = await countDealsInStage(workspaceId, itemKeyOrId);
 
     if (dealCount > 0) {
       return {
@@ -354,6 +314,43 @@ export async function checkSafeDeletion(workspaceId, sectionKey, itemKeyOrId) {
   return { safe: true };
 }
 
+const sourceKey = (src) => String(src?.key || '').trim().toUpperCase();
+
+// Keys present now that `next` would remove, for the sections whose items
+// records refer to. Terminal deal stages are never removed by a save.
+async function removedKeys(workspaceId, sectionKey, next) {
+  if (sectionKey === 'deal_setup') {
+    if (!Array.isArray(next?.stages)) return [];
+    const { data: stages } = await listStages(workspaceId);
+    const keep = new Set(next.stages.map((st) => st.key));
+    return stages.map((st) => st.key).filter((k) => !keep.has(k) && !CLOSED_STAGES.includes(k));
+  }
+  if (sectionKey === 'lead_lifecycle') {
+    if (!Array.isArray(next?.stages)) return [];
+    const current = await getSection(workspaceId, sectionKey);
+    const keep = new Set(next.stages.map((st) => st.key));
+    return (current?.stages || []).map((st) => st.key).filter((k) => k && !keep.has(k));
+  }
+  if (sectionKey === 'lead_sources') {
+    if (!Array.isArray(next?.sources)) return [];
+    const current = await getSection(workspaceId, sectionKey);
+    const keep = new Set(next.sources.map(sourceKey));
+    return (current?.sources || []).map(sourceKey).filter((k) => k && !keep.has(k));
+  }
+  return [];
+}
+
+async function assertRemovalsSafe(workspaceId, sectionKey, keys) {
+  for (const key of keys) {
+    const check = await checkSafeDeletion(workspaceId, sectionKey, key);
+    if (!check.safe) {
+      const e = new Error(check.reason);
+      e.status = 409;
+      throw e;
+    }
+  }
+}
+
 /**
  * Update a specific customization section.
  */
@@ -364,11 +361,11 @@ export async function updateSection(workspaceId, sectionKey, data, userId = null
     throw error;
   }
 
-  if (!data || typeof data !== 'object') {
-    const error = new Error('Invalid section data format: payload must be an object');
-    error.status = 400;
-    throw error;
-  }
+  data = parseSectionPayload(sectionKey, data);
+
+  // Dropping an item that records still use is refused — the same check the
+  // UI's check-delete call runs, enforced here instead of being advisory.
+  await assertRemovalsSafe(workspaceId, sectionKey, await removedKeys(workspaceId, sectionKey, data));
 
   // Validate unique identifiers for lead sources
   if (sectionKey === 'lead_sources' && Array.isArray(data.sources)) {
@@ -459,10 +456,11 @@ export async function updateSection(workspaceId, sectionKey, data, userId = null
       }
     }
 
-    // Delete any removed non-terminal stages that are no longer in submitted stages
-    for (const [key, dbStage] of existingMap.entries()) {
+    // Delete any removed non-terminal stages, through the pipeline-stage
+    // service so the in-use check applies (already verified above).
+    for (const key of existingMap.keys()) {
       if (!submittedKeys.has(key) && !CLOSED_STAGES.includes(key)) {
-        await prisma.pipelineStage.delete({ where: { id: dbStage.id } }).catch(() => {});
+        await deleteStage(workspaceId, key);
       }
     }
   }
@@ -470,6 +468,7 @@ export async function updateSection(workspaceId, sectionKey, data, userId = null
   const name = sectionViewName(sectionKey);
   const existing = await prisma.savedView.findFirst({
     where: { workspaceId, entity: CUSTOMIZATION_ENTITY, name },
+    orderBy: { updatedAt: 'desc' },
   });
 
   let savedRecord;
@@ -510,6 +509,9 @@ export async function resetSection(workspaceId, sectionKey) {
     error.status = 400;
     throw error;
   }
+
+  // Resetting drops every custom stage/source, so the same in-use rule applies.
+  await assertRemovalsSafe(workspaceId, sectionKey, await removedKeys(workspaceId, sectionKey, DEFAULT_CUSTOMIZATIONS[sectionKey]));
 
   const name = sectionViewName(sectionKey);
   await prisma.savedView.deleteMany({
@@ -623,9 +625,12 @@ export async function autoGenerateOutcomeTask(workspaceId, { type, outcome, sent
     const config = await getSection(workspaceId, sectionKey);
     const outcomesList = config?.outcomes || [];
 
-    // Find the outcome matching name or id (case-insensitive)
+    // Exact match on name (case-insensitive) or id. A substring match let an
+    // outcome typed "No" trigger whichever of "Not interested" / "No answer"
+    // came first.
+    const wanted = String(outcome).trim().toLowerCase();
     const matchedOutcome = outcomesList.find(
-      (o) => o.name?.toLowerCase() === outcome.toLowerCase() || o.id === outcome || o.name?.toLowerCase()?.includes(outcome.toLowerCase())
+      (o) => o.id === outcome || String(o.name || '').trim().toLowerCase() === wanted
     );
 
     // If outcome is not configured to trigger follow-up, do not create task

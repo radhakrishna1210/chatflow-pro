@@ -31,6 +31,7 @@ test.before(async () => {
       metaPhoneNumberId: `meta_${stamp}`,
       wabaId: `waba_${stamp}`,
       encryptedAccessToken: 'test_token',
+      appSubscribed: true,
     },
   });
 });
@@ -52,7 +53,7 @@ test('Integration Health - Retrieves status and detects active WhatsApp numbers'
 
   const result = await getIntegrationHealth(workspaceId);
   assert.ok(result);
-  assert.equal(result.totalIntegrations, 4);
+  assert.equal(result.totalIntegrations, 3);
   assert.ok(['ALL_SYSTEMS_OPERATIONAL', 'PARTIALLY_OPERATIONAL', 'NEEDS_ATTENTION'].includes(result.overallStatus));
 
   const wa = result.integrations.find((i) => i.provider === 'whatsapp');
@@ -62,8 +63,7 @@ test('Integration Health - Retrieves status and detects active WhatsApp numbers'
   assert.equal(wa.numbers.length, 1);
   assert.equal(wa.numbers[0].displayName, 'Main Support WhatsApp');
 
-  const meta = result.integrations.find((i) => i.provider === 'meta-graph');
-  assert.ok(meta);
-  assert.equal(meta.status, 'HEALTHY');
-  assert.equal(meta.apiVersion, 'v20.0');
+  // Nothing measured live is reported: no invented gateway, latency or uptime.
+  assert.equal(result.integrations.find((i) => i.provider === 'meta-graph'), undefined);
+  assert.equal(result.uptime, undefined);
 });

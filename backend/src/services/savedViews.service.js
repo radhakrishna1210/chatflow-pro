@@ -2,6 +2,14 @@ import { prisma } from '../lib/prisma.js';
 
 export const SAVED_VIEW_ENTITIES = ['leads', 'deals', 'tasks'];
 
+// The SavedView table also stores workspace configuration under other entity
+// names (crm_customization, lead_distribution_rules, crm_custom_report,
+// ai_agent, ai_guideline, ai_channel_bot), several of them isShared. `entity`
+// is the discriminator: this service only ever reads or touches rows whose
+// entity is a real list view, so those config rows are neither listed to every
+// member nor deletable through /saved-views.
+const VIEW_ENTITY = { in: SAVED_VIEW_ENTITIES };
+
 const VIEW_SELECT = {
   id: true,
   entity: true,
@@ -19,7 +27,7 @@ const VIEW_SELECT = {
 // mean anything.
 const visibleTo = (workspaceId, userId, entity) => ({
   workspaceId,
-  ...(entity ? { entity } : {}),
+  entity: entity || VIEW_ENTITY,
   OR: [{ createdByUserId: userId }, { isShared: true }],
 });
 
@@ -71,7 +79,7 @@ export async function createSavedView(workspaceId, userId, { entity, name, filte
 // cleanup silently deletes a filter the rest of the team relies on.
 async function assertAuthor(workspaceId, userId, id) {
   const view = await prisma.savedView.findFirst({
-    where: { id, workspaceId },
+    where: { id, workspaceId, entity: VIEW_ENTITY },
     select: { id: true, createdByUserId: true },
   });
   if (!view) { const e = new Error('Saved view not found'); e.status = 404; throw e; }

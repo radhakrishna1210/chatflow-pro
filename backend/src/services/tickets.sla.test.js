@@ -1,5 +1,6 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { unscopedRecordScope } from './recordScope.testStub.js';
 
 // Category SLAs and first-response stamping, against an in-memory prisma
 // stand-in.
@@ -28,7 +29,7 @@ let svc;
 test.before(async () => {
   mock.module('../lib/prisma.js', { namedExports: { prisma: fakePrisma } });
   mock.module('./crmCustomization.service.js', { namedExports: { getSection: async () => CONFIG } });
-  mock.module('./recordScope.service.js', { namedExports: { scopeFilter: async () => ({}) } });
+  mock.module('./recordScope.service.js', { namedExports: unscopedRecordScope });
   svc = await import('./tickets.service.js');
 });
 

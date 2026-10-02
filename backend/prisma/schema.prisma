@@ -2068,7 +2068,11 @@ model SavedView {
   id              String   @id @default(cuid())
   workspaceId     String
   createdByUserId String?
-  // Which list this belongs to: 'leads' | 'deals' | 'tasks'.
+  // Which list this belongs to: 'leads' | 'deals' | 'tasks'. Other values are
+  // workspace configuration stored in this table (crm_customization,
+  // lead_distribution_rules, crm_custom_report, ai_agent, ai_guideline,
+  // ai_channel_bot); `entity` is the discriminator and savedViews.service.js
+  // only serves the three list entities.
   entity          String
   name            String
   filters         Json

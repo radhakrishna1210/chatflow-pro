@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 
-// Record-level visibility for leads, deals and tasks.
+// Record-level visibility for leads, deals, tasks, tickets and everything
+// hanging off them (activities, line items, reports, segment audiences).
 //
 // §45 requires this to be enforced on the server, never by hiding UI. Every
 // list and every fetch-by-id runs through the same `where` fragment, so a
@@ -50,10 +51,27 @@ export async function teammateIds(workspaceId, userId) {
   return [...new Set([userId, ...peers.map((p) => p.userId)])];
 }
 
+// The owner ids whose records `user` may see — unowned records are visible on
+// top of these — or null when nothing is restricted.
+export async function visibleOwnerIds(workspaceId, user) {
+  if (user.role === 'ADMIN' || user.superAdmin === true) return null;
+
+  const mode = await getWorkspaceVisibility(workspaceId);
+  if (mode === 'ALL') return null;
+  if (mode === 'OWN') return [user.id];
+
+  // In TEAM mode a user belonging to no team sees only their own work.
+  return (await teammateIds(workspaceId, user.id)) ?? [user.id];
+}
+
+const ownedBy = (field, ids) => ({
+  OR: [{ [field]: ids.length === 1 ? ids[0] : { in: ids } }, { [field]: null }],
+});
+
 /**
  * Builds the Prisma `where` fragment restricting a query to what this user may
- * see. Returns `{}` when everything is visible, so callers can spread it
- * unconditionally.
+ * see. Returns `{}` when everything is visible. Compose it with other filters
+ * through `withScope` — never by spreading, see below.
  *
  * `ownerField` differs by model — leads and deals use `ownerUserId`, tasks use
  * `assignedToUserId`.
@@ -66,21 +84,56 @@ export async function scopeFilter(workspaceId, user, { ownerField = 'ownerUserId
     return { [ownerField]: '__no_user__' };
   }
 
-  if (user.role === 'ADMIN' || user.superAdmin === true) return {};
+  const ids = await visibleOwnerIds(workspaceId, user);
+  return ids ? ownedBy(ownerField, ids) : {};
+}
 
-  const mode = await getWorkspaceVisibility(workspaceId);
-  if (mode === 'ALL') return {};
+/**
+ * Scope for records with no owner of their own that hang off leads/deals
+ * (activities, quotes). One is visible when any parent it is attached to is
+ * visible, when the caller wrote it, or — attached to no parent — when its
+ * author is someone whose records the caller may see.
+ */
+export async function attachedScopeFilter(workspaceId, user, parents) {
+  if (!user?.id) return { createdByUserId: '__no_user__' };
 
-  if (mode === 'OWN') {
-    return { OR: [{ [ownerField]: user.id }, { [ownerField]: null }] };
-  }
+  const ids = await visibleOwnerIds(workspaceId, user);
+  if (!ids) return {};
+  const owned = ownedBy('ownerUserId', ids);
+  const detached = Object.fromEntries(parents.map((p) => [`${p}Id`, null]));
+  return {
+    OR: [
+      ...parents.map((p) => ({ [p]: { is: owned } })),
+      { ...detached, ...ownedBy('createdByUserId', ids) },
+      { createdByUserId: user.id },
+    ],
+  };
+}
 
-  const peers = await teammateIds(workspaceId, user.id);
-  if (!peers) {
-    // In TEAM mode a user belonging to no team sees only their own work.
-    return { OR: [{ [ownerField]: user.id }, { [ownerField]: null }] };
-  }
-  return { OR: [{ [ownerField]: { in: peers } }, { [ownerField]: null }] };
+export const activityScopeFilter = (workspaceId, user) => attachedScopeFilter(workspaceId, user, ['lead', 'deal']);
+export const quoteScopeFilter = (workspaceId, user) => attachedScopeFilter(workspaceId, user, ['deal']);
+
+/**
+ * ANDs a scope fragment into a `where`. The fragment is itself an `OR`, so
+ * spreading it beside a filter that also sets `OR` (a status or stage filter,
+ * a search) lets the filter silently replace it. Under `AND` nothing written to
+ * the rest of the `where` — before or after — can drop it.
+ */
+export function withScope(where, scope) {
+  if (!scope || Object.keys(scope).length === 0) return where;
+  const and = where.AND === undefined ? [] : Array.isArray(where.AND) ? where.AND : [where.AND];
+  return { ...where, AND: [...and, scope] };
+}
+
+/**
+ * `where` restricted to what `user` may see. A null user marks an internal
+ * caller (workflow engine, background job) and leaves `where` unscoped — the
+ * same convention every service already followed with `user ? scopeFilter : {}`.
+ * Route handlers must always pass `req.user`.
+ */
+export async function scopedWhere(workspaceId, user, where, { ownerField = 'ownerUserId' } = {}) {
+  if (!user) return where;
+  return withScope(where, await scopeFilter(workspaceId, user, { ownerField }));
 }
 
 /**
@@ -92,7 +145,7 @@ export async function scopeFilter(workspaceId, user, { ownerField = 'ownerUserId
 export async function assertInScope(workspaceId, user, model, id, { ownerField = 'ownerUserId' } = {}) {
   const filter = await scopeFilter(workspaceId, user, { ownerField });
   const found = await prisma[model].findFirst({
-    where: { id, workspaceId, ...filter },
+    where: withScope({ id, workspaceId }, filter),
     select: { id: true },
   });
   if (!found) {

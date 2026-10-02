@@ -1,5 +1,6 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { unscopedRecordScope } from '../services/recordScope.testStub.js';
 
 // HTTP-level checks for CRM routes: the real routers, validate() and
 // authorize() run against an in-memory prisma stand-in. Service-only tests
@@ -37,6 +38,7 @@ const fakePrisma = {
   },
   workspaceMember: {
     findFirst: async ({ where }) => state.members.find((m) => m.workspaceId === where.workspaceId && m.userId === where.userId) ?? null,
+    findUnique: async ({ where: { userId_workspaceId: k } }) => state.members.find((m) => m.workspaceId === k.workspaceId && m.userId === k.userId) ?? null,
   },
   $transaction: async (ops) => Promise.all(ops),
 };
@@ -64,7 +66,7 @@ test.before(async () => {
       },
     },
   });
-  mock.module('../services/recordScope.service.js', { namedExports: { scopeFilter: async () => ({}) } });
+  mock.module('../services/recordScope.service.js', { namedExports: unscopedRecordScope });
   mock.module('../services/workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
 
   const { default: express } = await import('express');
@@ -165,7 +167,8 @@ test('bulk status to a built-in status clears a custom key', async () => {
 
 test('bulk assign refuses an owner from outside the workspace', async () => {
   const res = await post('/leads/bulk-assign', { ids: ['l1'], ownerUserId: 'stranger' });
-  assert.equal(res.status, 400);
+  // assertWorkspaceMember answers 404 for a non-member, as on every CRM write.
+  assert.equal(res.status, 404);
 });
 
 test('bulk category only accepts HOT/WARM/COLD', async () => {

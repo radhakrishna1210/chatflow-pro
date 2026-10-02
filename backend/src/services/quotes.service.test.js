@@ -196,14 +196,14 @@ test('a product from another workspace cannot be added to a line', async (t) => 
   }
 });
 
-test('removing every line leaves the deal value untouched rather than zeroed', async (t) => {
+test('removing every line clears the deal value instead of leaving the old itemised total', async (t) => {
   if (!dbAvailable) return t.skip('database unavailable');
 
   const { data } = await listDealLineItems(workspaceId, dealId);
   for (const line of data) await deleteDealLineItem(workspaceId, dealId, line.id);
 
   const deal = await prisma.deal.findUnique({ where: { id: dealId }, select: { value: true } });
-  // With no lines there is nothing to derive a value from, so the last known
-  // amount stands instead of silently becoming zero.
-  assert.ok(Number(deal.value) > 0);
+  // The last total was the sum of lines that no longer exist; keeping it would
+  // leave the pipeline counting money nobody has itemised.
+  assert.equal(deal.value, null);
 });

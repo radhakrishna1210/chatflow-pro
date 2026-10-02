@@ -1,6 +1,16 @@
 import { prisma } from '../lib/prisma.js';
 import { calculateLine, calculateDocument } from './lineItems.js';
 import { awardXp } from './gamification.service.js';
+import { quoteScopeFilter, scopedWhere, withScope } from './recordScope.service.js';
+
+// A quote is visible when its deal is, or — with no deal — when its author's
+// records are (recordScope.service.js). Every lookup by id goes through here.
+async function findQuote(workspaceId, id, user, args = {}) {
+  const scope = user ? await quoteScopeFilter(workspaceId, user) : {};
+  const quote = await prisma.quote.findFirst({ where: withScope({ id, workspaceId }, scope), ...args });
+  if (!quote) { const e = new Error('Quote not found'); e.status = 404; throw e; }
+  return quote;
+}
 
 const QUOTE_INCLUDE = {
   contact: { select: { id: true, name: true, phoneNumber: true, email: true } },
@@ -37,8 +47,9 @@ async function nextQuoteNumber(tx, workspaceId) {
   return `Q-${String(n).padStart(4, '0')}`;
 }
 
-export async function listQuotes(workspaceId, { status = '', dealId = '' } = {}) {
-  const where = { workspaceId, ...(status ? { status } : {}), ...(dealId ? { dealId } : {}) };
+export async function listQuotes(workspaceId, { status = '', dealId = '' } = {}, user = null) {
+  const scope = user ? await quoteScopeFilter(workspaceId, user) : {};
+  const where = withScope({ workspaceId, ...(status ? { status } : {}), ...(dealId ? { dealId } : {}) }, scope);
   const [data, total] = await Promise.all([
     prisma.quote.findMany({
       where,
@@ -50,10 +61,8 @@ export async function listQuotes(workspaceId, { status = '', dealId = '' } = {})
   return { data, total };
 }
 
-export async function getQuote(workspaceId, id) {
-  const quote = await prisma.quote.findFirst({ where: { id, workspaceId }, include: QUOTE_INCLUDE });
-  if (!quote) { const e = new Error('Quote not found'); e.status = 404; throw e; }
-  return quote;
+export async function getQuote(workspaceId, id, user = null) {
+  return findQuote(workspaceId, id, user, { include: QUOTE_INCLUDE });
 }
 
 // Totals are recomputed from the stored lines on every mutation, so the header
@@ -71,9 +80,12 @@ async function recalculate(tx, workspaceId, quoteId) {
   return totals;
 }
 
-export async function createQuote(workspaceId, body, userId) {
+export async function createQuote(workspaceId, body, userId, user = null) {
   if (body.dealId) {
-    const deal = await prisma.deal.findFirst({ where: { id: body.dealId, workspaceId }, select: { id: true, contactId: true } });
+    const deal = await prisma.deal.findFirst({
+      where: await scopedWhere(workspaceId, user, { id: body.dealId, workspaceId }),
+      select: { id: true, contactId: true },
+    });
     if (!deal) { const e = new Error('Deal not found'); e.status = 404; throw e; }
     body.contactId = body.contactId ?? deal.contactId;
   }
@@ -144,9 +156,8 @@ function createQuoteOnce(workspaceId, body, userId) {
 
 // A sent quote is a commercial document the customer has already seen, so its
 // contents are frozen. Only presentational and lifecycle fields stay editable.
-async function assertEditable(workspaceId, id) {
-  const quote = await prisma.quote.findFirst({ where: { id, workspaceId }, select: { status: true } });
-  if (!quote) { const e = new Error('Quote not found'); e.status = 404; throw e; }
+async function assertEditable(workspaceId, id, user = null) {
+  const quote = await findQuote(workspaceId, id, user, { select: { status: true } });
   if (quote.status !== 'DRAFT') {
     const e = new Error(`A ${quote.status.toLowerCase()} quote cannot be edited`);
     e.status = 409;
@@ -154,8 +165,8 @@ async function assertEditable(workspaceId, id) {
   }
 }
 
-export async function updateQuote(workspaceId, id, updates) {
-  await assertEditable(workspaceId, id);
+export async function updateQuote(workspaceId, id, updates, user = null) {
+  await assertEditable(workspaceId, id, user);
   return prisma.$transaction(async (tx) => {
     await tx.quote.update({ where: { id }, data: updates });
     if (updates.discountPct !== undefined) await recalculate(tx, workspaceId, id);
@@ -163,9 +174,8 @@ export async function updateQuote(workspaceId, id, updates) {
   });
 }
 
-export async function changeQuoteStatus(workspaceId, id, status) {
-  const quote = await prisma.quote.findFirst({ where: { id, workspaceId }, select: { status: true } });
-  if (!quote) { const e = new Error('Quote not found'); e.status = 404; throw e; }
+export async function changeQuoteStatus(workspaceId, id, status, user = null) {
+  const quote = await findQuote(workspaceId, id, user, { select: { status: true } });
 
   const allowed = ALLOWED_TRANSITIONS[quote.status] ?? [];
   if (!allowed.includes(status)) {
@@ -193,17 +203,16 @@ export async function changeQuoteStatus(workspaceId, id, status) {
   return result;
 }
 
-export async function deleteQuote(workspaceId, id) {
-  const quote = await prisma.quote.findFirst({ where: { id, workspaceId }, select: { status: true } });
-  if (!quote) { const e = new Error('Quote not found'); e.status = 404; throw e; }
+export async function deleteQuote(workspaceId, id, user = null) {
+  const quote = await findQuote(workspaceId, id, user, { select: { status: true } });
   if (quote.status === 'ACCEPTED') {
     const e = new Error('An accepted quote cannot be deleted'); e.status = 409; throw e;
   }
   await prisma.quote.delete({ where: { id } });
 }
 
-export async function addQuoteLineItem(workspaceId, quoteId, body) {
-  await assertEditable(workspaceId, quoteId);
+export async function addQuoteLineItem(workspaceId, quoteId, body, user = null) {
+  await assertEditable(workspaceId, quoteId, user);
 
   let base = { name: body.name, unitPrice: body.unitPrice, taxRate: body.taxRate ?? 0 };
   if (body.productId) {
@@ -238,8 +247,8 @@ export async function addQuoteLineItem(workspaceId, quoteId, body) {
   });
 }
 
-export async function deleteQuoteLineItem(workspaceId, quoteId, lineId) {
-  await assertEditable(workspaceId, quoteId);
+export async function deleteQuoteLineItem(workspaceId, quoteId, lineId, user = null) {
+  await assertEditable(workspaceId, quoteId, user);
   const line = await prisma.quoteLineItem.findFirst({ where: { id: lineId, workspaceId, quoteId }, select: { id: true } });
   if (!line) { const e = new Error('Line item not found'); e.status = 404; throw e; }
 

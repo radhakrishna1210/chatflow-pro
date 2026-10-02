@@ -9,6 +9,7 @@ import { assertNotOptedOut, normalizePhone } from './optout.service.js';
 import { countVariables, buildTextComponents, buildButtonComponents, contactVariableResolver } from '../lib/templateParams.js';
 import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
+import { assertWorkspaceMember } from './crmReferences.js';
 
 // Keyset cursor over (lastMessageAt desc, id desc), opaque to the client. A
 // page/skip offset shifts under the inbox's feet as new messages reorder it.
@@ -753,6 +754,7 @@ export async function deleteNote(workspaceId, conversationId, noteId) {
 export async function assignConversation(workspaceId, conversationId, assignedToUserId) {
   const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+  if (assignedToUserId) await assertWorkspaceMember(workspaceId, assignedToUserId, 'Assignee');
   return prisma.conversation.update({
     where: { id: conversationId },
     data: { assignedToUserId: assignedToUserId || null },

@@ -1,7 +1,10 @@
 import { prisma } from '../lib/prisma.js';
 import { resolveCrmReferences } from './crmReferences.js';
-import { scopeFilter } from './recordScope.service.js';
+import { scopeFilter, scopedWhere, withScope } from './recordScope.service.js';
 import { awardXp, earnsClearedOverdue, checkInboxZero } from './gamification.service.js';
+
+// Tasks are visible by assignee rather than owner.
+const TASK_SCOPE = { ownerField: 'assignedToUserId' };
 
 const TASK_INCLUDE = {
   assignedTo: { select: { id: true, name: true, email: true } },
@@ -11,18 +14,18 @@ const TASK_INCLUDE = {
 };
 
 export async function listTasks(workspaceId, { status, assignedToUserId, isOverdue } = {}, user = null) {
-  const scope = user ? await scopeFilter(workspaceId, user, { ownerField: 'assignedToUserId' }) : {};
-  const where = {
+  const scope = user ? await scopeFilter(workspaceId, user, TASK_SCOPE) : {};
+  const filters = {
     workspaceId,
-    ...scope,
     ...(status ? { status } : {}),
     ...(assignedToUserId ? { assignedToUserId } : {}),
   };
 
   if (isOverdue === 'true') {
-    where.status = 'PENDING';
-    where.dueDate = { lt: new Date() };
+    filters.status = 'PENDING';
+    filters.dueDate = { lt: new Date() };
   }
+  const where = withScope(filters, scope);
 
   const [data, total] = await Promise.all([
     prisma.task.findMany({ where, include: TASK_INCLUDE, orderBy: { dueDate: 'asc' } }),
@@ -32,9 +35,9 @@ export async function listTasks(workspaceId, { status, assignedToUserId, isOverd
   return { data, total };
 }
 
-export async function getTask(workspaceId, id) {
+export async function getTask(workspaceId, id, user = null) {
   const task = await prisma.task.findFirst({
-    where: { id, workspaceId },
+    where: await scopedWhere(workspaceId, user, { id, workspaceId }, TASK_SCOPE),
     include: TASK_INCLUDE,
   });
   if (!task) { const e = new Error('Task not found'); e.status = 404; throw e; }
@@ -67,10 +70,10 @@ export async function createTask(workspaceId, body, userId) {
 // second line of defence, and the one the service tests exercise directly.
 const TASK_WRITABLE = ['title', 'description', 'status', 'dueDate'];
 
-export async function updateTask(workspaceId, id, updates) {
+export async function updateTask(workspaceId, id, updates, user = null) {
   // dueDate and assignee are needed to decide whether clearing this earns XP.
   const task = await prisma.task.findFirst({
-    where: { id, workspaceId },
+    where: await scopedWhere(workspaceId, user, { id, workspaceId }, TASK_SCOPE),
     select: { id: true, status: true, dueDate: true, assignedToUserId: true, createdAt: true },
   });
   if (!task) { const e = new Error('Task not found'); e.status = 404; throw e; }
@@ -104,8 +107,11 @@ export async function updateTask(workspaceId, id, updates) {
   return result;
 }
 
-export async function deleteTask(workspaceId, id) {
-  const task = await prisma.task.findFirst({ where: { id, workspaceId }, select: { id: true } });
+export async function deleteTask(workspaceId, id, user = null) {
+  const task = await prisma.task.findFirst({
+    where: await scopedWhere(workspaceId, user, { id, workspaceId }, TASK_SCOPE),
+    select: { id: true },
+  });
   if (!task) { const e = new Error('Task not found'); e.status = 404; throw e; }
   await prisma.task.delete({ where: { id } });
 }

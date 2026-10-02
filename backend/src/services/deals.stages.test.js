@@ -1,5 +1,6 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { unscopedRecordScope } from './recordScope.testStub.js';
 
 // Custom pipeline stages are stored as customFields.stageKey over the
 // QUALIFICATION enum. These run against an in-memory prisma stand-in.
@@ -40,7 +41,7 @@ test.before(async () => {
   mock.module('./dealHealth.service.js', {
     namedExports: { computeWorkspaceDealHealth: async () => new Map(), computeDealHealth: async () => null },
   });
-  mock.module('./recordScope.service.js', { namedExports: { scopeFilter: async () => ({}) } });
+  mock.module('./recordScope.service.js', { namedExports: unscopedRecordScope });
   mock.module('./workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
   ({ listDeals, createDeal } = await import('./deals.service.js'));
   ({ getForecast } = await import('./forecast.service.js'));

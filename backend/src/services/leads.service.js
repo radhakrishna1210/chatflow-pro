@@ -1,10 +1,12 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { isValidPhone, normalizePhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { validateCrmCustomFields } from './customFields.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
-import { scopeFilter } from './recordScope.service.js';
+import { scopeFilter, withScope } from './recordScope.service.js';
+import { assertRecordReferences } from './crmReferences.js';
 import { awardXp, unlockAchievement, earnsQualifiedLead } from './gamification.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { getSection } from './crmCustomization.service.js';
@@ -130,9 +132,8 @@ const LEAD_INCLUDE = {
 // exports that reuse them — is scoped by the same rule.
 export async function listLeads(workspaceId, { category = '', status = '', source = '', tag = '', ownerUserId = '', search = '', sort = 'score', preset = '', awaitingTask = false, uncontacted = false } = {}, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const where = {
+  const filters = {
     workspaceId,
-    ...scope,
     ...(category ? { category } : {}),
     ...(ownerUserId ? { ownerUserId } : {}),
     ...(source ? { source } : {}),
@@ -163,31 +164,35 @@ export async function listLeads(workspaceId, { category = '', status = '', sourc
 
   if (status) {
     if (PRISMA_LEAD_STATUSES.has(status)) {
-      where.OR = [
+      filters.OR = [
         { status, customFields: { equals: null } },
         { customFields: { path: ['statusKey'], equals: status } },
         { status, customFields: { path: ['statusKey'], equals: null } },
       ];
     } else {
-      where.customFields = { path: ['statusKey'], equals: status };
+      filters.customFields = { path: ['statusKey'], equals: status };
     }
   }
 
   if (preset === 'my' && user?.id) {
-    where.ownerUserId = user.id;
+    filters.ownerUserId = user.id;
   } else if (preset === 'hot') {
-    where.category = 'HOT';
+    filters.category = 'HOT';
   } else if (preset === 'warm') {
-    where.category = 'WARM';
+    filters.category = 'WARM';
   } else if (preset === 'cold') {
-    where.category = 'COLD';
+    filters.category = 'COLD';
   } else if (preset === 'awaiting_task' || awaitingTask) {
-    where.tasks = { none: { status: 'PENDING' } };
+    filters.tasks = { none: { status: 'PENDING' } };
   } else if (preset === 'uncontacted' || uncontacted) {
-    where.crmActivities = { none: {} };
+    filters.crmActivities = { none: {} };
   } else if (preset === 'opted_out') {
-    where.contact = { ...(where.contact || {}), optedOut: true };
+    filters.contact = { ...(filters.contact || {}), optedOut: true };
   }
+
+  // Scope goes in last and under AND: the status filter above sets `OR`,
+  // which used to overwrite the scope fragment and list every lead.
+  const where = withScope(filters, scope);
 
   const orderBy = sort === 'newest' ? { createdAt: 'desc' } : [{ score: 'desc' }, { createdAt: 'desc' }];
   const [data, total] = await Promise.all([
@@ -254,6 +259,7 @@ export async function getLead(workspaceId, id, user = null) {
 // lead never carries its own copy of name/phone.
 export async function createLead(workspaceId, body, actorUserId = null) {
   let contactId = body.contactId;
+  await assertRecordReferences(workspaceId, { ownerUserId: body.ownerUserId });
 
   // 1. Prospecting criteria validation
   const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch(() => null);
@@ -413,6 +419,7 @@ export async function updateLead(workspaceId, id, updates, user = null) {
     select: { id: true, status: true, customFields: true, contactId: true, ownerUserId: true, createdAt: true },
   });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
+  await assertRecordReferences(workspaceId, { ownerUserId: updates.ownerUserId });
 
   // Update tags on Contact if provided
   if (Array.isArray(updates.tags)) {
@@ -547,12 +554,32 @@ export async function recalculateScore(workspaceId, id, user = null) {
 
 // Transactional by design: a conversion that created a Deal but failed to mark
 // the Lead converted would let the same lead be converted twice.
-export async function convertLead(workspaceId, id, body, userId) {
+//
+// The lead is claimed with a conditional update before the deal is created:
+// two concurrent converts (a double click, the UI racing a workflow) used to
+// both pass a plain "already converted?" read and create two deals. The second
+// now blocks on the row, re-checks the condition and matches nothing.
+export async function convertLead(workspaceId, id, body, userId, user = null) {
   await assertKnownStage(workspaceId, body.stage || 'QUALIFICATION');
-  return prisma.$transaction(async (tx) => {
-    const lead = await tx.lead.findFirst({ where: { id, workspaceId } });
+  await assertRecordReferences(workspaceId, { ownerUserId: body.ownerUserId });
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+
+  const { deal: converted, lead: original } = await prisma.$transaction(async (tx) => {
+    const lead = await tx.lead.findFirst({ where: withScope({ id, workspaceId }, scope) });
     if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
-    if (lead.status === 'CONVERTED' || lead.convertedDealId) {
+
+    const claim = { status: 'CONVERTED', convertedAt: new Date() };
+    // A custom lifecycle key would otherwise keep overriding CONVERTED as the
+    // lead's effective status.
+    if (lead.customFields?.statusKey) {
+      const { statusKey, ...rest } = lead.customFields;
+      claim.customFields = Object.keys(rest).length > 0 ? rest : Prisma.DbNull;
+    }
+    const claimed = await tx.lead.updateMany({
+      where: { id: lead.id, workspaceId, convertedDealId: null, status: { not: 'CONVERTED' } },
+      data: claim,
+    });
+    if (claimed.count === 0) {
       const e = new Error('Lead has already been converted'); e.status = 409; throw e;
     }
 
@@ -578,28 +605,36 @@ export async function convertLead(workspaceId, id, body, userId) {
 
     const toStageDb = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'].includes(stage) ? stage : 'QUALIFICATION';
     await tx.dealStageHistory.create({
-      data: { workspaceId, dealId: deal.id, fromStage: null, toStage: toStageDb, changedByUserId: userId ?? null },
+      data: {
+        workspaceId,
+        dealId: deal.id,
+        fromStage: null,
+        toStage: toStageDb,
+        fromStageKey: null,
+        toStageKey: stage,
+        changedByUserId: userId ?? null,
+      },
     });
 
-    await tx.lead.update({
-      where: { id: lead.id },
-      data: { status: 'CONVERTED', convertedAt: new Date(), convertedDealId: deal.id },
-    });
+    await tx.lead.update({ where: { id: lead.id }, data: { convertedDealId: deal.id } });
 
-    return { ...deal, stage };
+    return { deal: { ...deal, stage }, lead };
   });
+
+  emitCrmEvent(workspaceId, 'lead_status_changed', {
+    leadId: original.id,
+    contactId: original.contactId,
+    status: 'CONVERTED',
+    previousStatus: original.customFields?.statusKey || original.status,
+  });
+  return converted;
 }
 
 export async function bulkAssignLeads(workspaceId, ids = [], ownerUserId = null, user = null) {
   if (!Array.isArray(ids) || ids.length === 0) {
     const e = new Error('At least one lead ID is required'); e.status = 400; throw e;
   }
-  // Lead.ownerUserId is a plain FK to User, so without this check a caller
-  // could hand leads to someone outside the workspace.
-  if (ownerUserId) {
-    const member = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: ownerUserId }, select: { userId: true } });
-    if (!member) { const e = new Error('Owner must be a member of this workspace'); e.status = 400; throw e; }
-  }
+  await assertRecordReferences(workspaceId, { ownerUserId });
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const res = await prisma.lead.updateMany({
     where: { id: { in: ids }, workspaceId, ...scope },
