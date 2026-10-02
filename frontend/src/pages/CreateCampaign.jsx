@@ -454,6 +454,13 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
   const [addingManual, setAddingManual] = useState(false);
   const addManual = async () => {
     if (!manualPhone.trim() || addingManual) return;
+    // E.164-ish: optional +, then 8–15 digits once spaces, dashes and
+    // brackets are ignored. The server normalises; this only catches typos.
+    const digits = manualPhone.trim().replace(/[\s()-]/g, '');
+    if (!/^\+?\d{8,15}$/.test(digits)) {
+      notify('Enter a valid phone number with country code, e.g. +91 98765 43210.');
+      return;
+    }
     setAddingManual(true);
     try {
       const res = await wFetch('/contacts', {

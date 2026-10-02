@@ -1156,7 +1156,16 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
   };
 
   const revokeInvite = async (id) => {
-    await adminFetch(`/platform/workspaces/${workspaceId}/invitations/${id}`, { method: 'DELETE' }).catch(() => {});
+    setInviteErr(null);
+    try {
+      const res = await adminFetch(`/platform/workspaces/${workspaceId}/invitations/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setInviteErr(body.error || `Could not revoke the invitation (${res.status})`);
+      }
+    } catch (e) {
+      setInviteErr(e.message || 'Could not revoke the invitation');
+    }
     load();
   };
 
