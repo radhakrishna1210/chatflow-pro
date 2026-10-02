@@ -7,7 +7,7 @@ import { wFetch, apiFetch } from '../lib/api.js';
 import { useMessageRates, inr as inrRate } from '../lib/pricing.js';
 import { useFocusTrap } from '../lib/useFocusTrap.js';
 import { getBodyText, statusLabel } from '../lib/templateHelpers.js';
-import { fmtDate } from '../lib/formatters.js';
+import { fmtDateTime as fmtDate } from '../lib/format.js';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { TemplateModal, TEMPLATE_TYPE_META } from '../components/TemplateModal.jsx';
 import { TemplatePreviewModal } from '../components/TemplatePreviewModal.jsx';
@@ -18,7 +18,6 @@ const CrmDashboardView = lazy(() =>
   import('./CrmDashboardView.jsx').then(m => ({ default: m.CrmDashboardView })));
 import { CommandPalette } from '../components/CommandPalette.jsx';
 import Copilot from '../components/Copilot.jsx';
-import AIOnboardingCard from '../components/AIOnboardingCard.jsx';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 import ContactsView from './ContactsView.jsx';
 import LeadsView from './LeadsView.jsx';

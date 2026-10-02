@@ -33,6 +33,9 @@ export function fmtMoneyShort(value, { currency = 'INR' } = {}) {
 export const fmtDate = (d) =>
   (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 
+export const fmtDateTime = (d) =>
+  (d ? new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+
 // Turns an enum constant into display text: CLOSED_WON -> "Closed Won".
 export const pretty = (s) =>
   String(s || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
