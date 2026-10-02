@@ -54,6 +54,15 @@ export async function stageProbabilities(workspaceId) {
   return new Map(data.map((s) => [s.key, FIXED_PROBABILITY[s.key] ?? s.probability]));
 }
 
+// Deals may only move into a stage the workspace has actually configured;
+// otherwise a typo becomes a stage of its own and is forecast at 0%.
+export async function assertKnownStage(workspaceId, key) {
+  const { data } = await listStages(workspaceId);
+  if (!data.some((s) => s.key === key)) {
+    const e = new Error(`Unknown pipeline stage "${key}"`); e.status = 400; throw e;
+  }
+}
+
 export async function createStage(workspaceId, { key, label, probability = 50, sortOrder = 0 }) {
   await ensureStages(workspaceId);
   const existing = await prisma.pipelineStage.findFirst({ where: { workspaceId, key } });

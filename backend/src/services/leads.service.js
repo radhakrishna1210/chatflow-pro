@@ -8,6 +8,7 @@ import { scopeFilter } from './recordScope.service.js';
 import { awardXp, unlockAchievement } from './gamification.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { getSection } from './crmCustomization.service.js';
+import { assertKnownStage } from './pipelineStages.service.js';
 
 export const PRISMA_LEAD_STATUSES = new Set(['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST']);
 
@@ -541,6 +542,7 @@ export async function recalculateScore(workspaceId, id, user = null) {
 // Transactional by design: a conversion that created a Deal but failed to mark
 // the Lead converted would let the same lead be converted twice.
 export async function convertLead(workspaceId, id, body, userId) {
+  await assertKnownStage(workspaceId, body.stage || 'QUALIFICATION');
   return prisma.$transaction(async (tx) => {
     const lead = await tx.lead.findFirst({ where: { id, workspaceId } });
     if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
