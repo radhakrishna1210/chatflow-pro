@@ -126,15 +126,6 @@ export const SECTION_SCHEMAS = {
       description: optText(300),
     })).max(100).optional(),
   }),
-
-  document_categories: loose({
-    categories: z.array(loose({
-      id: itemId,
-      name: text(80).min(1),
-      color,
-      subcategories: z.array(text(120)).max(50).optional(),
-    })).max(50),
-  }),
 };
 
 // Returns the parsed section or throws a 400 naming the first problem.

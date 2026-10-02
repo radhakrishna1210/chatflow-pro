@@ -63,8 +63,8 @@ test.after(async () => {
   await prisma.workspace.delete({ where: { id: workspaceId } }).catch(() => {});
 });
 
-test('SECTION_KEYS defines all 10 customization sections', () => {
-  assert.equal(SECTION_KEYS.length, 10);
+test('SECTION_KEYS defines all 9 customization sections', () => {
+  assert.equal(SECTION_KEYS.length, 9);
   assert.ok(SECTION_KEYS.includes('lead_lifecycle'));
   assert.ok(SECTION_KEYS.includes('prospecting_criteria'));
   assert.ok(SECTION_KEYS.includes('deal_mode'));
@@ -74,7 +74,8 @@ test('SECTION_KEYS defines all 10 customization sections', () => {
   assert.ok(SECTION_KEYS.includes('visit_outcomes'));
   assert.ok(SECTION_KEYS.includes('deal_setup'));
   assert.ok(SECTION_KEYS.includes('ticket_customization'));
-  assert.ok(SECTION_KEYS.includes('document_categories'));
+  // Document categories had no tab and no consumer; it was removed.
+  assert.ok(!SECTION_KEYS.includes('document_categories'));
 });
 
 test('getAllCustomizations returns defaults for a fresh workspace', async (t) => {

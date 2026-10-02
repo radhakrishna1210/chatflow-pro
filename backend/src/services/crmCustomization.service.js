@@ -136,41 +136,6 @@ export const DEFAULT_CUSTOMIZATIONS = {
       { id: 'tcat_5', name: 'General Inquiry', slaHours: 48, priority: 'LOW', color: '#10b981', description: 'Standard inquiries and customer questions' },
     ],
   },
-
-  document_categories: {
-    categories: [
-      {
-        id: 'doc_1',
-        name: 'Contracts & Legal',
-        color: '#6366f1',
-        subcategories: ['Master Services Agreement (MSA)', 'Non-Disclosure Agreement (NDA)', 'Service Level Agreement (SLA)', 'Statement of Work (SOW)'],
-      },
-      {
-        id: 'doc_2',
-        name: 'Proposals & Quotes',
-        color: '#3b82f6',
-        subcategories: ['Commercial Proposal', 'Price Quotation', 'RFP Response', 'Pitch Deck'],
-      },
-      {
-        id: 'doc_3',
-        name: 'Invoices & Billing',
-        color: '#10b981',
-        subcategories: ['Tax Invoice', 'Purchase Order (PO)', 'Payment Receipt', 'Credit Note'],
-      },
-      {
-        id: 'doc_4',
-        name: 'KYC & Identification',
-        color: '#f59e0b',
-        subcategories: ['Business Registration Certificate', 'Tax ID / PAN / GST', 'Authorized Signatory Proof', 'Bank Account Verification'],
-      },
-      {
-        id: 'doc_5',
-        name: 'Technical & Product',
-        color: '#8b5cf6',
-        subcategories: ['Architecture Diagram', 'Security Compliance / SOC2', 'Product Specification', 'Integration Guide'],
-      },
-    ],
-  },
 };
 
 export const SECTION_KEYS = Object.keys(DEFAULT_CUSTOMIZATIONS);
@@ -253,7 +218,7 @@ async function syncDealSetupWithPipelineStages(workspaceId, dealSetupConfig) {
 }
 
 /**
- * Get all 10 customization sections for a workspace.
+ * Get every customization section for a workspace.
  */
 export async function getAllCustomizations(workspaceId) {
   // Oldest first, so a later duplicate overwrites an earlier one in the map.
@@ -660,9 +625,12 @@ export async function autoGenerateOutcomeTask(workspaceId, { type, outcome, sent
     const config = await getSection(workspaceId, sectionKey);
     const outcomesList = config?.outcomes || [];
 
-    // Find the outcome matching name or id (case-insensitive)
+    // Exact match on name (case-insensitive) or id. A substring match let an
+    // outcome typed "No" trigger whichever of "Not interested" / "No answer"
+    // came first.
+    const wanted = String(outcome).trim().toLowerCase();
     const matchedOutcome = outcomesList.find(
-      (o) => o.name?.toLowerCase() === outcome.toLowerCase() || o.id === outcome || o.name?.toLowerCase()?.includes(outcome.toLowerCase())
+      (o) => o.id === outcome || String(o.name || '').trim().toLowerCase() === wanted
     );
 
     // If outcome is not configured to trigger follow-up, do not create task

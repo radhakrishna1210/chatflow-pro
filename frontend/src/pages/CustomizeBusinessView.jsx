@@ -12,11 +12,14 @@ const COLOR_PALETTE = [
 ];
 
 const TABS = [
-  { id: 'lead_lifecycle', label: 'Lead Lifecycle', icon: 'target', desc: 'Define status progression for leads' },
-  { id: 'prospecting_criteria', label: 'Prospecting Criteria', icon: 'filter', desc: 'B2B/B2C lead qualification checklist & rules' },
+  // Lifecycle, prospecting rules and sources are checked when a lead is created
+  // or edited in the CRM; form, import and campaign-reply leads are not held to
+  // them yet. Tags are suggestions for the picker, not an allow-list.
+  { id: 'lead_lifecycle', label: 'Lead Lifecycle', icon: 'target', desc: 'Define status progression for leads (applied to leads edited in the CRM)' },
+  { id: 'prospecting_criteria', label: 'Prospecting Criteria', icon: 'filter', desc: 'Qualification checklist & required fields for leads created in the CRM' },
   { id: 'deal_mode', label: 'Deal Mode', icon: 'zap', desc: 'Flexible vs. Automatic task-driven execution' },
-  { id: 'lead_tags', label: 'Lead Tags', icon: 'spark', desc: 'Categorized priority and segment tags' },
-  { id: 'lead_sources', label: 'Lead Sources', icon: 'globe', desc: 'Channels and attribution sources' },
+  { id: 'lead_tags', label: 'Lead Tags', icon: 'spark', desc: 'Suggested tags shown in the lead tag picker' },
+  { id: 'lead_sources', label: 'Lead Sources', icon: 'globe', desc: 'Sources allowed for leads created in the CRM' },
   { id: 'call_outcomes', label: 'Call Outcomes', icon: 'phone', desc: 'Call dispositions & sentiment scoring' },
   { id: 'visit_outcomes', label: 'Visit Outcomes', icon: 'users', desc: 'Field meeting dispositions & follow-ups' },
   { id: 'deal_setup', label: 'Deal Setup', icon: 'briefcase', desc: 'Stages, win probabilities & SLA days' },
