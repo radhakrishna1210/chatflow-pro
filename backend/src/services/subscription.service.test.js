@@ -60,6 +60,7 @@ mock.module('../lib/prisma.js', { namedExports: { prisma } });
 
 const {
   assertContactCapacity, hasContactCapacity, scheduleSubscriptionChange, renewalCharge, releaseMessageCredit,
+  consumeMessageCredit,
 } = await import('./subscription.service.js');
 
 const setContacts = (...phones) => {
@@ -178,6 +179,27 @@ test('releaseMessageCredit reports a failed release instead of throwing', async 
   } finally {
     console.error = origError;
     prisma.usageCounter.updateMany = original;
+  }
+});
+
+test('a prepaid send meters usage with one increment and no transaction', async () => {
+  onPlan('plan_basic');
+  const upserts = [];
+  prisma.usageCounter.upsert = async (args) => { upserts.push(args); return {}; };
+  prisma.$transaction = async () => { throw new Error('prepaid sends must not open a transaction'); };
+  try {
+    const r = await consumeMessageCredit('ws_1', { prepaid: true });
+    assert.deepEqual(r, { ok: true, source: 'PREPAID' });
+    assert.equal(upserts.length, 1);
+    assert.deepEqual(upserts[0].update, { messagesUsed: { increment: 1 } });
+    assert.equal(upserts[0].create.messagesUsed, 1);
+
+    onPlan('plan_basic', { status: 'EXPIRED' });
+    assert.deepEqual(await consumeMessageCredit('ws_1', { prepaid: true }), { ok: false, code: 'SUBSCRIPTION_INACTIVE' });
+    assert.equal(upserts.length, 1);
+  } finally {
+    delete prisma.usageCounter.upsert;
+    delete prisma.$transaction;
   }
 });
 

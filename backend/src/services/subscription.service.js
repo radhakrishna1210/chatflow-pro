@@ -51,6 +51,7 @@ export async function getActiveSubscription(workspaceId) {
 // that carries no template — an inbox reply — and the plan's flat
 // overageRatePerMsg is used instead.
 export async function consumeMessageCredit(workspaceId, { reason = 'Message send', prepaid = false, messageCategory = null } = {}) {
+  if (prepaid) return consumePrepaidCredit(workspaceId);
   return prisma.$transaction(async (tx) => {
     const subscription = await tx.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
     if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
@@ -111,6 +112,28 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
     // message and can take a row lock on the wallet, so it needs more than
     // Prisma's default 5s budget against a pooled remote database.
   }, { maxWait: 15_000, timeout: 30_000 });
+}
+
+// A prepaid (campaign) send never touches the wallet and is never refused for
+// quota, so it only has to meter usage: one atomic increment, no interactive
+// transaction. This runs once per campaign recipient, where the transaction's
+// extra round trips against a remote pooled Postgres added up.
+async function consumePrepaidCredit(workspaceId) {
+  const subscription = await prisma.subscription.findUnique({
+    where: { workspaceId },
+    select: { status: true, currentPeriodStart: true, currentPeriodEnd: true },
+  });
+  if (!subscription) { const e = new Error('Subscription not found'); e.status = 404; throw e; }
+  if (!['ACTIVE', 'PAST_DUE'].includes(subscription.status)) {
+    return { ok: false, code: 'SUBSCRIPTION_INACTIVE' };
+  }
+  const { currentPeriodStart: periodStart, currentPeriodEnd: periodEnd } = subscription;
+  await prisma.usageCounter.upsert({
+    where: { workspaceId_periodStart: { workspaceId, periodStart } },
+    update: { messagesUsed: { increment: 1 } },
+    create: { workspaceId, periodStart, periodEnd, messagesUsed: 1 },
+  });
+  return { ok: true, source: 'PREPAID' };
 }
 
 // Gives back a credit taken by consumeMessageCredit() when the send it was
