@@ -752,12 +752,8 @@ const HomeView = () => {
     try {
       const user = JSON.parse(localStorage.getItem('user') || '{}');
       
-      const res = await fetch('/api/v1/onboarding/chat', {
+      const res = await apiFetch('/api/v1/onboarding/chat', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
         body: JSON.stringify({ message: prompt, workspaceId: user.workspaceId, guided }),
       });
       const data = await res.json();

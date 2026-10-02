@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { canManage } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch, adminFetch } from '../lib/api.js';
+import { wFetch, adminFetch, apiFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const statusColor = s => ({
@@ -453,7 +453,6 @@ export default function NumberSetupView() {
     setMetaConnecting(true);
     setMetaMsg(null);
     try {
-      const token = localStorage.getItem('accessToken');
       const { workspaceId } = JSON.parse(localStorage.getItem('user') || '{}');
 
       // Fetch Embedded Signup config (appId + configId) from the backend.
@@ -533,9 +532,7 @@ export default function NumberSetupView() {
         setMetaConnecting(false);
         return;
       }
-      const res = await fetch(`/api/v1/auth/meta/start?workspaceId=${encodeURIComponent(workspaceId || '')}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch(`/api/v1/auth/meta/start?workspaceId=${encodeURIComponent(workspaceId || '')}`);
       const data = await res.json();
       if (!res.ok) {
         setMetaMsg({ error: data.error || `Could not start Meta connection (${res.status})` });

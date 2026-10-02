@@ -1,6 +1,7 @@
 let _refreshing = null;
 
-const PROTECTED_PREFIXES = ['/dashboard', '/setup'];
+// Every route App.jsx guards as signed-in only.
+const PROTECTED_PREFIXES = ['/dashboard', '/setup', '/resources'];
 
 // Where a dead session should land someone.
 //
