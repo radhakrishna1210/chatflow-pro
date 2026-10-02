@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { apiFetch } from '../lib/api.js';
+import { wFetch } from '../lib/api.js';
 import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
@@ -773,7 +773,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
   const runSimulation = async () => {
     setSimulating(s => ({ ...s, busy: true, result: null }));
     try {
-      const res = await apiFetch('/api/v1/ai/workflow/execute', {
+      const res = await wFetch('/ai/workflow/execute', {
         method: 'POST',
         body: JSON.stringify({
           workflowId: simulating.id,
