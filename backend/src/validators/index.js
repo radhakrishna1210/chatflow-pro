@@ -4,6 +4,8 @@ const DEAL_STAGES = Object.keys(DealStage);
 const LEAD_STATUSES = Object.keys(LeadStatus);
 
 import { hasMeaningfulText } from '../lib/textValidation.js';
+import { CUSTOM_FIELD_TYPES } from '../services/customFields.service.js';
+import { SAVED_VIEW_ENTITIES } from '../services/savedViews.service.js';
 
 // validate({ body, params, query }) ΓÇö parsed values replace the originals so
 // controllers receive clean, typed input instead of raw request payloads.
@@ -152,7 +154,7 @@ export const contactSchemas = {
     email: z.union([z.string().trim().email(), z.literal(''), z.null()]).optional().transform((v) => (v ? v : null)),
     tags: z.array(z.string().trim().max(50)).max(30).optional().default([]),
     // Shape only. The keys and value types are checked against the workspace's
-    // own field definitions in customFields.service.js#validateCustomFields ΓÇö
+    // own field definitions in workspaceCustomFields.service.js#validateCustomFields ΓÇö
     // a schema here could not know what fields this workspace has.
     customFields: z.record(z.union([z.string(), z.number(), z.null()])).optional(),
   }),
@@ -516,9 +518,6 @@ const leadFormField = z.object({
   options: z.array(z.string().trim()).optional(),
   placeholder: z.string().optional(),
 });
-
-const CUSTOM_FIELD_TYPES = ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN', 'SELECT'];
-const SAVED_VIEW_ENTITIES = ['CONTACT', 'LEAD', 'DEAL', 'TICKET', 'TASK'];
 
 const TASK_STATUSES = ['PENDING', 'COMPLETED'];
 const CRM_ACTIVITY_TYPES = ['NOTE', 'CALL', 'EMAIL', 'MEETING'];
