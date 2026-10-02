@@ -67,7 +67,7 @@ export async function bulkCategory(req, res) {
 
 export async function bulkTask(req, res) {
   const { ids, title, dueDate, priority } = req.body || {};
-  const result = await leadsService.bulkCreateTask(req.params.workspaceId, ids, { title, dueDate, priority }, req.user.id);
+  const result = await leadsService.bulkCreateTask(req.params.workspaceId, ids, { title, dueDate, priority }, req.user);
   res.json(result);
 }
 

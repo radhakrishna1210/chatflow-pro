@@ -1217,11 +1217,15 @@ export default function LeadsView() {
   const handleBulkAssign = async (userId) => {
     if (selectedIds.size === 0) return;
     try {
-      await wFetch('/leads/bulk-assign', {
+      const res = await wFetch('/leads/bulk-assign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [...selectedIds], ownerUserId: userId || null }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Bulk update failed');
+      }
       setSelectedIds(new Set());
       load();
     } catch (e) {
@@ -1232,11 +1236,15 @@ export default function LeadsView() {
   const handleBulkStatus = async (st) => {
     if (selectedIds.size === 0 || !st) return;
     try {
-      await wFetch('/leads/bulk-status', {
+      const res = await wFetch('/leads/bulk-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [...selectedIds], status: st }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Bulk update failed');
+      }
       setSelectedIds(new Set());
       load();
     } catch (e) {
@@ -1247,11 +1255,15 @@ export default function LeadsView() {
   const handleBulkCategory = async (cat) => {
     if (selectedIds.size === 0 || !cat) return;
     try {
-      await wFetch('/leads/bulk-category', {
+      const res = await wFetch('/leads/bulk-category', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [...selectedIds], category: cat }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Bulk update failed');
+      }
       setSelectedIds(new Set());
       load();
     } catch (e) {

@@ -586,6 +586,12 @@ export async function bulkAssignLeads(workspaceId, ids = [], ownerUserId = null,
   if (!Array.isArray(ids) || ids.length === 0) {
     const e = new Error('At least one lead ID is required'); e.status = 400; throw e;
   }
+  // Lead.ownerUserId is a plain FK to User, so without this check a caller
+  // could hand leads to someone outside the workspace.
+  if (ownerUserId) {
+    const member = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: ownerUserId }, select: { userId: true } });
+    if (!member) { const e = new Error('Owner must be a member of this workspace'); e.status = 400; throw e; }
+  }
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const res = await prisma.lead.updateMany({
     where: { id: { in: ids }, workspaceId, ...scope },
@@ -594,16 +600,42 @@ export async function bulkAssignLeads(workspaceId, ids = [], ownerUserId = null,
   return { count: res.count };
 }
 
+// Custom lifecycle keys live in customFields.statusKey (the DB enum only knows
+// the built-ins), so each lead is written individually the same way updateLead
+// does it rather than with one updateMany.
 export async function bulkUpdateStatus(workspaceId, ids = [], status, user = null) {
   if (!Array.isArray(ids) || ids.length === 0 || !status) {
     const e = new Error('Lead IDs and status are required'); e.status = 400; throw e;
   }
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const res = await prisma.lead.updateMany({
+  const leads = await prisma.lead.findMany({
     where: { id: { in: ids }, workspaceId, ...scope },
-    data: { status },
+    select: { id: true, status: true, customFields: true, contactId: true },
   });
-  return { count: res.count };
+  const isPrismaStatus = PRISMA_LEAD_STATUSES.has(status);
+  const changed = [];
+  const writes = [];
+  for (const lead of leads) {
+    const customFields = typeof lead.customFields === 'object' && lead.customFields !== null ? { ...lead.customFields } : {};
+    const previousStatus = customFields.statusKey || lead.status;
+    if (isPrismaStatus) delete customFields.statusKey;
+    else customFields.statusKey = status;
+    writes.push(prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        status: isPrismaStatus ? status : 'NEW',
+        customFields: Object.keys(customFields).length > 0 ? customFields : null,
+      },
+    }));
+    if (previousStatus !== status) changed.push({ lead, previousStatus });
+  }
+  if (writes.length) await prisma.$transaction(writes);
+  for (const { lead, previousStatus } of changed) {
+    emitCrmEvent(workspaceId, 'lead_status_changed', {
+      leadId: lead.id, contactId: lead.contactId, status, previousStatus,
+    });
+  }
+  return { count: leads.length };
 }
 
 export async function bulkUpdateCategory(workspaceId, ids = [], category, user = null) {
@@ -618,29 +650,28 @@ export async function bulkUpdateCategory(workspaceId, ids = [], category, user =
   return { count: res.count };
 }
 
-export async function bulkCreateTask(workspaceId, ids = [], { title, dueDate = null, priority = 'NORMAL' } = {}, userId = null) {
+// Task has no priority column; the chosen priority is kept in the description,
+// the same way stage-transition auto-tasks record theirs.
+export async function bulkCreateTask(workspaceId, ids = [], { title, dueDate = null, priority = null } = {}, user = null) {
   if (!Array.isArray(ids) || ids.length === 0 || !title) {
     const e = new Error('Lead IDs and task title are required'); e.status = 400; throw e;
   }
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
   const leads = await prisma.lead.findMany({
-    where: { id: { in: ids }, workspaceId },
+    where: { id: { in: ids }, workspaceId, ...scope },
     select: { id: true, contactId: true, ownerUserId: true },
   });
-  const createdTasks = [];
-  for (const l of leads) {
-    const task = await prisma.task.create({
-      data: {
-        workspaceId,
-        title,
-        dueDate: dueDate ? new Date(dueDate) : null,
-        priority,
-        leadId: l.id,
-        contactId: l.contactId,
-        assignedToUserId: l.ownerUserId || userId,
-      },
-    });
-    createdTasks.push(task);
-  }
-  return { count: createdTasks.length };
+  if (leads.length === 0) return { count: 0 };
+  const res = await prisma.task.createMany({
+    data: leads.map((l) => ({
+      workspaceId,
+      title,
+      description: priority ? `[Priority: ${priority}]` : null,
+      dueDate: dueDate ? new Date(dueDate) : null,
+      leadId: l.id,
+      contactId: l.contactId,
+      assignedToUserId: l.ownerUserId || user?.id || null,
+    })),
+  });
+  return { count: res.count };
 }
-

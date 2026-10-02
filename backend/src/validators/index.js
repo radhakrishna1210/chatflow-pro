@@ -570,6 +570,27 @@ export const leadSchemas = {
     expectedCloseDate: z.coerce.date().optional().nullable(),
     ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
   }),
+  bulkIds: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+  }).strict(),
+  bulkAssign: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => v || null),
+  }).strict(),
+  bulkStatus: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    status: z.string().trim().min(1).max(60),
+  }).strict(),
+  bulkCategory: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    category: z.enum(['HOT', 'WARM', 'COLD']),
+  }).strict(),
+  bulkTask: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    title: z.string().trim().min(1, 'Task title is required').max(200),
+    dueDate: z.coerce.date().optional().nullable(),
+    priority: z.enum(['HIGH', 'NORMAL', 'LOW']).optional(),
+  }).strict(),
 };
 
 export const productSchemas = {
