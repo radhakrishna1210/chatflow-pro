@@ -132,7 +132,8 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `JWT_REFRESH_EXPIRES_IN` | no | `7d` | Refresh token TTL |
 | `ADMIN_EMAIL` | **yes** | — | The single email treated as the **platform super admin** (`superAdmin: true` on JWT, unlocks `/admin/platform/*`) — not a workspace role |
 | `BCRYPT_SALT_ROUNDS` | no | `12` | |
-| `ENCRYPTION_KEY` | **yes** (min 32 chars, 32 ASCII or 64 hex) | — | AES-256-CBC key used to encrypt WhatsApp access tokens & integration credentials at rest. Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `ENCRYPTION_KEY` | **yes** (min 32 chars, 32 ASCII or 64 hex) | — | AES-256-GCM key used to encrypt WhatsApp access tokens & integration credentials at rest (values written before GCM, in CBC, are still read). Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `ENCRYPTION_KEYS_PREVIOUS` | no | — | Comma-separated old keys still accepted for decryption while rotating `ENCRYPTION_KEY`. Rotate: set the new key + list the old one here, deploy, run `node scripts/reencrypt-secrets.js --apply`, then remove this |
 | `META_APP_ID` | **yes** | — | Meta developer app ID |
 | `META_APP_SECRET` | **yes** | — | Used for webhook HMAC signature verification and OAuth code exchange |
 | `META_BUSINESS_ID` | **yes** | — | |

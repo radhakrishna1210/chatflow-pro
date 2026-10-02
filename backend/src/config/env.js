@@ -32,6 +32,8 @@ const envSchema = z.object({
 
   // 32 ASCII chars or 64 hex chars — validated in lib/encryption.js
   ENCRYPTION_KEY: z.string().min(32),
+  // Comma-separated keys still accepted for decryption during a key rotation.
+  ENCRYPTION_KEYS_PREVIOUS: z.string().optional(),
 
   META_APP_ID: z.string().min(1),
   META_APP_SECRET: z.string().min(1),
