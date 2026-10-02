@@ -15,7 +15,8 @@ const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-IN', { day: '2-dig
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
 // Settings → Blocked Numbers. Every number that opted out of this workspace,
-// with search, filtering, CSV export, and single or bulk unblock.
+// with search, filtering, CSV export, single or bulk unblock, and blocking a
+// number by hand (e.g. someone who asked by phone or email).
 export default function BlockedNumbers({ isAdmin }) {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -29,6 +30,8 @@ export default function BlockedNumbers({ isAdmin }) {
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [keywords, setKeywords] = useState([]);
+  const [blockPhone, setBlockPhone] = useState('');
+  const [blockReason, setBlockReason] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -94,6 +97,30 @@ export default function BlockedNumbers({ isAdmin }) {
     }
   };
 
+  const blockNumber = async (e) => {
+    e.preventDefault();
+    const phoneNumber = blockPhone.trim();
+    if (busy || !phoneNumber) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await wFetch('/blocked-numbers', {
+        method: 'POST',
+        body: JSON.stringify({ phoneNumber, ...(blockReason.trim() ? { reason: blockReason.trim() } : {}) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not block that number');
+      setBlockPhone('');
+      setBlockReason('');
+      flash(`Blocked ${data.phoneNumber || phoneNumber}.`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const exportCsv = async () => {
     setError(null);
     try {
@@ -129,6 +156,18 @@ export default function BlockedNumbers({ isAdmin }) {
             </>
           )}
         </p>
+
+        {isAdmin && (
+          <form onSubmit={blockNumber} style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginBottom:12 }}>
+            <input value={blockPhone} onChange={e => setBlockPhone(e.target.value)} placeholder="Phone number to block, e.g. +919876543210"
+              aria-label="Phone number to block" style={{ padding:'7px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', minWidth:0, flex:'1 1 220px' }} />
+            <input value={blockReason} onChange={e => setBlockReason(e.target.value)} placeholder="Reason (optional)" maxLength={200}
+              aria-label="Reason for blocking" style={{ padding:'7px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', minWidth:0, flex:'1 1 180px' }} />
+            <Btn size="sm" variant="outline" type="submit" disabled={busy || !blockPhone.trim()}>
+              <I n="ban" s={12} c="#f87171" /> Block number
+            </Btn>
+          </form>
+        )}
 
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
           <div style={{ display:'flex', alignItems:'center', gap:7, padding:'7px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', flex:'1 1 220px', minWidth:0 }}>
