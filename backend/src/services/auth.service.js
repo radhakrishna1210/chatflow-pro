@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { queueWelcomeEmail, sendOtpEmailNow } from './email.service.js';
 import { consumeInvitationAtomically } from './invitations.service.js';
+import * as refreshTokens from './refreshTokens.js';
 
 function generateTokens(userId, workspaceId, role, superAdmin = false) {
   // The access token carries its own `jti` so signing out can revoke *this*
@@ -36,11 +37,11 @@ function parseDurationMs(value, fallbackMs) {
 
 const REFRESH_TTL_MS = parseDurationMs(env.JWT_REFRESH_EXPIRES_IN, 7 * 86_400_000);
 
-async function storeRefreshToken(userId, token) {
+// `workspaceId` is the workspace the session is scoped to, so a refresh
+// re-mints for it rather than for whichever workspace was joined first.
+async function storeRefreshToken(userId, token, { workspaceId = null, familyId = null } = {}) {
   const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
-  await prisma.refreshToken.create({ data: { userId, token, expiresAt } });
-  // Opportunistic cleanup so expired tokens don't pile up forever.
-  prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => {});
+  await refreshTokens.storeRefreshToken({ userId, token, expiresAt, workspaceId, familyId });
 }
 
 // Platform-level super admin, identified solely by the configured ADMIN_EMAIL.
@@ -91,7 +92,7 @@ export async function register({ name, email, password, role = 'CLIENT', inviteT
   // ADMIN only when they explicitly create one (createWorkspace), or CLIENT
   // when an invite joins them to an existing workspace.
   const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId: joined?.workspaceId });
 
   queueWelcomeEmail({ email: user.email, name: user.name }).catch(() => {});
 
@@ -129,7 +130,7 @@ export async function login({ email, password }) {
   const superAdmin = isPlatformAdmin(user.email);
   const role = member?.role ?? null;
   const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, role, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId: member?.workspaceId });
   prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
 
   return {
@@ -140,56 +141,90 @@ export async function login({ email, password }) {
   };
 }
 
+function refreshRejected(message, code) {
+  const err = new Error(message);
+  err.status = 401;
+  if (code) err.code = code;
+  return err;
+}
+
 export async function refresh(token) {
   let payload;
   try {
     payload = jwt.verify(token, env.JWT_REFRESH_SECRET);
   } catch {
-    const err = new Error('Invalid refresh token');
-    err.status = 401;
-    throw err;
+    throw refreshRejected('Invalid refresh token');
   }
 
-  const stored = await prisma.refreshToken.findUnique({ where: { token } });
-  if (!stored || stored.expiresAt < new Date()) {
-    if (stored) await prisma.refreshToken.delete({ where: { token } }).catch(() => {});
-    const err = new Error('Refresh token expired or not found');
-    err.status = 401;
-    throw err;
+  const stored = await refreshTokens.findRefreshToken(token);
+  if (!stored || stored.userId !== payload.sub) {
+    throw refreshRejected('Refresh token expired or not found');
   }
 
-  await prisma.refreshToken.delete({ where: { token } });
+  if (stored.rotatedAt) {
+    // Another tab of the same browser just rotated it: refuse, revoke nothing.
+    if (refreshTokens.isWithinRotationGrace(stored)) {
+      throw refreshRejected('Refresh token already used', 'REFRESH_TOKEN_ROTATED');
+    }
+    // A token that was exchanged earlier is being replayed, so someone else
+    // holds this chain. End the whole sign-in for both parties.
+    await refreshTokens.revokeFamily(stored);
+    console.warn(`[Auth] Refresh token reuse detected for user ${stored.userId}; session revoked`);
+    throw refreshRejected('Refresh token expired or not found', 'REFRESH_TOKEN_REUSED');
+  }
 
-  const member = await prisma.workspaceMember.findFirst({
-    where: { userId: payload.sub },
-    include: { workspace: true },
-    orderBy: { joinedAt: 'asc' },
-  });
+  if (stored.expiresAt < new Date()) {
+    await refreshTokens.revokeFamily(stored).catch(() => {});
+    throw refreshRejected('Refresh token expired or not found');
+  }
+
+  if (!(await refreshTokens.claimForRotation(stored, token))) {
+    throw refreshRejected('Refresh token already used', 'REFRESH_TOKEN_ROTATED');
+  }
 
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-  if (!user) {
-    const err = new Error('User not found');
-    err.status = 401;
-    throw err;
+  if (!user) throw refreshRejected('User not found');
+
+  // Stay in the workspace the session was scoped to (switchWorkspace, invite
+  // accept). Fall back to the earliest membership only when there is none on
+  // record, or the user has since left it.
+  let member = stored.workspaceId
+    ? await prisma.workspaceMember.findUnique({
+        where: { userId_workspaceId: { userId: user.id, workspaceId: stored.workspaceId } },
+        include: { workspace: { select: { id: true, name: true } } },
+      })
+    : null;
+  if (!member) {
+    member = await prisma.workspaceMember.findFirst({
+      where: { userId: user.id },
+      include: { workspace: { select: { id: true, name: true } } },
+      orderBy: { joinedAt: 'asc' },
+    });
   }
 
   const superAdmin = isPlatformAdmin(user.email);
   const role = member?.role ?? null;
-  const { accessToken, refreshToken: newRefreshToken } = generateTokens(
-    payload.sub,
-    member?.workspaceId ?? null,
-    role,
-    superAdmin
-  );
-  await storeRefreshToken(payload.sub, newRefreshToken);
+  const workspaceId = member?.workspaceId ?? null;
+  const { accessToken, refreshToken: newRefreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
+  await storeRefreshToken(user.id, newRefreshToken, {
+    workspaceId,
+    familyId: stored.familyId || stored.id,
+  });
 
-  return { accessToken, refreshToken: newRefreshToken };
+  return {
+    accessToken,
+    refreshToken: newRefreshToken,
+    role,
+    workspace: member ? { id: member.workspace.id, name: member.workspace.name } : null,
+  };
 }
 
+// Ends the whole sign-in the token belongs to, including its rotated
+// predecessors, so none of them can be replayed afterwards.
 export async function logout(token) {
-  if (token) {
-    await prisma.refreshToken.deleteMany({ where: { token } });
-  }
+  if (!token) return;
+  const stored = await refreshTokens.findRefreshToken(token);
+  if (stored) await refreshTokens.revokeFamily(stored);
 }
 
 export async function findOrCreateGoogleUser({ googleId, email, name, inviteToken }) {
@@ -248,7 +283,7 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
   const role = joined?.role ?? member?.role ?? null;
   const workspaceId = joined?.workspaceId ?? member?.workspaceId ?? null;
   const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId });
   prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
 
   // Existing users are never auto-joined to an invited workspace here (that
@@ -512,7 +547,7 @@ export async function verifySignup({ email, code, inviteToken }) {
   }
 
   const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId: joined?.workspaceId });
   prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
   purgeDeadOtps(normalizedEmail, 'SIGNUP');
 
@@ -622,7 +657,7 @@ export async function createWorkspace(userId, { name } = {}) {
   // swap its session in place.
   const superAdmin = isPlatformAdmin(user.email);
   const { accessToken, refreshToken } = generateTokens(user.id, workspace.id, role, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId: workspace.id });
 
   return {
     accessToken, refreshToken,
@@ -645,7 +680,7 @@ export async function mintSessionForWorkspace(userId, workspaceId, role) {
 
   const superAdmin = isPlatformAdmin(user.email);
   const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
-  await storeRefreshToken(user.id, refreshToken);
+  await storeRefreshToken(user.id, refreshToken, { workspaceId });
 
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, name: true } });
 

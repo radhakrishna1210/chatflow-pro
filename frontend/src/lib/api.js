@@ -62,6 +62,11 @@ async function refreshAccessToken() {
     // Only the server rejecting the token itself ends the session. A 5xx is
     // the server's problem, not the user's credentials.
     if (res.status === 401 || res.status === 403) {
+      // Another tab rotated the shared refresh token while this request was in
+      // flight. Its new tokens are already stored — use them.
+      const current = localStorage.getItem('refreshToken');
+      const access = localStorage.getItem('accessToken');
+      if (current && current !== refreshToken && access) return access;
       logout();
       throw sessionExpired();
     }
@@ -70,6 +75,14 @@ async function refreshAccessToken() {
     const data = await res.json();
     localStorage.setItem('accessToken', data.accessToken);
     if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+    // Keep the stored workspace in step with the one the new token is scoped
+    // to (they only differ if the user has left the session's workspace).
+    const user = getStoredUser();
+    if (user && data.workspace?.id && user.workspaceId !== data.workspace.id) {
+      localStorage.setItem('user', JSON.stringify({
+        ...user, workspaceId: data.workspace.id, workspaceName: data.workspace.name, role: data.role ?? user.role,
+      }));
+    }
     return data.accessToken;
   })().finally(() => { _refreshing = null; });
 
