@@ -17,6 +17,10 @@ export async function listIntegrations(workspaceId) {
 export async function connectIntegration(workspaceId, provider, { type, credentials, config }) {
   if (!provider || !type) { const e = new Error('provider and type are required'); e.status = 400; throw e; }
   if (!['apikey', 'oauth', 'webhook'].includes(type)) { const e = new Error('invalid integration type'); e.status = 400; throw e; }
+  // An OAuth connection exists only once the provider's callback has stored a
+  // grant (integrations.controller oauthCallback). Accepting one here let the
+  // UI save a placeholder that was then reported as CONNECTED.
+  if (type === 'oauth') { const e = new Error('OAuth integrations are connected through the provider sign-in flow'); e.status = 400; throw e; }
 
   const data = {
     workspaceId, provider, type, status: 'CONNECTED',

@@ -255,6 +255,13 @@ function connectionKey(intg) {
   return OAUTH_PROVIDER_MAP[intg.id] || intg.id;
 }
 
+// OAuth entries with no backend flow behind them. They used to save a
+// `pending` placeholder that then rendered as connected; now they are shown
+// as not yet available and cannot be connected.
+function isUnavailable(intg) {
+  return CONNECT_CONFIG[intg.id]?.type === 'oauth' && !OAUTH_PROVIDER_MAP[intg.id];
+}
+
 const CATEGORY_ICONS = {
   'Payment Provider':        'credit',
   'Connector Platform':      'zap',
@@ -358,8 +365,8 @@ function ConnectModal({ intg, onClose, onSave }) {
           setSaving(false);
           return;
         }
-        // No live OAuth wired for this provider yet — record the intent honestly.
-        await onSave(intg.id, { type: 'oauth', config: { oauth: true, pending: true } });
+        // No OAuth flow exists for this provider; the card is shown as
+        // unavailable, so this is only reachable by a stale render.
         setSaving(false);
         return;
       }
@@ -602,7 +609,12 @@ function InfoModal({ intg, isConnected, locked, onClose, onConnectClick, onUpgra
               Upgrade to Connect
             </button>
           )}
-          {!isConnected && !locked && (
+          {!isConnected && isUnavailable(intg) && (
+            <span style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t3)', fontSize: 13, fontWeight: 600 }}>
+              Not available yet
+            </span>
+          )}
+          {!isConnected && !locked && !isUnavailable(intg) && (
             <button onClick={onConnectClick}
               style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--grad-cta)', border: '1px solid var(--gbd)', color: 'var(--ink)', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: 'var(--glow)' }}>
               <I n="plug" s={13} c="#08090c" />
@@ -649,6 +661,14 @@ function IntegrationCard({ intg, isConnected, locked, onAction, onDisconnect }) 
 
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
         {intg.actions.filter(a => a !== 'Connect' || !isConnected).map(a => {
+          if (a === 'Connect' && isUnavailable(intg)) {
+            return (
+              <span key={a} title="This integration is not available yet"
+                style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t3)' }}>
+                Coming soon
+              </span>
+            );
+          }
           const isPrimary = a === 'Connect';
           const isLockedConnect = isPrimary && locked;
           return (
@@ -707,7 +727,9 @@ export default function IntegrationsView() {
     if (!res.ok) throw new Error(`Could not load your connected integrations (${res.status}). Try signing out and back in.`);
     const rows = await res.json();
     const map = {};
-    (Array.isArray(rows) ? rows : []).forEach(r => { map[r.provider] = r; });
+    // Rows saved as `pending` by the old placeholder flow never connected
+    // anything, so they are not shown as connected.
+    (Array.isArray(rows) ? rows : []).forEach(r => { if (!r.config?.pending) map[r.provider] = r; });
     setConnected(map);
   }
 
