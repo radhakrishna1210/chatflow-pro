@@ -20,6 +20,14 @@ import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPL
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
 
+// The statuses a message may move to each status from (see handleStatusUpdate).
+const MESSAGE_STATUS_FROM = {
+  SENT: ['PENDING'],
+  DELIVERED: ['PENDING', 'SENT'],
+  READ: ['PENDING', 'SENT', 'DELIVERED'],
+  FAILED: ['PENDING', 'SENT', 'DELIVERED'],
+};
+
 // A failure of the database itself (connection, timeout, constraint), as
 // opposed to a bug in the query or the code around it.
 function isPrismaError(err) {
@@ -343,7 +351,6 @@ async function handleInboundMessage(value, msg) {
   let conversation = await prisma.conversation.findFirst({
     where: { workspaceId: waNumber.workspaceId, contactId: contact.id, waNumberId: waNumber.id },
   });
-  const wasClosed = conversation?.status === 'CLOSED';
   const previousLastMessageAt = conversation?.lastMessageAt ?? null;
 
   if (!conversation) conversation = await ensureConversation();
@@ -417,8 +424,12 @@ async function handleInboundMessage(value, msg) {
       // free-form reply. Every outbound path checks this — see
       // services/messagingWindow.js.
       lastInboundAt: sentAt,
+      // A customer writing to a resolved thread reopens it, so it shows in the
+      // inbox again and the delayed-response check does not skip it.
+      ...(conversation.status !== 'OPEN' ? { status: 'OPEN' } : {}),
     },
   });
+  conversation.status = 'OPEN';
 
   // Immediately exit active sequence cadences with exitOnReply enabled
   await prisma.sequenceEnrollment.updateMany({
@@ -753,7 +764,7 @@ async function handleInboundMessage(value, msg) {
 
     if (shouldWelcome && !(await alreadyWelcomed(conversation.id, workspace.welcomeMessage))) {
       autoReplyText = workspace.welcomeMessage;
-    } else if (workspace?.autoOooEnabled && (wasClosed || closedNow)) {
+    } else if (workspace?.autoOooEnabled && closedNow) {
       autoReplyText = workspace.oooMessage;
     }
   }
@@ -934,7 +945,7 @@ async function handleStatusUpdate(status) {
     // than one OTP transaction as delivered.
     if (transactions.length > 1) {
       console.error(`[Authentication] Duplicate Meta message id "${metaMessageId}"; delivery receipt ignored.`);
-    } else if (transactions[0]?.deliveredAt == null) {
+    } else if (transactions.length === 1 && transactions[0].deliveredAt == null) {
       await prisma.authenticationTransaction.updateMany({
         where: { id: transactions[0].id, deliveredAt: null },
         data: { deliveredAt: eventTime },
@@ -957,46 +968,42 @@ async function handleStatusUpdate(status) {
   // all — the inbox could not show a tick, and "was that delivered?" had no
   // answer. Campaign counters are still maintained below; they are now one
   // consumer of this event rather than the only one.
-  const RANK = { PENDING: 0, SENT: 1, DELIVERED: 2, READ: 3 };
   const mapped = { sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED' }[newStatus];
-  if (mapped) {
-    const errObj = status.errors?.[0];
-    // Statuses can arrive out of order (a `read` before its `delivered`).
-    // Never move a message backwards — but `failed` always wins, since it is
-    // terminal and is the one the user most needs to see.
-    const isRegression = mapped !== 'FAILED'
-      && message.status !== 'FAILED'
-      && (RANK[mapped] ?? 0) <= (RANK[message.status] ?? 0);
-    if (!isRegression) {
-      await prisma.message.update({
-        where: { id: message.id },
-        data: {
-          status: mapped,
-          statusAt: eventTime,
-          ...(mapped === 'FAILED'
-            ? {
-                errorCode: errObj?.code ?? null,
-                errorMessage: errObj?.title || errObj?.message || 'Delivery failed',
-              }
-            : {}),
-        },
-      }).catch((err) => console.error('[Status] Could not update message:', err.message));
-    }
-  }
+  if (!mapped) return;
 
-  if (mapped) {
-    emitWebhook(message.conversation.workspaceId, 'message.status', {
-      messageId: metaMessageId,
+  // Statuses arrive out of order and are redelivered, so a message only ever
+  // moves forward: PENDING → SENT → DELIVERED → READ, with FAILED reachable
+  // from anything short of READ. READ and FAILED are terminal — a stale
+  // `failed` cannot undo a read, and a late `delivered` cannot revive a
+  // failed send. The guard is part of the write, so two concurrent events
+  // cannot both apply.
+  const errObj = status.errors?.[0];
+  const { count: transitioned } = await prisma.message.updateMany({
+    where: { id: message.id, status: { in: MESSAGE_STATUS_FROM[mapped] } },
+    data: {
       status: mapped,
-      at: eventTime.toISOString(),
-      recipientId: status.recipient_id ?? null,
-      error: status.errors?.[0] ?? null,
-    });
-  }
+      statusAt: eventTime,
+      ...(mapped === 'FAILED'
+        ? {
+            errorCode: errObj?.code ?? null,
+            errorMessage: errObj?.title || errObj?.message || 'Delivery failed',
+          }
+        : {}),
+    },
+  });
+
+  emitWebhook(message.conversation.workspaceId, 'message.status', {
+    messageId: metaMessageId,
+    status: mapped,
+    at: eventTime.toISOString(),
+    recipientId: status.recipient_id ?? null,
+    error: errObj ?? null,
+  });
 
   // Everything below is campaign bookkeeping, which only applies to a send that
-  // belongs to a campaign recipient.
-  if (!message.campaignRecipientId) return;
+  // belongs to a campaign recipient — and only to an event that actually moved
+  // this message on. A redelivered or out-of-date receipt has nothing to add.
+  if (!message.campaignRecipientId || transitioned === 0) return;
 
   const recipient = await prisma.campaignRecipient.findUnique({
     where: { id: message.campaignRecipientId },
@@ -1004,9 +1011,12 @@ async function handleStatusUpdate(status) {
   });
   if (!recipient) return;
 
+  // Receipts only advance a recipient whose current attempt is out. One that
+  // an earlier `failed` already moved to RETRYING/FAILED stays there, so a
+  // late receipt cannot flip it back and skew the campaign counters.
   if (newStatus === 'delivered') {
     const updated = await prisma.campaignRecipient.updateMany({
-      where: { id: recipient.id, deliveredAt: null },
+      where: { id: recipient.id, deliveredAt: null, status: 'SENT' },
       data: { deliveredAt: eventTime, status: 'DELIVERED' },
     });
     if (updated.count > 0) {
@@ -1017,7 +1027,7 @@ async function handleStatusUpdate(status) {
     }
   } else if (newStatus === 'read') {
     const readUpdated = await prisma.campaignRecipient.updateMany({
-      where: { id: recipient.id, readAt: null },
+      where: { id: recipient.id, readAt: null, status: { in: ['SENT', 'DELIVERED'] } },
       data: { readAt: eventTime, status: 'READ' },
     });
     
@@ -1035,8 +1045,7 @@ async function handleStatusUpdate(status) {
         },
       });
     }
-  } else if (newStatus === 'failed' && !recipient.failedAt) {
-    const errObj = status.errors?.[0];
+  } else if (newStatus === 'failed' && !recipient.failedAt && ['SENDING', 'SENT', 'DELIVERED'].includes(recipient.status)) {
     const code = errObj?.code;
     const reason = errObj ? `${errObj.title || errObj.message || 'Delivery failed'}${code ? ` (code ${code})` : ''}` : 'Delivery failed';
 
