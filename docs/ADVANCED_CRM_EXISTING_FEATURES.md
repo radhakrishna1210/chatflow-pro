@@ -2,6 +2,12 @@
 
 Baseline audit of `chatflow-pro` as of 2026-08-16, branch `aditya-advanced-crm`.
 
+> **Updated after the 2026 deep audit.** The "Not built" list this file used to
+> end with is obsolete: nearly everything on it has since been built. The current
+> state of each capability, including known defects and their remediation, is in
+> [`ADVANCED_CRM_GAP_ANALYSIS.md`](ADVANCED_CRM_GAP_ANALYSIS.md) and
+> [`audit/REMEDIATION_STATUS.md`](../audit/REMEDIATION_STATUS.md).
+
 ## Important context: the spec's stack assumptions do not match this repo
 
 `docs/MS_Prompt.md` was written against `trycompai/crm` and assumes Bun, Turborepo,
@@ -13,8 +19,8 @@ follow the repository"* (§4) — the actual stack governs:
 | Layer | Actual |
 |---|---|
 | Backend | Node 22, Express 5, plain JS (ESM), Prisma 5 → PostgreSQL (Supabase) |
-| Jobs | BullMQ + ioredis (`campaigns`, `workflows`, `billing`, `email` queues) |
-| Auth | JWT (`jsonwebtoken`) + bcryptjs + Google OAuth; roles `ADMIN` / `CLIENT` |
+| Jobs | BullMQ + ioredis — nine queues today (`campaigns`, `emails`, `billing`, `workflows`, `sequences`, `agent`, `webhooks`, `outgoing-webhooks`, `crm-maintenance`) |
+| Auth | JWT (`jsonwebtoken`) + bcryptjs + Google OAuth; roles `VIEWER` / `AGENT` / `CLIENT` / `ADMIN` (`VIEWER` and `AGENT` were added after this inventory) |
 | AI | `@google/genai` (Gemini) via one shared `src/lib/llm.js`, Ollama fallback |
 | Frontend | React 18 + Vite 5, hand-rolled routing, **no** CSS framework, Recharts |
 | Styling | Inline `style={{}}` objects over CSS custom properties in `src/index.css` |
@@ -51,8 +57,8 @@ not a sales CRM. The sales layer described below was added on top of it.
 | Lead model wrapping Contact | EXISTING | `Lead` 1:1 unique FK to `Contact`; Contact untouched |
 | Deterministic lead scoring | EXISTING | `leadScoring.service.js`, 6 weighted factors, 0–100, 8 unit tests |
 | Explainable score breakdown | EXISTING | `scoreFactors` JSON persisted; rendered as per-factor bars |
-| Lead → Deal conversion | EXISTING | Atomic `$transaction`; re-conversion refused with 409 |
-| Deal model + pipeline stages | EXISTING | 6-stage `DealStage` enum |
+| Lead → Deal conversion | EXISTING | Atomic `$transaction`; the lead is claimed before the deal is created, so a concurrent second conversion also gets 409 (race fixed in the remediation, CF-071) |
+| Deal model + pipeline stages | EXISTING | Six built-in `DealStage` keys; each workspace can relabel, reorder, hide and reweight them through `PipelineStage` |
 | Stage-change audit trail | EXISTING | Append-only `DealStageHistory`, one row per move |
 | Kanban pipeline board | EXISTING | Native HTML5 drag/drop, optimistic move with rollback |
 | Deal table view | EXISTING | Toggle deep-linked via `?tab=` |
@@ -61,28 +67,35 @@ not a sales CRM. The sales layer described below was added on top of it.
 | CRM activity log | EXISTING | `CrmActivity` (NOTE/CALL/EMAIL/MEETING) |
 | Unified deal timeline | EXISTING | Activities merged with stage history in `listActivities` |
 | CRM overview dashboard | EXISTING | KPIs, 6-month chart, stage donut, top deals, overdue tasks, activity feed |
-| Workspace isolation on tasks/activities | EXISTING | Fixed 2026-08-16; see `TEST_EVIDENCE.md` |
+| Workspace isolation on tasks/activities | EXISTING | Fixed 2026-08-16 (`docs/archive/TEST_EVIDENCE.md`); activities are now also scoped by their lead/deal visibility (CF-067) |
 | Dashboard aggregate performance | EXISTING | Rewritten to `groupBy`/`aggregate`; was 12 sequential queries |
 
-### Sales layer surface area
+### Sales layer surface area (current)
 
-Routes mounted under `/api/v1/workspaces/:workspaceId`:
-`/leads`, `/deals`, `/tasks`, `/activities`, `/crm-analytics`
+Routes mounted under `/api/v1/workspaces/:workspaceId`: `/leads`, `/deals`,
+`/tasks`, `/activities`, `/crm-analytics`, `/pipeline-stages`, `/forecast`,
+`/products`, `/quotes`, `/sequences`, `/tickets`, `/lead-forms`,
+`/lead-distribution`, `/saved-views`, `/custom-fields`, `/teams`, `/search`,
+`/insights`, `/crm-data` (import/export), `/crm-sales-inbox`,
+`/crm-permissions`, `/crm-customization`, `/copilot`, `/agent`, `/progress`;
+public lead forms at `/api/v1/forms`.
 
-Frontend pages: `CrmDashboardView`, `LeadsView`, `DealsView`, `TasksView`
-Shared components extracted: `Modal`, `Form` (FInput/FLabel/FSelect/FTextarea),
-`StatusBadge`, `Avatar`
+Frontend pages: `CrmDashboardView`, `LeadsView`, `DealsView`, `TasksView`,
+`ForecastView`, `ProductsView`, `QuotesView`, `SequencesView`, `TicketsView`,
+`LeadFormsView`, `PublicForm`, `EngagementsView`, `CrmSalesInboxView`,
+`CustomizeBusinessView`; shared components include `CommandPalette`,
+`Copilot`, `AgentTab`, `SavedViews`, `CustomFields`, `NextBestActions`,
+`RelationshipCard`, `ProgressPanel` and `TeamsAdmin`.
 
-## Not built
+## Built since this inventory
 
-Everything below is named in `MS_Prompt.md` and is **MISSING**. See
-`ADVANCED_CRM_GAP_ANALYSIS.md` for sizing.
+Sequences/cadences, campaigns-to-leads, products, deal line items, quotes, CRM
+tickets, forecasting, saved views, custom fields, CRM customization admin, CRM
+import/export, public lead forms, gamification, command palette, global search,
+the CRM copilot and autonomous agent, next-best-action, relationship
+intelligence and deal health all have routes, services and views now. See the
+gap analysis for each one's state and the defects the audit found.
 
-Sequences/cadences · campaigns-to-leads integration · products & services catalog ·
-deal line items · quotes/proposals · support tickets (a `SupportTicket` model exists
-for platform support, unrelated to CRM tickets) · forecasting · saved views ·
-custom fields · CRM customization admin · import/export for CRM entities ·
-public lead forms · gamification (XP, levels, streaks, missions, achievements) ·
-command palette · global CRM search · agent command center · next-best-action
-recommendations · relationship intelligence · deal health scoring · AI drafting ·
-human approval queue · marketing website · SEO/AEO/GEO · motion design system
+Still not built: quote PDF export; new pipeline stage *keys* (built-in stages
+can only be relabelled, reordered, hidden and reweighted); a UI for the
+describe-an-automation → workflow compiler; prerendered per-route SEO.

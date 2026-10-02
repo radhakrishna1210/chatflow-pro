@@ -5,6 +5,29 @@ Companion to `ADVANCED_CRM_EXISTING_FEATURES.md`. Every capability named in
 
 Effort key: **S** ≈ 1 day · **M** ≈ 2–4 days · **L** ≈ 1–2 weeks · **XL** ≈ 3+ weeks
 
+## Status after the 2026 deep audit
+
+Several rows below were marked Built/DONE while the audit found them broken or
+unenforced. What it found, and what the audit-remediation release did (details
+per id in [`audit/BUG_SHEET.md`](../audit/BUG_SHEET.md) and
+[`audit/REMEDIATION_STATUS.md`](../audit/REMEDIATION_STATUS.md)):
+
+| Claim below | Audit finding | Now |
+|---|---|---|
+| Saved views "7 tests" | Entity/config enums disagreed with the validator, so saving failed over HTTP (CF-018); config rows leaked into `/saved-views` (CF-062) | Fixed |
+| Custom fields "validated JSON values" | 8 of 12 field types could not be created (CF-063) | Fixed — enums shared with the validators |
+| Teams "server-enforced on leads, deals and tasks" | Scope dropped on status/stage-filtered lists (CF-015), task get/update/delete by id (CF-015), activities (CF-067), dashboard and quotes (CF-079), custom reports (CF-076), deal line items (CF-155) | Fixed |
+| "Lead → Deal conversion atomic, re-conversion refused 409" | Not under concurrency; not visibility-scoped (CF-071) | Fixed — lead claimed first, scoped |
+| CRM tickets "stored SLA" | Category `slaHours` ignored, first response never stamped (CF-081) | Fixed — category SLAs honoured, first response stamped; there is still no background breach job |
+| Public forms "dedupe" | Check-then-act race (CF-070) | Partial — race-safe and routed; form consent is not copied to the Contact |
+| Workflow CRM triggers "Builder UI not extended" | Stale: `AutomationView` offers the `lead_created`, `lead_status`, `deal_stage` and `score_above` triggers and the CRM actions | Doc corrected below |
+| "Remaining UI gaps (lead-form builder, ticket views)" | Stale: `LeadFormsView` and `TicketsView` are in the dashboard | Doc corrected below |
+| Copilot "11 read tools" | `copilot.tools.js` defines 9 read and 5 write (proposal-only) tools (CF-167) | Doc corrected below |
+
+Roles are no longer just ADMIN/CLIENT: `VIEWER` and `AGENT` exist, and lead
+deletion, lead export and distribution-rule management are ADMIN-only in the
+CRM permission matrix (`services/crmPermissions.service.js`).
+
 ## Built
 
 | Capability | State | Backend | DB | UI | Tests |
@@ -67,8 +90,7 @@ name.
 
 ### Tier 2 — genuinely new subsystems
 
-**Tier 2 is complete.** Remaining UI gaps (lead-form builder, ticket views) are
-noted per row.
+**Tier 2 is complete**, including the lead-form builder and ticket views.
 
 | Capability | Existing foundation | What's needed | Effort |
 |---|---|---|---|
@@ -76,10 +98,10 @@ noted per row.
 | ~~Quotes / proposals~~ | — | **DONE** — `Quote`, `QuoteLineItem`, status lifecycle. **PDF export not built** | L |
 | ~~Sequences / cadences~~ | — | **DONE** — durable engine, queue + worker + recovering sweep, business hours, reply detection, opt-out enforcement, builder UI | L |
 | ~~Campaigns → leads integration~~ | — | **DONE** — attributed, scored lead on campaign reply; opt-in per workspace, opt-out respected | M |
-| ~~Workflow triggers for CRM events~~ | — | **DONE** — 4 CRM triggers + 4 CRM actions on the existing engine, with a chain-depth guard. **Builder UI not extended** — CRM nodes are API-configurable only | M |
-| ~~Public lead forms~~ | — | **DONE, end to end** — unauthenticated endpoint with honeypot, rate limiting, consent capture, allow-listed attribution, hashed IPs, dedupe. Builder UI at `LeadFormsView.jsx` (field editor, activation, submission log) and the visitor-facing page at `PublicForm.jsx` (`/forms/:workspaceId/:slug`), which did not exist before — the API returned JSON only, so a published link had nothing to fill in | M |
-| ~~CRM support tickets~~ | — | **DONE, end to end** — `CrmTicket` with stored SLA, enforced lifecycle, queues. Separate from platform `SupportTicket`. UI at `TicketsView.jsx`: view switcher with live counts, SLA countdown, and a detail that offers only the transitions the ticket's lifecycle permits | M |
-| ~~Teams & granular permissions~~ | — | **DONE** — `Team`/`TeamMember` + per-workspace ALL/TEAM/OWN record scoping, server-enforced on leads, deals and tasks. Roles deliberately left at ADMIN/CLIENT — see TEST_EVIDENCE.md. Admin UI in Settings | L |
+| ~~Workflow triggers for CRM events~~ | — | **DONE** — 4 CRM triggers + 4 CRM actions on the existing engine, with a chain-depth guard. The Automation builder offers the CRM triggers (`lead_created`, `lead_status`, `deal_stage`, `score_above`) and actions | M |
+| ~~Public lead forms~~ | — | **DONE, end to end** — unauthenticated endpoint with honeypot, rate limiting, consent capture, allow-listed attribution, hashed IPs, dedupe (made race-safe in the remediation, CF-070). Builder UI at `LeadFormsView.jsx` (field editor, activation, submission log) and the visitor-facing page at `PublicForm.jsx` (`/forms/:workspaceId/:slug`), which did not exist before — the API returned JSON only, so a published link had nothing to fill in | M |
+| ~~CRM support tickets~~ | — | **DONE, end to end** — `CrmTicket` with a stored SLA due date (category SLAs and first-response stamping fixed in the remediation, CF-081), enforced lifecycle, queues. Separate from platform `SupportTicket`. UI at `TicketsView.jsx`: view switcher with live counts, SLA countdown, and a detail that offers only the transitions the ticket's lifecycle permits | M |
+| ~~Teams & granular permissions~~ | — | **DONE** — `Team`/`TeamMember` + per-workspace ALL/TEAM/OWN record scoping, server-enforced on leads, deals, tasks, activities, dashboard, quotes, reports and line items (several of these paths were bypassable until the remediation — see the table above). VIEWER and AGENT roles were added later. Admin UI in Settings | L |
 
 ### Tier 3 — large, mostly independent
 
@@ -112,7 +134,7 @@ Design derived from [trycompai/crm](https://github.com/trycompai/crm) (MIT); see
 
 | Capability | Notes |
 |---|---|
-| **CRM copilot** | `Copilot.jsx` + `copilot.service.js`. Bounded 5-step tool loop over 11 read tools, driven through the shared `llm.js` so it keeps the Gemini→Ollama fallback. Writes are **structurally unreachable** from the model — the loop only calls `runReadTool`, which 403s on mutations; proposals go to a person and a separate endpoint executes them. Falls back to the deterministic next-best-action engine, and distinguishes "not configured" from "provider unavailable" |
+| **CRM copilot** | `Copilot.jsx` + `copilot.service.js`. Bounded 5-step tool loop over 9 read tools (plus 5 write tools that only ever produce proposals — `READ_TOOLS`/`WRITE_TOOLS` in `copilot.tools.js`), driven through the shared `llm.js` so it keeps the Gemini→Ollama fallback. Writes are **structurally unreachable** from the model — the loop only calls `runReadTool`, which 403s on mutations; proposals go to a person and a separate endpoint executes them. Falls back to the deterministic next-best-action engine, and distinguishes "not configured" from "provider unavailable" |
 | **Autonomous agent** | `agent.service.js` + `agent.worker.js`. Owns a Postgres work queue and a BullMQ schedule, claims rows with `FOR UPDATE SKIP LOCKED`, books its own rechecks. Writes without asking, gated by an evidence ledger rather than confirmation. Sensitive operations (close deal, mark lost, message contact, delete) are **denied outright when unattended**, not queued |
 | **Evidence ledger** | `agent.evidence.js`. Weighted observation kinds with `contradiction` as a first-class negative. Two divergences from theirs: evidence is **re-verified against the database** before pricing, since this CRM ingests customer-controlled text; and two action classes exist, because a reminder triggered by an absence can never carry primary evidence |
 | **Agent tab** | `AgentTab.jsx` on lead and deal detail. Shows applied changes, held-back suggestions with Accept/Reject, every pass, and what is booked next |

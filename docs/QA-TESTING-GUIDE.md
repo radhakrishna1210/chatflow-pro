@@ -4,6 +4,11 @@ What was fixed, how to verify it, and who should take which part.
 
 Branch under test: **`high-priority-issues-fix`** · 17 commits · 11 migrations.
 
+> **Note (audit remediation):** this guide was written for that branch. The setup
+> below has been corrected for the current tree (baseline migration, local-DB
+> guard, campaign pause for every campaign); the fix tables are kept as written.
+> For what changed since, see `audit/REMEDIATION_STATUS.md`.
+
 Two things to know before you start:
 
 1. **337 assertions already run automatically.** Most of what was fixed is covered by seven live suites. Don't hand-test what a suite already proves — run the suite, then spend your time on the manual sections, which is where the real risk sits.
@@ -14,11 +19,13 @@ Two things to know before you start:
 ## Setup (everyone, once)
 
 ```bash
-# 1. Install and generate the client
-cd backend && npm install && npx prisma generate
+# 1. Install (postinstall generates the Prisma client)
+cd backend && npm install
 
-# 2. Apply migrations — 11 are pending on a fresh database
-npx prisma migrate deploy
+# 2. Build the schema in a LOCAL database. The first migration
+#    (20260101000000_baseline) creates the core tables on an empty database,
+#    and the guard refuses any non-local DATABASE_URL.
+node --env-file=.env scripts/assert-local-db.js && node scripts/prisma-cli.js migrate deploy
 
 # 3. Start the server (leave running in its own terminal)
 npm run dev
@@ -31,7 +38,8 @@ Confirm the server is healthy before testing anything: `curl http://localhost:40
 
 **The suites need a real environment.** They run against a live database and the real Meta Graph API — no mocks. That is deliberate: a campaign path verified against mocks proves nothing about the thing that bills a customer. Consequences:
 
-- `campaign-check` **spends real wallet money** (a few rupees) and **sends real WhatsApp messages**. Run it against staging, never production.
+- `campaign-check` **spends real wallet money** (a few rupees) and **sends real WhatsApp messages**.
+- Every `scripts/*-check.mjs` imports `scripts/require-local-db.js` and exits unless the database in its environment (and every `.env` it could fall back to) is **local**. Run the server and the suites against a local database with real Meta credentials — never against staging or production data.
 - Suites need a workspace with a connected, reachable WhatsApp number and at least one APPROVED template.
 - **Run them one at a time**, not in parallel. Six back-to-back runs exhausted the Postgres pooler and produced connection errors that look like failures but aren't.
 
@@ -130,7 +138,7 @@ Six independent blocks. W1–W4 are mostly "run the suite, then spot-check the U
 | Duplicate sends | `RUNNING` was claimable, so two job deliveries both iterated the same PENDING recipients |
 | Rejected templates sendable | Only `DELETED` was checked — a REJECTED template could go to a whole audience *after* the wallet was charged |
 | Audience could only grow | Deselecting a contact in a reopened draft still messaged them |
-| No pause | Cancelling was the only way to stop a campaign, and it's irreversible |
+| No pause | Cancelling was the only way to stop a campaign, and it's irreversible. Pause/Resume now shows on every `RUNNING` or `SCHEDULED` campaign (it was briefly limited to OTP campaigns; fixed in the remediation, CF-143) |
 | Carousel failed for every recipient | Meta `100`. A card's *static* link button was sent an empty `text` parameter — that parameter only exists for a URL ending in `{{n}}`, and a static one has nothing to substitute |
 | Catalog failed for every recipient | Meta `131008`. Nothing about a catalog button is chosen per send, so `components` was omitted entirely — Meta still requires the button to be addressed |
 | Sync erased carousel images | Meta's components were taken verbatim, and Meta has never seen the stored-image reference each card carries. Every sync wiped it, so a working carousel lost its pictures and then failed with "no stored media" |

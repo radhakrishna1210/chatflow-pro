@@ -1,6 +1,11 @@
 # Local Redis Setup (WSL)
 
-The backend uses Redis (via BullMQ/ioredis) for the campaign and email queues. In development
+The backend uses Redis (via BullMQ/ioredis) for all nine job queues — campaigns,
+emails, billing cycles, workflows, sequences, the autonomous agent, inbound Meta
+webhooks, outgoing webhooks and CRM maintenance — plus rate-limit counters,
+the access-token denylist and OAuth one-time codes. Without Redis the dev
+server still starts, but campaigns, billing renewals, sequences, workflows and
+the agent all stall, and inbound webhooks are processed inline. In development
 you can run Redis locally instead of relying on a hosted provider (e.g. Upstash), which avoids
 hitting free-tier request quotas.
 

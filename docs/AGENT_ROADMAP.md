@@ -4,7 +4,8 @@ What is left to build in the agentic layer, in the order worth building it.
 
 Written after reading [trycompai/crm](https://github.com/trycompai/crm) (MIT) in
 full — see `ATTRIBUTION.md`. Their agent has 27 tools; ours has 2 autonomous
-actions and 11 read tools. The gap is not polish, it is whole categories.
+actions, and the copilot has 9 read tools plus 5 write tools that only ever
+produce proposals (`READ_TOOLS`/`WRITE_TOOLS` in `copilot.tools.js`). The gap is not polish, it is whole categories.
 
 **Where we stand today.** The control machinery is built and tested: evidence
 ledger, deny-when-unattended, `FOR UPDATE SKIP LOCKED` claiming, per-record
@@ -62,7 +63,7 @@ pipeline coverage from 1½ of 10 to most of it.
 
 | # | Item | Notes | Est |
 |---|---|---|---|
-| 2.10 | Workspace on/off switch + per-action opt-out | An autonomous agent nobody can turn off is not shippable | 0.5d |
+| 2.10 | ~~Workspace on/off switch~~ + per-action opt-out | **Switch DONE** (`Workspace.autonomousAgentEnabled`, CF-046); per-action opt-out still open | 0.25d |
 | 2.11 | Admin view of queue and suggestions | `/agent/pending` exists; nothing renders it | 0.5d |
 
 ---
@@ -122,7 +123,7 @@ Small, and not part of any phase:
 
 | # | Item | Est |
 |---|---|---|
-| 5.1 | UI for the workflow compiler — `POST /workflows/compile` works, nothing calls it | 0.5d |
+| 5.1 | ~~UI for the workflow compiler~~ — the uncalled `POST /workflows/compile` and `/vocabulary` routes were removed in the remediation (CF-135); workflows have one AI generator. Re-adding a compiler needs a route and a UI | — |
 | 5.2 | Verify the compiler's English→graph step once Gemini quota resets | 10 min |
 | 5.3 | Copilot on a paid key — 20 requests/day keeps it in the deterministic fallback | — |
 

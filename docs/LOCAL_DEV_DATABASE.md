@@ -111,8 +111,9 @@ node --env-file=.env scripts/assert-local-db.js \
 
 ## Verified state
 
-- `npm test` — **153/153 passing** against the local database
-- Backend boots with all five workers started
+- `npm test` passes against the local database (counts change with every
+  commit; DB-backed suites skip when the database is unreachable)
+- Backend boots with all nine workers started when `RUN_WORKERS=true`
 - CRM workflow triggers verified end-to-end over HTTP against local data
 
 ## A note on timing
