@@ -127,7 +127,9 @@ export async function updateSettings(workspaceId, updates) {
 }
 
 export async function getInvoices(workspaceId) {
-  return prisma.invoice.findMany({ where: { workspaceId }, orderBy: { invoiceDate: 'desc' } });
+  const invoices = await prisma.invoice.findMany({ where: { workspaceId }, orderBy: { invoiceDate: 'desc' } });
+  // amount is a Decimal, which serialises as a string; the screens format a number.
+  return invoices.map((inv) => ({ ...inv, amount: Number(inv.amount) }));
 }
 
 const escapeHtml = (value) => String(value ?? '')

@@ -881,8 +881,8 @@ model Invoice {
   workspaceId String
   invoiceDate DateTime
   description String?
-  amount      Float
-  currency    String    @default("USD")
+  amount      Decimal   @db.Decimal(12, 2)
+  currency    String    @default("INR")
   status      String    @default("PAID")
   reference   String? // gateway payment id, for reconciliation
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
