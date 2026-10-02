@@ -4,6 +4,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, adminFetch, apiFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { notify, confirmDialog } from '../components/Feedback.jsx';
 
 const statusColor = s => ({
   AVAILABLE: { bg:'var(--gbg)',              bd:'var(--gbd)',              c:'var(--green)' },
@@ -297,18 +298,18 @@ export default function NumberSetupView() {
   };
 
   const resetAllAssignments = async () => {
-    if (!window.confirm('This will disconnect all numbers from every workspace and return them to the pool. Continue?')) return;
+    if (!await confirmDialog('This will disconnect all numbers from every workspace and return them to the pool. Continue?', { danger: true })) return;
     setResetting(true);
     const res = await adminFetch('/numbers/reset-all', { method:'POST' }).catch(()=>null);
     if (res?.ok) setNumber(null);
-    else window.alert((await res?.json().catch(()=>({})))?.error || 'Reset failed');
+    else notify((await res?.json().catch(()=>({})))?.error || 'Reset failed');
     loadAdminPool();
     setResetting(false);
   };
 
   const resetEntry = async id => {
     const res = await adminFetch(`/numbers/pool/${id}/reset`, { method:'PATCH' }).catch(()=>null);
-    if (!res?.ok) window.alert((await res?.json().catch(()=>({})))?.error || 'Reset failed');
+    if (!res?.ok) notify((await res?.json().catch(()=>({})))?.error || 'Reset failed');
     loadAdminPool();
   };
 
@@ -319,13 +320,13 @@ export default function NumberSetupView() {
 
   const unbanEntry = async id => {
     const res = await adminFetch(`/numbers/pool/${id}/unban`, { method:'PATCH' }).catch(()=>null);
-    if (!res?.ok) window.alert((await res?.json().catch(()=>({})))?.error || 'Unban failed');
+    if (!res?.ok) notify((await res?.json().catch(()=>({})))?.error || 'Unban failed');
     loadAdminPool();
   };
 
   const disconnectNumber = async () => {
     if (!number?.id) return;
-    if (!window.confirm(`Disconnect ${number.phoneNumber}? It will be returned to the pool.`)) return;
+    if (!await confirmDialog(`Disconnect ${number.phoneNumber}? It will be returned to the pool.`, { danger: true })) return;
     setDisconnecting(true);
     try {
       const res = await wFetch(`/whatsapp/numbers/${number.id}`, { method:'DELETE' });
@@ -333,7 +334,7 @@ export default function NumberSetupView() {
       setNumber(null);
       if (isSuperAdmin) loadAdminPool();
     } catch (e) {
-      alert(`Disconnect failed: ${e.message}`);
+      notify(`Disconnect failed: ${e.message}`);
     } finally {
       setDisconnecting(false);
     }

@@ -4,6 +4,7 @@ import { Btn } from '../components/Btn.jsx';
 import { Modal } from '../components/Modal.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
+import { notify, confirmDialog } from '../components/Feedback.jsx';
 
 export default function AiAgentsView({ user, initialTab }) {
   const [activeTab, setActiveTab] = useState(() => {
@@ -174,10 +175,10 @@ export default function AiAgentsView({ user, initialTab }) {
         }, 1000);
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Failed to save channel configuration');
+        notify(err.error || 'Failed to save channel configuration');
       }
     } catch (e) {
-      alert('Network error saving channel configuration');
+      notify('Network error saving channel configuration');
     } finally {
       setSavingChannel(false);
     }
@@ -189,7 +190,7 @@ export default function AiAgentsView({ user, initialTab }) {
     if (targetAgent) {
       openReviewModal(targetAgent);
     } else {
-      alert('No agent assigned to this channel yet.');
+      notify('No agent assigned to this channel yet.');
     }
   };
 
@@ -213,7 +214,7 @@ export default function AiAgentsView({ user, initialTab }) {
         }, 1000);
       }
     } catch (e) {
-      alert('Failed to update workspace AI settings');
+      notify('Failed to update workspace AI settings');
     } finally {
       setSavingSetup(false);
     }
@@ -241,7 +242,7 @@ export default function AiAgentsView({ user, initialTab }) {
 
   const handleSaveAgent = async () => {
     if (!formName.trim()) {
-      alert('Please provide an agent name');
+      notify('Please provide an agent name');
       return;
     }
     setSaving(true);
@@ -271,21 +272,21 @@ export default function AiAgentsView({ user, initialTab }) {
       setShowCreateModal(false);
       loadAgents();
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      notify(`Error: ${err.message}`);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDeleteAgent = async (agent) => {
-    if (!confirm(`Are you sure you want to delete "${agent.name}"?`)) return;
+    if (!await confirmDialog(`Are you sure you want to delete "${agent.name}"?`, { danger: true })) return;
     try {
       const res = await wFetch(`/ai-agents/${agent.id}`, { method: 'DELETE' });
       if (res.ok) {
         loadAgents();
       }
     } catch (e) {
-      alert('Failed to delete agent');
+      notify('Failed to delete agent');
     }
   };
 
@@ -360,7 +361,7 @@ export default function AiAgentsView({ user, initialTab }) {
       setNewFaqA('');
       loadKnowledge();
     } catch (e) {
-      alert('Could not add FAQ');
+      notify('Could not add FAQ');
     } finally {
       setSavingKnowledge(false);
     }

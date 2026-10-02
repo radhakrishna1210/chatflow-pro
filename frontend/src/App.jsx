@@ -3,6 +3,7 @@ import Landing from './pages/Landing.jsx';
 import Login from './pages/Login.jsx';
 import SiteAssistant from './components/SiteAssistant.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import { FeedbackHost } from './components/Feedback.jsx';
 import { peekPendingOAuthRequest, clearPendingOAuthRequest } from './lib/oauthPending.js';
 import { clearStoredSession } from './lib/api.js';
 
@@ -296,6 +297,7 @@ export default function App() {
         {page}
       </Suspense>
       {!bareScreen && <SiteAssistant />}
+      <FeedbackHost />
     </ErrorBoundary>
   );
 }

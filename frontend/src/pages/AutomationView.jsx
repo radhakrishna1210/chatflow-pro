@@ -6,6 +6,7 @@ import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
+import { confirmDialog } from '../components/Feedback.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Manrope',sans-serif", boxSizing:'border-box' };
@@ -754,7 +755,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
   };
 
   const del = async id => {
-    if (!window.confirm('Delete this workflow?')) return;
+    if (!await confirmDialog('Delete this workflow?', { danger: true })) return;
     const r = await wJson(`/workflows/${id}`, { method:'DELETE' });
     if (r.ok) await fetchWorkflows();
     else setError(r.error);
@@ -1865,7 +1866,7 @@ const AIIntentMatchingTab = () => {
   };
 
   const removeRule = async (rule) => {
-    if (!window.confirm(`Delete the intent “${rule.name}”? Messages it used to route will fall through to the AI agent.`)) return;
+    if (!await confirmDialog(`Delete the intent “${rule.name}”? Messages it used to route will fall through to the AI agent.`, { danger: true })) return;
     const r = await wJson(`/intents/${rule.id}`, { method:'DELETE' });
     if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
     loadRules();
@@ -2252,7 +2253,7 @@ const WhatsAppAIAgentTab = () => {
   };
 
   const removeSource = async (source) => {
-    if (!window.confirm(`Remove "${source.title}" from the agent's knowledge?`)) return;
+    if (!await confirmDialog(`Remove "${source.title}" from the agent's knowledge?`, { danger: true })) return;
     const r = await wJson(`/widgets/knowledge/${source.id}`, { method:'DELETE' });
     if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
     loadSources();
@@ -2778,7 +2779,7 @@ const InstagramQuickflowsTab = () => {
   };
 
   const disconnect = async () => {
-    if (!window.confirm('Disconnect this Instagram account? Your flows are kept but will stop running.')) return;
+    if (!await confirmDialog('Disconnect this Instagram account? Your flows are kept but will stop running.', { danger: true })) return;
     const r = await wJson('/instagram/connection', { method:'DELETE' });
     if (r.ok) { setBanner({ tone:'ok', text:'Instagram disconnected.' }); load(); }
     else setBanner({ tone:'error', text:r.error });
@@ -2814,7 +2815,7 @@ const InstagramQuickflowsTab = () => {
   };
 
   const del = async id => {
-    if (!window.confirm('Delete this flow?')) return;
+    if (!await confirmDialog('Delete this flow?', { danger: true })) return;
     const r = await wJson(`/instagram/flows/${id}`, { method:'DELETE' });
     if (r.ok) load(); else setBanner({ tone:'error', text:r.error });
   };
@@ -3299,7 +3300,7 @@ const WhatsAppFormsTab = () => {
   };
 
   const del = async id => {
-    if (!window.confirm('Delete this form?')) return;
+    if (!await confirmDialog('Delete this form?', { danger: true })) return;
     const r = await wJson(`/whatsapp-forms/${id}`, { method:'DELETE' });
     if (r.ok) load(); else setBanner({ tone:'error', text:r.error });
   };
@@ -3635,7 +3636,7 @@ const SmartListsTab = () => {
   };
 
   const deleteSeg = async id => {
-    if (!window.confirm('Delete this segment?')) return;
+    if (!await confirmDialog('Delete this segment?', { danger: true })) return;
     const r = await wJson(`/segments/${id}`, { method:'DELETE' });
     if (r.ok) { if (viewingSegmentId === id) setViewingSegmentId(null); await fetchSegments(); }
   };
@@ -3657,7 +3658,7 @@ const SmartListsTab = () => {
   };
 
   const deleteContact = async contactId => {
-    if (!window.confirm('Remove this contact from the segment?')) return;
+    if (!await confirmDialog('Remove this contact from the segment?', { danger: true })) return;
     const r = await wJson(`/segments/${viewingSegmentId}/contacts/${contactId}`, { method:'DELETE' });
     if (r.ok) await fetchSegments();
   };

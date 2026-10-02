@@ -8,7 +8,7 @@ const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderR
 // confirm dialog is stacked over an edit form.
 const openStack = [];
 
-export const Modal = ({ title, onClose, children, footer, width = 540 }) => {
+export const Modal = ({ title, onClose, children, footer, width = 540, zIndex = 100 }) => {
   const ref = useRef(null);
   const titleId = useId();
   const onCloseRef = useRef(onClose);
@@ -35,7 +35,7 @@ export const Modal = ({ title, onClose, children, footer, width = 540 }) => {
   }, []);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined}
         style={{ ...card, width, maxWidth: 'calc(100vw - 32px)', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>

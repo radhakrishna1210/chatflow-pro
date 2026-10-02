@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { confirmDialog } from '../components/Feedback.jsx';
 
 // Smart Website Widget management.
 //
@@ -724,7 +725,7 @@ export default function WidgetsView() {
   };
 
   const remove = async (w) => {
-    if (!window.confirm(`Delete "${w.name}"? It will stop working on any site it is installed on.`)) return;
+    if (!await confirmDialog(`Delete "${w.name}"? It will stop working on any site it is installed on.`, { danger: true })) return;
     const res = await wFetch(`/widgets/${w.id}`, { method: 'DELETE' });
     if (!res.ok && res.status !== 204) { const d = await res.json().catch(() => ({})); setErr(d.error || 'Could not delete'); return; }
     load();

@@ -6,6 +6,7 @@ import { useMessageRates } from '../lib/pricing.js';
 import ApiManagementTab from './ApiManagementTab.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions.js';
+import { notify, confirmDialog } from '../components/Feedback.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14 };
 
@@ -661,20 +662,20 @@ function NumbersTab({ workspaces }) {
     const res = await adminFetch('/numbers/assign', { method: 'POST', body: JSON.stringify({ poolEntryId: entryId, workspaceId: assignTarget }) });
     setBusyId(null);
     if (res.ok) { setAssignFor(null); setAssignTarget(''); load(); }
-    else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Assign failed'); }
+    else { const d = await res.json().catch(() => ({})); notify(d.error || 'Assign failed'); }
   };
 
   const doReset = async (id) => {
-    if (!window.confirm("Reset this number's assignment?")) return;
+    if (!await confirmDialog("Reset this number's assignment?", { danger: true })) return;
     setBusyId(id);
     const res = await adminFetch(`/numbers/pool/${id}/reset`, { method: 'PATCH' });
     setBusyId(null);
     if (res.ok) load();
-    else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Reset failed'); }
+    else { const d = await res.json().catch(() => ({})); notify(d.error || 'Reset failed'); }
   };
 
   const doBan = async (id) => {
-    if (!window.confirm('Ban this number? It will no longer be assignable.')) return;
+    if (!await confirmDialog('Ban this number? It will no longer be assignable.', { danger: true })) return;
     setBusyId(id);
     const res = await adminFetch(`/numbers/pool/${id}/ban`, { method: 'PATCH' });
     setBusyId(null);
@@ -686,7 +687,7 @@ function NumbersTab({ workspaces }) {
     const res = await adminFetch(`/numbers/pool/${id}/unban`, { method: 'PATCH' });
     setBusyId(null);
     if (res.ok) load();
-    else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Unban failed'); }
+    else { const d = await res.json().catch(() => ({})); notify(d.error || 'Unban failed'); }
   };
 
   const doSync = async () => {
@@ -694,14 +695,14 @@ function NumbersTab({ workspaces }) {
     const res = await adminFetch('/numbers/sync-from-waba', { method: 'POST' });
     setSyncing(false);
     if (res.ok) load();
-    else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Sync failed'); }
+    else { const d = await res.json().catch(() => ({})); notify(d.error || 'Sync failed'); }
   };
 
   const doResetAll = async () => {
-    if (!window.confirm("Reset ALL number assignments across every workspace? This disconnects every workspace's WhatsApp number.")) return;
+    if (!await confirmDialog("Reset ALL number assignments across every workspace? This disconnects every workspace's WhatsApp number.", { danger: true })) return;
     const res = await adminFetch('/numbers/reset-all', { method: 'POST' });
     if (res.ok) load();
-    else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Reset failed'); }
+    else { const d = await res.json().catch(() => ({})); notify(d.error || 'Reset failed'); }
   };
 
   const statusColor = (st) => st === 'AVAILABLE' ? 'var(--green)' : st === 'BANNED' ? '#f87171' : '#9d6bff';
@@ -914,12 +915,12 @@ function UsersTab() {
   }, [debounced, page]);
 
   const impersonate = async (u) => {
-    if (!window.confirm(`Impersonate ${u.name} (${u.email})? You'll see the app exactly as they do until you return to admin.`)) return;
+    if (!await confirmDialog(`Impersonate ${u.name} (${u.email})? You'll see the app exactly as they do until you return to admin.`)) return;
     setImpersonatingId(u.id);
     try {
       const res = await adminFetch(`/platform/users/${u.id}/impersonate`, { method: 'POST' });
       const body = await res.json();
-      if (!res.ok) { window.alert(body.error || 'Impersonation failed'); return; }
+      if (!res.ok) { notify(body.error || 'Impersonation failed'); return; }
 
       // Stash the admin's own session so the in-app banner can restore it.
       const adminToken = localStorage.getItem('accessToken');
@@ -1336,7 +1337,7 @@ export default function SuperAdminView({ tab }) {
     if (suspend) {
       reason = window.prompt(`Reason for suspending "${ws.name}"?`, 'Policy violation');
       if (reason === null) return;
-    } else if (!window.confirm(`Reinstate "${ws.name}"?`)) return;
+    } else if (!await confirmDialog(`Reinstate "${ws.name}"?`)) return;
     const res = await adminFetch(`/platform/workspaces/${ws.id}/suspend`, {
       method: 'PATCH', body: JSON.stringify({ suspended: suspend, reason }),
     });
@@ -1349,10 +1350,10 @@ export default function SuperAdminView({ tab }) {
   };
 
   const deletePlan = async (plan) => {
-    if (!window.confirm(`Delete the "${plan.name}" plan? This cannot be undone.`)) return;
+    if (!await confirmDialog(`Delete the "${plan.name}" plan? This cannot be undone.`, { danger: true })) return;
     const res = await adminFetch(`/platform/plans/${plan.id}`, { method: 'DELETE' });
     if (res.ok) load();
-    else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Could not delete plan'); }
+    else { const d = await res.json().catch(() => ({})); notify(d.error || 'Could not delete plan'); }
   };
 
   const fmtLimit = (v) => (v === null || v === undefined ? 'Unlimited' : Number(v).toLocaleString());

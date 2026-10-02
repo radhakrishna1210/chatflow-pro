@@ -6,6 +6,7 @@ import { Modal } from '../components/Modal.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
+import { notify } from '../components/Feedback.jsx';
 
 const CATEGORY_COLORS = {
   HOT: { bg: 'rgba(239, 68, 68, 0.12)', bd: 'rgba(239, 68, 68, 0.3)', c: '#f87171', label: 'HOT 🔥' },
@@ -542,9 +543,9 @@ export default function CrmSalesInboxView() {
       setShowTemplateModal(false);
       setTemplateVars({});
       loadLeadContext(selectedLeadId);
-      alert('Template message sent successfully!');
+      notify('Template message sent successfully!', 'success');
     } catch (err) {
-      alert(`Could not send template: ${err.message}`);
+      notify(`Could not send template: ${err.message}`);
     } finally {
       setSendingMsg(false);
     }
@@ -561,14 +562,14 @@ export default function CrmSalesInboxView() {
       fetchLeads();
       fetchMetadata();
     } catch (err) {
-      alert(`Recalculate failed: ${err.message}`);
+      notify(`Recalculate failed: ${err.message}`);
     }
   };
 
   // 8. Launch Bulk Campaign
   const handleLaunchCampaign = async () => {
     if (!campaignTemplateId || !campaignWaNumberId) {
-      alert('Please select both a WhatsApp Template and a WhatsApp Number.');
+      notify('Please select both a WhatsApp Template and a WhatsApp Number.');
       return;
     }
     setLaunching(true);
@@ -599,7 +600,7 @@ export default function CrmSalesInboxView() {
       fetchAudience();
       fetchCampaignAnalytics();
     } catch (err) {
-      alert(`Campaign launch failed: ${err.message}`);
+      notify(`Campaign launch failed: ${err.message}`);
     } finally {
       setLaunching(false);
     }
@@ -628,9 +629,9 @@ export default function CrmSalesInboxView() {
       const resData = await res.json();
       setShowEnrollModal(false);
       setSelectedSequenceId('');
-      alert(`Successfully enrolled ${resData.enrolled} lead(s) into the sequence!`);
+      notify(`Successfully enrolled ${resData.enrolled} lead(s) into the sequence!`, 'success');
     } catch (err) {
-      alert(`Sequence enrollment failed: ${err.message}`);
+      notify(`Sequence enrollment failed: ${err.message}`);
     } finally {
       setEnrolling(false);
     }
@@ -653,7 +654,7 @@ export default function CrmSalesInboxView() {
       fetchMetadata();
       window.dispatchEvent(new CustomEvent('crm:pipeline-sync'));
     } catch (err) {
-      alert(`Could not delete lead: ${err.message}`);
+      notify(`Could not delete lead: ${err.message}`);
     } finally {
       setDeletingLead(false);
     }
@@ -697,7 +698,7 @@ export default function CrmSalesInboxView() {
       fetchLeads();
       window.dispatchEvent(new CustomEvent('crm:pipeline-sync'));
     } catch (err) {
-      alert(`Bulk delete failed: ${err.message}`);
+      notify(`Bulk delete failed: ${err.message}`);
     } finally {
       setBulkDeletingAudience(false);
     }

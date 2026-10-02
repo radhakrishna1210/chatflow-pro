@@ -9,6 +9,7 @@ import MobileNavButton from '../components/MobileNavButton.jsx';
 import { TeamsAdmin } from '../components/TeamsAdmin.jsx';
 import { LeadCaptureSetting } from '../components/LeadCaptureSetting.jsx';
 import { Avatar } from '../components/Avatar.jsx';
+import { confirmDialog } from '../components/Feedback.jsx';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
@@ -209,7 +210,7 @@ export default function SettingsView() {
 
   const delMember = async (m) => {
     const label = m.userId === currentUserId ? 'Leave this workspace?' : `Remove ${m.user.name} from this workspace?`;
-    if (!window.confirm(`${label} They'll lose access immediately.`)) return;
+    if (!await confirmDialog(`${label} They'll lose access immediately.`, { danger: true })) return;
 
     setMemberError(null);
     const prev = members;

@@ -5,6 +5,7 @@ import { useIsMobile } from '../lib/useMediaQuery.js';
 import { wFetch } from '../lib/api.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
+import { notify } from '../components/Feedback.jsx';
 
 // Extract body text from Meta components array
 const getBodyText = (components) => {
@@ -466,7 +467,7 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
       setManualName(''); setManualPhone('');
     } catch (err) {
       console.error('[add manual contact]', err);
-      alert(`Couldn't add contact: ${err.message}`);
+      notify(`Couldn't add contact: ${err.message}`);
     } finally {
       setAddingManual(false);
     }
