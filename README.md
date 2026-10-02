@@ -1,477 +1,403 @@
 # Spandan
 
-A full-stack, multi-tenant WhatsApp Business messaging platform — conversations (inbox), bulk campaigns, contacts/segments, message templates, automation workflows, analytics, a wallet/billing ledger, and platform-level super-admin tools. Built with Node.js/Express on the backend and React (Vite, no router library — custom history-based router) on the frontend, backed by PostgreSQL, Redis/BullMQ, and the Meta WhatsApp Business (Cloud API) platform.
+A multi-tenant WhatsApp Business platform with a built-in CRM: shared inbox,
+bulk and scheduled campaigns, templates, contacts/segments, automation
+(keyword rules, intent matching, visual workflows, AI agents), a sales CRM
+(leads, deals, tasks, tickets, quotes, sequences, forecasting), a WhatsApp OTP
+"Authentication API", a public REST API with OAuth, and subscription billing
+with a prepaid wallet (Razorpay). Node.js/Express + Prisma/PostgreSQL +
+BullMQ/Redis on the backend, React (Vite, custom history router) on the
+frontend, Meta WhatsApp Cloud API for messaging.
 
-This document is meant to be a complete standalone reference for anyone (human or AI agent) picking up the project cold — architecture, data model, environment, conventions, and known gaps.
+This README is the standalone reference for picking the project up cold.
+Related documents:
+
+| Document | Contents |
+| --- | --- |
+| [backend/README.md](backend/README.md) | Backend quick start, scripts, tests, queue list |
+| [backend/.env.example](backend/.env.example) | Every environment variable the backend reads |
+| [DEPLOY.md](DEPLOY.md) | Render and VPS deployment, and the audit-remediation upgrade steps |
+| [backend/docs/PUBLIC_API.md](backend/docs/PUBLIC_API.md) | Public REST API, API keys and OAuth |
+| [docs/LOCAL_DEV_DATABASE.md](docs/LOCAL_DEV_DATABASE.md) | Local Postgres and the local-database guard |
+| [audit/](audit/) | 2026 deep audit: `BUG_SHEET.md` (CF-001 … CF-227), `AUDIT_REPORT.md`, `REMEDIATION_STATUS.md` |
+| [docs/archive/](docs/archive/) | Superseded historical bug reports and stabilisation notes |
 
 ---
 
-## 1. Tech Stack
+## 1. Tech stack
 
 | Layer | Technology |
 |---|---|
-| Backend runtime | Node.js 20+, ES Modules (`"type": "module"`) |
-| Backend framework | Express 5 |
-| ORM / DB | Prisma ORM → PostgreSQL (via `@prisma/adapter-pg` driver adapter) |
-| Queues / background jobs | BullMQ + Redis (`ioredis`) — campaign sending queue, transactional email queue |
-| Auth | JWT (access + refresh tokens), `bcryptjs` password hashing, Passport.js + Google OAuth 2.0, email-OTP signup verification |
-| Validation | Zod (request body/param/query schemas) |
-| WhatsApp messaging | Meta Graph API (WhatsApp Business Cloud API) via `axios`; also `twilio` dependency present |
-| AI | `@google/genai` (Gemini) with an Ollama (local LLM) fallback, used for AI-assisted onboarding, template copy, and workflow generation |
-| Email | `nodemailer` (SMTP) via a BullMQ-backed email worker |
-| Frontend | React 18, Vite 5, `recharts` for charts — no CSS framework, all inline styles / a single `index.css` |
-| Frontend routing | Hand-rolled history-based router in `frontend/src/App.jsx` (no react-router) |
+| Runtime | **Node.js 22** (`engines: ">=22 <23"` in both packages, `.nvmrc`), ES modules |
+| Backend | Express 5, Zod validation, Passport (Google OAuth) |
+| Data | Prisma 5 → PostgreSQL (Supabase in production); optional `pg` driver adapter |
+| Background work | BullMQ + Redis (`ioredis`) — nine queues, see §7 |
+| Auth | JWT access tokens + hashed, rotating refresh tokens; bcrypt; e-mail OTP signup; Google sign-in |
+| Messaging | Meta Graph API (WhatsApp Cloud API); Twilio for SMS fallback and Voice AI; Instagram messaging |
+| Payments | Razorpay (plan checkout, add-ons, wallet top-ups, signed webhook) |
+| AI | Gemini (`@google/genai`) with Ollama fallback; OpenAI / Cloudflare Workers AI for template header images |
+| E-mail | `nodemailer` over SMTP, via the `emails` queue |
+| Frontend | React 18, Vite, `recharts`; hand-rolled history router in `frontend/src/App.jsx` |
 
 ---
 
-## 2. Repository Layout
+## 2. Repository layout
 
 ```
-spandan/
-├── backend/                       Express API + BullMQ workers
+.
+├── backend/                  Express API + BullMQ workers (see backend/README.md)
 │   ├── src/
-│   │   ├── app.js                 Express app: middleware, CORS, Passport, route mounting, error handler
-│   │   ├── server.js              Entry point: connects DB/Redis, starts workers, starts HTTP server, graceful shutdown
-│   │   ├── config/env.js          Zod-validated environment variables (single source of truth for config)
-│   │   ├── routes/                Express routers, one per resource (see §5)
-│   │   ├── controllers/           Thin request/response handlers — call into services
-│   │   ├── services/              Business logic, Prisma queries (no Express dependencies)
-│   │   ├── middleware/            authenticate, authorize (RBAC), workspaceContext, rateLimit, errorHandler
-│   │   ├── validators/index.js    All Zod schemas, grouped by resource (authSchemas, campaignSchemas, ...)
-│   │   ├── lib/                   Singletons & low-level helpers: prisma.js, redis.js, meta.js (Graph API), encryption.js (AES-256), llm.js (Gemini/Ollama), mailer.js
-│   │   ├── queues/                BullMQ queue definitions (campaign.queue.js, email.queue.js)
-│   │   ├── workers/                BullMQ worker processes (campaign.worker.js sends messages, email.worker.js sends email)
-│   │   └── data/templateLibrary.js Prebuilt WhatsApp message template library (30+ templates) used by AI onboarding / template picker
-│   ├── prisma/schema.prisma       Full data model (see §6)
-│   ├── scripts/                   One-off maintenance scripts (create-test-user.js, reset-numbers.js)
-│   ├── docs/local-redis-setup.md  How to run Redis locally on Windows via WSL
-│   ├── .env / .env.test           Local environment files (gitignored — see §7)
-│   └── README.md                  Backend-specific quick start (subset of this file)
-├── frontend/                      React + Vite SPA
+│   │   ├── server.js         Boot (migrations, DB, HTTP, workers, recovery, sweeps)
+│   │   ├── worker.js         Worker-only entry point (npm run start:worker)
+│   │   ├── app.js            Express app, CORS, raw-body capture, SPA serving, error handler
+│   │   ├── config/env.js     Zod-validated environment — single source of truth
+│   │   ├── routes/           ~65 routers, mounted in routes/index.js (§5)
+│   │   ├── authentication/   WhatsApp OTP Authentication API product
+│   │   ├── controllers/ services/ validators/ middleware/ lib/
+│   │   ├── queues/ workers/  BullMQ queues and their workers (§7)
+│   │   └── data/             Template library, site/help content for the website assistant
+│   ├── prisma/schema.prisma  Data model; prisma/migrations (baseline + incremental)
+│   ├── scripts/              Prisma wrapper, local-DB guard, seeds, re-encryption, check scripts
+│   ├── tests/                Test bootstrap (setup.mjs) and two standalone suites
+│   ├── docs/                 PUBLIC_API.md, local-redis-setup.md
+│   └── .env.example          Environment template
+├── frontend/                 React + Vite SPA
 │   └── src/
-│       ├── App.jsx                Router + auth/workspace route guards
-│       ├── main.jsx                Vite entry point
-│       ├── lib/api.js             `wFetch`/`adminFetch`/`apiFetch` — authenticated fetch wrapper w/ token refresh
-│       ├── pages/                 One file per screen (Login, Register, WorkspaceSetup, Dashboard, InboxView, CreateCampaign, ContactsView, AutomationView, AnalyticsView, SettingsView, ApiKeysView, IntegrationsView, PaymentsView, SupportView, SuperAdminView, UserAnalyticsView, NumberSetupView, AuthCallback, Landing, ...)
-│       └── components/            Shared UI: Btn, Icons, AIOnboardingCard, dashboard/ChatAnalytics
-├── screenshots/                   App screenshots for docs/marketing
-├── tests-e2e.mjs                  End-to-end test suite (v1) — hits a live running backend + Postgres
-├── tests-e2e-v2.mjs               End-to-end test suite (v2, newer features)
-├── BUGS.md / BUGS-v2.md           Historical bug audits from prior stabilization sprints
-├── STABILIZATION_REPORT.md / _V2.md  Write-ups of what was fixed in each stabilization pass
-└── Spandan.html              Standalone static demo/landing page (not part of the app build)
+│       ├── App.jsx           Router and auth/workspace guards
+│       ├── lib/              api.js (wFetch/adminFetch/apiFetch + token refresh), permissions, polling, ...
+│       ├── pages/            One file per screen (Dashboard shell lazy-loads the views)
+│       └── components/       Shared UI (Feedback dialogs, ErrorBoundary, Copilot, CommandPalette, ...)
+├── audit/                    2026 audit: bug sheet, report, route inventory, remediation status
+├── docs/                     Product/engineering notes; docs/archive/ holds superseded reports
+├── tests/, playwright.config.js   Playwright smoke specs (local by default, §10)
+├── tests-e2e*.mjs            Scripted API end-to-end suites against a local stack (§10)
+├── public-api-test/          Small client exercising the public API
+├── render.yaml, DEPLOY.md    Render blueprint and deployment guide
+└── deploy-vps.sh             One-command redeploy for the Hostinger VPS (PM2)
 ```
 
 ---
 
-## 3. Getting Started
+## 3. Getting started
 
-### Prerequisites
-- Node.js 20+
-- PostgreSQL 14+
-- Redis 6+ (see `backend/docs/local-redis-setup.md` for a WSL-based local setup on Windows)
-- A Meta developer app with WhatsApp Business Cloud API access (for real message sending — the app will still boot and most non-WhatsApp features work without valid Meta credentials, but `env.js` requires the variables to be *present*, see §7)
-- A Google Cloud OAuth 2.0 client (for "Sign in with Google")
+Prerequisites: Node.js 22, a **local** PostgreSQL 14+, Redis 6+ (optional for UI
+work; see `backend/docs/local-redis-setup.md`), and — for real sends — a Meta
+app with WhatsApp Cloud API access and a Google OAuth client.
 
-### Backend
 ```bash
+# Backend
 cd backend
-# Create backend/.env from the required-variable table in §7 before installation.
-npm install --legacy-peer-deps   # automatically generates Prisma Client from prisma/schema.prisma
-npm run db:migrate            # run/create migrations against DATABASE_URL
-npm run dev                   # node --watch, http://localhost:4000
-```
+cp .env.example .env          # fill in the CHANGE_ME secrets and a local DATABASE_URL
+npm install                   # postinstall generates the Prisma client
+node --env-file=.env scripts/assert-local-db.js && node scripts/prisma-cli.js migrate deploy
+npm run dev                   # http://localhost:4000
 
-The backend's `postinstall` lifecycle hook generates Prisma Client automatically.
-`backend/.env` must be configured before installation so Prisma can validate the datasource;
-generation does not connect to the database.
-After pulling schema or dependency changes, run the normal `npm install` workflow
-again before starting the backend; no separate Prisma command is required.
-
-Other backend scripts:
-```bash
-npm start                     # production start (no watch)
-npm run db:push               # push schema without generating a migration file
-npm run db:studio             # Prisma Studio GUI
-node scripts/create-test-user.js   # upserts test@example.com / password123 with a workspace
-node scripts/reset-numbers.js      # wipes WaNumber rows and frees the NumberPool (dev utility)
-```
-
-### Frontend
-```bash
+# Frontend (second terminal)
 cd frontend
 npm install
-npm run dev        # Vite dev server, http://localhost:5173 (proxies /api to the backend — check vite.config)
-npm run build       # production build → frontend/dist
-npm run preview     # preview the production build locally
+npm run dev                   # http://localhost:5173, proxies /api to :4000
 ```
 
-### Running both together
-Backend defaults to port `4000`, frontend dev server to `5173`. The frontend calls relative paths like `/api/v1/...`; `frontend/vite.config.js` proxies `/api` to `http://localhost:4000` in dev. In production the frontend is expected to be served from the same origin as the API, or `CLIENT_URL`/`CORS_EXTRA_ORIGINS` must be configured for cross-origin requests.
+Never run `prisma migrate dev` / `npm run db:migrate` against a shared or hosted
+database. In production the backend serves the built SPA from `frontend/dist`,
+so the API and UI share one origin (see DEPLOY.md).
 
 ---
 
-## 4. Environment Variables
+## 4. Environment variables
 
-Defined and validated in `backend/src/config/env.js` (Zod schema — the app **will not boot** if a required variable is missing/invalid). No `.env.example` is currently checked into the repo; use this table as the source of truth. **Never commit real values** — `.env` files are gitignored.
+The full list, with defaults and notes, is in
+[`backend/.env.example`](backend/.env.example), generated from
+`backend/src/config/env.js`. The app exits at boot when a required variable is
+missing or invalid.
 
-| Variable | Required | Default | Notes |
-|---|---|---|---|
-| `PORT` | no | `4000` | HTTP port |
-| `NODE_ENV` | **yes** for the server | `development` (scripts/tests only) | `development` \| `production` \| `test`. `src/server.js` refuses to start when it is unset |
-| `EXPOSE_ERROR_DETAIL` | no | `false` | `true` adds the raw message of unexpected 5xx errors to API responses — local debugging only; ignored unless `NODE_ENV=development` |
-| `CLIENT_URL` | **yes** in production | `http://localhost:5173` | Frontend origin — used for CORS allow-list and OAuth redirects |
-| `CORS_EXTRA_ORIGINS` | no | — | Comma-separated extra allowed origins (e.g. a preview deploy) |
-| `JSON_BODY_LIMIT` | no | `2mb` | Express body size limit |
-| `TRUST_PROXY_HOPS` | **yes in production** | `0` | Reverse-proxy hops in front of the app whose `X-Forwarded-For` is believed. Set `1` on Render and on the VPS (nginx in front); left at 0 every client shares the proxy's rate-limit bucket. The app warns at boot in production when it is 0 |
-| `DATABASE_URL` | **yes** | — | Postgres connection string (pooled, used at runtime) |
-| `DIRECT_URL` | no | falls back to `DATABASE_URL` | Non-pooled connection for Prisma migrations |
-| `REDIS_URL` | **yes** in production | `redis://localhost:6379` | BullMQ + ioredis connection |
-| `JWT_ACCESS_SECRET` | **yes** (min 32 chars) | — | Signs short-lived access tokens |
-| `JWT_REFRESH_SECRET` | **yes** (min 32 chars) | — | Signs long-lived refresh tokens |
-| `JWT_EXPIRES_IN` | no | `15m` | Access token TTL |
-| `JWT_REFRESH_EXPIRES_IN` | no | `7d` | Refresh token TTL |
-| `ADMIN_EMAIL` | **yes** | — | The single email treated as the **platform super admin** (`superAdmin: true` on JWT, unlocks `/admin/platform/*`) — not a workspace role |
-| `BCRYPT_SALT_ROUNDS` | no | `12` | |
-| `ENCRYPTION_KEY` | **yes** (min 32 chars, 32 ASCII or 64 hex) | — | AES-256-GCM key used to encrypt WhatsApp access tokens & integration credentials at rest (values written before GCM, in CBC, are still read). Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `ENCRYPTION_KEYS_PREVIOUS` | no | — | Comma-separated old keys still accepted for decryption while rotating `ENCRYPTION_KEY`. Rotate: set the new key + list the old one here, deploy, run `node scripts/reencrypt-secrets.js --apply`, then remove this |
-| `META_APP_ID` | **yes** | — | Meta developer app ID |
-| `META_APP_SECRET` | **yes** | — | Used for webhook HMAC signature verification and OAuth code exchange |
-| `META_BUSINESS_ID` | **yes** | — | |
-| `META_WABA_ID` | **yes** | — | Default/platform WhatsApp Business Account ID |
-| `META_SYSTEM_USER_ID` | no | — | Not read by the app |
-| `META_SYSTEM_USER_TOKEN` | **yes** | — | Long-lived system-user token for platform-level Graph API calls |
-| `META_DISPLAY_NAME` | no | — | Not read by the app |
-| `META_WEBHOOK_VERIFY_TOKEN` | **yes** | — | Token Meta must echo back to verify the webhook subscription (`GET /webhook/meta`) |
-| `META_TWO_STEP_PIN` | no | — | 6-digit two-step verification PIN used when registering a number that already has one |
-| `META_API_VERSION` | no | `v21.0` | Graph API version pinned across `lib/meta.js` |
-| `META_REDIRECT_URI` | no | `{API_PUBLIC_URL}/api/v1/auth/meta/callback` | Must exactly match the redirect URI configured in the Meta dashboard for Embedded Signup |
-| `META_ES_CONFIG_ID` | referenced by frontend/backend for Embedded Signup | — | Facebook Login for Business config ID (see STABILIZATION_REPORT_V2.md) |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | no | — | Present as a dependency; optional/partial integration |
-| `CAMPAIGN_BATCH_SIZE` | no | `50` | |
-| `CAMPAIGN_WORKER_CONCURRENCY` | no | `2` | BullMQ worker concurrency for campaign sends |
-| `CAMPAIGN_RATE_DELAY_MS` | no | `250` (floor enforced in code) | Delay between sends — Meta Tier-1 numbers allow ~250 msgs/min, so 250ms ≈ 240/min |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **yes** | — | Google OAuth 2.0 ("Sign in with Google") |
-| `GOOGLE_CALLBACK_URL` | no | `{API_PUBLIC_URL}/api/v1/auth/google/callback` | Must be registered verbatim in Google Cloud Console → Credentials → Authorized redirect URIs, and must point at the API origin (`localhost:4000` in dev), not the Vite dev server. A mismatch shows up only on Google's consent screen as `Error 400: redirect_uri_mismatch` |
-| `GEMINI_API_KEY` | no | — | Enables Gemini for AI onboarding / workflow generation; falls back to Ollama, then a deterministic canned-response generator if absent |
-| `OPENAI_API_KEY` | no | — | Enables OpenAI for AI template **header images**. Preferred over Gemini for images, because image models are not on the Gemini free tier at all. Text generation still uses Gemini |
-| `OPENAI_IMAGE_MODEL` | no | `gpt-image-1` | `gpt-image-1` needs a verified OpenAI org; use `dall-e-3` if verification is the blocker |
-| `OPENAI_IMAGE_QUALITY` | no | `medium` | `low`/`medium`/`high` on gpt-image-1, `standard`/`hd` on dall-e-3 |
-| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | no | — | Cloudflare Workers AI — the **free** leg of the image chain. OpenAI and Gemini both bill per image with no free allowance, so this is what keeps header generation working when there is no credit. The token needs the `Workers AI: Read` permission |
-| `CLOUDFLARE_IMAGE_MODEL` | no | `@cf/black-forest-labs/flux-1-schnell` | Any Workers AI text-to-image model; both base64-JSON and raw-bytes responses are handled |
-| `IMAGE_PROVIDER` | no | `auto` | `auto` tries openai → cloudflare → gemini, falling through on billing or availability failures. Pin to one name to diagnose a single provider |
-| `OLLAMA_URL` | no | `http://127.0.0.1:11434` | Local LLM fallback |
-| `OLLAMA_MODEL` | no | `phi3` | |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASSWORD` | no | `SMTP_PORT=587`, `SMTP_SECURE=false` | Transactional email (welcome, OTP, invites, campaign-complete, etc.) — email sending is skipped gracefully if unconfigured |
-| `EMAIL_FROM_NAME` | no | `Spandan` | |
-| `EMAIL_FROM` | no | — | |
-| `APP_URL` | **yes** in production | `http://localhost:{PORT}` | Backend's own public URL, used to derive default OAuth/webhook callback URLs |
-| `RUN_WORKERS` | no | `true` | Whether this process runs BullMQ workers, schedules, boot recovery/backfill and the billing sweep. Exactly one process per database should (see DEPLOY.md) |
-| `DATABASE_POOL_SIZE` | no | `5` | Prisma connections per process (ignored when `DATABASE_URL` already sets `connection_limit`) |
-| `PRISMA_PG_ADAPTER` | no | — | `1` uses the `pg` driver adapter instead of Prisma's native engine (sandboxed CI) |
-
----
-
-## 5. API Surface
-
-All routes are mounted under `/api/v1` (see `backend/src/app.js` + `backend/src/routes/index.js`). Workspace-scoped resources live under `/api/v1/workspaces/:workspaceId/*` and are protected by `authenticate` (JWT) + `workspaceContext` (verifies membership, attaches `req.user.role` for that workspace, blocks suspended workspaces) + `authorize('ADMIN')` on write/admin-only endpoints.
-
-| Prefix | Router file | Purpose |
+| Variable | Required | Notes |
 |---|---|---|
-| `GET /health` | `routes/index.js` | Liveness check |
-| `/auth` | `auth.routes.js` | Register (legacy single-step), OTP-verified register (`/register/start`, `/register/verify`, `/register/resend`), login, refresh, logout, Google OAuth (`/google`, `/google/callback`), one-time-code session exchange (`/exchange`), Meta account-connect OAuth handshake |
-| `/webhook` | `webhook.routes.js` | Meta webhook verification (`GET`) + inbound event receiver (`POST`) — signature-verified with `META_APP_SECRET` |
-| `/admin` | `admin.routes.js` | Platform-level (super-admin only): number pool assignment, workspace list/suspend, platform-wide stats |
-| `/workspaces` | `workspaces.routes.js` | `POST /workspaces` — the **only** way a user becomes a workspace `ADMIN`: explicitly creating a workspace. Invited users join as `CLIENT`. |
-| `/workspaces/:workspaceId/whatsapp` | `whatsapp.routes.js` | Number connection (own-number OAuth + Embedded Signup), message sending, subscription status |
-| `/workspaces/:workspaceId/templates` | `templates.routes.js` | WhatsApp message template CRUD, Meta sync, install-from-library |
-| `/workspaces/:workspaceId/campaigns` | `campaigns.routes.js` | Campaign CRUD, add recipients, launch/cancel, reply-flow/retry/tracking config |
-| `/workspaces/:workspaceId/contacts` | `contacts.routes.js` | Contact CRUD + CSV import |
-| `/workspaces/:workspaceId/conversations` | `conversations.routes.js` | Inbox: list/read conversations, send/receive messages |
-| `/workspaces/:workspaceId/analytics` | `analytics.routes.js` | Workspace messaging/campaign analytics |
-| `/workspaces/:workspaceId/automation` | `automation.routes.js` | Keyword-triggered `AutomationTrigger` rules |
-| `/workspaces/:workspaceId/ai-agent` | `aiAgent.routes.js` | WhatsApp AI Agent config/deploy/test, AI intent matching, deployed-agent list (`GET /agents`) and campaign usage (`GET /campaigns`) |
-| `/workspaces/:workspaceId/workflows` | `workflow.routes.js` | Visual workflow builder (`Workflow.nodes`/`edges` JSON), AI-assisted generation, simulation |
-| `/workspaces/:workspaceId/settings` | `settings.routes.js` | Workspace settings, notification toggles, webhook config |
-| `/workspaces/:workspaceId/members` | `members.routes.js` | Invite/list/update-role/remove workspace members (ADMIN-only writes) |
-| `/workspaces/:workspaceId/api-keys` | `apikeys.routes.js` | Programmatic API key issuance/revocation |
-| `/workspaces/:workspaceId/segments` | `segments.routes.js` | Contact segments (tag-like groupings used for targeted campaigns) |
-| `/workspaces/:workspaceId/whatsapp-forms` | `whatsappForms.routes.js` | WhatsApp Flow-style forms (CRUD scaffolding) |
-| `/workspaces/:workspaceId/wallet` | `wallet.routes.js` | Server-authoritative wallet ledger: balance + recharge (ADMIN-only, demo/no live payment gateway) |
-| `/workspaces/:workspaceId/integrations` | `integrations.routes.js` | Third-party integration connections (credentials encrypted at rest) |
-| `/workspaces/:workspaceId/support` | `support.routes.js` | Submit support tickets (surfaced to super admins) |
-| `/onboarding` | `onboarding.routes.js` | AI onboarding chat assistant (guided template/campaign/workflow creation) |
-| `/ai` | `ai.routes.js` | Misc AI-assisted endpoints |
-| `/assistant` | `assistant.routes.js` | Website assistant: RAG chatbot answering questions about the product from indexed site content (see §5.1) |
+| `NODE_ENV` | **yes** for the server | `src/server.js` refuses to start when unset; `development` locally, `production` on servers |
+| `CLIENT_URL`, `APP_URL`, `REDIS_URL` | **yes** when `NODE_ENV=production` | Frontend origin; backend public URL (OAuth callbacks, Twilio signatures); Redis shared by every deployment on the same database |
+| `DATABASE_URL` | **yes** | Postgres (pooled). `DIRECT_URL` optional for migrations |
+| `DATABASE_POOL_SIZE` | no (5) | Prisma connections per process |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | **yes** (32+ chars) | |
+| `ADMIN_EMAIL` | **yes** | The platform super-admin account |
+| `ENCRYPTION_KEY` | **yes** (32 ASCII or 64 hex) | AES-256-GCM key for tokens/credentials at rest |
+| `ENCRYPTION_KEYS_PREVIOUS` | no | Old keys accepted during rotation; then run `node scripts/reencrypt-secrets.js --apply` |
+| `META_APP_ID`, `META_APP_SECRET`, `META_BUSINESS_ID`, `META_WABA_ID`, `META_SYSTEM_USER_TOKEN`, `META_WEBHOOK_VERIFY_TOKEN` | **yes** | Meta app and platform WABA. `META_SYSTEM_USER_ID` and `META_DISPLAY_NAME` are optional and unused |
+| `META_TWO_STEP_PIN` | no | 6-digit PIN for registering numbers that already have two-step verification |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | **yes** | Google sign-in |
+| `TRUST_PROXY_HOPS` | set in production | `1` on Render and the VPS; rate limits key on the derived client IP |
+| `RUN_WORKERS` | no (`true`) | Whether this process owns workers, schedules, recovery and the billing sweep — exactly one per database |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | for billing | Checkout and the `POST /api/v1/webhook/razorpay` webhook (503 without its secret) |
+| `ALLOW_DEMO_RECHARGE` | no (`false`) | Unpaid demo wallet top-up; only honoured outside production |
+| `EXPOSE_ERROR_DETAIL` | no (`false`) | Raw 5xx messages in responses; only with `NODE_ENV=development` |
+| `GEMINI_*`, `OLLAMA_*`, `OPENAI_*`, `CLOUDFLARE_*`, `IMAGE_PROVIDER` | no | AI features degrade without them |
+| `SMTP_*`, `EMAIL_FROM*` | no | E-mail is skipped when SMTP is not configured |
+| `TWILIO_*`, `INSTAGRAM_*` | no | SMS fallback / Voice AI; Instagram app (falls back to the Meta app) |
 
-**Auth model**: JWT access token carries `{ sub: userId, workspaceId, role, superAdmin }`. `role` and `workspaceId` can be `null` for a signed-up user who hasn't created/joined a workspace yet (see `frontend/src/pages/WorkspaceSetup.jsx` — such users are routed to `/setup`). `workspaceContext` middleware re-derives the effective role per-request from the `WorkspaceMember` row for the `:workspaceId` in the URL, so a stale JWT role never grants access to a different workspace. `superAdmin` is computed by comparing the user's email to `ADMIN_EMAIL` — it is a platform-level flag, orthogonal to any workspace's `Role`.
+Platform credentials (API keys, SMTP password, …) can also be overridden from
+the super-admin settings screen; those values live in the database and take
+effect without a redeploy.
 
-### 5.1 Website Assistant (RAG chatbot)
+---
 
-A retrieval-grounded chatbot that answers questions about Spandan from the site's own content. It is not a general-purpose assistant: asked about anything the indexed content does not cover, it declines rather than answering from the model's world knowledge.
+## 5. API surface
 
-```
-site content + help guides + Plan table
-        -> chunk -> embed -> SiteKnowledgeChunk
-question -> embed -> hybrid search -> relevance guard -> Gemini -> answer
-```
+Everything is under `/api/v1` (`backend/src/routes/index.js`).
+`audit/ROUTE_INVENTORY.md` lists every route.
+
+**Public and account-level**
+
+| Prefix | Purpose |
+|---|---|
+| `GET /health`, `GET /health/ready` | Liveness; readiness (503 until boot finished and Postgres + Redis answer) |
+| `GET /pricing` | Published per-category message rates |
+| `/auth` | `/register/start` → `/register/verify` (e-mail OTP; `/register/resend`), `/login`, `/refresh`, `/logout`, `/forgot-password`, `/reset-password`, `/exchange` (one-time code → session), Google sign-in, Meta and Instagram connect callbacks. There is no single-step `/register` |
+| `/oauth` | Spandan as an OAuth authorization server (`/authorize`, consent, `/token`, `/revoke`) — issues scoped API keys |
+| `/public` | Public REST API authenticated by API key (messages, templates, campaigns, contacts, analytics, wallet balance, AI agent, webhooks) — see `backend/docs/PUBLIC_API.md` |
+| `/authentication` | WhatsApp OTP Authentication API (`/generate`, `/verify`), API-key authenticated |
+| `/webhook` | Meta WhatsApp webhook (`GET` verify, `POST` signed events), Razorpay webhook (`/razorpay`), Instagram webhook |
+| `/voice` | Twilio Voice AI callbacks (signature-verified) |
+| `/forms`, `/invitations`, `/assistant` | Public lead forms; invitation accept; website assistant chatbot |
+| `/users`, `/notifications`, `/onboarding` | Current user profile/sessions; user notifications; AI onboarding chat |
+| `/admin` | Platform super-admin (`ADMIN_EMAIL`): number pool, platform settings and credential checks, workspaces, users (impersonate, sign out, disable), plans, payments, audit log |
+| `POST /workspaces` | Create a workspace — the creator becomes its `ADMIN` |
+
+**Workspace-scoped** — `/api/v1/workspaces/:workspaceId/…`
+
+| Area | Prefixes |
+|---|---|
+| Messaging | `whatsapp`, `templates`, `campaigns`, `conversations`, `contacts`, `segments`, `clusters`, `opt-outs` (alias `blocked-numbers`), `whatsapp-forms`, `widgets`, `instagram` |
+| Automation and AI | `automation`, `workflows`, `intents`, `ai-agent`, `ai-agents`, `ai` (drafting, simulator), `copilot`, `agent` (autonomous CRM agent) |
+| CRM | `leads`, `deals`, `tasks`, `activities`, `tickets`, `quotes`, `products`, `sequences`, `lead-forms`, `lead-distribution`, `pipeline-stages`, `forecast`, `custom-fields` (alias `custom`), `saved-views`, `teams`, `search`, `insights`, `crm-analytics`, `crm-data` (import/export), `crm-sales-inbox`, `crm-permissions`, `crm-customization`, `progress` (gamification) |
+| Billing | `subscription` (plans, checkout, change/renew, billing profile, add-ons), `wallet` (balance, summary, Razorpay top-up) |
+| Workspace | `settings`, `members`, `invitations`, `switch`, `api-keys`, `authentication` (OTP product config), `integrations`, `analytics`, `support` |
+
+### 5.1 Roles and access control
+
+- **Tenancy.** Every workspace router runs `authenticate` + `workspaceContext`.
+  `workspaceContext` re-reads the caller's `WorkspaceMember` row for the
+  `:workspaceId` in the URL (403 when not a member), blocks suspended
+  workspaces and workspaces whose subscription is `CANCELLED`/`EXPIRED`
+  (except the `subscription` and `wallet` routes), and sets `req.user.role`
+  from that row — a stale JWT role is never trusted.
+- **Roles** (`WorkspaceMember.role`), lowest to highest: `VIEWER`, `AGENT`,
+  `CLIENT` (shown as "Member"), `ADMIN`. `authorize('CLIENT')` means "CLIENT or
+  higher".
+  - `VIEWER` is read-only; `AGENT` may only do an explicit list of inbox and
+    contact writes (reply, media, notes, assign/status/bot toggle, create/edit a
+    contact, block a number, log a CRM activity, preview an AI reply) —
+    `middleware/roleCapabilities.js`. Bulk contact/opt-out exports need CLIENT.
+  - `CLIENT` creates and edits workflows, clusters, leads, campaigns and other
+    day-to-day records, and unblocks numbers.
+  - `ADMIN` only: members and invitations, billing (checkout, plan change,
+    renew, billing profile, add-ons, wallet top-up), API keys (except the
+    playground test send), OAuth app connect, outgoing webhook destination and
+    test, Authentication-API (OTP) config, WhatsApp number connect/onboard/
+    embedded signup/pool/disconnect, CRM customization, lead deletion and
+    distribution-rule management (CRM permission matrix,
+    `services/crmPermissions.service.js`).
+- **Platform super admin** is the account whose e-mail equals `ADMIN_EMAIL`
+  (`superAdmin` on the JWT), orthogonal to workspace roles. Impersonation
+  issues a 30-minute, marked access token with no refresh token, requires a
+  reason, is held in tab-scoped `sessionStorage`, and cannot mint lasting
+  credentials; admin actions are written to an audit log.
+
+### 5.2 Website assistant (RAG chatbot)
+
+A retrieval-grounded chatbot that answers questions about Spandan from the
+site's own content and declines anything that content does not cover.
 
 | Endpoint | Auth | Purpose |
 | --- | --- | --- |
-| `POST /assistant/chat` | public, 12 req/min per IP | Ask a question. Body `{ question, history }`; returns `{ answer, grounded, sources, reason }` |
-| `GET /assistant/status` | public | Index health: chunk count, whether semantic search is live, last sync |
-| `POST /assistant/reindex` | super admin | Force a re-sync. `{ force: true }` re-embeds every chunk |
+| `POST /assistant/chat` | public, 12 req/min per IP | `{ question, history }` → `{ answer, grounded, sources, reason }` |
+| `GET /assistant/status` | public | Index health |
+| `POST /assistant/reindex` | super admin | Force a re-sync (`{ force: true }` re-embeds everything) |
 
-**Knowledge sources** (`services/siteKnowledge.service.js`) — no uploads, no scraping, nothing hand-written as an "answer":
-
-- `data/siteContent.js` — the marketing copy, which `frontend/src/pages/Landing.jsx` also renders. One module, two consumers, so the page and the chatbot cannot disagree.
-- `data/helpContent.js` — per-screen how-to guides.
-- The database — active `Plan` rows (price, quota, limits, feature flags) and the `MESSAGE_CATEGORY_RATES` card. **Prices are only ever read from here**, so the assistant quotes what checkout charges. `PLAN_CARDS` in `siteContent.js` carries display prices for the pricing section, and the indexer deliberately skips them.
-
-**Sync**: `syncIndex()` runs unawaited at boot and reconciles by content hash — unchanged chunks keep their embedding, so a restart with no content edit costs zero embedding calls. Edit any source above and the next boot (or a `/reindex` call) re-embeds only what moved.
-
-**Grounding**: retrieval blends cosine similarity over Gemini embeddings with BM25. A guard on lexical coverage and semantic score decides whether anything relevant was found; when nothing was, **no model is called at all** and a fixed refusal is returned — so a prompt injected into the question cannot reach a model that was never invoked. Both legs degrade independently: with no embeddings, ranking is lexical; with no reachable LLM, the answer is the best-matching passage quoted verbatim.
-
-**Config**: reuses `GEMINI_API_KEY` (and the super-admin key override). `GEMINI_EMBEDDING_MODEL` and `GEMINI_EMBEDDING_DIM` tune the index; changing either invalidates stored vectors and triggers a full re-embed on the next sync.
-
-**UI**: `frontend/src/components/SiteAssistant.jsx`, mounted once in `App.jsx` so it follows the visitor from the landing page into the dashboard.
+Sources (`services/siteKnowledge.service.js`): `data/siteContent.js` (also
+rendered by the landing page), `data/helpContent.js`, and the active `Plan` rows
+and message rate card from the database, so quoted prices are what checkout
+charges. The index syncs by content hash on boot (owner process only) or on
+`/reindex`. Retrieval blends Gemini-embedding cosine similarity with BM25; when
+nothing relevant is found no model is called and a fixed refusal is returned.
+UI: `frontend/src/components/SiteAssistant.jsx`.
 
 ---
 
-## 6. Data Model (PostgreSQL via Prisma)
+## 6. Data model
 
-Full schema: `backend/prisma/schema.prisma`. Key models and relationships:
+Full schema: `backend/prisma/schema.prisma`. Core models:
 
-- **User** — global account (email/password or Google). Has many `WorkspaceMember` rows (i.e. can belong to multiple workspaces) and `RefreshToken`s.
-- **Workspace** — the tenant boundary. Everything else (contacts, campaigns, templates, numbers, wallet, integrations, tickets...) is scoped to a `workspaceId`. Also holds notification toggles, wallet balance, suspension state, and Voice-AI settings.
-- **WorkspaceMember** — join table `User` ↔ `Workspace` with a `role: Role` (`ADMIN` | `CLIENT`). Composite PK `(userId, workspaceId)`. **A user's workspace `role` only exists here** — it is not a global attribute of `User`.
-- **WaNumber** — a connected WhatsApp phone number (Meta Cloud API), holding an AES-256-encrypted access token, quality/status, and `appSubscribed` (whether the app is subscribed to webhooks for this number's WABA — critical, see below).
-- **NumberPool** — platform-owned pool of numbers that can be assigned to workspaces (admin-managed onboarding path, alternative to a customer connecting their own number via Embedded Signup).
-- **Template** — a WhatsApp message template (`components` JSON matching Meta's template component schema), optionally scoped to a specific `WaNumber`, with approval `status`.
-- **Contact** — a workspace's WhatsApp contact (unique per `(workspaceId, phoneNumber)`), can belong to many `Segment`s.
-- **Campaign** — a bulk-send job against a `Template` + `WaNumber`, with `replyRules`/`retryConfig`/`trackingConfig` JSON columns and rollup counters (`sent`/`delivered`/`read`/`failed`). `aiAgentEnabled`/`aiAgentId`/`aiAgentCtaLabel` attach an AI agent to the campaign, and `aiAgentContext` is the copy of its content taken at launch.
-- **CampaignRecipient** — join row per `(campaignId, contactId)` tracking per-recipient delivery status; linked `Message`s let delivery/read webhooks update the right row. `aiContext` holds the message this contact was actually sent, with variables already resolved.
-- **CampaignAiSession** — one customer's "Ask Anything" chat: contact → campaign → recipient → conversation → agent, plus a frozen `campaignContext`. Owns that conversation's replies while `status = ACTIVE`, then expires.
-- **Conversation** / **Message** — the inbox: one `Conversation` per `(contactId, waNumberId)`, `Message.direction` is `INBOUND`/`OUTBOUND`, indexed on `metaMessageId` for webhook correlation.
-- **AutomationTrigger** — simple keyword → response-template auto-reply rules.
-- **Workflow** — visual automation builder state (`nodes`/`edges` JSON), can be AI-generated.
-- **ApiKey** — hashed programmatic API keys per workspace.
-- **WalletTransaction** — append-only ledger (`CREDIT`/`DEBIT`) backing `Workspace.walletBalance`; balance only ever changes inside a server-side transaction.
-- **WorkspaceIntegration** — third-party integration connections (`apikey`/`oauth`/`webhook` type), credentials encrypted at rest, one row per `(workspaceId, provider)`.
-- **EmailOtp** — signup email-verification codes: hashed code + attempt counter + expiry; also stashes the pending `name`/`passwordHash` so the real `User` is only created after successful verification.
-- **SupportTicket** — workspace support requests, visible to super admins.
-- **Segment** — named contact groupings (many-to-many with `Contact`).
-- **AiSession** — persisted state for the AI onboarding chat assistant's multi-turn flow.
-- **RefreshToken** — persisted, single-use, revocable JWT refresh tokens.
+- **User**, **RefreshToken** (SHA-256 hash only, token family for reuse
+  detection), **WorkspaceMember** (`role`: VIEWER/AGENT/CLIENT/ADMIN),
+  **Workspace** (tenant boundary: settings, wallet balance, suspension, AI and
+  voice settings), **Invitation**, **EmailOtp**.
+- Messaging: **WaNumber** (encrypted access token), **NumberPool**,
+  **Template**, **Contact**, **Segment**, **Conversation**, **Message**,
+  **Campaign** / **CampaignRecipient** (per-recipient status, quota
+  reservation, AI context), **CampaignAiSession**, **AutomationTrigger**,
+  **Workflow** / **WorkflowRun**, opt-outs.
+- CRM: leads, deals (+ stage history, line items), tasks, CRM activities,
+  tickets, quotes, products, sequences/enrolments, teams, saved views, custom
+  field definitions, lead forms and submissions, pipeline stages.
+- Billing: **Plan** (quota, limits, per-category overage rates, feature
+  flags), **Subscription** (billing cycle, pending change, cancel-at-period-end),
+  **UsageCounter**, **WalletTransaction** (append-only ledger with unique
+  idempotency key), **GatewayPayment** (each Razorpay payment applied once),
+  **Invoice**, workspace add-ons.
+- Platform: **ApiKey** (hashed, scoped, actor), OAuth clients/grants,
+  **WorkspaceIntegration** (encrypted credentials), **SupportTicket**, admin
+  audit log, site-knowledge chunks.
 
-Enums: `Role` (ADMIN/CLIENT), `NumberPoolStatus`, `TemplateStatus`, `CampaignStatus`, `CampaignRecipientStatus`, `ConversationStatus`, `MessageDirection`.
+Migrations: `prisma/migrations/20260101000000_baseline` creates the
+pre-migration schema on an empty database and is a no-op on existing ones;
+later migrations are incremental. Apply with `prisma migrate deploy` only.
 
-### Campaign AI Agent
+### 6.1 Campaign AI agent
 
-A campaign can carry the workspace's deployed WhatsApp AI Agent (step 5 of the campaign wizard). The customer taps the campaign's CTA — "Ask Anything", "Need Help?", or whatever label was chosen — and talks to that agent about *that campaign*, with no need to repeat what it said.
+A campaign can carry a deployed WhatsApp AI agent (campaign wizard). The
+customer taps the campaign's CTA ("Ask Anything" or a chosen label) and talks
+to the agent about *that* campaign.
 
-- **The CTA rides on the template's quick-reply button.** Meta refuses buttons it did not approve with the template, so one cannot be added at send time. When the template has a quick reply, the send stamps it with a per-recipient payload (`cfp_campaign_ai:<recipientId>`), which comes straight back on the tap and names the exact message the customer is looking at. When it has none, the wizard says so, and the agent still opens if the customer types the label.
-- **The agent answers from a snapshot, not the live campaign.** `CampaignRecipient.aiContext` is written at send time with the message that contact received, variables resolved; `Campaign.aiAgentContext` is the launch-time fallback. Editing the campaign or re-syncing its template afterwards therefore cannot rewrite what a customer who already received it is told — a 50%-off recipient keeps hearing 50% after the offer is edited down to 30%.
-- **Context = system prompt + knowledge base + campaign snapshot + conversation so far.** Nothing about the campaign is parsed into categories: the whole message goes to the model, so prices, coupon codes, expiry dates, eligibility and anything else it mentions are all answerable. The prompt forbids inventing any of them and requires an explicit "I don't have that" instead.
-- **Priority.** An active `CampaignAiSession` is checked *first* on inbound, ahead of forms, workflows, keyword triggers, intent matching, welcome/OOO and the generic fallback agent — otherwise the fallback agent would answer campaign questions with no campaign in front of it. Everything else keeps its existing order. A session that would start over an in-progress form yields to the form.
-- **Exit.** Sessions expire after `SESSION_TTL_MINUTES` (30) of inactivity, refreshed on each turn, and end immediately on "exit"/"menu"/"stop chat". After that the customer is back in the normal automation order.
-- **Isolation.** Every lookup is scoped by `workspaceId`; the CTA payload arrives from the internet and is re-checked against the contact and workspace before anything opens. A campaign id from another tenant resolves to nothing.
-
-Configured from **Automation → WhatsApp AI Agent**, which also lists the campaigns using the agent and can test an answer against a chosen campaign's content before it is sent (`POST /ai-agent/test` with `mode: "campaign"`).
-
----
-
-## 7. Background Jobs (BullMQ)
-
-- **`campaigns` queue / `campaign.worker.js`** — processes one campaign at a time per job: claims the campaign (atomic status guard against concurrent cancellation), iterates `PENDING` `CampaignRecipient`s, sends each via the Meta Graph API with a rate-limit delay (`CAMPAIGN_RATE_DELAY_MS`, floor 250ms), fills in template variable parameters (currently: the contact's name for every `{{n}}` placeholder — there's no per-recipient custom-field data source), records `Message` rows, updates recipient/campaign status, and emails a completion/failure notice. Recovers `SCHEDULED` campaigns on server restart (`recoverScheduledCampaigns`) in case queued jobs were lost.
-- **`email` queue / `email.worker.js`** — sends transactional email (welcome, signup OTP, member invites, campaign completed/failed, template approved/rejected) via `nodemailer`/SMTP. Silently no-ops if SMTP isn't configured (dev-friendly).
-
-Both workers are started from `server.js` alongside the HTTP server and are shut down gracefully on `SIGTERM`/`SIGINT` (in-flight jobs finish before the process exits).
-
----
-
-## 8. Frontend Notes
-
-- **Routing**: `App.jsx` implements a minimal history-API router (no react-router). Route guards: unauthenticated users are bounced to `/login`; authenticated users without a workspace are bounced to `/setup` (`WorkspaceSetup.jsx`) until they create one (which grants them `ADMIN`) or are invited to one by an existing admin.
-- **Auth/session storage**: `accessToken`, `refreshToken`, and a `user` JSON blob (id/name/email/role/superAdmin/workspaceId/workspaceName) live in `localStorage`.
-- **API calls**: `frontend/src/lib/api.js` exports `wFetch` (prefixes `/api/v1/workspaces/:workspaceId`, reads the workspace from stored `user`), `adminFetch` (prefixes `/api/v1/admin`), and `apiFetch` (raw authenticated fetch). All three attach the bearer token and transparently retry once after a silent token refresh on a 401.
-- **Pages** map roughly 1:1 to the API resources above (Dashboard is the shell/layout; individual `*View.jsx` files are the tab contents).
+- The CTA rides on the template's approved quick-reply button; the send stamps
+  it with a per-recipient payload (`cfp_campaign_ai:<recipientId>`). Without a
+  quick reply the agent still opens if the customer types the label.
+- The agent answers from a snapshot: `CampaignRecipient.aiContext` (the message
+  that contact received, variables resolved), falling back to
+  `Campaign.aiAgentContext` from launch, so later edits cannot change what an
+  existing recipient is told.
+- An active `CampaignAiSession` is layer 4 of inbound handling — after opt-out,
+  human handoff and control commands, ahead of forms, workflows, keyword and
+  intent rules, welcome/OOO and the general AI agent (full order in the comment
+  block of `services/webhook.service.js`).
+- Sessions expire after `SESSION_TTL_MINUTES` (24 hours) without activity and
+  end on an exit command. Every lookup is scoped by `workspaceId`; the payload
+  is re-checked against the contact and workspace.
 
 ---
 
-## 9. Security Notes
+## 7. Background jobs
 
-- WhatsApp access tokens and integration credentials are encrypted at rest with AES-256-CBC (`lib/encryption.js`, key from `ENCRYPTION_KEY`) — never stored or returned in plaintext.
-- Meta webhook payloads are verified via HMAC signature using `META_APP_SECRET`.
-- CORS is a strict allow-list (`CLIENT_URL` + `CORS_EXTRA_ORIGINS`) — never a wildcard.
-- Passwords hashed with `bcryptjs` (`BCRYPT_SALT_ROUNDS`, default 12).
-- Refresh tokens are persisted server-side, single-use (rotated on refresh), and revocable (logout deletes the row).
-- Signup requires email OTP verification (6-digit code, 10-minute expiry, 5-attempt limit, 60s resend cooldown) before a `User` row is created.
-- Google OAuth uses a signed, timing-safe-compared `state` parameter for CSRF protection, and hands tokens to the SPA via a short-lived one-time Redis-backed code (never in the redirect URL) — see `POST /auth/exchange`.
-- Rate limiting (`middleware/rateLimit.js`) is applied to login/register/refresh endpoints.
-- `.env` files are gitignored; **rotate any credentials that were ever committed to history**.
+Exactly one process per database runs background work: the one with
+`RUN_WORKERS=true` (default). It starts every worker, registers the repeatable
+schedules, re-queues scheduled campaigns, pending retries and stranded
+campaigns at boot (plus a 5-minute stranded-campaign sweep), backfills
+subscriptions and runs the billing sweep. `npm run start:worker` runs the same
+boot without HTTP so workers can live in their own process.
+
+| Queue | Worker | Work |
+| --- | --- | --- |
+| `campaigns` | `campaign.worker.js` | Sends campaigns (rate-limited by `CAMPAIGN_RATE_DELAY_MS`), retries, SMS/e-mail fallback, refunds unsent units, completion e-mail |
+| `emails` | `email.worker.js` | Transactional e-mail |
+| `billing` | `billing.worker.js` | Daily billing-cycle renewals, cancellations, past-due retries |
+| `workflows` | `workflow.worker.js` | Workflow runs and delayed resumes |
+| `sequences` | `sequence.worker.js` | CRM sequence steps, with a recovery sweep |
+| `agent` | `agent.worker.js` | Autonomous CRM agent tick and sweep |
+| `webhooks` | `webhook.worker.js` | Inbound Meta events, processed in order per customer |
+| `outgoing-webhooks` | `outgoingWebhook.worker.js` | Durable, retried delivery of workspace webhooks (SSRF-guarded) |
+| `crm-maintenance` | `crmMaintenance.worker.js` | Debounced lead re-scoring, nightly score refresh and quote expiry |
+
+The Meta webhook endpoint verifies the signature, enqueues the event and only
+then answers 200 (503 if it cannot be queued, so Meta redelivers). Meta's
+callback URL must therefore point at a deployment whose Redis is read by a
+process running the `webhooks` worker. In development without Redis, events
+are processed inline.
+
+---
+
+## 8. Billing and wallet
+
+- **Plans** (`Plan`): FREE, BASIC and GROWTH are created on first boot if
+  missing (`scripts/seed-plans.js` re-seeds); super admins edit the catalogue.
+  Each has a monthly message quota (GROWTH unlimited), contact/member/API-key
+  limits, per-category overage rates and feature flags (`campaignAi`, …).
+- **Subscriptions** are bought through Razorpay checkout (monthly, or
+  quarterly where the plan has a quarterly price). The daily billing sweep
+  renews them from the wallet, applies scheduled downgrades and
+  cancel-at-period-end, and moves a failed renewal to `PAST_DUE`, which keeps
+  working for a 3-day grace period. `CANCELLED`/`EXPIRED` blocks the workspace
+  apart from the billing screens.
+- **Usage**: each send consumes plan quota first, then debits the wallet at the
+  plan's per-category rate. Campaigns reserve quota and wallet at launch and
+  settle at the end, refunding what was not sent. On unlimited plans campaigns
+  cost nothing from the wallet.
+- **Wallet**: `Workspace.walletBalance` changes only inside a transaction that
+  locks the workspace row and writes a `WalletTransaction` with a unique
+  idempotency key (payment id, campaign id), so replays and retries cannot
+  double-credit or double-charge, and a debit never takes the balance below
+  zero. Top-ups go through Razorpay; the order amount is read back from
+  Razorpay, never from the client.
+- **Razorpay webhook** `POST /api/v1/webhook/razorpay` (`payment.captured`,
+  `order.paid`, HMAC with `RAZORPAY_WEBHOOK_SECRET`) applies payments whose
+  browser checkout never reached the verify call; `GatewayPayment` guarantees
+  each payment is applied once whichever path arrives first.
+- **Demo recharge** (`POST /wallet/recharge`) credits without payment and only
+  works when `ALLOW_DEMO_RECHARGE=true` and `NODE_ENV` is not production.
+- Invoices (INR, decimal amounts) and a billing profile are kept per
+  workspace. Add-ons are 30-day packs bought separately; buying one again
+  extends it (they do not stack or auto-renew).
+
+The original design spec, still cited in code comments as "README §12.x", is
+kept in [docs/archive/BILLING_SPEC.md](docs/archive/BILLING_SPEC.md).
+
+---
+
+## 9. Security notes
+
+- Secrets at rest (WhatsApp tokens, integration credentials) use AES-256-GCM
+  (`lib/encryption.js`); legacy CBC values are still readable. Rotate with
+  `ENCRYPTION_KEYS_PREVIOUS` + `scripts/reencrypt-secrets.js --apply`.
+- Refresh tokens are stored as hashes, rotate on every use, and reuse of a
+  rotated token revokes the whole family; logout and "sign out other sessions"
+  revoke families, and revoked access tokens are denylisted. Disabled users
+  cannot refresh.
+- Meta, Instagram, Twilio and Razorpay webhooks are signature-verified over
+  the raw body; the Meta verify challenge is echoed as `text/plain`.
+- Outbound requests to user-supplied URLs (outgoing webhooks, website
+  crawling and knowledge import, template image URLs) go through `lib/safeUrl.js` (private-address and redirect
+  checks with DNS pinning).
+- Uploads are size- and type-checked (`lib/uploadGuard.js`, multer 2); large
+  files go to disk, DOCX files are checked for zip bombs.
+- CORS is an allow-list (`CLIENT_URL` + `CORS_EXTRA_ORIGINS`). Rate limits are
+  Redis-backed with an in-memory fallback and key on the client IP derived via
+  `TRUST_PROXY_HOPS`.
+- Google sign-in uses a signed `state` plus a nonce cookie; tokens reach the SPA
+  through a one-time code (`POST /auth/exchange`), never the URL.
+- `.env` files are git-ignored except `backend/.env.example`. Rotate any
+  credential that was ever committed to history.
 
 ---
 
 ## 10. Testing
 
-- `tests-e2e.mjs` and `tests-e2e-v2.mjs` are Node scripts (not a test framework — plain `fetch` + assertions) that exercise the running API end-to-end against a live Postgres + Redis + BullMQ stack. Run the backend first, then:
-  ```bash
-  node tests-e2e.mjs
-  node tests-e2e-v2.mjs
-  ```
-- These tests create real rows (users, workspaces, campaigns, etc.) — point them at a disposable/dev database, not production.
-- No frontend automated test suite currently exists; UI changes should be manually verified in the browser (see any project-specific `/verify` or `/run` tooling if using Claude Code).
+| Command | Scope |
+| --- | --- |
+| `cd backend && npm test` | Backend unit tests (`src/**/*.test.js`, node:test). Uses `backend/.env.test` when present and refuses to run against a non-local database; DB-backed suites skip when no local DB is reachable |
+| `cd backend && npm run test:otp` / `test:prisma-schema` | OTP scope suite; schema canonical-form check |
+| `cd frontend && npm test` | Frontend unit tests (`src/**/*.test.mjs`) |
+| `cd frontend && npx vite build` | Build check |
+| `node tests-e2e.mjs` (and `-v2`, `-v3`) | Scripted API end-to-end suites against a running **local** backend + Postgres + Redis. They sign up through `/auth/register/start` + `/register/verify`, reading the OTP from the local database via `backend/scripts/signup-helper.mjs`, so the backend's `.env` must point at a local DB |
+| `npx playwright test` | Smoke specs in `tests/`; base URL `E2E_BASE_URL`, default `http://localhost:5173` |
+
+`backend/scripts/*-check.mjs` are scenario scripts against a running local
+server; the Meta-facing ones send real WhatsApp messages and cost money.
 
 ---
 
-## 11. Known Gaps / Honesty Notes
+## 11. Known gaps
 
-(See `BUGS.md`, `BUGS-v2.md`, `STABILIZATION_REPORT.md`, `STABILIZATION_REPORT_V2.md` for the full history.) As of the latest stabilization pass:
-- Campaign wizard "fallback channels" step is explicitly unbuilt ("Coming Soon").
-- AI Intent Matching and the WhatsApp AI Agent are built and wired into the inbound path (see §6 → Campaign AI Agent); both degrade to deterministic behaviour when no LLM provider is configured. Answer quality depends on the model behind `GEMINI_API_KEY` — a free-tier key rate-limits at 5 requests/minute, which shows up as an occasional missed reply.
-- Wallet recharge is a **demo** flow — server-authoritative ledger, but no live payment gateway integration.
-- Voice AI (inbound calls) settings persist but there is no telephony engine behind them.
-- WhatsApp Forms have CRUD but no real form-rendering/submission backend yet.
-- Instagram integration is a stub (OAuth redirect only, no token exchange or persisted connection).
-- Twilio dependency is present but not fully wired into the primary WhatsApp send path (Meta Cloud API is primary).
+The audit's open items and the remediation outcome per issue are in
+[`audit/REMEDIATION_STATUS.md`](audit/REMEDIATION_STATUS.md). Notable
+remaining gaps at the time of writing:
 
-When picking up work here, treat anything marked "Coming Soon" in the UI as intentionally unbuilt rather than broken, and check the two STABILIZATION_REPORT files before assuming a feature is fake — most surface-level issues from the original audits have already been fixed end-to-end.
-
----
-
-## 12. Planned Feature Spec: Subscription Plans + Wallet Quota Model
-
-**Status: not yet implemented — this section is the implementation spec**, written against the current codebase so an external engineer/agent can build it without further discovery. It describes the target behavior, the current state it replaces, the data model changes, and where in the existing code each piece of enforcement plugs in.
-
-### 12.1 Current state (what exists today)
-
-- `Workspace.plan` (`schema.prisma`) is a free-text `String` defaulting to `"FREE"`. It is **stored and displayed** (`admin.service.js#listWorkspacesDetailed`) but **never enforced anywhere** — there is no plan catalog, no limits, and no code path that reads `plan` to gate behavior.
-- `Workspace.plan` cannot be changed via any existing API — `settings.service.js`'s `ALLOWED_SETTINGS_FIELDS` allow-list explicitly excludes it ("prevents mass-assignment of sensitive columns (plan, webhookVerifyToken, etc.)").
-- `Workspace.walletBalance` + `WalletTransaction` (`wallet.service.js`) is a working, server-authoritative ledger: `credit()` and `debit()` both run inside a Prisma transaction and append an immutable ledger row. `POST /workspaces/:id/wallet/recharge` is ADMIN-only and explicitly documented as a **demo** top-up (no live payment gateway — see §11).
-- Nothing today consumes the wallet or any quota when a message is sent, a campaign is launched, a contact is created, or a member is invited — all of those are currently unlimited regardless of `plan` or `walletBalance`.
-- Role model is per-workspace only: `WorkspaceMember.role` is `ADMIN` or `CLIENT` (`authorize()` in `middleware/authorize.js`, hierarchical: ADMIN ⊇ CLIENT). There is also a platform-level `superAdmin` flag (single `ADMIN_EMAIL`), orthogonal to workspace roles.
-
-### 12.2 Target model
-
-**Two-layer usage model, workspace-scoped (not per-member):**
-
-1. **Subscription quota** — each workspace subscribes to a `Plan`. The plan grants a fixed **included message quota** per billing cycle (plus optional hard caps on contacts/team members/campaigns/API keys/features). Usage against the plan is free (already paid for via the subscription).
-2. **Wallet overflow** — once the cycle's included quota is exhausted, further WhatsApp sends are **not blocked outright**; instead each send is debited from `Workspace.walletBalance` at a per-message rate (pay-as-you-go). If the wallet is also insufficient, the send is rejected with a clear "quota + wallet exhausted" error and the workspace is prompted to recharge or upgrade.
-
-This mirrors how the wallet already works today (server-authoritative ledger) — the new work is (a) a plan catalog + subscription record, (b) a quota counter that resets per cycle, and (c) wiring the existing `wallet.service.js#debit` into the send path as the overflow mechanism, instead of leaving usage completely unmetered.
-
-**Role-based rules:**
-
-| Action | ADMIN | CLIENT (member) |
-|---|---|---|
-| View workspace's plan, quota usage, wallet balance/ledger | ✅ | ✅ (read-only) |
-| Change/upgrade/downgrade the workspace's subscription plan | ✅ | ❌ |
-| Recharge the wallet | ✅ | ❌ (same restriction pattern already used for `POST /wallet/recharge`) |
-| Send messages / launch campaigns that consume quota or wallet | ✅ | ✅ — **usage always debits the workspace's shared quota/wallet**, regardless of which member triggered it. There is no per-member sub-quota; the workspace is the billing unit. |
-| Invite a member beyond the plan's included seat limit | ✅, but blocked by plan limit until upgrade | n/a (members can't invite) |
-
-Platform **super admin** (`ADMIN_EMAIL`) can additionally: define/edit the plan catalog, override a workspace's plan or quota manually (e.g. comped account), and view cross-workspace usage — extending the existing `/admin/platform/*` surface (`admin.routes.js`, `requireSuperAdmin`).
-
-### 12.3 Data model changes (Prisma)
-
-```prisma
-model Plan {
-  id                String       @id @default(cuid())
-  key               String       @unique   // "FREE" | "STARTER" | "PRO" | "ENTERPRISE" | ...
-  name              String
-  priceMonthly      Decimal      @db.Decimal(10, 2)
-  currency          String       @default("USD")
-  messageQuota      Int          // included messages per billing cycle; 0 = none, -1 = unlimited
-  contactLimit      Int?         // null = unlimited
-  memberLimit       Int?
-  campaignLimit     Int?         // concurrent/active campaigns, or per-cycle sends — define precisely before build
-  apiKeyLimit       Int?
-  overageRatePerMsg Decimal      @db.Decimal(10, 4) // wallet debit per message once quota is exhausted
-  features          Json         @default("{}")     // feature flags: { automation: true, workflows: true, aiOnboarding: true, integrations: true, ... }
-  isActive          Boolean      @default(true)
-  createdAt         DateTime     @default(now())
-  subscriptions     Subscription[]
-}
-
-model Subscription {
-  id                String    @id @default(cuid())
-  workspaceId       String    @unique   // one active subscription per workspace
-  planId            String
-  status            String    @default("ACTIVE") // ACTIVE | PAST_DUE | CANCELLED | EXPIRED
-  currentPeriodStart DateTime @default(now())
-  currentPeriodEnd   DateTime
-  cancelAtPeriodEnd  Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  plan                Plan      @relation(fields: [planId], references: [id])
-}
-
-model UsageCounter {
-  id              String   @id @default(cuid())
-  workspaceId     String
-  periodStart     DateTime // matches Subscription.currentPeriodStart for the active cycle
-  periodEnd       DateTime
-  messagesUsed    Int      @default(0) // count against the plan's included messageQuota
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
-  @@unique([workspaceId, periodStart])
-}
-```
-
-- `Workspace.plan` (the current free-text column) should be **deprecated and migrated** to `Subscription.planId` — keep the old column briefly for backfill, then drop it once `Subscription` rows exist for every workspace (a migration script, not a live dual-write).
-- Every existing workspace needs a bootstrapped `Subscription` row (e.g. `FREE` plan, `currentPeriodEnd` = +30 days) as part of the migration, so enforcement code never has to special-case "no subscription".
-
-### 12.4 Enforcement points in existing code
-
-Quota/wallet checks must be added at the point of **consumption**, not just at display time. Based on the current codebase:
-
-| Consumption event | Where it happens today | What to add |
-|---|---|---|
-| Campaign message send (bulk) | `workers/campaign.worker.js` — the `for (const recipient of recipients)` loop, right before `sendWhatsAppMessage(...)` | Before each send: increment/check `UsageCounter.messagesUsed` against `Plan.messageQuota`; once exceeded, call `wallet.service.js#debit(workspaceId, plan.overageRatePerMsg, { reason: 'Campaign overage' })`. If `debit` returns `{ ok: false }`, mark that recipient `FAILED` with a `failReason` of `"Quota and wallet balance exhausted"` and continue to the next recipient (don't abort the whole campaign — matches the existing per-recipient try/catch pattern already in this file). |
-| Single/manual message send | `services/whatsapp.service.js` (conversation reply / test send) | Same quota→wallet check before calling the Meta send helper. |
-| Campaign launch (pre-flight) | `services/campaigns.service.js` (launch endpoint) | Optional pre-flight estimate: if `recipients.length` exceeds the *remaining* quota + max affordable wallet overage, warn (not necessarily block) the admin before launch, so a campaign doesn't silently fail mid-run for most of its recipients. |
-| Contact creation | `services/contacts.service.js` (create + CSV import) | If `plan.contactLimit` is set, reject creation past the limit with 403 + a clear "upgrade your plan" error. |
-| Member invite | `services/members.service.js#inviteMember` | If `plan.memberLimit` is set, count existing `WorkspaceMember` rows and reject past the limit. |
-| API key creation | `services/apikeys.service.js` | Same pattern, against `plan.apiKeyLimit`. |
-| Feature-gated tabs (Workflows, AI onboarding, Integrations, ...) | Various `services/*` + corresponding frontend views | Check `plan.features.<flag>` — mirror the existing "Coming Soon" pattern already used in the UI (§11) for plan-gated-but-technically-built features, so a downgraded workspace sees a clear upsell state rather than a broken one. |
-| Workspace suspension | `middleware/workspaceContext.js` already blocks all access when `Workspace.suspended` | Reuse this exact mechanism for a **CANCELLED/EXPIRED** subscription — don't invent a second suspension flag. Either flip `suspended: true` with a subscription-specific `suspendedReason`, or extend `workspaceContext` to also check `Subscription.status`. |
-
-### 12.5 New/changed API surface
-
-| Endpoint | Method | Role | Purpose |
-|---|---|---|---|
-| `/workspaces/:workspaceId/subscription` | `GET` | ADMIN, CLIENT (read) | Current plan, cycle dates, quota used/remaining, wallet balance — a single dashboard-ready summary |
-| `/workspaces/:workspaceId/subscription` | `PATCH` | ADMIN only | Change plan (upgrade/downgrade) — validate against current usage (e.g. block downgrade below current member count) |
-| `/workspaces/:workspaceId/wallet` | `GET` | existing | No change — already returns balance + ledger |
-| `/workspaces/:workspaceId/wallet/recharge` | `POST` | existing, ADMIN only | No change to the endpoint; the *source* of debits against this balance expands from "manual admin action" to "automatic overage debits from the worker/services above" |
-| `/admin/platform/plans` | `GET`/`POST`/`PATCH` | super admin only | CRUD for the `Plan` catalog (extends the existing `/admin/platform/*` surface in `admin.routes.js`) |
-| `/admin/platform/workspaces/:id/subscription` | `PATCH` | super admin only | Manual override (comp a plan, extend a cycle) — extends `setWorkspaceSuspended`-style admin tooling in `admin.service.js` |
-
-### 12.6 Billing-cycle reset
-
-A new **repeatable BullMQ job** (alongside the existing `campaigns`/`email` queues in `queues/` + a worker in `workers/`) should run daily, find `Subscription` rows where `currentPeriodEnd <= now()`:
-- Roll `currentPeriodStart`/`currentPeriodEnd` forward by one cycle and create a fresh `UsageCounter` row (quota resets — wallet balance does **not** reset, it's separate money).
-- If `cancelAtPeriodEnd` is true, transition `status` to `CANCELLED` instead of renewing, and set `Workspace.suspended` per §12.4.
-- This mirrors the existing `recoverScheduledCampaigns()` startup-recovery pattern in `server.js` for resilience against missed runs (a job that didn't fire while the server was down should still catch up on next boot, not wait for the next scheduled tick).
-
-### 12.7 Frontend changes
-
-- `SettingsView.jsx` (or a new `BillingView.jsx`) — plan display, usage bar (messages used / quota), upgrade/downgrade UI (ADMIN-only, matching the existing `isAdmin` gating already used in `Dashboard.jsx`).
-- `PaymentsView.jsx` (wallet UI already exists) — add a "quota exhausted, now billing from wallet" indicator once `UsageCounter.messagesUsed >= Plan.messageQuota`, and a low-balance warning tied to `Workspace.notifyRateLimit`-style notification toggles already on the `Workspace` model.
-- `SuperAdminView.jsx` — plan catalog management + per-workspace subscription override, alongside the existing suspend/reinstate controls.
-
-### 12.8 Explicit non-goals for this pass
-
-- No live payment gateway integration (Stripe/Razorpay/etc.) — wallet recharge stays the existing demo/manual flow described in §11; only the *consumption* side (quota → wallet overage) is new.
-- No per-member sub-quotas — usage is workspace-level only, per §12.2.
-- No proration on mid-cycle plan changes — an upgrade/downgrade takes effect at the *next* billing cycle unless a later pass explicitly adds proration.
+- Real-time updates are polling, not push (inbox, campaigns, templates).
+- Uploaded files are on local disk and do not survive a Render redeploy.
+- DLT template enforcement for SMS fallback, PKCE for the OAuth server, and
+  add-on stacking/auto-renew are not implemented.
+- The frontend hides screens by role in the sidebar; the server is the
+  enforcement point.
 
 ---
 
-## 13. License
+## 12. Licence
 
-MIT
+Proprietary — all rights reserved; see [LICENSE](LICENSE). Third-party notices
+are in [ATTRIBUTION.md](ATTRIBUTION.md).

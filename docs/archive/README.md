@@ -20,6 +20,7 @@ passing" lines read as current status. They are **not** current:
 | `AI_FEATURES_REPORT.md` | Patch note for the AI agent / intent matching / fallback channels add-on |
 | `OPEN_ISSUES.md` | Open items on the advanced-CRM branch as of 2026-08-16 |
 | `TEST_EVIDENCE.md` | Verification log for the advanced-CRM expansion (2026-08-16/17) |
+| `BILLING_SPEC.md` | The pre-implementation billing design (former root README §12), still cited by code comments |
 
 Superseded by:
 
