@@ -151,9 +151,12 @@ app.use('/widget/v1', widgetPublicRoutes);
 // Vite's dev server and its /api proxy.
 const clientDist = path.resolve(import.meta.dirname, '../../frontend/dist');
 if (existsSync(path.join(clientDist, 'index.html'))) {
-  // Hashed assets are immutable; index.html must never be cached or users get
+  // Vite's content-hashed bundles under /assets are immutable. Everything else
+  // in dist (favicon, manifest, robots.txt) keeps its name across deploys, so
+  // it revalidates instead; index.html must never be cached or users get
   // stale bundles after a deploy.
-  app.use(express.static(clientDist, { index: false, maxAge: '1y' }));
+  app.use('/assets', express.static(path.join(clientDist, 'assets'), { index: false, maxAge: '1y', immutable: true }));
+  app.use(express.static(clientDist, { index: false, maxAge: 0 }));
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (req.path.startsWith('/api/')) return next();

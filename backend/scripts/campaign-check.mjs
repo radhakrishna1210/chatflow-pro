@@ -13,6 +13,7 @@
 // creates is cancelled or cleaned up afterwards. Nothing that already exists in
 // the workspace is modified.
 
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import { PrismaClient } from '@prisma/client';
 
 const BASE = process.env.CAMPAIGN_CHECK_BASE_URL || 'http://127.0.0.1:4000/api/v1';

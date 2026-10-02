@@ -74,7 +74,7 @@ test.before(async () => {
   });
   mock.module('./email.service.js', { namedExports: { queueWelcomeEmail: async () => {}, sendOtpEmailNow: async () => {} } });
   mock.module('./invitations.service.js', { namedExports: { consumeInvitationAtomically: async () => null } });
-  mock.module('../lib/redis.js', { namedExports: { redis: { status: 'end' } } });
+  mock.module('../lib/redis.js', { namedExports: { redis: { status: 'end' }, logRedisError: () => {} } });
   store = await import('./refreshTokens.js');
   auth = await import('./auth.service.js');
 });

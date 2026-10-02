@@ -16,11 +16,20 @@ import { MANAGED_SETTING_KEYS, isManagedSettingKey, setSystemSettings, systemSet
 // than saved literally, which would overwrite a working key with "sk-1...4f2a".
 const looksMasked = (value, masked) => value === '********' || (masked != null && value === masked);
 
+// What the last load found, for the credential check: keys that could not be
+// decrypted silently fall back to the environment otherwise.
+let lastLoad = { at: null, loaded: 0, unreadable: [] };
+// Row count + newest updatedAt of the table at the last load. Any insert,
+// update or delete changes it, which is all the refresh poll needs to know.
+let loadedSignature = null;
+export const platformSettingsStatus = () => ({ ...lastLoad, unreadable: [...lastLoad.unreadable] });
+const signatureOf = (count, maxUpdatedAt) => `${count}:${maxUpdatedAt ? new Date(maxUpdatedAt).toISOString() : ''}`;
+
 export async function loadPlatformSettings() {
   try {
     const rows = await prisma.systemSetting.findMany();
     const next = {};
-    let unreadable = 0;
+    const unreadable = [];
     for (const row of rows) {
       if (!isManagedSettingKey(row.key)) continue;
       try {
@@ -31,20 +40,43 @@ export async function loadPlatformSettings() {
         // is a working configuration; keeping the ciphertext would hand a
         // corrupt "key" to Gemini or Meta and fail every call with something
         // that looks like an outage.
-        unreadable += 1;
+        unreadable.push(row.key);
         console.error(`[Settings] Could not decrypt ${row.key} — falling back to the environment.`, err.message);
       }
     }
     setSystemSettings(next);
+    lastLoad = { at: new Date().toISOString(), loaded: Object.keys(next).length, unreadable };
+    const newest = rows.reduce((max, r) => (r.updatedAt && (!max || r.updatedAt > max) ? r.updatedAt : max), null);
+    loadedSignature = signatureOf(rows.length, newest);
     console.log(
       `[Settings] Loaded ${Object.keys(next).length} override(s) from the database`
-      + `${unreadable ? `, ${unreadable} unreadable` : ''}.`,
+      + `${unreadable.length ? `, ${unreadable.length} unreadable (${unreadable.join(', ')})` : ''}.`,
     );
   } catch (err) {
     // Never fatal: the app boots on its environment variables exactly as it
     // did before this feature existed.
     console.error('[Settings] Could not load system settings:', err.message);
   }
+}
+
+// Each process holds its own copy of the overrides, and updateSettings only
+// reloads the process that served the admin's request — the other deployment,
+// a worker process or a second instance kept the old credentials until it
+// restarted. A cheap aggregate on an interval spots any change and reloads.
+export function startPlatformSettingsRefresh(intervalMs = 60_000) {
+  const timer = setInterval(async () => {
+    try {
+      const agg = await prisma.systemSetting.aggregate({ _count: { _all: true }, _max: { updatedAt: true } });
+      if (signatureOf(agg._count._all, agg._max.updatedAt) !== loadedSignature) {
+        console.log('[Settings] Platform settings changed in the database — reloading.');
+        await loadPlatformSettings();
+      }
+    } catch (err) {
+      console.error('[Settings] Refresh check failed:', err.message);
+    }
+  }, intervalMs);
+  timer.unref();
+  return timer;
 }
 
 // Provider-side checks for the credentials we can verify cheaply. Keys with no
@@ -76,6 +108,9 @@ export async function checkPlatformCredentials() {
   return {
     gemini: { ...gemini, source: sourceOf('GEMINI_API_KEY'), model: env.GEMINI_MODEL, runtime: llmHealth() },
     smtp: { ...smtp, source: sourceOf('SMTP_PASSWORD'), host: env.SMTP_HOST || null, user: env.SMTP_USER || null },
+    // Overrides that exist but could not be decrypted (e.g. after an
+    // ENCRYPTION_KEY change) and are therefore not in force.
+    overrides: platformSettingsStatus(),
   };
 }
 

@@ -108,22 +108,16 @@ export async function listContacts(workspaceId, { page = 1, limit = 20, sort = D
 
 // The distinct tags in use across a workspace, for the filter panel's tag
 // picker. Tags live in a String[] on Contact rather than their own table, so
-// this is the only way to enumerate them.
+// this is the only way to enumerate them. Aggregated in SQL: loading every
+// tagged contact to count tags in JS cost O(contacts) per filter-panel open.
 export async function listContactTags(workspaceId) {
-  const rows = await prisma.contact.findMany({
-    where: { workspaceId, tags: { isEmpty: false } },
-    select: { tags: true },
-  });
-  const seen = new Map();
-  for (const row of rows) {
-    for (const tag of row.tags) {
-      const key = tag.trim();
-      if (key) seen.set(key, (seen.get(key) || 0) + 1);
-    }
-  }
-  return [...seen.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([name, count]) => ({ name, count }));
+  const rows = await prisma.$queryRaw`
+    SELECT btrim(t) AS name, COUNT(*)::int AS count
+    FROM "Contact" c, unnest(c."tags") AS t
+    WHERE c."workspaceId" = ${workspaceId} AND btrim(t) <> ''
+    GROUP BY btrim(t)
+    ORDER BY count DESC, name ASC`;
+  return rows.map((r) => ({ name: r.name, count: Number(r.count) }));
 }
 
 // One contact with everything the details panel shows. The inbox reads this

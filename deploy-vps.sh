@@ -25,8 +25,16 @@ APP_DIR="/root/apps/chatflow-pro"
 PM2_APP="chatflow-backend"
 NODE22_BIN="/root/.nvm/versions/node/v22.23.2/bin"
 SYSTEM_NODE="/usr/bin/node"
-HEALTH_URL="http://127.0.0.1:4400/api/v1/health"
+# Readiness, not liveness: 503 until boot has finished and Postgres + Redis answer.
+HEALTH_URL="http://127.0.0.1:4400/api/v1/health/ready"
 BRANCH="${1:-}"
+# Background-work owner (see the RUN_WORKERS note in render.yaml). This
+# database is shared with the Render deployment and exactly ONE of the two may
+# run workers, schedules and boot sweeps; the other must be "false" and both
+# must share one REDIS_URL. Passed to PM2 below, so it wins over backend/.env.
+# "true" keeps the behaviour from before the flag. Override per run with
+# `RUN_WORKERS=false ./deploy-vps.sh`.
+RUN_WORKERS="${RUN_WORKERS:-true}"
 
 log()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m[warn] %s\033[0m\n' "$*"; }
@@ -76,13 +84,15 @@ log "Applying migrations"
 
 # --- Restart ---------------------------------------------------------------
 # System Node on purpose (see note 1 above).
-log "Restarting $PM2_APP"
-"$SYSTEM_NODE" "$PM2_BIN" restart "$PM2_APP" --update-env
+log "Restarting $PM2_APP (RUN_WORKERS=$RUN_WORKERS)"
+# NODE_ENV is pinned here rather than trusted to backend/.env: unset, the app
+# now refuses to start, and "development" would skip the production safeties.
+NODE_ENV=production RUN_WORKERS="$RUN_WORKERS" "$SYSTEM_NODE" "$PM2_BIN" restart "$PM2_APP" --update-env
 "$SYSTEM_NODE" "$PM2_BIN" save --force
 
 # --- Verify ----------------------------------------------------------------
 log "Waiting for health check"
-for i in $(seq 1 20); do
+for i in $(seq 1 90); do
   if curl -fsS --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then
     printf '\033[1;32m[ok] healthy after %ss — %s\033[0m\n' "$i" "$(curl -fsS "$HEALTH_URL")"
     log "Deployed: $(git log --oneline -1)"
@@ -91,6 +101,6 @@ for i in $(seq 1 20); do
   sleep 1
 done
 
-warn "No healthy response after 20s. Recent logs:"
+warn "No healthy response after 90s. Recent logs:"
 "$SYSTEM_NODE" "$PM2_BIN" logs "$PM2_APP" --lines 40 --nostream --err
 die "Deploy finished but $PM2_APP is not answering on $HEALTH_URL."

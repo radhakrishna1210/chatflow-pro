@@ -4,7 +4,7 @@ Baseline audit of `chatflow-pro` as of 2026-08-16, branch `aditya-advanced-crm`.
 
 ## Important context: the spec's stack assumptions do not match this repo
 
-`frontend/MS_Prompt.md` was written against `trycompai/crm` and assumes Bun, Turborepo,
+`docs/MS_Prompt.md` was written against `trycompai/crm` and assumes Bun, Turborepo,
 TypeScript, Next.js App Router, NestJS, tRPC, Better Auth and shadcn/ui.
 
 **None of that is present here.** Per the spec's own rule — *"If the repository differs,

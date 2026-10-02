@@ -8,6 +8,7 @@
 // Run with the server up:
 //   node --env-file=.env scripts/addon-check.mjs
 
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import { PrismaClient } from '@prisma/client';
 
 const BASE = process.env.ADDON_CHECK_BASE_URL || 'http://127.0.0.1:4000/api/v1';

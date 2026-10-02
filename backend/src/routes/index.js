@@ -70,6 +70,7 @@ import crmPermissionsRoutes from './crmPermissions.routes.js';
 import aiAgentsRoutes from './aiAgents.routes.js';
 import crmCustomizationRoutes from './crmCustomization.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
+import { checkReadiness } from '../lib/readiness.js';
 import authenticationConfigRoutes from '../authentication/authentication-config.routes.js';
 const router = Router();
 
@@ -80,6 +81,17 @@ router.get('/health', (req, res) =>
     ts: new Date().toISOString(),
   })
 );
+
+// Readiness: boot finished and Postgres + Redis answer. Deploy health checks
+// point here; /health stays a cheap liveness probe.
+router.get('/health/ready', async (req, res) => {
+  const { ready, checks } = await checkReadiness();
+  res.status(ready ? 200 : 503).json({
+    status: ready ? 'ok' : 'unavailable',
+    checks,
+    ts: new Date().toISOString(),
+  });
+});
 
 // Published rate card, unauthenticated: the marketing site quotes campaign
 // costs from this, so it quotes the same per-category rates campaigns are

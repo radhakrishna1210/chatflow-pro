@@ -155,7 +155,8 @@ Substitute your real hostname:
 ## 7. Verify
 
 ```bash
-curl https://<host>/api/v1/health          # {"status":"ok","ts":"..."}
+curl https://<host>/api/v1/health          # liveness: {"status":"ok","ts":"..."}
+curl https://<host>/api/v1/health/ready    # readiness: 200 once boot, Postgres and Redis are ok, else 503 with per-check detail
 curl -I https://<host>/dashboard           # 200 text/html (SPA fallback)
 curl -I https://<host>/api/v1/nope         # 404 application/json
 ```
@@ -166,6 +167,37 @@ refresh.
 ---
 
 ## Things that will bite you
+
+**One worker owner per database (`RUN_WORKERS`).** Render (`render.yaml`) and the
+Hostinger VPS (`deploy-vps.sh`) both point at the same Postgres. A process with
+`RUN_WORKERS=true` (the default) starts every BullMQ worker, registers the
+repeatable schedules, re-queues scheduled campaigns and pending retries, runs
+the plan upsert/subscription backfill and the billing-cycle sweep. Two such
+processes on one database means double campaign recovery, double renewal
+sweeps and double agent ticks — BullMQ's job-id dedupe only works inside one
+Redis. **Decision for the operator:** pick the stack that owns background work,
+keep `RUN_WORKERS=true` there and set `RUN_WORKERS=false` on the other (the
+`render.yaml` env var, or the `RUN_WORKERS` default at the top of
+`deploy-vps.sh`, which overrides `backend/.env`). Then point **both** stacks at
+the owner's `REDIS_URL`, otherwise the jobs the other stack enqueues (campaign
+launches, invite e-mails, workflow resumes) land in a Redis no worker reads.
+Simplest of all is to retire one of the stacks.
+
+**Workers can run in their own process.** By default `npm run start:prod` runs
+the API and all six BullMQ workers in one process. To split them, add a second
+service (a Render *Background Worker* with the same build and env, or a second
+PM2 app) whose start command is `npm run start:worker` (`src/worker.js`: same
+boot, no HTTP listener), and set `RUN_WORKERS=false` on the web service. Keep
+the same `REDIS_URL` on both.
+
+**Database pool size (`DATABASE_POOL_SIZE`, default 5).** Every process opens
+its own Prisma pool of this many connections (an explicit `connection_limit` in
+`DATABASE_URL` takes precedence). The sum over all processes on the database —
+web, worker, the other deployment, migrations — must stay below the database's
+cap; with Supabase's session-mode pooler that is the project's pool size (15 on
+the smallest compute). Raise it (10–15) once only one stack uses the database or
+the workers have their own process; P2024 "Timed out fetching a new connection"
+in the logs means it is too small.
 
 **Don't put the queues back on a per-request-billed Redis.** This deploy ran on
 Upstash first and its 500K/month cap was exhausted (`ERR max requests limit
@@ -210,12 +242,19 @@ dashboard.
 wiped on every deploy and restart. CSV contact imports processed within one
 request are fine; anything expected to persist needs a Render Disk or S3.
 
-**Migrations run at boot, not at build.** `start:prod` is
-`prisma migrate deploy && node src/server.js`. A failed migration therefore shows
-up as a crash-looping deploy rather than a failed build — check the deploy logs
+**Migrations run at boot, not at build.** `src/server.js` runs
+`prisma migrate deploy` before connecting whenever `NODE_ENV` is not
+`development`, and exits non-zero if it fails (it used to log and serve on the
+old schema). A failed migration therefore shows up as a crash-looping deploy
+rather than a failed build — check the deploy logs
 for `prisma migrate` output, not the build logs. `backend/prisma/manual/` is *not*
 applied automatically; those need a shell (Render paid plans) or a one-off local
-run against `DATABASE_URL`.
+run against `DATABASE_URL`. A brand-new database no longer needs them or
+`db push`: `migrations/20260101000000_baseline` creates the pre-migration schema
+(including what `manual/003` and `manual/004` added), so `migrate deploy` builds
+it from empty. On an existing database the baseline is a guarded no-op that
+`migrate deploy` records as applied; nothing has to be run by hand (optionally
+`npx prisma migrate resolve --applied 20260101000000_baseline` first).
 
 **`DIRECT_URL` is optional here.** `schema.prisma` declares it, and Prisma's CLI
 treats it as required (`P1012`) — but `scripts/prisma-cli.js` defaults it to

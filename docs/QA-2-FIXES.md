@@ -5,7 +5,7 @@ Report, 24 August 2026).
 
 Every defect in section 15 of that report is addressed below, with the change
 that fixes it and the automated check that proves it. The checks live in
-`backend/tests-qa2-automation.mjs` and run the real inbound pipeline
+`backend/scripts/dev/tests-qa2-automation.mjs` and run the real inbound pipeline
 (`processWebhook`) against the database, with Meta's Graph API replaced by a
 recording stub.
 
@@ -14,7 +14,7 @@ including the two modules the report could not reach — Instagram Quickflows
 (*Pending*) and Voice AI (*blocked on Twilio*). 164 checks, all passing.
 
 ```
-cd backend && node --env-file=.env tests-qa2-automation.mjs
+cd backend && node --env-file=.env scripts/dev/tests-qa2-automation.mjs
 ```
 
 ---

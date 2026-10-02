@@ -21,7 +21,7 @@ let auth;
 
 test.before(async () => {
   mock.module('../lib/prisma.js', { namedExports: { prisma: fakePrisma } });
-  mock.module('../lib/redis.js', { namedExports: { redis: { status: 'end' } } });
+  mock.module('../lib/redis.js', { namedExports: { redis: { status: 'end' }, logRedisError: () => {} } });
   mock.module('../config/env.js', {
     namedExports: {
       env: {

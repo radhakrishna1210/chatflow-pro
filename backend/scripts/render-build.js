@@ -13,7 +13,7 @@
  * every plan.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const isHosted = process.env.RENDER === 'true' || process.env.RUN_DEPLOY_BUILD === '1';
@@ -40,18 +40,36 @@ function run(cmd, args, cwd) {
 //    when that client is missing or incompatible with this checkout.
 run(process.execPath, [path.join(backendDir, 'scripts/ensure-prisma-client.js')], backendDir);
 
+// The commit being deployed. Render exports it; elsewhere ask git. null when
+// neither is available, which forces a rebuild.
+function currentCommit() {
+  if (process.env.RENDER_GIT_COMMIT) return process.env.RENDER_GIT_COMMIT;
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: backendDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 // 2. Frontend bundle, served by app.js at the same origin as the API.
-//    Skipped when dist/ is already present, so an explicit buildCommand that
-//    builds the frontend first doesn't pay for it twice.
+//    Skipped only when dist/ was built from this exact commit (stamped in
+//    dist/.build-commit), so an explicit buildCommand that builds the frontend
+//    first doesn't pay twice — while a dist/ left over from an earlier deploy
+//    or a build cache can no longer ship a stale UI.
+const distDir = path.join(frontendDir, 'dist');
+const stampFile = path.join(distDir, '.build-commit');
+const commit = currentCommit();
+const builtFrom = existsSync(stampFile) ? readFileSync(stampFile, 'utf8').trim() : null;
 if (!existsSync(path.join(frontendDir, 'package.json'))) {
   console.log('[build] No frontend/ directory — skipping SPA build.');
-} else if (existsSync(path.join(frontendDir, 'dist/index.html'))) {
-  console.log('[build] frontend/dist already built — skipping.');
+} else if (commit && builtFrom === commit && existsSync(path.join(distDir, 'index.html'))) {
+  console.log(`[build] frontend/dist already built from ${commit.slice(0, 12)} — skipping.`);
 } else {
   // --ignore-scripts: the frontend has no build hooks of its own, and this
   // stops a nested postinstall from recursing back into this script.
   run(npm, ['ci', '--include=dev', '--ignore-scripts'], frontendDir);
   run(npm, ['run', 'build'], frontendDir);
+  if (commit) writeFileSync(stampFile, `${commit}\n`);
 }
 
 console.log('[build] Deploy build complete.');

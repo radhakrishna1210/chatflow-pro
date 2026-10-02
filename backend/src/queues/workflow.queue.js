@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { createBullConnection, logRedisError } from '../lib/redis.js';
+import { createQueueConnection, logRedisError } from '../lib/redis.js';
 import { workflowResumeJobId, delayedResponseJobId, replyReminderJobId } from './jobIds.js';
 
 // Carries four kinds of deferred automation work:
@@ -10,7 +10,7 @@ import { workflowResumeJobId, delayedResponseJobId, replyReminderJobId } from '.
 //    which must check N minutes later whether a human ever replied
 //  - `sweep`: a repeating tick that recovers parked runs from the database
 export const workflowQueue = new Queue('workflows', {
-  connection: createBullConnection('workflow-queue'),
+  connection: createQueueConnection('workflow-queue'),
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 10_000 },

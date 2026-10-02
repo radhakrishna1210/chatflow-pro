@@ -1,3 +1,4 @@
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import { prisma } from '../src/lib/prisma.js';
 
 // Keep in sync with initializeSubscriptions() in src/server.js, which creates

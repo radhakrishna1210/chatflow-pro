@@ -29,7 +29,9 @@ services:
     plan: starter # free tier spins down after 15 min idle and stalls the queue workers
     rootDir: backend
     region: singapore
-    healthCheckPath: /api/v1/health
+    # Readiness: 503 until boot finishes and Postgres + Redis answer, so a
+    # release that cannot reach either never takes traffic.
+    healthCheckPath: /api/v1/health/ready
     # `npm ci` is enough: backend/scripts/render-build.js runs as a postinstall
     # hook and handles `prisma generate` plus the frontend/dist build, so a
     # service created by hand in the dashboard (default build command) works too.
@@ -42,6 +44,14 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
+      # Background-work owner. This Postgres is shared with the Hostinger VPS
+      # (deploy-vps.sh), and each stack that runs workers re-queues scheduled
+      # campaigns, runs the billing sweep and ticks the agent on its own.
+      # Exactly ONE stack may run them: set "false" on the other one, and give
+      # both the same REDIS_URL so jobs the non-owner enqueues still get
+      # processed. "true" here keeps the behaviour from before the flag.
+      - key: RUN_WORKERS
+        value: "true"
       - key: PORT
         value: "10000" # Render's default injected port
       # Render's load balancer is the one proxy in front of the app; without
@@ -90,13 +100,17 @@ services:
         sync: false
       - key: META_WABA_ID
         sync: false
-      - key: META_SYSTEM_USER_ID
+      - key: META_SYSTEM_USER_ID # optional, not read by the app
         sync: false
       - key: META_SYSTEM_USER_TOKEN
         sync: false
-      - key: META_DISPLAY_NAME
+      - key: META_DISPLAY_NAME # optional, not read by the app
         sync: false
       - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      # Optional: 6-digit two-step PIN, needed to register numbers that
+      # already have two-step verification on.
+      - key: META_TWO_STEP_PIN
         sync: false
 
       - key: GOOGLE_CLIENT_ID

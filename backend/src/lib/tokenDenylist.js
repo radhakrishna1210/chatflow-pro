@@ -1,4 +1,4 @@
-import { redis } from '../lib/redis.js';
+import { redis, logRedisError } from '../lib/redis.js';
 
 // Revoked access tokens, by `jti`, and per-user "signed out everywhere" marks.
 //
@@ -27,6 +27,8 @@ function pruneLocal(now = Date.now()) {
   for (const [k, v] of localUsers) if (v.expiresAtMs <= now) localUsers.delete(k);
 }
 
+// Checked before every command: one issued while Redis is down waits in
+// ioredis' offline queue instead of failing, which would hang the request.
 const redisReady = () => redis.status === 'ready';
 
 // `exp` is the JWT's own expiry in seconds since the epoch. Anything already
@@ -37,6 +39,10 @@ export async function revokeAccessToken(jti, exp) {
   if (!Number.isFinite(ttlSec) || ttlSec <= 0) return false;
   pruneLocal();
   localJti.set(jti, Date.now() + ttlSec * 1000);
+  if (!redisReady()) {
+    console.error(`[auth] Could not record access-token revocation: redis is ${redis.status} (kept locally)`);
+    return false;
+  }
   try {
     await redis.set(KEY(jti), '1', 'EX', ttlSec);
     return true;
@@ -53,6 +59,10 @@ export async function revokeAllUserAccessTokens(userId, ttlSec) {
   const before = Math.floor(Date.now() / 1000);
   pruneLocal();
   localUsers.set(userId, { before, expiresAtMs: Date.now() + ttlSec * 1000 });
+  if (!redisReady()) {
+    console.error(`[auth] Could not record user sign-out: redis is ${redis.status} (kept locally)`);
+    return false;
+  }
   try {
     await redis.set(USER_KEY(userId), String(before), 'EX', ttlSec);
     return true;
@@ -74,7 +84,12 @@ function revokedLocally(jti, userId, iat) {
 export async function isAccessTokenRevoked(jti, { userId = null, iat = null } = {}) {
   if (!jti && !userId) return false;
   if (revokedLocally(jti, userId, iat)) return true;
-  if (!redisReady()) return false;
+  // Fails open when Redis is unreachable, and says so: refusing every request
+  // whose status cannot be read would turn a cache outage into a total outage.
+  if (!redisReady()) {
+    logRedisError('auth', new Error(`revocation check unavailable (redis is ${redis.status}), using this instance's list only`));
+    return false;
+  }
   try {
     const [byJti, userBefore] = await redis.mget(jti ? KEY(jti) : '__none__', userId ? USER_KEY(userId) : '__none__');
     if (byJti) return true;

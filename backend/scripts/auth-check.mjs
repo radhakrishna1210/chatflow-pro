@@ -15,6 +15,7 @@
 // the suite can exercise everything after delivery even while SMTP credentials
 // are rejected. Delivery itself is asserted separately, against the mailer.
 
+import './require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import { PrismaClient } from '@prisma/client';
 import { signUpVerified, pendingCode, recoverCode } from './signup-helper.mjs';
 

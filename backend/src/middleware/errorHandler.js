@@ -28,6 +28,17 @@ export function errorHandler(err, req, res, next) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
+  // A foreign key refused the write: deleting something still referenced (a
+  // template a campaign uses) or pointing at a record that no longer exists.
+  // A conflict the user can resolve, not a server fault.
+  if (err.code === 'P2003' && !err.status) {
+    console.warn('[Error]', req.method, req.url, 409, 'P2003', err.meta?.field_name || '');
+    return res.status(409).json({
+      error: 'This change conflicts with related records — something it depends on is missing, or other records still use it.',
+      code: 'FOREIGN_KEY_CONFLICT',
+    });
+  }
+
   // Multer raises its own error class with no status, so an oversized upload
   // was answering 500 "something went wrong" instead of saying the file was too
   // big — which is a thing the user can act on.
@@ -61,9 +72,9 @@ export function errorHandler(err, req, res, next) {
       error: GENERIC_5XX,
       reference,
       // The real message only when a developer has explicitly asked for it,
-      // and never in production. NODE_ENV alone defaulted to "development" on
-      // a host whose .env forgot it, sending Prisma errors to the browser.
-      ...(env.EXPOSE_ERROR_DETAIL && env.NODE_ENV !== 'production' ? { detail: err.message } : {}),
+      // and only in local development, so a host that mis-sets NODE_ENV or
+      // forgets the flag fails closed.
+      ...(env.EXPOSE_ERROR_DETAIL && env.NODE_ENV === 'development' ? { detail: err.message } : {}),
     });
   }
 

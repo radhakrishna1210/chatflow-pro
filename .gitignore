@@ -17,6 +17,10 @@ backend/.env.vps
 *.env.bak
 backend/.env.*
 !backend/.env.example
+# Any other env variant anywhere (.env.test, .env.production, ...). A test
+# fixture backend/.env.test was committed once and is still in history.
+.env.*
+!.env.example
 
 # Build output
 frontend/dist/
@@ -74,3 +78,17 @@ backend/*_tmp.mjs
 backend/query*.js
 backend/migration.sql
 open-chrome-profile.mjs
+
+# Redis snapshots, QA exports and screenshots — runtime and review artefacts,
+# never source. backend/dump.rdb and the root PDF/screenshots were committed
+# once and removed.
+*.rdb
+/*.pdf
+/screenshots/
+/qa-output/
+# Merge scratch from combining the master and CRM branches (schema, validator
+# and service copies); backend/prisma/schema.prisma is the only schema.
+/schema_*.prisma
+/merge_prisma.py
+/val_*.js
+/cfs_*.js

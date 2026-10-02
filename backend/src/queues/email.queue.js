@@ -1,8 +1,8 @@
 import { Queue } from 'bullmq';
-import { createBullConnection, logRedisError } from '../lib/redis.js';
+import { createQueueConnection, logRedisError } from '../lib/redis.js';
 
 export const emailQueue = new Queue('emails', {
-  connection: createBullConnection('email-queue'),
+  connection: createQueueConnection('email-queue'),
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 3000 },

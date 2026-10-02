@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { createBullConnection, logRedisError } from '../lib/redis.js';
+import { createQueueConnection, logRedisError } from '../lib/redis.js';
 
 // Drives the autonomous agent's schedule.
 //
@@ -8,7 +8,7 @@ import { createBullConnection, logRedisError } from '../lib/redis.js';
 // nothing happened to this deal" must still be answerable next week, and a
 // completed Redis job is gone.
 export const agentQueue = new Queue('agent', {
-  connection: createBullConnection('agent-queue'),
+  connection: createQueueConnection('agent-queue'),
   defaultJobOptions: {
     attempts: 2,
     backoff: { type: 'exponential', delay: 30_000 },

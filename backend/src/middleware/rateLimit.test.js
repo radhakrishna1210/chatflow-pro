@@ -5,7 +5,7 @@ let clientBucket;
 
 test.before(async () => {
   // Keep the limiter on its in-memory path; no Redis is needed to test keys.
-  mock.module('../lib/redis.js', { namedExports: { redis: { status: 'end' } } });
+  mock.module('../lib/redis.js', { namedExports: { redis: { status: 'end' }, logRedisError: () => {} } });
   ({ clientBucket } = await import('./rateLimit.js'));
 });
 

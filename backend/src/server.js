@@ -28,7 +28,7 @@ import { startSequenceWorker } from './workers/sequence.worker.js';
 import { startSequenceSweep } from './queues/sequence.queue.js';
 import { startAgentWorker } from './workers/agent.worker.js';
 import { startWebhookWorker } from './workers/webhook.worker.js';
-import { startAgentSchedules } from './queues/agent.queue.js';
+import { agentQueue, startAgentSchedules } from './queues/agent.queue.js';
 import { startCrmMaintenanceWorker } from './workers/crmMaintenance.worker.js';
 import { crmMaintenanceQueue, scheduleCrmMaintenance } from './queues/crmMaintenance.queue.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
@@ -43,8 +43,9 @@ import { workflowQueue } from './queues/workflow.queue.js';
 import { sequenceQueue } from './queues/sequence.queue.js';
 import { webhookQueue } from './queues/webhook.queue.js';
 import { prisma } from './lib/prisma.js';
-import { loadPlatformSettings } from './services/platformSettings.service.js';
+import { loadPlatformSettings, startPlatformSettingsRefresh } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
+import { markReady, markNotReady } from './lib/readiness.js';
 
 let campaignWorker = null;
 let emailWorker = null;
@@ -178,42 +179,53 @@ async function initializeSubscriptions() {
       }
     }
 
-    const workspaces = await prisma.workspace.findMany({
-      include: { subscription: true }
-    });
-
+    // Runs on every boot, so it reads only workspaces still missing a
+    // subscription, only the two columns it uses, and in id-ordered pages —
+    // never every tenant's full row (tokens, prompts) at once.
+    const BACKFILL_PAGE = 500;
     let created = 0;
     const CYCLE_DAYS = 30;
-    for (const ws of workspaces) {
-      if (ws.subscription) continue;
-
-      const plan = planByKey.get(ws.plan) || freePlan;
-      const currentPeriodStart = new Date();
-      const currentPeriodEnd = new Date(currentPeriodStart.getTime() + CYCLE_DAYS * 24 * 60 * 60 * 1000);
-
-      await prisma.subscription.create({
-        data: {
-          workspaceId: ws.id,
-          planId: plan.id,
-          status: 'ACTIVE',
-          currentPeriodStart,
-          currentPeriodEnd,
-        },
+    let afterId;
+    for (;;) {
+      const page = await prisma.workspace.findMany({
+        where: { subscription: { is: null }, ...(afterId ? { id: { gt: afterId } } : {}) },
+        select: { id: true, plan: true },
+        orderBy: { id: 'asc' },
+        take: BACKFILL_PAGE,
       });
+      if (page.length === 0) break;
+      afterId = page[page.length - 1].id;
 
-      await prisma.usageCounter.upsert({
-        where: { workspaceId_periodStart: { workspaceId: ws.id, periodStart: currentPeriodStart } },
-        update: {},
-        create: {
-          workspaceId: ws.id,
-          periodStart: currentPeriodStart,
-          periodEnd: currentPeriodEnd,
-          messagesUsed: 0,
-        },
-      });
+      for (const ws of page) {
+        const plan = planByKey.get(ws.plan) || freePlan;
+        const currentPeriodStart = new Date();
+        const currentPeriodEnd = new Date(currentPeriodStart.getTime() + CYCLE_DAYS * 24 * 60 * 60 * 1000);
 
-      created += 1;
-      console.log(`[Init] Backfilled subscription for workspace ${ws.id} -> plan ${plan.key}`);
+        await prisma.subscription.create({
+          data: {
+            workspaceId: ws.id,
+            planId: plan.id,
+            status: 'ACTIVE',
+            currentPeriodStart,
+            currentPeriodEnd,
+          },
+        });
+
+        await prisma.usageCounter.upsert({
+          where: { workspaceId_periodStart: { workspaceId: ws.id, periodStart: currentPeriodStart } },
+          update: {},
+          create: {
+            workspaceId: ws.id,
+            periodStart: currentPeriodStart,
+            periodEnd: currentPeriodEnd,
+            messagesUsed: 0,
+          },
+        });
+
+        created += 1;
+        console.log(`[Init] Backfilled subscription for workspace ${ws.id} -> plan ${plan.key}`);
+      }
+      if (page.length < BACKFILL_PAGE) break;
     }
 
     console.log(`[Init] Subscription initialization done. Created ${created} subscription(s).`);
@@ -223,6 +235,18 @@ async function initializeSubscriptions() {
 }
 
 async function main() {
+  // Unset, NODE_ENV falls back to development: boot migrations are skipped,
+  // a missing Redis is tolerated and 500s carry internal error detail. A
+  // server has to say which environment it is in.
+  if (!process.env.NODE_ENV) {
+    console.error('[Server] NODE_ENV is not set — refusing to start. Use NODE_ENV=production on servers, development locally.');
+    process.exit(1);
+  }
+  if (!env.SERVE_HTTP && !env.RUN_WORKERS) {
+    console.error('[Worker] RUN_WORKERS=false in a worker-only process — nothing to run, exiting.');
+    process.exit(1);
+  }
+
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const prismaCliPath = path.resolve(__dirname, '../scripts/prisma-cli.js');
@@ -236,7 +260,12 @@ async function main() {
       console.log('[Migration] Skipped migrate deploy in development (use db push).');
     }
   } catch (err) {
-    console.error('[Migration] Failed to run migration:', err);
+    // Serving on a schema the code does not match turns every request that
+    // touches a new column into a 500 behind a "healthy" process. Exit so the
+    // orchestrator keeps the previous release instead.
+    console.error('[Migration] Failed to run migration — refusing to start:', err.message);
+    logToFileSync('Migration failed', err);
+    process.exit(1);
   }
 
   let connected = false;
@@ -263,10 +292,27 @@ async function main() {
     // Before anything reads a credential: platform keys stored in the database
     // override the environment, and every client below is built from `env`.
     await loadPlatformSettings();
-    await initializeSubscriptions();
+    startPlatformSettingsRefresh();
   } catch (err) {
     console.error('[DB] Post-connect initialization failed:', err.message);
   }
+
+  // Listen as soon as the schema and credentials are in place. The rest of
+  // boot (backfill, Redis, workers, recovery, sweeps) can take a while, and a
+  // dark port made deploy health checks time out on a healthy release;
+  // /health/ready answers 503 until markReady() below.
+  if (env.SERVE_HTTP) {
+    httpServer = app.listen(env.PORT, () => {
+      console.log(`[Server] Spandan backend running on port ${env.PORT}`);
+      console.log(`[Server] Environment: ${env.NODE_ENV}`);
+    });
+  } else {
+    console.log(`[Worker] Worker-only process (no HTTP). Environment: ${env.NODE_ENV}`);
+  }
+
+  // The plan upsert and subscription backfill write to the shared database,
+  // so only the process that owns background work runs them.
+  if (env.RUN_WORKERS) await initializeSubscriptions();
 
   // Website assistant knowledge index. Deliberately not awaited: it embeds
   // whatever content changed since the last boot, which is a network round
@@ -274,9 +320,11 @@ async function main() {
   // the only reader and it degrades to lexical search on a partial index.
   // Holding the listen() call behind it would delay every other route on a
   // slow or rate-limited embedding provider.
-  syncSiteKnowledge().catch((err) => {
-    console.error('[siteKnowledge] initial index sync failed:', err.message);
-  });
+  if (env.RUN_WORKERS) {
+    syncSiteKnowledge().catch((err) => {
+      console.error('[siteKnowledge] initial index sync failed:', err.message);
+    });
+  }
 
   // Redis backs every queue, so production must not start without it — a
   // server that accepts campaign launches it can never process is worse than
@@ -308,7 +356,11 @@ async function main() {
     console.warn('');
   }
 
-  if (redisReady) {
+  if (!env.RUN_WORKERS) {
+    console.log('[Worker] RUN_WORKERS=false — workers, schedules, recovery and sweeps are left to the owning deployment.');
+  }
+
+  if (redisReady && env.RUN_WORKERS) {
     campaignWorker = startCampaignWorker();
     console.log('[Worker] Campaign worker started');
     emailWorker = startEmailWorker();
@@ -382,22 +434,22 @@ async function main() {
     }
   }
 
+  markReady();
+  console.log('[Server] Ready');
+
   // Run the overdue-subscription sweep once immediately on boot, so cycles
   // missed while the server was down are caught up without waiting for the
   // next 02:00 tick — mirrors recoverScheduledCampaigns() above.
-  try {
-    const result = await runBillingCycleSweep();
-    if (result.processed > 0) {
-      console.log(`[Recovery] Billing cycle sweep: processed=${result.processed} renewed=${result.renewed} cancelled=${result.cancelled} failed=${result.failed}`);
+  if (env.RUN_WORKERS) {
+    try {
+      const result = await runBillingCycleSweep();
+      if (result.processed > 0) {
+        console.log(`[Recovery] Billing cycle sweep: processed=${result.processed} renewed=${result.renewed} cancelled=${result.cancelled} failed=${result.failed}`);
+      }
+    } catch (err) {
+      console.error('[Recovery] Billing cycle sweep failed:', err.message);
     }
-  } catch (err) {
-    console.error('[Recovery] Billing cycle sweep failed:', err.message);
   }
-
-  httpServer = app.listen(env.PORT, () => {
-    console.log(`[Server] Spandan backend running on port ${env.PORT}`);
-    console.log(`[Server] Environment: ${env.NODE_ENV}`);
-  });
 }
 
 main().catch((err) => {
@@ -414,6 +466,7 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[Server] ${signal} received — shutting down gracefully`);
+  markNotReady();
   const timeout = setTimeout(() => {
     console.error('[Server] Shutdown timed out — forcing exit');
     process.exit(1);
@@ -429,8 +482,9 @@ async function shutdown(signal) {
       sequenceWorker?.close(),
       webhookWorker?.close(),
       crmMaintenanceWorker?.close(),
+      agentWorker?.close(),
     ]);
-    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close(), webhookQueue.close(), crmMaintenanceQueue.close()]);
+    await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close(), webhookQueue.close(), crmMaintenanceQueue.close(), agentQueue.close()]);
     await Promise.allSettled([redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);

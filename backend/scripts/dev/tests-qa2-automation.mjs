@@ -4,7 +4,7 @@
 // with Meta's Graph API replaced by an axios adapter that records every send.
 // Each block maps to a BUG id from the report.
 //
-//   node --env-file=.env tests-qa2-automation.mjs   (from backend/)
+//   node --env-file=.env scripts/dev/tests-qa2-automation.mjs   (from backend/, local database only)
 
 process.env.PRISMA_PG_ADAPTER = '1';
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -19,6 +19,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 // dotenv leaves a key that is already present alone, even when it is empty.
 process.env.GEMINI_API_KEY = '';
 
+import '../require-local-db.js'; // keep first: refuses a non-local DATABASE_URL
 import axios from 'axios';
 
 // ── Meta stub ──────────────────────────────────────────────────────────────
@@ -38,20 +39,20 @@ axios.defaults.adapter = async (config) => {
   };
 };
 
-const { prisma } = await import('./src/lib/prisma.js');
-const { encrypt } = await import('./src/lib/encryption.js');
-const { processWebhook } = await import('./src/services/webhook.service.js');
-const automation = await import('./src/services/automation.service.js');
-const segments = await import('./src/services/segments.service.js');
-const workflows = await import('./src/services/workflow.service.js');
-const forms = await import('./src/services/whatsappForms.service.js');
-const instagram = await import('./src/services/instagram.service.js');
-const voice = await import('./src/services/voice.service.js');
-const aiAgent = await import('./src/services/aiAgent.service.js');
-const intents = await import('./src/services/intent.service.js');
-const voiceCtrl = await import('./src/controllers/voice.controller.js');
-const { env } = await import('./src/config/env.js');
-const { encrypt: enc } = await import('./src/lib/encryption.js');
+const { prisma } = await import('../../src/lib/prisma.js');
+const { encrypt } = await import('../../src/lib/encryption.js');
+const { processWebhook } = await import('../../src/services/webhook.service.js');
+const automation = await import('../../src/services/automation.service.js');
+const segments = await import('../../src/services/segments.service.js');
+const workflows = await import('../../src/services/workflow.service.js');
+const forms = await import('../../src/services/whatsappForms.service.js');
+const instagram = await import('../../src/services/instagram.service.js');
+const voice = await import('../../src/services/voice.service.js');
+const aiAgent = await import('../../src/services/aiAgent.service.js');
+const intents = await import('../../src/services/intent.service.js');
+const voiceCtrl = await import('../../src/controllers/voice.controller.js');
+const { env } = await import('../../src/config/env.js');
+const { encrypt: enc } = await import('../../src/lib/encryption.js');
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -197,7 +198,7 @@ try {
       `${onMonday.start}-${onMonday.end}`);
     check('re-enabling reports enabled', on.businessHoursEnabled === true);
 
-    const { isWithinBusinessHours } = await import('./src/services/businessHours.service.js');
+    const { isWithinBusinessHours } = await import('../../src/services/businessHours.service.js');
     check('a disabled schedule is treated as always open',
       isWithinBusinessHours({ ...on.businessHours, enabled: false }) === true);
 
@@ -366,7 +367,7 @@ try {
       stillRunning === 0, `runs=${stillRunning}`);
 
     // A cancelled run must ignore a delayed resume that fires afterwards.
-    const { advanceRun } = await import('./src/services/workflowEngine.service.js');
+    const { advanceRun } = await import('../../src/services/workflowEngine.service.js');
     const cancelledRun = await prisma.workflowRun.findFirst({
       where: { workflowId: workflow.id }, orderBy: { startedAt: 'desc' },
     });
@@ -396,7 +397,7 @@ try {
   // ── BUG-03/04: intent matching ───────────────────────────────────────────
   section('BUG-03/04 · Intent matching');
   {
-    const { matchIntent } = await import('./src/services/intent.service.js');
+    const { matchIntent } = await import('../../src/services/intent.service.js');
     const rules = [
       { isActive: true, name: 'Order Status', phrases: ['where is my order', 'order status', 'tracking'] },
       { isActive: true, name: 'Size Availability', phrases: ['do you have this in size', 'size available', 'in stock'] },
@@ -640,7 +641,7 @@ try {
 
     // Escalation rules are read at runtime — this is what routes a customer to
     // a person before any automation answers.
-    const { escalationReason } = await import('./src/services/intentRouting.service.js');
+    const { escalationReason } = await import('../../src/services/intentRouting.service.js');
     const rules = { asksForHuman: true, refund: true };
     check('"I want to speak to a person" escalates',
       /person/i.test(escalationReason('I want to speak to a person', rules) || ''));

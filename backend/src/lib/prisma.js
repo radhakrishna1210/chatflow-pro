@@ -9,9 +9,16 @@ const globalForPrisma = globalThis;
 function buildClient() {
   let dbUrl = process.env.DATABASE_URL || process.env.DIRECT_URL;
 
+  // Per-process pool. One client serves the API and every in-process worker
+  // (~19 concurrent job slots), which a pool of 3 starved into P2024 timeouts.
+  // Each process sharing the database (web, `start:worker`, a second
+  // deployment) holds its own pool, so their sum must stay under the
+  // database's connection cap — with the Supabase session-mode pooler that is
+  // the project's pool size. An explicit connection_limit in the URL wins.
   if (dbUrl && !dbUrl.includes('connection_limit')) {
+    const poolSize = Number.parseInt(process.env.DATABASE_POOL_SIZE ?? '', 10);
     const sep = dbUrl.includes('?') ? '&' : '?';
-    dbUrl = `${dbUrl}${sep}connection_limit=3`;
+    dbUrl = `${dbUrl}${sep}connection_limit=${poolSize > 0 ? poolSize : 5}`;
   }
 
   const options = {

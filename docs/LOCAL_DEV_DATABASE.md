@@ -36,6 +36,17 @@ supabase URL     -> [db-guard] BLOCKED — points at a managed provider ("supaba
 db.example.com   -> [db-guard] BLOCKED — host is "db.example.com", which is not local  exit 1
 ```
 
+The guard is also wired in automatically:
+
+- `npm test` / `npm run test:otp` load `backend/tests/setup.mjs` first. If
+  `backend/.env.test` exists it replaces `.env` for the whole run (git-ignored;
+  put a local `DATABASE_URL` and the other required keys in it). Without it,
+  `.env` is still read, but only if its database is local.
+- Every `scripts/*-check.mjs` and seed/reset script imports
+  `scripts/require-local-db.js` as its first import. It checks the process
+  value and every `.env` file dotenv or Prisma could fall back to, and exits 1
+  before any connection is opened.
+
 ## Setup
 
 PostgreSQL is not installed on this machine; Docker is. The database runs as a
@@ -61,30 +72,22 @@ DIRECT_URL=postgresql://chatflow:chatflow_local_dev@127.0.0.1:5433/chatflow_dev?
 
 These credentials are deliberately throwaway and local-only.
 
-## Schema: use `db push`, not `migrate deploy`
+## Schema: `migrate deploy` builds an empty database
 
-`npx prisma migrate deploy` **fails on a fresh database** — confirmed:
-
-```
-Applying migration `20260717073845_add_subscription_models`
-Error: P3018   ERROR: relation "Workspace" does not exist
-```
-
-The migration history has no baseline creating the core tables, so it can only
-be replayed against a database that already has them. This is OPEN-001, now
-reproduced from scratch rather than inferred.
-
-The repo already expects this — `src/server.js` logs
-*"Skipped migrate deploy in development (use db push)"*. So:
+The history used to start with ALTERs against tables no migration created (the
+original schema came from `db push`), so `migrate deploy` failed on an empty
+database with `relation "Workspace" does not exist` (OPEN-001).
+`prisma/migrations/20260101000000_baseline` now sorts first and creates the
+pre-migration schema, so a fresh local database can be built from history:
 
 ```bash
-node --env-file=.env scripts/assert-local-db.js && npx prisma db push
+node --env-file=.env scripts/assert-local-db.js && node scripts/prisma-cli.js migrate deploy
 ```
 
-Result: 55 tables, including all 15 belonging to this branch —
-`Lead`, `Deal`, `DealStageHistory`, `Task`, `CrmActivity`, `SavedView`,
-`PipelineStage`, `CustomFieldDefinition`, `Product`, `DealLineItem`, `Quote`,
-`QuoteLineItem`, `Sequence`, `SequenceEnrollment`, `SequenceStepRun`.
+On a database that already has the schema (any existing environment) the
+baseline's guard sees `"Workspace"` and does nothing, so `migrate deploy` just
+records it as applied. `npx prisma db push` still works for throwaway local
+databases, but it leaves `_prisma_migrations` empty.
 
 ## Seeding
 
