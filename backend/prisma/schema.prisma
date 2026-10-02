@@ -2440,6 +2440,8 @@ model AuthenticationTransaction {
   @@index([workspaceId, phone, status])
   @@index([phone, expiresAt])
   @@index([campaignId, status])
+  // The Authentication dashboard's date-ranged KPIs and transaction list.
+  @@index([workspaceId, createdAt])
 }
 model AuthenticationConfig {
   id          String @id @default(cuid())

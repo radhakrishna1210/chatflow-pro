@@ -335,25 +335,25 @@ const AuthenticationAnalyticsPanel = () => {
   const [templateErr, setTemplateErr] = useState('');
   const [templatesLoading, setTemplatesLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [dateRange, setDateRange] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [templateFilter, setTemplateFilter] = useState('all');
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Any filter change starts again from the first page.
+  useEffect(() => { setPage(1); }, [debouncedSearch, dateRange, statusFilter, sourceFilter, templateFilter]);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setErr('');
     setTemplatesLoading(true);
     setTemplateErr('');
-    wFetch('/authentication/analytics')
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(getErrorMessage(data, 'Failed to load Authentication usage'));
-        if (!cancelled) setUsage(data);
-      })
-      .catch((e) => { if (!cancelled) setErr(e.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
     wFetch('/templates')
       .then(async (res) => {
         const data = await res.json();
@@ -370,49 +370,57 @@ const AuthenticationAnalyticsPanel = () => {
     return () => { cancelled = true; };
   }, []);
 
+  // Filtering, search and paging happen on the server, so the KPIs follow the
+  // selected range and every transaction is reachable — not just the newest 20.
+  useEffect(() => {
+    let cancelled = false;
+    setErr('');
+    const params = new URLSearchParams({ page: String(page) });
+    if (dateRange !== 'all') {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      if (dateRange === '7d') start.setDate(start.getDate() - 6);
+      if (dateRange === '30d') start.setDate(start.getDate() - 29);
+      params.set('from', start.toISOString());
+    }
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    if (sourceFilter !== 'all') params.set('source', sourceFilter);
+    if (templateFilter !== 'all') params.set('templateId', templateFilter);
+    if (debouncedSearch) params.set('search', debouncedSearch);
+    wFetch(`/authentication/analytics?${params}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(getErrorMessage(data, 'Failed to load Authentication usage'));
+        if (!cancelled) setUsage(data);
+      })
+      .catch((e) => { if (!cancelled) setErr(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [page, dateRange, statusFilter, sourceFilter, templateFilter, debouncedSearch]);
+
   if (loading) return <div style={{ textAlign: 'center', padding: '48px', color: 'var(--t2)', fontSize: 13 }}>Loading Authentication usage…</div>;
-  if (err) return <AlertBanner type="error">{err}</AlertBanner>;
+  if (err && !usage) return <AlertBanner type="error">{err}</AlertBanner>;
 
   const metrics = usage?.metrics || {};
-  const q = search.trim().toLowerCase();
-  const recentAttempts = Array.isArray(usage?.recent)
+  const q = debouncedSearch;
+  const attempts = Array.isArray(usage?.recent)
     ? usage.recent.filter((attempt) => attempt && typeof attempt === 'object')
     : [];
+  const total = Number(usage?.total) || 0;
+  const pageSize = Number(usage?.pageSize) || 20;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const statuses = ['VERIFIED', 'EXPIRED', 'FAILED', 'PENDING'];
   const sources = ['API', 'CAMPAIGN'];
-  const dateStart = (() => {
-    if (dateRange === 'all') return null;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    if (dateRange === '7d') start.setDate(start.getDate() - 6);
-    if (dateRange === '30d') start.setDate(start.getDate() - 29);
-    return start;
-  })();
-  const attempts = recentAttempts.filter((attempt) => {
-    const createdAt = new Date(attempt.createdAt);
-    const matchesDate = !dateStart || (!Number.isNaN(createdAt.getTime()) && createdAt >= dateStart);
-    const matchesSearch = !q || [attempt.templateName, attempt.campaignName, attempt.source, attempt.status]
-      .some((value) => String(value || '').toLowerCase().includes(q));
-    return matchesDate
-      && matchesSearch
-      && (statusFilter === 'all' || attempt.status === statusFilter)
-      && (sourceFilter === 'all' || attempt.source === sourceFilter)
-      && (templateFilter === 'all' || attempt.templateId === templateFilter);
-  });
   const hasActiveFilters = dateRange !== 'all' || statusFilter !== 'all' || sourceFilter !== 'all' || templateFilter !== 'all';
   const statusBreakdown = [
-    ['VERIFIED', 'Verified', 'var(--success)'],
-    ['EXPIRED', 'Expired', '#fbbf24'],
-    ['FAILED', 'Failed', '#fca5a5'],
-    ['PENDING', 'Pending', 'var(--t2)'],
-  ].map(([status, label, color]) => [
-    label,
-    attempts.filter((attempt) => attempt.status === status).length,
-    color,
-  ]);
+    ['Verified', metrics.verified, 'var(--success)'],
+    ['Expired', metrics.expired, '#fbbf24'],
+    ['Failed', metrics.failed, '#fca5a5'],
+    ['Pending', metrics.pending, 'var(--t2)'],
+  ];
   const sourceBreakdown = sources.map((source) => [
     source === 'API' ? 'API' : 'Campaign',
-    attempts.filter((attempt) => attempt.source === source).length,
+    metrics.bySource?.[source] ?? 0,
   ]);
 
   return (
@@ -425,7 +433,7 @@ const AuthenticationAnalyticsPanel = () => {
           style={{ ...selectFieldStyle, cursor: 'text', maxWidth: 320, flex: '1 1 220px' }}
         />
         <select value={dateRange} onChange={(e) => setDateRange(e.target.value)} aria-label="Date range" style={{ ...selectFieldStyle, width: 'auto', minWidth: 130 }}>
-          <option value="all">All loaded</option>
+          <option value="all">All time</option>
           <option value="today">Today</option>
           <option value="7d">Last 7 days</option>
           <option value="30d">Last 30 days</option>
@@ -445,6 +453,7 @@ const AuthenticationAnalyticsPanel = () => {
         </select>
       </div>
       {templateErr && <AlertBanner type="error">{templateErr}</AlertBanner>}
+      {err && <AlertBanner type="error">{err}</AlertBanner>}
       <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
         {[
           ['OTP Requests', metrics.otpRequests], ['Accepted by WhatsApp', metrics.acceptedByWhatsApp], ['Delivered', metrics.delivered],
@@ -464,7 +473,7 @@ const AuthenticationAnalyticsPanel = () => {
       )}
       <div className="rgrid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 16 }}>
         <div style={{ padding: '15px 16px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: '1px solid var(--bd)' }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Filtered attempt status breakdown</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Status breakdown{dateRange !== 'all' ? ' · selected range' : ''}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
             {statusBreakdown.map(([label, value, color]) => (
               <div key={label} style={{ minWidth: 0 }}>
@@ -475,15 +484,15 @@ const AuthenticationAnalyticsPanel = () => {
           </div>
         </div>
         <div style={{ padding: '15px 16px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: '1px solid var(--bd)' }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Filtered attempt source breakdown</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Source breakdown{dateRange !== 'all' ? ' · selected range' : ''}</p>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
             {sourceBreakdown.map(([label, value]) => <p key={label} style={{ margin: 0, fontSize: 12.5, color: 'var(--t2)' }}>{label}: <strong style={{ color: 'var(--t1)' }}>{value}</strong></p>)}
           </div>
-          <p style={{ margin: '9px 0 0', fontSize: 11, color: 'var(--t3)' }}>Based on matching loaded attempts.</p>
+          <p style={{ margin: '9px 0 0', fontSize: 11, color: 'var(--t3)' }}>All attempts in the selected date range.</p>
         </div>
       </div>
       <div style={{ borderRadius: 10, padding: '16px 18px', background: 'rgba(0,0,0,0.35)', border: '1px solid var(--bd)', overflowX: 'auto' }}>
-        <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Recent Authentication attempts</p>
+        <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Authentication attempts{total ? ` · ${total.toLocaleString()}` : ''}</p>
         {attempts.length === 0 ? (
           <p style={{ fontSize: 13, color: 'var(--t2)', padding: '16px 0' }}>{q || hasActiveFilters ? 'No Authentication attempts match your filters.' : 'No Authentication API or campaign OTP attempts yet.'}</p>
         ) : (
@@ -508,6 +517,13 @@ const AuthenticationAnalyticsPanel = () => {
               ))}
             </tbody>
           </table>
+        )}
+        {pageCount > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+            <span style={{ fontSize: 12, color: 'var(--t3)' }}>Page {page} of {pageCount}</span>
+            <Btn size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Previous</Btn>
+            <Btn size="sm" variant="ghost" disabled={page >= pageCount} onClick={() => setPage((p) => Math.min(pageCount, p + 1))}>Next</Btn>
+          </div>
         )}
       </div>
     </>
