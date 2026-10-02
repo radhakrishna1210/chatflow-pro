@@ -294,6 +294,19 @@ async function handleInboundMessage(value, msg) {
       take: 5,
     });
     contact = candidates.find((c) => String(c.phoneNumber).replace(/[^\d]/g, '') === digits) || null;
+    // A contact saved in national format ("9876543210", "09876543210") never
+    // equals Meta's international digits and used to be duplicated. Accept it
+    // only when it is the one national-format number ending in these digits,
+    // so an ambiguous match never lands on the wrong person.
+    if (!contact) {
+      const national = candidates.filter((c) => {
+        const stored = String(c.phoneNumber).replace(/[^\d]/g, '').replace(/^0+/, '');
+        return !String(c.phoneNumber).trim().startsWith('+')
+          && stored.length >= 7 && stored.length <= 10 && stored.length < digits.length
+          && digits.endsWith(stored);
+      });
+      if (national.length === 1) contact = national[0];
+    }
   }
   const isNewContact = !contact;
 
@@ -316,8 +329,13 @@ async function handleInboundMessage(value, msg) {
       });
     } catch (err) {
       if (err.code !== 'P2002') throw err;
-      contact = await prisma.contact.findUnique({
-        where: { workspaceId_phoneNumber: { workspaceId: waNumber.workspaceId, phoneNumber: fromPhone } },
+      // Whichever spelling the winning writer used ("+91…" from the UI, bare
+      // digits from another webhook).
+      contact = await prisma.contact.findFirst({
+        where: {
+          workspaceId: waNumber.workspaceId,
+          OR: [{ phoneNumber: fromPhone }, { phoneNumber: digits }, { phoneNumber: `+${digits}` }],
+        },
       });
       if (!contact) throw err;
     }

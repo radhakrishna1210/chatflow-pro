@@ -98,6 +98,8 @@ prisma.contact.findFirst = async ({ where }) => {
   const phones = (where.OR ?? []).map((o) => o.phoneNumber);
   return clone(db.contacts.find((c) => c.workspaceId === where.workspaceId && phones.includes(c.phoneNumber)) ?? null);
 };
+prisma.contact.findMany = async ({ where }) => clone(db.contacts.filter((c) => c.workspaceId === where.workspaceId
+  && String(c.phoneNumber).includes(where.phoneNumber?.contains ?? '')));
 prisma.contact.create = async ({ data }) => {
   const row = { id: id('ct'), tags: [], ...data };
   db.contacts.push(row);
@@ -249,6 +251,22 @@ test('a system event does not open the reply window', async () => {
 
   assert.equal(db.conversations[0].lastInboundAt, null);
   assert.equal(db.conversations[0].unreadCount, 0);
+});
+
+test('a contact saved in national format is matched instead of duplicated', async () => {
+  db.contacts.push({ id: 'ct_nat', workspaceId: 'ws_A', name: 'Asha', phoneNumber: '09800000001', tags: [] });
+  await processWebhook(inbound({ type: 'text', text: { body: 'hi' } }));
+
+  assert.equal(db.contacts.length, 1);
+  assert.equal(db.conversations[0].contactId, 'ct_nat');
+});
+
+test('an ambiguous national-format match creates a new contact rather than guessing', async () => {
+  db.contacts.push({ id: 'ct_a', workspaceId: 'ws_A', name: 'A', phoneNumber: '9800000001', tags: [] });
+  db.contacts.push({ id: 'ct_b', workspaceId: 'ws_A', name: 'B', phoneNumber: '09800000001', tags: [] });
+  await processWebhook(inbound({ type: 'text', text: { body: 'hi' } }));
+
+  assert.equal(db.contacts.length, 3);
 });
 
 // ── Status precedence ───────────────────────────────────────────────────────
