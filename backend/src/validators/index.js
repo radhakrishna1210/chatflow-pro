@@ -861,6 +861,13 @@ export const crmActivitySchemas = {
     leadId: optionalRef,
     dealId: optionalRef,
     contactId: optionalRef,
+    // Structured engagement fields (Engagements log, Log interaction modal).
+    engagementType: z.enum(['Call', 'Video Call', 'Visit', 'Message', 'Note']).optional(),
+    status: z.string().trim().max(40).optional(),
+    duration: z.union([z.number().int().min(0).max(100000), z.string().trim().max(20), z.null()]).optional(),
+    notes: z.string().trim().max(5000).optional(),
+    outcome: z.string().trim().max(120).optional(),
+    sentiment: z.string().trim().max(40).optional(),
   }),
 };
 

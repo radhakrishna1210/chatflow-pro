@@ -521,12 +521,12 @@ export default function EngagementsView({ user, initialTab }) {
               engagements.map((item) => {
                 const isSelected = selectedIds.has(item.id);
                 const leadName = item.leadName || item.lead?.contact?.name || item.contact?.name || item.lead?.contact?.phoneNumber || 'Investor Contact';
-                const leadSource = item.leadSource || item.lead?.source || 'INBOUND';
+                const leadSource = item.leadSource || item.lead?.source || 'Unknown';
                 const leadStage = item.leadStage || (item.lead?.status === 'QUALIFIED' ? 'Qualified Leads' : 'Opportunity Lead');
                 const engType = item.engagementType || (item.type === 'MEETING' ? 'Video Call' : item.type === 'CALL' ? 'Call' : item.type === 'EMAIL' ? 'Message' : 'Note');
-                const engStatus = item.engagementStatus || 'Completed';
+                const engStatus = item.engagementStatus || 'Logged';
                 const ownerName = item.createdByUser?.name || 'Sales Rep';
-                const teamName = item.teamName || 'Enterprise Growth Team';
+                const teamName = item.teamName || 'No team';
 
                 return (
                   <tr
