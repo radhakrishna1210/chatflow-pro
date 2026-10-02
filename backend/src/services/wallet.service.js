@@ -336,11 +336,13 @@ export async function getWalletSummary(workspaceId) {
     }),
   ]);
 
-  // Refunds are credits, so subtract them from gross campaign spend to get
-  // what campaigns actually cost.
+  // Refunds are credits, so subtract campaign refunds from gross campaign
+  // spend to get what campaigns actually cost. Inbox overage refunds share the
+  // REFUND category but were never campaign spend; campaign refunds are the
+  // ones keyed campaign_refund_<id> (campaigns.service.js).
   const refunds = await prisma.walletTransaction.aggregate({
     _sum: { amount: true },
-    where: { workspaceId, type: 'CREDIT', category: 'REFUND' },
+    where: { workspaceId, type: 'CREDIT', category: 'REFUND', idempotencyKey: { startsWith: 'campaign_refund_' } },
   });
 
   const totalCampaigns = campaignStats._count._all || 0;
