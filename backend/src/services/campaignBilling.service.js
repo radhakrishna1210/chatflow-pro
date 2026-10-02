@@ -7,8 +7,9 @@
 //
 // How the money actually moves:
 //
-//   launch      campaigns.service debits `valid recipients x category rate`
-//               and stamps Campaign.chargedAt. This is a *reservation* — it
+//   launch      campaigns.service reserves the plan's remaining quota for as
+//               many recipients as it covers, debits `the rest x category
+//               rate`, and stamps Campaign.chargedAt. This is a *reservation* — it
 //               guarantees a campaign can never strand mid-flight for lack of
 //               funds, which is why it is taken before anything is sent.
 //   per send    a recipient that reaches Meta claims its share of that
@@ -100,4 +101,76 @@ export async function recordAttempt(recipientId, entry) {
 // with what was charged.
 export async function billedCount(campaignId) {
   return prisma.campaignRecipient.count({ where: { campaignId, billedAt: { not: null } } });
+}
+
+// ─── Plan quota for campaigns ────────────────────────────────────────────────
+// A campaign reserves the plan's remaining included messages at launch, and
+// the wallet is charged only for the rest (lib/campaignCharge.js). Reserved
+// quota is counted in UsageCounter.messagesUsed straight away, so a launch and
+// a concurrent inbox send cannot both spend the same allowance; the worker
+// therefore never meters quota again for a prepaid campaign.
+
+const QUOTA_STATUSES = ['ACTIVE', 'PAST_DUE'];
+const MAX_RESERVE_ATTEMPTS = 5;
+
+async function quotaContext(workspaceId) {
+  const subscription = await prisma.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
+  if (!subscription || !QUOTA_STATUSES.includes(subscription.status) || !subscription.plan) return null;
+  const { plan, currentPeriodStart, currentPeriodEnd } = subscription;
+  const usage = await prisma.usageCounter.upsert({
+    where: { workspaceId_periodStart: { workspaceId, periodStart: currentPeriodStart } },
+    update: {},
+    create: { workspaceId, periodStart: currentPeriodStart, periodEnd: currentPeriodEnd, messagesUsed: 0 },
+  });
+  const quota = Number(plan.messageQuota);
+  const remaining = quota === -1 ? Infinity : Math.max(0, quota - usage.messagesUsed);
+  return { periodStart: currentPeriodStart, used: usage.messagesUsed, quota, remaining };
+}
+
+// Read-only: what the plan still includes this cycle. 0 without an active
+// subscription.
+export async function getRemainingQuota(workspaceId) {
+  const ctx = await quotaContext(workspaceId);
+  return { remaining: ctx ? ctx.remaining : 0, periodStart: ctx?.periodStart ?? null };
+}
+
+// Reserves up to `units` of the remaining quota. Compare-and-set on the exact
+// counter value, so a concurrent send between the read and the write makes
+// this attempt lose and re-read rather than overspend the allowance.
+export async function reserveCampaignQuota(workspaceId, units) {
+  const wanted = Math.max(0, Math.floor(Number(units) || 0));
+  if (wanted === 0) return { reserved: 0, periodStart: null };
+
+  for (let attempt = 0; attempt < MAX_RESERVE_ATTEMPTS; attempt += 1) {
+    const ctx = await quotaContext(workspaceId);
+    if (!ctx || ctx.remaining <= 0) return { reserved: 0, periodStart: null };
+    const take = ctx.remaining === Infinity ? wanted : Math.min(wanted, ctx.remaining);
+    const claimed = await prisma.usageCounter.updateMany({
+      where: { workspaceId, periodStart: ctx.periodStart, messagesUsed: ctx.used },
+      data: { messagesUsed: { increment: take } },
+    });
+    if (claimed.count > 0) return { reserved: take, periodStart: ctx.periodStart };
+  }
+  // Persistent contention: fall back to charging the wallet for everything,
+  // which is never wrong, only less generous.
+  return { reserved: 0, periodStart: null };
+}
+
+// Gives reserved quota back to the cycle it was taken from. A cycle that has
+// since rolled over is decremented too, which is harmless: it no longer
+// authorises anything.
+export async function releaseCampaignQuota(workspaceId, periodStart, units) {
+  const n = Math.max(0, Math.floor(Number(units) || 0));
+  if (!n || !periodStart) return { released: 0 };
+  const done = await prisma.usageCounter.updateMany({
+    where: { workspaceId, periodStart, messagesUsed: { gte: n } },
+    data: { messagesUsed: { decrement: n } },
+  });
+  if (done.count > 0) return { released: n };
+  // Never below zero.
+  await prisma.usageCounter.updateMany({
+    where: { workspaceId, periodStart, messagesUsed: { lt: n } },
+    data: { messagesUsed: 0 },
+  });
+  return { released: n };
 }

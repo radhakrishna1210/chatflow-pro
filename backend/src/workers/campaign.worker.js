@@ -25,6 +25,32 @@ const isAuthenticationCampaign = (campaign) =>
   String(campaign?.template?.category || '').toUpperCase() ===
   'AUTHENTICATION';
 
+// A campaign launched with chargedAt set reserved its plan quota and paid the
+// wallet for the rest up front (campaigns.service.js#launchCampaign), so a
+// send must not meter either a second time — that double-counted every
+// campaign message against the plan's allowance. The subscription still has
+// to be live for anything to go out. Campaigns without a launch charge (none
+// are created any more) keep the per-send path.
+const SENDABLE_SUBSCRIPTION = ['ACTIVE', 'PAST_DUE'];
+async function takeSendCredit(campaign, reason) {
+  if (campaign.chargedAt) {
+    const sub = await prisma.subscription.findUnique({
+      where: { workspaceId: campaign.workspaceId }, select: { status: true },
+    });
+    return sub && SENDABLE_SUBSCRIPTION.includes(sub.status)
+      ? { ok: true, source: null }
+      : { ok: false, code: 'SUBSCRIPTION_INACTIVE' };
+  }
+  return consumeMessageCredit(campaign.workspaceId, {
+    reason,
+    messageCategory: campaign.template?.category ?? null,
+  });
+}
+
+const creditFailureReason = (code) => (code === 'SUBSCRIPTION_INACTIVE'
+  ? 'Subscription is not active'
+  : 'Quota and wallet balance exhausted');
+
 // Marks a recipient as skipped because the number is opted out. Skips are
 // tracked separately from failures: they cost nothing, are never retried, and
 // must never abort the rest of the campaign.
@@ -191,17 +217,12 @@ async function processRetryJob(job) {
   let creditSource = null;
   let creditAmount = null;
   try {
-    const credit = await consumeMessageCredit(workspaceId, {
-      reason: 'Campaign retry attempt',
-      prepaid: !!campaign.chargedAt,
-      // Overage is priced by the template's category, same as the launch charge.
-      messageCategory: campaign.template?.category ?? null,
-    });
+    const credit = await takeSendCredit(campaign, 'Campaign retry attempt');
     creditSource = credit.ok ? credit.source : null;
     creditAmount = credit.ok ? (credit.amount ?? null) : null;
     if (!credit.ok) {
-      console.warn(`[CampaignRetry] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
-      await handleRecipientFailure(campaign, recipient, 'Quota and wallet balance exhausted', null);
+      console.warn(`[CampaignRetry] cannot send to ${recipient.contact.phoneNumber}: ${credit.code}`);
+      await handleRecipientFailure(campaign, recipient, creditFailureReason(credit.code), null);
       return;
     }
 
@@ -487,24 +508,16 @@ async function processCampaign(job) {
     let creditSource = null;
     let creditAmount = null;
     try {
-      // Campaigns are paid for in full at launch (campaigns.service.js), so
-      // the per-send call only meters quota here — charging again would
-      // double-bill the same message.
-      const credit = await consumeMessageCredit(campaign.workspaceId, {
-        reason: 'Campaign overage',
-        prepaid: !!campaign.chargedAt,
-        // Only used when this send is not prepaid; prices overage by category.
-        messageCategory: campaign.template?.category ?? null,
-      });
+      const credit = await takeSendCredit(campaign, 'Campaign overage');
       creditSource = credit.ok ? credit.source : null;
       creditAmount = credit.ok ? (credit.amount ?? null) : null;
       if (!credit.ok) {
-        console.warn(`[CampaignWorker] quota/wallet exhausted for ${recipient.contact.phoneNumber}: ${credit.code}`);
+        console.warn(`[CampaignWorker] cannot send to ${recipient.contact.phoneNumber}: ${credit.code}`);
         await prisma.campaignRecipient.update({
           where: { id: recipient.id },
           data: {
             status: 'FAILED', failedAt: new Date(),
-            failReason: 'Quota and wallet balance exhausted',
+            failReason: creditFailureReason(credit.code),
             initialStatus: 'FAILED',
           },
         });

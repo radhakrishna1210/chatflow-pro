@@ -701,6 +701,9 @@ const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, sum
     ['Blocked (Opted Out)', estimate.blockedContacts.toLocaleString(), estimate.blockedContacts > 0 ? '#f87171' : null],
     ['Invalid Numbers',     estimate.invalidContacts.toLocaleString(), estimate.invalidContacts > 0 ? '#f87171' : null],
     ['Cost Per Message',    inr(estimate.costPerMessage), null],
+    ...(estimate.quotaCoveredMessages > 0
+      ? [['Covered by Plan Quota', `${estimate.quotaCoveredMessages.toLocaleString()} message${estimate.quotaCoveredMessages === 1 ? '' : 's'}`, 'var(--green)']]
+      : []),
     ['Total Campaign Cost', inr(estimate.totalCost), 'var(--t1)'],
     ['Wallet Balance',      inr(estimate.walletBalance), null],
     ['Balance After Campaign', inr(estimate.remainingBalance), estimate.sufficientBalance ? 'var(--green)' : '#f87171'],

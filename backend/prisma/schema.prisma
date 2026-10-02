@@ -442,6 +442,12 @@ model Campaign {
   chargedAt       DateTime?
   refundAmount    Decimal?            @db.Decimal(12, 2)
   refundedAt      DateTime?
+  // Messages covered by the plan's included quota at launch (charged to the
+  // usage counter of the cycle starting quotaPeriodStart, not the wallet).
+  // Unsent ones go back to that counter once, at settlement.
+  quotaUnits       Int                @default(0)
+  quotaPeriodStart DateTime?
+  quotaReleasedAt  DateTime?
   createdByUserId String?
   scheduledAt     DateTime?
   launchedAt      DateTime?

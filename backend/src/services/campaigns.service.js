@@ -6,7 +6,8 @@ import { credit, debit } from './wallet.service.js';
 import { getOptedOutPhoneSet, normalizePhone } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { rateForCategory } from '../lib/messagePricing.js';
-import { billedCount } from './campaignBilling.service.js';
+import { billedCount, getRemainingQuota, reserveCampaignQuota, releaseCampaignQuota } from './campaignBilling.service.js';
+import { splitCampaignCharge, settleCampaignUnits } from '../lib/campaignCharge.js';
 import { getAgent } from './aiAgent.service.js';
 import { normalizeCtaLabel, buildCampaignContext, findCtaButton } from './campaignAi.service.js';
 
@@ -512,7 +513,10 @@ async function priceAudience(workspaceId, contacts, templateCategory = null) {
 
   const { valid, duplicates, blocked, invalid } = await analyseAudience(workspaceId, contacts);
   const costPerMessage = rateForCategory(templateCategory, workspace.costPerMessage);
-  const totalCost = money(valid.length * costPerMessage);
+  const { remaining } = await getRemainingQuota(workspaceId);
+  const { quotaUnits, walletUnits, totalCost } = splitCampaignCharge({
+    units: valid.length, remainingQuota: remaining, rate: costPerMessage,
+  });
   const walletBalance = Number(workspace.walletBalance);
 
   return {
@@ -523,6 +527,10 @@ async function priceAudience(workspaceId, contacts, templateCategory = null) {
     invalidContacts: invalid.length,
     messageCategory: templateCategory ?? null,
     costPerMessage,
+    // Messages the plan's remaining quota covers, and those the wallet pays.
+    quotaCoveredMessages: quotaUnits,
+    walletChargedMessages: walletUnits,
+    remainingQuota: remaining === Infinity ? null : remaining,
     totalCost,
     walletBalance,
     remainingBalance: money(walletBalance - totalCost),
@@ -680,14 +688,18 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
   // the workspace rate as the fallback. Persisted onto the campaign below, so
   // refunds and the campaign detail view keep using the rate actually charged.
   const costPerMessage = rateForCategory(campaign.template?.category, workspace.costPerMessage);
-  const totalCost = money(valid.length * costPerMessage);
   const walletBefore = Number(workspace.walletBalance);
 
-  if (totalCost > walletBefore) {
+  // The plan's remaining included messages are spent first; the wallet only
+  // pays for the rest. This early check uses a read of the quota; the
+  // reservation below is what actually takes it.
+  const quotaPreview = await getRemainingQuota(workspaceId);
+  const preview = splitCampaignCharge({ units: valid.length, remainingQuota: quotaPreview.remaining, rate: costPerMessage });
+  if (preview.totalCost > walletBefore) {
     const e = new Error('Insufficient Wallet Balance. Please recharge your wallet.');
     e.status = 402;
     e.code = 'INSUFFICIENT_WALLET_BALANCE';
-    e.details = { required: totalCost, balance: walletBefore, shortfall: money(totalCost - walletBefore) };
+    e.details = { required: preview.totalCost, balance: walletBefore, shortfall: money(preview.totalCost - walletBefore) };
     throw e;
   }
 
@@ -702,6 +714,19 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     const e = new Error('This campaign has already been launched'); e.status = 409; throw e;
   }
 
+  let reservation;
+  try {
+    reservation = await reserveCampaignQuota(workspaceId, valid.length);
+  } catch (err) {
+    await prisma.campaign.updateMany({ where: { id: campaignId }, data: { chargedAt: null } });
+    throw err;
+  }
+  const { quotaUnits, totalCost } = splitCampaignCharge({
+    units: valid.length, remainingQuota: reservation.reserved, rate: costPerMessage,
+  });
+  const undoReservation = () => releaseCampaignQuota(workspaceId, reservation.periodStart, quotaUnits)
+    .catch((e) => console.error(`[Campaign] Could not release quota for ${campaignId}:`, e.message));
+
   let walletAfter = walletBefore;
   if (totalCost > 0) {
     let charge;
@@ -714,12 +739,15 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
         idempotencyKey: `campaign_charge_${campaignId}`,
       });
     } catch (err) {
+      await undoReservation();
       await prisma.campaign.updateMany({ where: { id: campaignId }, data: { chargedAt: null } });
       throw err;
     }
     if (!charge.ok) {
       // Balance moved between the check above and the debit (a concurrent
-      // campaign spent it). Release the claim so the customer can retry.
+      // campaign spent it, or the quota was spent first). Release the claim
+      // so the customer can retry.
+      await undoReservation();
       await prisma.campaign.updateMany({ where: { id: campaignId }, data: { chargedAt: null } });
       const e = new Error('Insufficient Wallet Balance. Please recharge your wallet.');
       e.status = 402;
@@ -736,6 +764,8 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     totalCost,
     walletBefore,
     walletAfter,
+    quotaUnits,
+    quotaPeriodStart: quotaUnits > 0 ? reservation.periodStart : null,
     // Baselines for the live counters the campaigns list reads. The worker
     // increments from here as it sends.
     skipped: blocked.length,
@@ -757,10 +787,11 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
       : {}),
   };
 
+  let queuedJob = null;
   try {
     if (scheduledDate) {
       const delay = Math.max(0, scheduledDate.getTime() - Date.now());
-      const job = await campaignQueue.add('send-campaign', { campaignId, workspaceId }, { delay });
+      const job = queuedJob = await campaignQueue.add('send-campaign', { campaignId, workspaceId }, { delay });
       // SCHEDULED status distinguishes "queued for future" from a true draft and
       // lets startup recovery re-queue lost jobs after a Redis/server restart.
       await prisma.campaign.update({
@@ -768,7 +799,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
         data: { ...costData, status: 'SCHEDULED', scheduledAt: scheduledDate, queueJobId: String(job.id) },
       });
     } else {
-      const job = await campaignQueue.add('send-campaign', { campaignId, workspaceId });
+      const job = queuedJob = await campaignQueue.add('send-campaign', { campaignId, workspaceId });
       // The worker flips the campaign to RUNNING once it actually starts —
       // marking RUNNING here would show a false "running" state if the worker
       // never picks the job up.
@@ -779,16 +810,22 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     }
   } catch (err) {
     // The campaign never made it into the queue, so it never starts — refund
-    // in full rather than leaving the customer charged for nothing.
+    // in full rather than leaving the customer charged for nothing. A job
+    // that was queued before the bookkeeping failed must not send unpaid.
+    if (queuedJob) await queuedJob.remove().catch(() => {});
     await refundCampaign(campaignId, totalCost, 'Campaign could not be queued');
-    await prisma.campaign.updateMany({ where: { id: campaignId }, data: { chargedAt: null, status: 'DRAFT' } });
+    await undoReservation();
+    await prisma.campaign.updateMany({
+      where: { id: campaignId },
+      data: { chargedAt: null, status: 'DRAFT', quotaUnits: 0, quotaPeriodStart: null },
+    });
     throw err;
   }
 
   notifyWorkspace(workspaceId, {
     type: 'CAMPAIGN_LAUNCHED',
     title: scheduledDate ? `Campaign "${campaign.name}" scheduled` : `Campaign "${campaign.name}" launched`,
-    body: `${valid.length} recipient${valid.length === 1 ? '' : 's'} · ₹${totalCost.toFixed(2)} deducted${blocked.length ? ` · ${blocked.length} skipped (opted out)` : ''}`,
+    body: `${valid.length} recipient${valid.length === 1 ? '' : 's'} · ${quotaUnits ? `${quotaUnits} from plan quota · ` : ''}₹${totalCost.toFixed(2)} deducted${blocked.length ? ` · ${blocked.length} skipped (opted out)` : ''}`,
     link: 'campaigns',
     meta: { campaignId },
   }).catch(() => {});
@@ -802,6 +839,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
       blockedContacts: blocked.length,
       invalidContacts: invalid.length,
       costPerMessage,
+      quotaCoveredMessages: quotaUnits,
       totalCost,
       walletBefore,
       walletAfter,
@@ -1130,8 +1168,10 @@ export async function cancelCampaign(workspaceId, campaignId) {
 //
 // The arithmetic is deliberately derived from what was charged rather than
 // from the recipient rows alone:
-//   paidFor  = totalCost / costPerMessage  (exactly the valid recipients at launch)
+//   paidFor  = totalCost / costPerMessage + quotaUnits  (the valid recipients at launch)
 //   consumed = recipients the worker really handed to Meta
+// Sends use up the quota share first, so the unsent remainder comes back as
+// money before it comes back as quota.
 // Recipients rejected at launch carry retryStatus INVALID_NUMBER or SKIPPED
 // and were never part of `paidFor`, so they cancel out of both sides. A
 // contact who replies STOP mid-campaign lands in `paidFor` but not in
@@ -1140,14 +1180,17 @@ export async function cancelCampaign(workspaceId, campaignId) {
 // arrives after the campaign has started.
 export async function settleCampaignRefund(campaignId, reason = 'Refund for unsent campaign messages') {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-  if (!campaign || !campaign.chargedAt || campaign.refundedAt) return null;
+  if (!campaign || !campaign.chargedAt) return null;
 
   const perMessage = Number(campaign.costPerMessage || 0);
   const totalCost = Number(campaign.totalCost || 0);
-  if (!(perMessage > 0) || !(totalCost > 0)) return null;
+  // Messages covered by plan quota are not in totalCost; they are paid for in
+  // quota and come back as quota (lib/campaignCharge.js).
+  const walletUnits = perMessage > 0 && totalCost > 0 ? Math.round(totalCost / perMessage) : 0;
+  const quotaUnits = Number(campaign.quotaUnits || 0);
+  if (walletUnits === 0 && quotaUnits === 0) return null;
 
-  const paidFor = Math.round(totalCost / perMessage);
-  // Only a message that actually went out is billable, and "went out" is now
+  // Only a message that actually went out is billable, and "went out" is
   // recorded explicitly: campaignBilling claims a charge on the recipient row
   // the moment an attempt reaches Meta, exactly once however many retries it
   // took. Counting those claims rather than re-deriving from delivery status
@@ -1155,12 +1198,26 @@ export async function settleCampaignRefund(campaignId, reason = 'Refund for unse
   // the previous status-based count could drift from the ledger whenever a
   // webhook moved a recipient between states after settlement was computed.
   // Unbilled recipients (FAILED, SKIPPED, PENDING, RETRYING) are refunded.
-  const consumed = await billedCount(campaignId);
+  const billed = await billedCount(campaignId);
+  const { walletRefundUnits, quotaReleaseUnits } = settleCampaignUnits({ walletUnits, quotaUnits, billed });
 
-  const refundable = Math.min(money(Math.max(0, paidFor - consumed) * perMessage), totalCost);
+  if (quotaReleaseUnits > 0 && !campaign.quotaReleasedAt) {
+    // One-shot, independent of the wallet refund's own guard.
+    const claim = await prisma.campaign.updateMany({
+      where: { id: campaignId, quotaReleasedAt: null },
+      data: { quotaReleasedAt: new Date() },
+    });
+    if (claim.count > 0) {
+      await releaseCampaignQuota(campaign.workspaceId, campaign.quotaPeriodStart, quotaReleaseUnits)
+        .catch((e) => console.error(`[Campaign] Quota release failed for ${campaignId}:`, e.message));
+    }
+  }
+
+  if (campaign.refundedAt || !(walletUnits > 0)) return null;
+  const refundable = Math.min(money(walletRefundUnits * perMessage), totalCost);
   if (!(refundable > 0)) return null;
 
-  console.log(`[Campaign] Refunding ₹${refundable} to ${campaign.workspaceId} — ${paidFor} paid for, ${consumed} sent (${campaign.name})`);
+  console.log(`[Campaign] Refunding ₹${refundable} to ${campaign.workspaceId} — ${walletUnits} paid from wallet, ${quotaUnits} from quota, ${billed} sent (${campaign.name})`);
   return refundCampaign(campaignId, refundable, reason);
 }
 
