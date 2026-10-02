@@ -26,6 +26,7 @@ const { listDeals } = await import('./deals.service.js');
 const { listTasks } = await import('./tasks.service.js');
 const { listTickets } = await import('./tickets.service.js');
 const { listActivities } = await import('./activities.service.js');
+const { listQuotes, getQuote } = await import('./quotes.service.js');
 
 // Evaluates the subset of Prisma's where-syntax the list endpoints use.
 function matches(row, where) {
@@ -77,6 +78,12 @@ const rows = {
     { id: 'a_other_contact_note', workspaceId: 'ws', type: 'MEETING', content: 'x', createdByUserId: 'other', leadId: null, lead: null, dealId: null, deal: null },
     { id: 'a_system_note', workspaceId: 'ws', type: 'NOTE', content: 'x', createdByUserId: null, leadId: null, lead: null, dealId: null, deal: null },
   ],
+  quote: [
+    { id: 'q_my_deal', workspaceId: 'ws', dealId: 'd1', deal: { ownerUserId: 'me' }, createdByUserId: 'other', status: 'DRAFT' },
+    { id: 'q_other_deal', workspaceId: 'ws', dealId: 'd2', deal: { ownerUserId: 'other' }, createdByUserId: 'other', status: 'DRAFT' },
+    { id: 'q_mine_no_deal', workspaceId: 'ws', dealId: null, deal: null, createdByUserId: 'me', status: 'DRAFT' },
+    { id: 'q_other_no_deal', workspaceId: 'ws', dealId: null, deal: null, createdByUserId: 'other', status: 'DRAFT' },
+  ],
   crmTicket: [
     { id: 'k_me', workspaceId: 'ws', ownerUserId: 'me', status: 'OPEN', priority: 'HIGH' },
     { id: 'k_other', workspaceId: 'ws', ownerUserId: 'other', status: 'OPEN', priority: 'HIGH' },
@@ -87,6 +94,7 @@ for (const model of Object.keys(rows)) {
   prisma[model].findMany = async ({ where }) => rows[model].filter((r) => matches(r, where));
   prisma[model].count = async ({ where }) => rows[model].filter((r) => matches(r, where)).length;
 }
+prisma.quote.findFirst = async ({ where }) => rows.quote.find((r) => matches(r, where)) ?? null;
 prisma.crmActivity.groupBy = async ({ where }) => {
   const counts = {};
   for (const r of rows.crmActivity.filter((x) => matches(x, where))) counts[r.type] = (counts[r.type] || 0) + 1;
@@ -186,4 +194,10 @@ test('visits and video calls are counted and filtered separately', async () => {
   assert.equal(all.counts.VIDEO_CALL, 1);
   assert.deepEqual(ids(await listActivities('ws', { type: 'VISITS' }, me)), ['a_unowned_deal']);
   assert.deepEqual(ids(await listActivities('ws', { type: 'VIDEO_CALL' }, me)), ['a_other_contact_note']);
+});
+
+test('OWN: quotes follow their deal; deal-less quotes follow their author', async () => {
+  assert.deepEqual(ids(await listQuotes('ws', { status: 'DRAFT' }, me)), ['q_mine_no_deal', 'q_my_deal']);
+  await assert.rejects(getQuote('ws', 'q_other_deal', me), (e) => e.status === 404);
+  assert.equal((await getQuote('ws', 'q_my_deal', me)).id, 'q_my_deal');
 });

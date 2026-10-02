@@ -89,26 +89,29 @@ export async function scopeFilter(workspaceId, user, { ownerField = 'ownerUserId
 }
 
 /**
- * Activities have no owner of their own: they belong to the lead or deal they
- * were logged against. One is visible when that lead or deal is, when the
- * caller wrote it, or — for a note attached to neither — when its author is
- * someone whose records the caller may see.
+ * Scope for records with no owner of their own that hang off leads/deals
+ * (activities, quotes). One is visible when any parent it is attached to is
+ * visible, when the caller wrote it, or — attached to no parent — when its
+ * author is someone whose records the caller may see.
  */
-export async function activityScopeFilter(workspaceId, user) {
+export async function attachedScopeFilter(workspaceId, user, parents) {
   if (!user?.id) return { createdByUserId: '__no_user__' };
 
   const ids = await visibleOwnerIds(workspaceId, user);
   if (!ids) return {};
   const owned = ownedBy('ownerUserId', ids);
+  const detached = Object.fromEntries(parents.map((p) => [`${p}Id`, null]));
   return {
     OR: [
-      { lead: { is: owned } },
-      { deal: { is: owned } },
-      { leadId: null, dealId: null, ...ownedBy('createdByUserId', ids) },
+      ...parents.map((p) => ({ [p]: { is: owned } })),
+      { ...detached, ...ownedBy('createdByUserId', ids) },
       { createdByUserId: user.id },
     ],
   };
 }
+
+export const activityScopeFilter = (workspaceId, user) => attachedScopeFilter(workspaceId, user, ['lead', 'deal']);
+export const quoteScopeFilter = (workspaceId, user) => attachedScopeFilter(workspaceId, user, ['deal']);
 
 /**
  * ANDs a scope fragment into a `where`. The fragment is itself an `OR`, so
