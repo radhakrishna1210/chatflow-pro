@@ -118,13 +118,13 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `PORT` | no | `4000` | HTTP port |
-| `NODE_ENV` | no | `development` | `development` \| `production` \| `test` |
-| `CLIENT_URL` | no | `http://localhost:5173` | Frontend origin — used for CORS allow-list and OAuth redirects |
+| `NODE_ENV` | **yes** for the server | `development` (scripts/tests only) | `development` \| `production` \| `test`. `src/server.js` refuses to start when it is unset |
+| `CLIENT_URL` | **yes** in production | `http://localhost:5173` | Frontend origin — used for CORS allow-list and OAuth redirects |
 | `CORS_EXTRA_ORIGINS` | no | — | Comma-separated extra allowed origins (e.g. a preview deploy) |
 | `JSON_BODY_LIMIT` | no | `2mb` | Express body size limit |
 | `DATABASE_URL` | **yes** | — | Postgres connection string (pooled, used at runtime) |
 | `DIRECT_URL` | no | falls back to `DATABASE_URL` | Non-pooled connection for Prisma migrations |
-| `REDIS_URL` | no | `redis://localhost:6379` | BullMQ + ioredis connection |
+| `REDIS_URL` | **yes** in production | `redis://localhost:6379` | BullMQ + ioredis connection |
 | `JWT_ACCESS_SECRET` | **yes** (min 32 chars) | — | Signs short-lived access tokens |
 | `JWT_REFRESH_SECRET` | **yes** (min 32 chars) | — | Signs long-lived refresh tokens |
 | `JWT_EXPIRES_IN` | no | `15m` | Access token TTL |
@@ -136,10 +136,11 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `META_APP_SECRET` | **yes** | — | Used for webhook HMAC signature verification and OAuth code exchange |
 | `META_BUSINESS_ID` | **yes** | — | |
 | `META_WABA_ID` | **yes** | — | Default/platform WhatsApp Business Account ID |
-| `META_SYSTEM_USER_ID` | **yes** | — | |
+| `META_SYSTEM_USER_ID` | no | — | Not read by the app |
 | `META_SYSTEM_USER_TOKEN` | **yes** | — | Long-lived system-user token for platform-level Graph API calls |
-| `META_DISPLAY_NAME` | **yes** | — | |
+| `META_DISPLAY_NAME` | no | — | Not read by the app |
 | `META_WEBHOOK_VERIFY_TOKEN` | **yes** | — | Token Meta must echo back to verify the webhook subscription (`GET /webhook/meta`) |
+| `META_TWO_STEP_PIN` | no | — | 6-digit two-step verification PIN used when registering a number that already has one |
 | `META_API_VERSION` | no | `v21.0` | Graph API version pinned across `lib/meta.js` |
 | `META_REDIRECT_URI` | no | `{API_PUBLIC_URL}/api/v1/auth/meta/callback` | Must exactly match the redirect URI configured in the Meta dashboard for Embedded Signup |
 | `META_ES_CONFIG_ID` | referenced by frontend/backend for Embedded Signup | — | Facebook Login for Business config ID (see STABILIZATION_REPORT_V2.md) |
@@ -161,7 +162,7 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASSWORD` | no | `SMTP_PORT=587`, `SMTP_SECURE=false` | Transactional email (welcome, OTP, invites, campaign-complete, etc.) — email sending is skipped gracefully if unconfigured |
 | `EMAIL_FROM_NAME` | no | `Spandan` | |
 | `EMAIL_FROM` | no | — | |
-| `APP_URL` | no | `http://localhost:{PORT}` | Backend's own public URL, used to derive default OAuth/webhook callback URLs |
+| `APP_URL` | **yes** in production | `http://localhost:{PORT}` | Backend's own public URL, used to derive default OAuth/webhook callback URLs |
 
 ---
 

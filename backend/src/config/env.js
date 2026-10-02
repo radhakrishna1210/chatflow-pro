@@ -4,6 +4,8 @@ import { getSystemSetting } from './settingsStore.js';
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(4000),
+  // The default only serves scripts and tests: src/server.js refuses to start
+  // with NODE_ENV unset, because every unsafe behaviour hangs off "development".
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   CLIENT_URL: z.string().url().default('http://localhost:5173'),
   // Extra allowed CORS origins (comma-separated), e.g. a preview deployment.
@@ -37,9 +39,13 @@ const envSchema = z.object({
   META_APP_SECRET: z.string().min(1),
   META_BUSINESS_ID: z.string().min(1),
   META_WABA_ID: z.string().min(1),
-  META_SYSTEM_USER_ID: z.string().min(1),
+  // Not read anywhere; optional so a missing value no longer blocks boot.
+  META_SYSTEM_USER_ID: z.string().optional(),
   META_SYSTEM_USER_TOKEN: z.string().min(1),
-  META_DISPLAY_NAME: z.string().min(1),
+  META_DISPLAY_NAME: z.string().optional(),
+  // Two-step verification PIN used when registering a number that already has
+  // one set (services/whatsapp.service.js); Meta rejects any other PIN.
+  META_TWO_STEP_PIN: z.string().regex(/^\d{6}$/, 'must be 6 digits').optional(),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(1),
   META_API_VERSION: z.string().default('v21.0'),
   // Must exactly match the redirect_uri configured in the Meta App dashboard
@@ -174,6 +180,17 @@ if (!parsed.success) {
 }
 
 const base = parsed.data;
+
+// These fall back to localhost, which in production silently breaks CORS,
+// every e-mail link, the OAuth callbacks and Twilio signature checks — or, for
+// Redis, every queue. A server must name them.
+if (base.NODE_ENV === 'production') {
+  const missing = ['CLIENT_URL', 'APP_URL', 'REDIS_URL'].filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    console.error(`Invalid environment variables: ${missing.join(', ')} must be set when NODE_ENV=production.`);
+    process.exit(1);
+  }
+}
 
 // Prisma reads DIRECT_URL from process.env directly — provide the fallback there too.
 if (!process.env.DIRECT_URL) process.env.DIRECT_URL = base.DATABASE_URL;

@@ -94,13 +94,17 @@ services:
         sync: false
       - key: META_WABA_ID
         sync: false
-      - key: META_SYSTEM_USER_ID
+      - key: META_SYSTEM_USER_ID # optional, not read by the app
         sync: false
       - key: META_SYSTEM_USER_TOKEN
         sync: false
-      - key: META_DISPLAY_NAME
+      - key: META_DISPLAY_NAME # optional, not read by the app
         sync: false
       - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      # Optional: 6-digit two-step PIN, needed to register numbers that
+      # already have two-step verification on.
+      - key: META_TWO_STEP_PIN
         sync: false
 
       - key: GOOGLE_CLIENT_ID

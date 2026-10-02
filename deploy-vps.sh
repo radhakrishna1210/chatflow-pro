@@ -76,7 +76,9 @@ log "Applying migrations"
 # --- Restart ---------------------------------------------------------------
 # System Node on purpose (see note 1 above).
 log "Restarting $PM2_APP (RUN_WORKERS=$RUN_WORKERS)"
-RUN_WORKERS="$RUN_WORKERS" "$SYSTEM_NODE" "$PM2_BIN" restart "$PM2_APP" --update-env
+# NODE_ENV is pinned here rather than trusted to backend/.env: unset, the app
+# now refuses to start, and "development" would skip the production safeties.
+NODE_ENV=production RUN_WORKERS="$RUN_WORKERS" "$SYSTEM_NODE" "$PM2_BIN" restart "$PM2_APP" --update-env
 "$SYSTEM_NODE" "$PM2_BIN" save --force
 
 # --- Verify ----------------------------------------------------------------

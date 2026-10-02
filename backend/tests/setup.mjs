@@ -17,4 +17,9 @@ if (existsSync(testEnvFile)) {
   if (process.env.DATABASE_URL) process.env.DIRECT_URL ??= process.env.DATABASE_URL;
 }
 
+// Set before dotenv can apply .env's (usually "development") value. In test
+// mode Redis gives up reconnecting at once instead of holding every test
+// process open while it retries.
+process.env.NODE_ENV ??= 'test';
+
 await import('../scripts/require-local-db.js');

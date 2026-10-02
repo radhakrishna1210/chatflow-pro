@@ -214,6 +214,14 @@ async function initializeSubscriptions() {
 }
 
 async function main() {
+  // Unset, NODE_ENV falls back to development: boot migrations are skipped,
+  // a missing Redis is tolerated and 500s carry internal error detail. A
+  // server has to say which environment it is in.
+  if (!process.env.NODE_ENV) {
+    console.error('[Server] NODE_ENV is not set — refusing to start. Use NODE_ENV=production on servers, development locally.');
+    process.exit(1);
+  }
+
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const prismaCliPath = path.resolve(__dirname, '../scripts/prisma-cli.js');

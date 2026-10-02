@@ -54,15 +54,18 @@ export function logRedisError(label, err) {
 }
 
 // Production retries forever: a Redis outage is transient and the queues must
-// pick up again by themselves. Development gives up after a few attempts —
-// with no Redis running locally the endless reconnect loop buries every other
-// log line, and the server is designed to run degraded there anyway.
-const GIVE_UP_AFTER = 0;
+// pick up again by themselves. Development retries for roughly 40 seconds, so
+// a Redis restart does not silently stop every worker, then gives up — with no
+// Redis running locally an endless reconnect loop buries every other log line,
+// and the server is designed to run degraded there anyway. Tests give up at
+// once: a pending reconnect keeps the test process alive.
+const GIVE_UP_AFTER = env.NODE_ENV === 'test' ? 0 : 20;
+let gaveUpLogged = false;
 function retryStrategy(times) {
   if (env.NODE_ENV !== 'production' && times > GIVE_UP_AFTER) {
-    // Suppress the "Gave up reconnecting" log if giving up immediately in dev
-    if (times === GIVE_UP_AFTER + 1 && GIVE_UP_AFTER > 0) {
-      console.warn(`[Redis] Gave up reconnecting after ${GIVE_UP_AFTER} attempts (development). Restart the server once Redis is up.`);
+    if (!gaveUpLogged) {
+      gaveUpLogged = true;
+      console.warn(`[Redis] Gave up reconnecting after ${GIVE_UP_AFTER} attempt(s) (${env.NODE_ENV}). Queues stay stopped until the process restarts with Redis up.`);
     }
     return null; // stop retrying
   }
