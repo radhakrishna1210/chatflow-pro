@@ -230,6 +230,27 @@ test('an inbound message opens the window and reopens a closed conversation', as
   assert.equal(conv.unreadCount, 1);
 });
 
+test('a reaction is stored but is not unread, does not reopen the thread and runs no automation', async () => {
+  seedCampaign();
+  db.conversations.push({ id: 'conv_1', workspaceId: 'ws_A', contactId: 'ct_1', waNumberId: 'wa_A', status: 'CLOSED', humanHandoffAt: null, unreadCount: 0 });
+  await processWebhook(inbound({ type: 'reaction', reaction: { message_id: 'wamid.campaign.1', emoji: '👍' } }));
+
+  const conv = db.conversations[0];
+  assert.equal(db.messages.filter((m) => m.direction === 'INBOUND').length, 1);
+  assert.equal(conv.unreadCount, 0);
+  assert.equal(conv.status, 'CLOSED');
+  assert.equal(sent.length, 0);
+});
+
+test('a system event does not open the reply window', async () => {
+  seedCampaign();
+  db.conversations.push({ id: 'conv_1', workspaceId: 'ws_A', contactId: 'ct_1', waNumberId: 'wa_A', status: 'OPEN', humanHandoffAt: null, unreadCount: 0, lastInboundAt: null });
+  await processWebhook(inbound({ type: 'system', system: { body: 'User changed number' } }));
+
+  assert.equal(db.conversations[0].lastInboundAt, null);
+  assert.equal(db.conversations[0].unreadCount, 0);
+});
+
 // ── Status precedence ───────────────────────────────────────────────────────
 
 test('a late failed status does not move a READ message backwards', async () => {

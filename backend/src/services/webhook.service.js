@@ -415,24 +415,31 @@ async function handleInboundMessage(value, msg) {
   }
   console.log(`[Inbound] Message stored: ${msg.id} → conversation ${conversation.id}`);
 
+  // A `system` event (e.g. the customer changed number) is Meta talking, not
+  // the customer, and a reaction is not something anyone needs to answer.
+  // Both are stored, but neither counts as unread, reopens the thread or runs
+  // automation; only a system event leaves the reply window alone.
+  const systemEvent = msg?.type === 'system';
+  const actionable = !systemEvent && msg?.type !== 'reaction';
+
   await prisma.conversation.update({
     where: { id: conversation.id },
     data: {
-      unreadCount: { increment: 1 },
+      ...(actionable ? { unreadCount: { increment: 1 } } : {}),
       lastMessageAt: new Date(),
       // Opens (or re-opens) the 24-hour window in which Meta permits a
       // free-form reply. Every outbound path checks this — see
       // services/messagingWindow.js.
-      lastInboundAt: sentAt,
+      ...(systemEvent ? {} : { lastInboundAt: sentAt }),
       // A customer writing to a resolved thread reopens it, so it shows in the
       // inbox again and the delayed-response check does not skip it.
-      ...(conversation.status !== 'OPEN' ? { status: 'OPEN' } : {}),
+      ...(actionable && conversation.status !== 'OPEN' ? { status: 'OPEN' } : {}),
     },
   });
-  conversation.status = 'OPEN';
+  if (actionable) conversation.status = 'OPEN';
 
   // Immediately exit active sequence cadences with exitOnReply enabled
-  await prisma.sequenceEnrollment.updateMany({
+  if (!systemEvent) await prisma.sequenceEnrollment.updateMany({
     where: {
       workspaceId,
       contactId: contact.id,
@@ -464,6 +471,8 @@ async function handleInboundMessage(value, msg) {
       ...(parsed.location || {}),
     },
   });
+
+  if (!actionable) return;
 
   // 0. Opt-out beats everything. A STOP (or any accepted opt-out keyword)
   //    blocks the number for good and stops this message from triggering any
