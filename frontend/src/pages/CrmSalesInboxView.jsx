@@ -437,46 +437,12 @@ export default function CrmSalesInboxView() {
         err.message?.toLowerCase().includes('not messaged you');
 
       if (isWindowErr) {
-        setChatError('This contact is outside WhatsApp\'s 24-hour reply window according to Meta. Please send an approved template message to re-engage them, or sync the window if they have messaged you.');
+        setChatError('This contact is outside WhatsApp\'s 24-hour reply window according to Meta. Please send an approved template message to re-engage them.');
       } else {
         setChatError(err.message);
       }
     } finally {
       setSendingMsg(false);
-    }
-  };
-
-  const handleReopenWindow = async () => {
-    if (!conversation?.id) return;
-    try {
-      const res = await wFetch(`/conversations/${conversation.id}/reopen-window`, { method: 'POST' });
-      if (res.ok) {
-        const d = await res.json();
-        setWindowState(d.window || { open: true });
-        setChatError(null);
-      }
-    } catch (e) {
-      console.error('Failed to reopen window', e);
-    }
-  };
-
-  const handleSimulateInbound = async (text = 'Hii') => {
-    if (!conversation?.id) return;
-    try {
-      const res = await wFetch(`/conversations/${conversation.id}/inbound-simulate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: text }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        if (d.message) setMessages((prev) => [...prev, d.message]);
-        setWindowState(d.window || { open: true });
-        setChatError(null);
-        loadLeadContext(selectedLeadId);
-      }
-    } catch (e) {
-      console.error('Failed to simulate inbound message', e);
     }
   };
 
@@ -1013,17 +979,11 @@ export default function CrmSalesInboxView() {
                 {!selectedLead.contact?.optedOut && windowState && !windowState.open && (
                   <div style={{ padding: '9px 14px', background: 'rgba(245, 158, 11, 0.12)', borderBottom: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 8, flexWrap: 'wrap' }}>
                     <span>
-                      ⚡ <strong>WhatsApp 24h Window:</strong> Meta requires customer activity within 24h for free-form replies. You can send a template, or type and send a custom message directly.
+                      ⚡ <strong>WhatsApp 24h Window:</strong> Meta requires customer activity within 24h for free-form replies. Send an approved template to re-open the conversation.
                     </span>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                       <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
                         <I n="file" s={12} /> Send Template
-                      </Btn>
-                      <Btn size="xs" variant="ghost" onClick={handleReopenWindow} title="Click to sync if the lead already messaged you on WhatsApp">
-                        🔄 Sync Window
-                      </Btn>
-                      <Btn size="xs" variant="ghost" onClick={() => handleSimulateInbound('Hii')} title="Simulate lead inbound reply in dev/test">
-                        💬 + Inbound "Hii"
                       </Btn>
                     </div>
                   </div>
@@ -1037,11 +997,6 @@ export default function CrmSalesInboxView() {
                       {chatError.toLowerCase().includes('template') && (
                         <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
                           Send Approved Template
-                        </Btn>
-                      )}
-                      {(chatError.toLowerCase().includes('window') || chatError.toLowerCase().includes('24-hour')) && (
-                        <Btn size="xs" variant="ghost" onClick={handleReopenWindow} title="Click to sync if the lead messaged you on WhatsApp">
-                          🔄 Sync Window
                         </Btn>
                       )}
                     </div>

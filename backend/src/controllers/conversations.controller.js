@@ -1,12 +1,15 @@
 import * as conversationsService from '../services/conversations.service.js';
 
 export async function list(req, res) {
-  const { page, limit, contactId, search } = req.query;
+  const { page, limit, contactId, search, cursor, view } = req.query;
   const result = await conversationsService.listConversations(req.params.workspaceId, {
     page: +page || 1,
     limit: +limit || 20,
     contactId: contactId ? String(contactId).trim() : null,
     search: search ? String(search).trim() : '',
+    cursor: cursor ? String(cursor) : null,
+    view: view ? String(view) : null,
+    userId: req.user?.id ?? null,
   });
   res.json(result);
 }
@@ -114,12 +117,4 @@ export function assign(req, res) {
 
 export function setStatus(req, res) {
   return handle(res, () => conversationsService.setConversationStatus(req.params.workspaceId, req.params.id, req.body?.status), 'Failed to update the conversation');
-}
-
-export function reopenWindow(req, res) {
-  return handle(res, () => conversationsService.reopenWindow(req.params.workspaceId, req.params.id), 'Failed to reopen 24h window');
-}
-
-export function simulateInbound(req, res) {
-  return handle(res, () => conversationsService.simulateInboundMessage(req.params.workspaceId, req.params.id, req.body || {}), 'Failed to simulate inbound message');
 }

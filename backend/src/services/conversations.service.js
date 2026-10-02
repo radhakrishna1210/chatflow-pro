@@ -9,9 +9,58 @@ import { countVariables, buildTextComponents, buildButtonComponents, contactVari
 import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
 
-export async function listConversations(workspaceId, { page = 1, limit = 20, contactId = null, search = '' } = {}) {
-  const skip = (page - 1) * limit;
+// Keyset cursor over (lastMessageAt desc, id desc), opaque to the client. A
+// page/skip offset shifts under the inbox's feet as new messages reorder it.
+const encodeCursor = (c) => Buffer.from(`${new Date(c.lastMessageAt).toISOString()}|${c.id}`).toString('base64url');
+function decodeCursor(cursor) {
+  try {
+    const [at, id] = Buffer.from(String(cursor), 'base64url').toString().split('|');
+    const lastMessageAt = new Date(at);
+    if (!id || Number.isNaN(lastMessageAt.getTime())) return null;
+    return { lastMessageAt, id };
+  } catch {
+    return null;
+  }
+}
+
+// The inbox's views, applied in the query so they cover every conversation
+// rather than only the page already loaded.
+//   unassigned — nobody has the thread
+//   mine       — assigned to the caller
+//   ai         — a campaign AI session is live, or the automation has replied
+//                and no person has taken the thread over
+function viewFilter(view, userId) {
+  switch (view) {
+    case 'unassigned': return { assignedToUserId: null };
+    case 'mine': return { assignedToUserId: userId || '__nobody__' };
+    case 'ai': return {
+      OR: [
+        { aiSessions: { some: { status: 'ACTIVE' } } },
+        { humanHandoffAt: null, assignedToUserId: null, messages: { some: { direction: 'OUTBOUND', senderUserId: null } } },
+      ],
+    };
+    default: return null;
+  }
+}
+
+export async function listConversations(workspaceId, {
+  page = 1, limit = 20, contactId = null, search = '', cursor = null, view = null, userId = null,
+} = {}) {
+  limit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const after = cursor ? decodeCursor(cursor) : null;
+  const skip = after ? 0 : (Math.max(Number(page) || 1, 1) - 1) * limit;
   const where = { workspaceId };
+  const and = [];
+  const viewWhere = viewFilter(view, userId);
+  if (viewWhere) and.push(viewWhere);
+  if (after) {
+    and.push({
+      OR: [
+        { lastMessageAt: { lt: after.lastMessageAt } },
+        { lastMessageAt: after.lastMessageAt, id: { lt: after.id } },
+      ],
+    });
+  }
   if (contactId) {
     where.contactId = contactId;
   } else if (search && search.trim()) {
@@ -34,13 +83,16 @@ export async function listConversations(workspaceId, { page = 1, limit = 20, con
       OR: conditions,
     };
   }
+  // The cursor bound is left out of the count so `total` describes the view.
+  const countWhere = viewWhere ? { ...where, AND: [viewWhere] } : where;
+  if (and.length) where.AND = and;
 
-  const [data, total] = await Promise.all([
+  const [rows, total] = await Promise.all([
     prisma.conversation.findMany({
       where,
       skip,
-      take: limit,
-      orderBy: { lastMessageAt: 'desc' },
+      take: limit + 1,
+      orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
       include: {
         contact: { select: { id: true, name: true, phoneNumber: true, email: true, optedOut: true } },
         waNumber: { select: { id: true, phoneNumber: true, displayName: true, status: true } },
@@ -62,9 +114,11 @@ export async function listConversations(workspaceId, { page = 1, limit = 20, con
         },
       },
     }),
-    prisma.conversation.count({ where }),
+    prisma.conversation.count({ where: countWhere }),
   ]);
-  return { data, total };
+  const hasMore = rows.length > limit;
+  const data = hasMore ? rows.slice(0, limit) : rows;
+  return { data, total, nextCursor: hasMore ? encodeCursor(data[data.length - 1]) : null };
 }
 
 export async function getOrCreateConversation(workspaceId, { contactId, waNumberId = null } = {}) {
@@ -222,13 +276,16 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   // from the inbox — a customer who sent STOP must not be messaged again.
   await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
 
-  // WhatsApp's 24-hour rule:
-  // Meta Cloud API is the authoritative source of truth for whether the customer
-  // service window is currently active. If lastInboundAt is null or stale in the local
-  // DB (e.g., webhook was not delivered, in local dev, or network delay), we attempt the
-  // send via Meta. If Meta rejects with 131047, describeSendFailure() refunds credit
-  // and returns OUTSIDE_24H_WINDOW. If Meta accepts, we sync lastInboundAt.
+  // WhatsApp's 24-hour rule, enforced locally. Meta accepts an out-of-window
+  // free-form send synchronously and only reports 131047 later through the
+  // status webhook, so a 200 from the send is not evidence the window is open.
+  // Only a real inbound message (webhook) moves lastInboundAt.
   const windowState = await getWindowState(conversationId);
+  if (!windowState.open) throw outsideWindowError(windowState);
+
+  // Decrypt before charging: a token stored under a rotated key must not cost
+  // a credit for a send that can never happen.
+  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
 
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Message overage' });
   if (!credit.ok) {
@@ -237,7 +294,6 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     throw e;
   }
 
-  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
   let result;
   try {
     result = await sendTextMessage(
@@ -272,9 +328,6 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     where: { id: conversationId },
     data: {
       lastMessageAt: new Date(),
-      // If Meta accepted the free-form send, the 24-hour window is active on WhatsApp.
-      // Sync lastInboundAt so local window checks reflect this reality.
-      ...(!windowState.open ? { lastInboundAt: new Date() } : {}),
       // A person replying is a takeover. Shared inboxes work this way for a
       // reason: once an agent is in the thread, an automated reply arriving
       // between their messages reads as the company talking to itself.
@@ -322,8 +375,11 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
 
   await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
 
-  // An attachment is a free-form message, so the same 24-hour rule applies via Meta.
+  // An attachment is a free-form message, so the same 24-hour rule applies.
   const windowState = await getWindowState(conversationId);
+  if (!windowState.open) throw outsideWindowError(windowState);
+
+  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
 
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Media message' });
   if (!credit.ok) {
@@ -332,7 +388,6 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     throw e;
   }
 
-  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
   let result;
   let mediaId;
   try {
@@ -374,7 +429,6 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     where: { id: conversationId },
     data: {
       lastMessageAt: new Date(),
-      ...(!windowState.open ? { lastInboundAt: new Date() } : {}),
       ...(userId ? { humanHandoffAt: new Date() } : {}),
     },
   });
@@ -425,6 +479,8 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     e.status = 422; e.code = 'TEMPLATE_NOT_SENDABLE'; e.expose = true; throw e;
   }
 
+  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
+
   const credit = await consumeMessageCredit(workspaceId, {
     reason: 'Template message',
     messageCategory: template.category ?? null,
@@ -435,7 +491,6 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     throw e;
   }
 
-  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
   const components = Array.isArray(template.components) ? template.components : [];
   const required = components.reduce((max, c) => Math.max(max, countVariables(c?.text)), 0);
   let supplied = (Array.isArray(variables) ? variables : []).map((v) => String(v ?? ''));
@@ -743,61 +798,4 @@ export async function setBotEnabled(workspaceId, conversationId, enabled) {
     botEnabled: updated.humanHandoffAt === null,
     humanHandoffAt: updated.humanHandoffAt,
   };
-}
-
-/**
- * Explicitly reopen/sync the 24-hour reply window for a conversation.
- * Useful when the contact messaged outside webhooks or during manual sync.
- */
-export async function reopenWindow(workspaceId, conversationId) {
-  const conversation = await prisma.conversation.findFirst({
-    where: { id: conversationId, workspaceId },
-  });
-  if (!conversation) {
-    const e = new Error('Conversation not found');
-    e.status = 404;
-    throw e;
-  }
-  const now = new Date();
-  const updated = await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { lastInboundAt: now },
-  });
-  return { success: true, lastInboundAt: updated.lastInboundAt, window: windowStateFrom(now) };
-}
-
-/**
- * Simulate an inbound WhatsApp message from the contact for testing/dev environments.
- */
-export async function simulateInboundMessage(workspaceId, conversationId, { body = 'Hii' } = {}) {
-  const conversation = await prisma.conversation.findFirst({
-    where: { id: conversationId, workspaceId },
-    include: { contact: true },
-  });
-  if (!conversation) {
-    const e = new Error('Conversation not found');
-    e.status = 404;
-    throw e;
-  }
-  const now = new Date();
-  const message = await prisma.message.create({
-    data: {
-      conversationId,
-      body: String(body || 'Hii').trim(),
-      direction: 'INBOUND',
-      type: 'TEXT',
-      status: 'DELIVERED',
-      statusAt: now,
-      sentAt: now,
-    },
-  });
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: {
-      lastInboundAt: now,
-      lastMessageAt: now,
-      unreadCount: { increment: 1 },
-    },
-  });
-  return { success: true, message, window: windowStateFrom(now) };
 }

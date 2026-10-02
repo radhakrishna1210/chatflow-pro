@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { validateSteps } from './sequenceEngine.service.js';
+import { getOptedOutPhoneSet, normalizePhone } from './optout.service.js';
 
 const SEQUENCE_INCLUDE = {
   _count: { select: { enrollments: true } },
@@ -142,7 +143,7 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
     const e = new Error('Enrol at most 1000 contacts at a time'); e.status = 400; throw e;
   }
 
-  const [contacts, existing, blocked] = await Promise.all([
+  const [contacts, existing] = await Promise.all([
     prisma.contact.findMany({
       where: { workspaceId, id: { in: wanted } },
       select: { id: true, name: true, optedOut: true, phoneNumber: true },
@@ -151,11 +152,10 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
       where: { sequenceId, contactId: { in: wanted } },
       select: { contactId: true },
     }),
-    prisma.optOut.findMany({ where: { workspaceId }, select: { phoneNumber: true } }).catch(() => []),
   ]);
+  const blockedNumbers = await getOptedOutPhoneSet(workspaceId, contacts.map((c) => c.phoneNumber));
 
   const alreadyIn = new Set(existing.map((e) => e.contactId));
-  const blockedNumbers = new Set(blocked.map((b) => b.phoneNumber));
 
   const enrolled = [];
   const skipped = [];
@@ -164,7 +164,7 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
   for (const contact of contacts) {
     if (alreadyIn.has(contact.id)) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Already in this sequence' }); continue; }
     if (contact.optedOut) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Opted out' }); continue; }
-    if (blockedNumbers.has(contact.phoneNumber)) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Number is blocked' }); continue; }
+    if (blockedNumbers.has(normalizePhone(contact.phoneNumber))) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Number is blocked' }); continue; }
 
     const created = await prisma.sequenceEnrollment.create({
       data: {

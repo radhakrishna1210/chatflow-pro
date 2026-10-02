@@ -74,6 +74,15 @@ export async function createMetaTemplate(wabaId, templateData, accessToken) {
   return data;
 }
 
+// Edits a submitted template in place (POST /{template-id}). Meta re-reviews
+// the change; name and language can never change, nor can the category of an
+// approved template.
+export async function editMetaTemplate(templateId, { components, category }, accessToken) {
+  const client = accessToken ? metaClient(accessToken) : systemClient;
+  const { data } = await client.post(`/${templateId}`, { components, ...(category ? { category } : {}) });
+  return data;
+}
+
 // Media formats Meta accepts in a template header, with its published size
 // caps. Anything else is rejected before a byte is uploaded.
 export const TEMPLATE_MEDIA_FORMATS = {

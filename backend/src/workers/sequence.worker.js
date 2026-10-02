@@ -5,6 +5,7 @@ import { advanceEnrollment, findDueEnrollments } from '../services/sequenceEngin
 import { enqueueAdvance } from '../queues/sequence.queue.js';
 import { sendTextMessage } from '../lib/meta.js';
 import { decrypt } from '../lib/encryption.js';
+import { isOptedOut } from '../services/optout.service.js';
 
 // Sends one sequence message. Kept here rather than in the engine so the
 // engine stays free of provider concerns and testable without a live number.
@@ -18,7 +19,7 @@ async function sendSequenceMessage({ enrollment, body }) {
     select: { id: true, phoneNumber: true, optedOut: true },
   });
   if (!contact) throw new Error('Contact no longer exists');
-  if (contact.optedOut) throw new Error('Contact opted out');
+  if (await isOptedOut(enrollment.workspaceId, contact.phoneNumber, { contact })) throw new Error('Contact opted out');
 
   let conversation = await prisma.conversation.findFirst({
     where: { workspaceId: enrollment.workspaceId, contactId: contact.id },

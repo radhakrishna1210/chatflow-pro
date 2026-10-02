@@ -161,6 +161,22 @@ const DeliveryTick = ({ status, error }) => {
   );
 };
 
+const PAGE_SIZE = 30;
+const LIST_POLL_MS = 10_000;
+const MSG_POLL_MS = 5_000;
+// The filter chips, as the list endpoint's `view` parameter.
+const VIEW_PARAM = { Unassigned: 'unassigned', 'AI-handled': 'ai', Mine: 'mine' };
+
+const SkeletonRow = () => (
+  <div style={{ padding:'12px 14px', borderBottom:'1px solid var(--bd)', display:'flex', gap:10 }}>
+    <div style={{ width:36, height:36, borderRadius:'50%', background:'rgba(255,255,255,0.05)', flexShrink:0 }} />
+    <div style={{ flex:1, display:'flex', flexDirection:'column', gap:7, paddingTop:3 }}>
+      <div style={{ width:'55%', height:10, borderRadius:4, background:'rgba(255,255,255,0.06)' }} />
+      <div style={{ width:'80%', height:9, borderRadius:4, background:'rgba(255,255,255,0.04)' }} />
+    </div>
+  </div>
+);
+
 export default function InboxView() {
   const [convs, setConvs]       = useState([]);
   const [msgs, setMsgs]         = useState({});
@@ -176,7 +192,20 @@ export default function InboxView() {
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(null);
   const [activeId, setActiveId] = useState(null);
-  const [isBot, setIsBot]       = useState(false);
+  // Whether the automation may answer each thread, as the server reports it
+  // (PATCH /:id/bot). This used to be a local toggle that saved nothing.
+  const [botState, setBotState] = useState({});
+  const [botBusy, setBotBusy]   = useState(false);
+  // List state. Search and the view filters run on the server, a page at a
+  // time, so a busy workspace's older threads are reachable.
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError]     = useState(null);
+  const [nextCursor, setNextCursor]   = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [total, setTotal]             = useState(0);
+  const [msgsError, setMsgsError]     = useState(null);
+  const [listReload, setListReload]   = useState(0);
+  const pagesLoadedRef = useRef(1);
   const [input, setInput]       = useState('');
   const [tab, setTab]           = useState('chat');
   const [search, setSearch]     = useState('');
@@ -209,8 +238,6 @@ export default function InboxView() {
   const mobileRef = useRef(mobile);
   useEffect(() => { mobileRef.current = mobile; }, [mobile]);
 
-  // Who is looking, so the "Mine" filter has something to compare against.
-  const me = (() => { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; } })();
 
   const [filter, setFilter] = useState('All');
   const [context, setContext] = useState(null);
@@ -244,46 +271,115 @@ export default function InboxView() {
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
-  // initial + polling fetch of conversation list
+  // Search is sent to the server, debounced so typing is not a request per key.
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const listUrl = useCallback((cursor) => {
+    const p = new URLSearchParams({ limit: String(PAGE_SIZE) });
+    if (query) p.set('search', query);
+    const view = VIEW_PARAM[filter];
+    if (view) p.set('view', view);
+    if (cursor) p.set('cursor', cursor);
+    return `/conversations?${p}`;
+  }, [query, filter]);
+
+  // First page, then a poll that refreshes it. The poll pauses while the tab
+  // is hidden and catches up the moment it is shown again — every open tab
+  // used to query the full list every five seconds regardless.
   useEffect(() => {
     let stopped = false;
-    const loadConvs = () =>
-      wFetch('/conversations')
-        .then(r => r.ok && r.json())
+    pagesLoadedRef.current = 1;
+    setListLoading(true);
+    setListError(null);
+    const loadFirstPage = (initial) =>
+      wFetch(listUrl(null))
+        .then(async (r) => {
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || `Could not load conversations (${r.status})`);
+          return d;
+        })
         .then(d => {
           if (stopped) return;
-          const list = d?.data ?? d;
-          if (Array.isArray(list)) {
+          const list = Array.isArray(d?.data) ? d.data : [];
+          setTotal(d.total ?? list.length);
+          setListError(null);
+          if (initial || pagesLoadedRef.current === 1) {
             setConvs(list);
-            setActiveId(prev => prev ?? (mobileRef.current ? null : (list[0]?.id ?? null)));
+            setNextCursor(d.nextCursor ?? null);
+          } else {
+            // Older pages are kept; the refreshed first page goes on top.
+            setConvs(prev => {
+              const ids = new Set(list.map(c => c.id));
+              return [...list, ...prev.filter(c => !ids.has(c.id))]
+                .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+            });
           }
+          setActiveId(prev => prev ?? (mobileRef.current ? null : (list[0]?.id ?? null)));
         })
-        .catch(() => {});
-    loadConvs();
-    const interval = setInterval(loadConvs, 5000);
-    return () => { stopped = true; clearInterval(interval); };
-  }, []);
+        .catch((e) => { if (!stopped) setListError(e.message || 'Could not load conversations'); })
+        .finally(() => { if (!stopped && initial) setListLoading(false); });
 
-  // initial + polling fetch of active conversation messages
+    loadFirstPage(true);
+    const tick = () => { if (document.visibilityState === 'visible') loadFirstPage(false); };
+    const interval = setInterval(tick, LIST_POLL_MS);
+    document.addEventListener('visibilitychange', tick);
+    return () => { stopped = true; clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
+  }, [listUrl, listReload]);
+
+  const loadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const r = await wFetch(listUrl(nextCursor));
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Could not load more conversations (${r.status})`);
+      const list = Array.isArray(d.data) ? d.data : [];
+      pagesLoadedRef.current += 1;
+      setConvs(prev => {
+        const ids = new Set(prev.map(c => c.id));
+        return [...prev, ...list.filter(c => !ids.has(c.id))];
+      });
+      setNextCursor(d.nextCursor ?? null);
+    } catch (e) {
+      setListError(e.message);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // The open thread, polled the same way: only while the tab is visible.
   useEffect(() => {
     if (!activeId) return;
     let stopped = false;
+    setMsgsError(null);
     const loadMsgs = () =>
       wFetch(`/conversations/${activeId}/messages`)
-        .then(r => r.ok && r.json())
+        .then(async (r) => {
+          const d = await r.json().catch(() => null);
+          if (!r.ok) throw new Error(d?.error || `Could not load messages (${r.status})`);
+          return d;
+        })
         .then(d => {
           if (stopped || !d) return;
+          setMsgsError(null);
           // The endpoint now returns { messages, window } so the composer knows
           // whether WhatsApp still permits a free-form reply. The array form is
           // still accepted so a stale cached bundle keeps working.
           const list = Array.isArray(d) ? d : d.messages;
           if (Array.isArray(list)) setMsgs(p => ({ ...p, [activeId]: list }));
           if (!Array.isArray(d) && d.window) setWindowState(p => ({ ...p, [activeId]: d.window }));
+          if (!Array.isArray(d) && typeof d.botEnabled === 'boolean') setBotState(p => ({ ...p, [activeId]: d.botEnabled }));
         })
-        .catch(() => {});
+        .catch((e) => { if (!stopped) setMsgsError(e.message || 'Could not load messages'); });
     loadMsgs();
-    const interval = setInterval(loadMsgs, 4000);
-    return () => { stopped = true; clearInterval(interval); };
+    const tick = () => { if (document.visibilityState === 'visible') loadMsgs(); };
+    const interval = setInterval(tick, MSG_POLL_MS);
+    document.addEventListener('visibilitychange', tick);
+    return () => { stopped = true; clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
   }, [activeId]);
 
   useEffect(() => {
@@ -368,6 +464,34 @@ export default function InboxView() {
     }
   };
 
+  const setBot = async (enabled) => {
+    if (!activeId || botBusy) return;
+    setBotBusy(true);
+    setSendError(null);
+    try {
+      const res = await wFetch(`/conversations/${activeId}/bot`, {
+        method: 'PATCH', body: JSON.stringify({ enabled }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setSendError(d.error || `Could not change the bot setting (${res.status})`); return; }
+      setBotState(p => ({ ...p, [activeId]: d.botEnabled }));
+    } catch (e) {
+      setSendError(e.message);
+    } finally {
+      setBotBusy(false);
+    }
+  };
+
+  const deleteNote = async (noteId) => {
+    if (!activeId || !window.confirm('Delete this note? This cannot be undone.')) return;
+    const res = await wFetch(`/conversations/${activeId}/notes/${noteId}`, { method: 'DELETE' }).catch(() => null);
+    if (res?.ok) setNotes(list => list.filter(n => n.id !== noteId));
+    else {
+      const d = await res?.json().catch(() => ({}));
+      window.alert(d?.error || 'Could not delete the note');
+    }
+  };
+
   const addNote = async () => {
     const body = noteDraft.trim();
     if (!body || savingNote) return;
@@ -383,7 +507,7 @@ export default function InboxView() {
     if (!input.trim() || !activeId || sending) return;
     const body = input.trim();
     setInput(''); setSendError(null); setSending(true);
-    const temp = { id:`tmp${Date.now()}`, body, direction:'OUTBOUND', sentAt:new Date().toISOString(), senderUser:{ name: isBot ? 'AI' : 'You' }, _pending: true };
+    const temp = { id:`tmp${Date.now()}`, body, direction:'OUTBOUND', sentAt:new Date().toISOString(), senderUser:{ name: 'You' }, _pending: true };
     setMsgs(p => ({ ...p, [activeId]: [...(p[activeId] || []), temp] }));
     try {
       const res = await wFetch(`/conversations/${activeId}/messages`, {
@@ -465,27 +589,12 @@ export default function InboxView() {
     }
   };
 
-  // What "handled by AI" means here is the only thing the data actually
-  // records: the last outbound message had no human sender.
-  const lastOutbound = (c) => (c.messages || []).find(m => (m.direction || '').toUpperCase() === 'OUTBOUND');
-  const matchesFilter = (c) => {
-    if (filter === 'Unassigned') return !c.assignedToUserId;
-    if (filter === 'Mine') return !!me?.id && c.assignedToUserId === me.id;
-    if (filter === 'AI-handled') {
-      const out = lastOutbound(c);
-      return (c.aiSessions?.length > 0) || (!!out && out.senderUserId == null);
-    }
-    return true;
-  };
-
-  const filtered = convs.filter(matchesFilter).filter(c =>
-    !search ||
-    c.contact?.name?.toLowerCase().includes(search.toLowerCase()) ||
-    c.contact?.phoneNumber?.includes(search)
-  );
+  // Search and the view filters are applied by the server (see listUrl).
+  const filtered = convs;
   const active = convs.find(c => c.id === activeId);
   const activeMsgs = msgs[activeId] || [];
   const activeWindow = windowState[activeId] || null;
+  const isBot = activeId ? botState[activeId] !== false : false;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
@@ -524,9 +633,19 @@ export default function InboxView() {
             </div>
           </div>
           <div style={{ flex:1, overflowY:'auto' }}>
-            {filtered.length === 0 && (
+            {listError && (
+              <div style={{ margin:'10px 12px', padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12, lineHeight:1.5, display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ flex:1 }}>{listError}</span>
+                <button onClick={() => setListReload(n => n + 1)}
+                  style={{ background:'none', border:'1px solid rgba(239,68,68,.35)', borderRadius:6, color:'#f87171', cursor:'pointer', fontSize:11.5, padding:'3px 9px', fontFamily:"'Manrope',sans-serif" }}>
+                  Retry
+                </button>
+              </div>
+            )}
+            {listLoading && convs.length === 0 && Array.from({ length: 6 }, (_, i) => <SkeletonRow key={i} />)}
+            {!listLoading && !listError && filtered.length === 0 && (
               <div style={{ padding:'30px 18px', textAlign:'center', color:'var(--t3)', fontSize:12, lineHeight:1.6 }}>
-                {convs.length === 0
+                {!query && filter === 'All'
                   ? <>No conversations yet.<br/><span style={{ color:'var(--t2)', fontSize:11 }}>When someone messages your WhatsApp number, it'll appear here.</span></>
                   : 'No conversations match your search.'}
               </div>
@@ -578,6 +697,13 @@ export default function InboxView() {
                 </div>
               );
             })}
+            {nextCursor && (
+              <div style={{ padding:'12px', textAlign:'center' }}>
+                <Btn variant="outline" size="sm" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? 'Loading…' : `Load older conversations${total > convs.length ? ` (${total - convs.length} more)` : ''}`}
+                </Btn>
+              </div>
+            )}
           </div>
         </div>
 
@@ -619,7 +745,11 @@ export default function InboxView() {
               <div style={{ display:'flex', alignItems:'center', gap: mobile ? 8 : 12, minWidth:0 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:7, flexShrink:0 }}>
                   <I n={isBot ? 'bot' : 'user'} s={14} c={isBot ? (mobile ? '#fff' : 'var(--green)') : (mobile ? 'rgba(255,255,255,0.8)' : 'var(--t2)')} />
-                  <div onClick={() => setIsBot(!isBot)} style={{ width:38, height:21, borderRadius:20, background: isBot ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor:'pointer', transition:'background .2s', position:'relative', border:'1px solid var(--bd)' }}>
+                  <div role="switch" aria-checked={isBot} tabIndex={0}
+                    title={isBot ? 'Automation may reply in this thread — click to keep it out' : 'Automation is paused here — click to hand the thread back to it'}
+                    onClick={() => setBot(!isBot)}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setBot(!isBot); } }}
+                    style={{ width:38, height:21, borderRadius:20, background: isBot ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor: botBusy ? 'wait' : 'pointer', opacity: botBusy ? 0.6 : 1, transition:'background .2s', position:'relative', border:'1px solid var(--bd)' }}>
                     <div style={{ position:'absolute', top:2, left: isBot ? 19 : 2, width:15, height:15, borderRadius:'50%', background:'white', transition:'left .2s', boxShadow:'0 1px 4px rgba(0,0,0,0.4)' }} />
                   </div>
                   {!mobile && <span style={{ fontSize:11, color:'var(--t2)' }}>{isBot ? 'Bot' : 'Human'}</span>}
@@ -675,8 +805,15 @@ export default function InboxView() {
               <>
                 {/* messages */}
                 <div ref={scrollRef} style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:10, background:'rgba(5,8,18,0.6)' }}>
-                  {activeMsgs.length === 0 && (
-                    <div style={{ textAlign:'center', padding:'24px 0', color:'var(--t3)', fontSize:12 }}>No messages yet in this conversation.</div>
+                  {msgsError && (
+                    <div style={{ padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12 }}>
+                      {msgsError} — retrying automatically.
+                    </div>
+                  )}
+                  {activeMsgs.length === 0 && !msgsError && (
+                    <div style={{ textAlign:'center', padding:'24px 0', color:'var(--t3)', fontSize:12 }}>
+                      {msgs[activeId] ? 'No messages yet in this conversation.' : 'Loading messages…'}
+                    </div>
                   )}
                   {activeMsgs.map(m => {
                     const out = (m.direction || '').toUpperCase() === 'OUTBOUND';
@@ -841,6 +978,10 @@ export default function InboxView() {
                         <span>{note.author?.name || 'Someone'}</span>
                         <span>·</span>
                         <span>{new Date(note.createdAt).toLocaleString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
+                        <button onClick={() => deleteNote(note.id)} title="Delete note" aria-label="Delete note"
+                          style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'var(--t3)', fontSize:11, padding:0, fontFamily:"'Manrope',sans-serif" }}>
+                          Delete
+                        </button>
                       </div>
                     </div>
                   ))}

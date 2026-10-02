@@ -1,6 +1,9 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { env } from '../config/env.js';
 import { processWebhook } from '../services/webhook.service.js';
+import { splitWebhook } from '../services/webhookEvents.js';
+import { enqueueWebhook } from '../queues/webhook.queue.js';
+import { isWebhookWorkerRunning } from '../workers/webhook.worker.js';
 
 export function verify(req, res) {
   const mode = req.query['hub.mode'];
@@ -38,9 +41,40 @@ export async function receive(req, res) {
   }
 
   console.log('[Webhook] Signature verified. Payload preview:', JSON.stringify(req.body).slice(0, 400));
-  res.status(200).json({ status: 'ok' });
 
-  processWebhook(req.body).catch((err) => {
-    console.error('[Webhook] Processing error — message not fully handled:', err);
-  });
+  // Development without Redis: no worker will ever drain the queue, so process
+  // in place as before, one event at a time so one failure cannot drop the rest.
+  if (!isWebhookWorkerRunning() && env.NODE_ENV !== 'production') {
+    res.status(200).json({ status: 'ok' });
+    for (const { payload } of splitWebhook(req.body)) {
+      // eslint-disable-next-line no-await-in-loop
+      await processWebhook(payload).catch((err) => {
+        console.error('[Webhook] Processing error — event not fully handled:', err);
+      });
+    }
+    return;
+  }
+
+  // Queue first, ACK second. If the event cannot be persisted, Meta gets a
+  // non-200 and redelivers it later instead of it being lost.
+  try {
+    const queued = await withTimeout(enqueueWebhook(req.body), ENQUEUE_TIMEOUT_MS);
+    console.log(`[Webhook] Queued ${queued} event(s).`);
+  } catch (err) {
+    console.error('[Webhook] Could not queue event — asking Meta to redeliver:', err.message);
+    return res.status(503).json({ error: 'Temporarily unavailable' });
+  }
+  res.status(200).json({ status: 'ok' });
+}
+
+// Meta waits a limited time for the 200; an unreachable Redis must turn into
+// a prompt 503 rather than a hung request.
+const ENQUEUE_TIMEOUT_MS = 5_000;
+
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`queue did not respond within ${ms}ms`)), ms); }),
+  ]).finally(() => clearTimeout(timer));
 }
