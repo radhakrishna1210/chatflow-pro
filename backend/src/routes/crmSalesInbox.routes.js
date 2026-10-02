@@ -5,6 +5,7 @@ import { workspaceContext } from '../middleware/workspaceContext.js';
 
 import { authorize } from '../middleware/authorize.js';
 import { validate, crmSalesInboxSchemas } from '../validators/index.js';
+import { requireCrmPermission, CRM_PERMISSIONS } from '../services/crmPermissions.service.js';
 
 const router = Router({ mergeParams: true });
 
@@ -14,7 +15,7 @@ router.get('/segments', crmSalesInboxController.getSegments);
 router.get('/audience-review', validate({ query: crmSalesInboxSchemas.audience }), crmSalesInboxController.reviewAudience);
 router.get('/campaign-analytics', crmSalesInboxController.getCampaignAnalytics);
 router.post('/leads/:leadId/recalculate-category', authorize('CLIENT'), crmSalesInboxController.recalculateLeadCategory);
-router.post('/launch-bulk-campaign', authorize('CLIENT'), validate({ body: crmSalesInboxSchemas.launch }), crmSalesInboxController.launchBulkCampaign);
+router.post('/launch-bulk-campaign', requireCrmPermission(CRM_PERMISSIONS.CAMPAIGN_LAUNCH), validate({ body: crmSalesInboxSchemas.launch }), crmSalesInboxController.launchBulkCampaign);
 
 export default router;
 

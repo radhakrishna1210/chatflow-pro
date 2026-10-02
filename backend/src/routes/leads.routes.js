@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate, leadSchemas } from '../validators/index.js';
+import { requireCrmPermission, CRM_PERMISSIONS } from '../services/crmPermissions.service.js';
 
 const router = Router({ mergeParams: true });
 
@@ -13,9 +14,9 @@ router.get('/', leadsController.list);
 router.post('/', authorize('CLIENT'), validate({ body: leadSchemas.create }), leadsController.create);
 router.get('/:id', leadsController.get);
 router.patch('/:id', authorize('CLIENT'), validate({ body: leadSchemas.update }), leadsController.update);
-router.delete('/:id', authorize('CLIENT'), leadsController.remove);
-router.post('/bulk-delete', authorize('CLIENT'), leadsController.bulkRemove);
-router.post('/bulk-assign', authorize('CLIENT'), leadsController.bulkAssign);
+router.delete('/:id', requireCrmPermission(CRM_PERMISSIONS.LEAD_DELETE), leadsController.remove);
+router.post('/bulk-delete', requireCrmPermission(CRM_PERMISSIONS.LEAD_DELETE), leadsController.bulkRemove);
+router.post('/bulk-assign', requireCrmPermission(CRM_PERMISSIONS.LEAD_BULK_ASSIGN), leadsController.bulkAssign);
 router.post('/bulk-status', authorize('CLIENT'), leadsController.bulkStatus);
 router.post('/bulk-category', authorize('CLIENT'), leadsController.bulkCategory);
 router.post('/bulk-task', authorize('CLIENT'), leadsController.bulkTask);

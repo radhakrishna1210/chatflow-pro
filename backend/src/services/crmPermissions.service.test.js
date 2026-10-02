@@ -15,8 +15,10 @@ test('CRM Permissions - Role matrix verification', () => {
   assert.equal(hasCrmPermission('ADMIN', CRM_PERMISSIONS.CAMPAIGN_LAUNCH), true);
   assert.equal(hasCrmPermission('ADMIN', CRM_PERMISSIONS.DISTRIBUTION_RULES_MANAGE), true);
 
-  // CLIENT has operational pipeline permissions but cannot delete leads or manage distribution rules without admin
-  assert.equal(hasCrmPermission('CLIENT', CRM_PERMISSIONS.LEAD_EXPORT), true);
+  // CLIENT has operational pipeline permissions but cannot delete leads, export, or manage distribution rules without admin
+  assert.equal(hasCrmPermission('CLIENT', CRM_PERMISSIONS.LEAD_EXPORT), false);
+  assert.equal(hasCrmPermission('CLIENT', CRM_PERMISSIONS.DISTRIBUTION_RULES_MANAGE), false);
+  assert.equal(hasCrmPermission('CLIENT', CRM_PERMISSIONS.CUSTOM_REPORTS_MANAGE), true);
   assert.equal(hasCrmPermission('CLIENT', CRM_PERMISSIONS.CAMPAIGN_LAUNCH), true);
   assert.equal(hasCrmPermission('CLIENT', CRM_PERMISSIONS.LEAD_BULK_ASSIGN), true);
   assert.equal(hasCrmPermission('CLIENT', CRM_PERMISSIONS.PHONE_MASKING_OVERRIDE), false);
@@ -27,6 +29,9 @@ test('CRM Permissions - Role matrix verification', () => {
   assert.equal(hasCrmPermission('AGENT', CRM_PERMISSIONS.CAMPAIGN_LAUNCH), false);
   assert.equal(hasCrmPermission('AGENT', CRM_PERMISSIONS.LEAD_BULK_ASSIGN), false);
   assert.equal(hasCrmPermission('AGENT', CRM_PERMISSIONS.LEAD_DELETE), false);
+  // The read-mostly role floor refuses agent writes to /crm-analytics, so the
+  // matrix must not claim otherwise.
+  assert.equal(hasCrmPermission('AGENT', CRM_PERMISSIONS.CUSTOM_REPORTS_MANAGE), false);
 
   // VIEWER has no write permissions
   assert.equal(hasCrmPermission('VIEWER', CRM_PERMISSIONS.LEAD_EXPORT), false);
@@ -42,7 +47,7 @@ test('CRM Permissions - getUserCrmPermissions outputs accurate flags', () => {
   assert.equal(adminPerms.canLaunchCampaigns, true);
 
   const clientPerms = getUserCrmPermissions('CLIENT');
-  assert.equal(clientPerms.canExportLeads, true);
+  assert.equal(clientPerms.canExportLeads, false);
   assert.equal(clientPerms.canExportUnmaskedPhones, false);
   assert.equal(clientPerms.shouldMaskPhones, true);
   assert.equal(clientPerms.canDeleteLeads, false);
@@ -57,7 +62,7 @@ test('CRM Permissions - requireCrmPermission middleware enforces role checks', (
   const mw = requireCrmPermission(CRM_PERMISSIONS.CAMPAIGN_LAUNCH);
 
   let nextCalled = false;
-  const mockReqAllowed = { membership: { role: 'CLIENT' } };
+  const mockReqAllowed = { user: { role: 'CLIENT' } };
   const mockRes = {
     status(code) {
       this.statusCode = code;
@@ -74,9 +79,32 @@ test('CRM Permissions - requireCrmPermission middleware enforces role checks', (
 
   // Denied case
   let nextCalledDenied = false;
-  const mockReqDenied = { membership: { role: 'AGENT' } };
+  const mockReqDenied = { user: { role: 'AGENT' } };
   mw(mockReqDenied, mockRes, () => { nextCalledDenied = true; });
   assert.equal(nextCalledDenied, false);
   assert.equal(mockRes.statusCode, 403);
   assert.match(mockRes.body.error, /Insufficient CRM permission/);
+
+  // No role (middleware mounted before workspaceContext) fails closed.
+  let nextCalledNoRole = false;
+  mw({ user: {} }, mockRes, () => { nextCalledNoRole = true; });
+  assert.equal(nextCalledNoRole, false);
+});
+
+test('CRM Permissions - the governed routes are guarded by the matrix, not a separate role level', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const read = (f) => readFile(new URL(`../routes/${f}`, import.meta.url), 'utf8');
+  const guards = [
+    ['leads.routes.js', /router\.delete\('\/:id', requireCrmPermission\(CRM_PERMISSIONS\.LEAD_DELETE\)/],
+    ['leads.routes.js', /'\/bulk-delete', requireCrmPermission\(CRM_PERMISSIONS\.LEAD_DELETE\)/],
+    ['leads.routes.js', /'\/bulk-assign', requireCrmPermission\(CRM_PERMISSIONS\.LEAD_BULK_ASSIGN\)/],
+    ['leadDistribution.routes.js', /'\/rules', requireCrmPermission\(CRM_PERMISSIONS\.DISTRIBUTION_RULES_MANAGE\)/],
+    ['crmData.routes.js', /'\/export\/:entity', requireCrmPermission\(CRM_PERMISSIONS\.LEAD_EXPORT\)/],
+    ['crmSalesInbox.routes.js', /'\/launch-bulk-campaign', requireCrmPermission\(CRM_PERMISSIONS\.CAMPAIGN_LAUNCH\)/],
+    ['crm-analytics.routes.js', /post\('\/reports\/saved', requireCrmPermission\(CRM_PERMISSIONS\.CUSTOM_REPORTS_MANAGE\)/],
+    ['crm-analytics.routes.js', /delete\('\/reports\/saved\/:id', requireCrmPermission\(CRM_PERMISSIONS\.CUSTOM_REPORTS_MANAGE\)/],
+  ];
+  for (const [file, pattern] of guards) {
+    assert.match(await read(file), pattern, `${file} must guard with ${pattern}`);
+  }
 });

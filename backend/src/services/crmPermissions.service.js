@@ -6,6 +6,13 @@
  * - CLIENT: Department Head / Account Executive. Full sales pipeline access, bulk ops, reports, campaigns.
  * - AGENT: Sales rep. Operates on assigned leads, logs activities, sends individual messages.
  * - VIEWER: Read-only access to CRM records.
+ *
+ * This matrix is enforced: the routes for each permission are guarded with
+ * requireCrmPermission() rather than a separate authorize() level, so what
+ * /crm-permissions/my reports is exactly what the server allows. Where the
+ * matrix and an older route guard disagreed, the stricter of the two was kept
+ * (lead export stays admin-only; agents cannot save reports, which the
+ * read-mostly role floor already refused).
  */
 
 export const CRM_PERMISSIONS = {
@@ -29,14 +36,11 @@ const ROLE_PERMISSIONS_MAP = {
     CRM_PERMISSIONS.CUSTOM_REPORTS_MANAGE,
   ],
   CLIENT: [
-    CRM_PERMISSIONS.LEAD_EXPORT,
     CRM_PERMISSIONS.LEAD_BULK_ASSIGN,
     CRM_PERMISSIONS.CAMPAIGN_LAUNCH,
     CRM_PERMISSIONS.CUSTOM_REPORTS_MANAGE,
   ],
-  AGENT: [
-    CRM_PERMISSIONS.CUSTOM_REPORTS_MANAGE,
-  ],
+  AGENT: [],
   VIEWER: [],
 };
 
@@ -48,7 +52,7 @@ export function hasCrmPermission(role, permission) {
 }
 
 export function getUserCrmPermissions(role) {
-  const r = String(role || 'AGENT').toUpperCase();
+  const r = String(role || 'VIEWER').toUpperCase();
   return {
     role: r,
     canExportLeads: hasCrmPermission(r, CRM_PERMISSIONS.LEAD_EXPORT),
@@ -62,12 +66,16 @@ export function getUserCrmPermissions(role) {
   };
 }
 
+// Mount after workspaceContext, which sets the caller's live workspace role.
+// A request with no role is refused rather than given a default one.
 export function requireCrmPermission(permission) {
   return (req, res, next) => {
-    const userRole = req.membership?.role || req.user?.role || 'AGENT';
+    const userRole = req.user?.role;
     if (!hasCrmPermission(userRole, permission)) {
       return res.status(403).json({
-        error: `Forbidden: Insufficient CRM permission '${permission}' for role '${userRole}'`,
+        error: `Forbidden: Insufficient CRM permission '${permission}' for role '${userRole || 'none'}'`,
+        code: 'CRM_PERMISSION_DENIED',
+        permission,
       });
     }
     next();

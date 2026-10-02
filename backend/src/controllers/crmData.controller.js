@@ -1,8 +1,12 @@
 import * as exportService from '../services/crmExport.service.js';
 import * as importService from '../services/crmImport.service.js';
+import { hasCrmPermission, CRM_PERMISSIONS } from '../services/crmPermissions.service.js';
+import { assertWorkspaceMember } from '../services/crmReferences.js';
 
 export async function exportCsv(req, res) {
-  const maskPhone = req.query.maskPhone === 'true' || req.query.maskPhone === true;
+  // Unmasked numbers need the override permission; anyone may ask for masking.
+  const maskPhone = req.query.maskPhone === 'true' || req.query.maskPhone === true
+    || !hasCrmPermission(req.user?.role, CRM_PERMISSIONS.PHONE_MASKING_OVERRIDE);
   const { csv, filename, count } = await exportService.exportEntity(req.params.workspaceId, req.params.entity, { maskPhone });
   // Exports can contain customer contact details, so they are logged.
   console.log(`[export] workspace=${req.params.workspaceId} user=${req.user.id} entity=${req.params.entity} rows=${count} masked=${maskPhone}`);
@@ -19,5 +23,6 @@ export async function previewImport(req, res) {
 export async function runImport(req, res) {
   if (!req.file) { const e = new Error('No file uploaded'); e.status = 400; throw e; }
   const ownerUserId = req.body?.ownerUserId || null;
+  if (ownerUserId) await assertWorkspaceMember(req.params.workspaceId, ownerUserId, 'Owner');
   res.json(await importService.importLeads(req.params.workspaceId, req.file.buffer, { ownerUserId }));
 }
