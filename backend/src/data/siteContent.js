@@ -129,18 +129,22 @@ export const USE_CASES = [
 // price that drifts here can never reach an answer. `planKey` is the join back
 // to that row; `enquiry: true` marks a tier not sold self-serve, which
 // therefore has no Plan row at all.
+//
+// `features` must only claim what the Plan row grants or enforces (limits,
+// quotas, feature flags). Capabilities every plan has — SMS/email fallback,
+// Voice AI, analytics — are not listed as tier perks.
 export const PLAN_CARDS = [
   {
     name: 'Basic', planKey: 'BASIC', popular: false,
     price: '₹1,500', per: '/mo', note: 'or ₹3,500 per quarter',
     desc: 'For a small team running its first campaigns.',
-    features: ['1 WhatsApp number', 'Up to 10 team members', '10,000 messages per cycle', 'Campaigns, templates, team inbox', 'Workflows and auto-replies', 'Email support'],
+    features: ['Up to 10 team members and 10 API keys', '10,000 included messages per cycle', 'Campaigns, templates, team inbox', 'Campaign AI Agent and intent matching', 'Workflows, auto-replies and Instagram flows', 'Email support'],
   },
   {
     name: 'Growth', planKey: 'GROWTH', popular: true,
     price: '₹2,500', per: '/mo', note: 'or ₹7,500 per quarter',
     desc: 'For teams whose WhatsApp runs itself.',
-    features: ['Unlimited numbers and members', 'Unlimited messages', 'Campaign AI Agent', 'AI intent matching and smart replies', 'Retries with SMS and email fallback', 'Voice AI and Instagram flows', 'Revenue and delivery analytics', 'Priority support'],
+    features: ['Everything in Basic', 'Unlimited team members and API keys', 'No cap on included messages', 'Campaign sends billed per message from your wallet', 'Priority support'],
   },
   {
     name: 'Enterprise', planKey: null, popular: false, enquiry: true,
