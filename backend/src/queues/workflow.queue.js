@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createQueueConnection } from '../lib/redis.js';
 
 // Carries three kinds of deferred automation work:
 //  - `resume`: a workflow run parked on a delay step
@@ -8,7 +8,7 @@ import { createBullConnection } from '../lib/redis.js';
 //  - `delayed-response`: the "Delayed Response Message" basic automation,
 //    which must check N minutes later whether a human ever replied
 export const workflowQueue = new Queue('workflows', {
-  connection: createBullConnection('workflow-queue'),
+  connection: createQueueConnection('workflow-queue'),
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 10_000 },

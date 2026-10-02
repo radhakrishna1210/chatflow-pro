@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createQueueConnection } from '../lib/redis.js';
 
 // Drives sequence enrollments forward. Two job kinds:
 //  - `sweep`: a repeating tick that finds enrollments whose next step is due
@@ -9,7 +9,7 @@ import { createBullConnection } from '../lib/redis.js';
 // delayed job lost to a Redis restart would strand it silently. The database
 // holds `nextRunAt`, so the sweep can always recover.
 export const sequenceQueue = new Queue('sequences', {
-  connection: createBullConnection('sequence-queue'),
+  connection: createQueueConnection('sequence-queue'),
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 15_000 },

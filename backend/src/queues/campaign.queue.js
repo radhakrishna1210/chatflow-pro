@@ -1,8 +1,8 @@
 import { Queue } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createQueueConnection } from '../lib/redis.js';
 
 export const campaignQueue = new Queue('campaigns', {
-  connection: createBullConnection('campaign-queue'),
+  connection: createQueueConnection('campaign-queue'),
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 5000 },

@@ -73,10 +73,14 @@ function retryStrategy(times) {
 }
 
 // Shared connection for general-purpose commands (one-time codes, OAuth state).
+// With maxRetriesPerRequest: null a command issued during an outage waits in
+// the offline queue until Redis returns; commandTimeout bounds that wait so a
+// request handler fails instead of hanging.
 export const redis = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   lazyConnect: false,
+  commandTimeout: 5000,
   retryStrategy,
 });
 
@@ -84,14 +88,24 @@ redis.on('error', (err) => logRedisError('shared', err));
 
 // BullMQ requires each Queue/Worker to own its own connection because it uses
 // blocking commands (BRPOPLPUSH / pub-sub) that conflict on a shared client.
-export function createBullConnection(label = 'bullmq') {
+export function createBullConnection(label = 'bullmq', { enableOfflineQueue = true } = {}) {
   const conn = new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
+    enableOfflineQueue,
     retryStrategy,
   });
   conn.on('error', (err) => logRedisError(label, err));
   return conn;
+}
+
+// Connection for a Queue (producer) — what HTTP handlers and webhook
+// processing enqueue through. BullMQ recommends failing fast here: with the
+// offline queue on, `queue.add` during an outage hangs the caller until Redis
+// comes back. Workers keep the offline queue (createBullConnection) so their
+// blocking polls resume by themselves.
+export function createQueueConnection(label) {
+  return createBullConnection(label, { enableOfflineQueue: false });
 }
 
 // Startup health check — surfaces Redis connectivity problems immediately
