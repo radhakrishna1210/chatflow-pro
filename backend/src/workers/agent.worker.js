@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import { randomUUID } from 'node:crypto';
-import { createBullConnection } from '../lib/redis.js';
+import { createBullConnection, logRedisError } from '../lib/redis.js';
+import { env } from '../config/env.js';
 import { tick, sweepWorkspace, listAgentWorkspaceIds } from '../services/agent.service.js';
 
 // Runs the autonomous agent.
@@ -73,8 +74,11 @@ export function startAgentWorker() {
     // One at a time. The lease makes concurrency safe, but there is no reason
     // for background hygiene to compete with request traffic for the pool.
     concurrency: 1,
+    drainDelay: env.WORKER_DRAIN_DELAY_SEC,
+    stalledInterval: env.WORKER_STALLED_INTERVAL_MS,
   });
 
+  worker.on('error', (err) => logRedisError('agent-worker', err));
   worker.on('failed', (job, err) => {
     console.error(`[Agent] job ${job?.name} failed:`, err.message);
   });

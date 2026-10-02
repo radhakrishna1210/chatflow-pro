@@ -11,6 +11,10 @@ const DAY = 24 * HOUR;
 // Upper bound on a single wait so a typo cannot park someone for a decade.
 const MAX_WAIT_DAYS = 90;
 
+// How long a claimed step may run before the sweep treats its worker as dead
+// and moves the enrollment on.
+const STEP_LEASE_MS = 10 * MINUTE;
+
 export function validateSteps(steps) {
   if (!Array.isArray(steps) || steps.length === 0) {
     const e = new Error('A sequence needs at least one step'); e.status = 400; throw e;
@@ -141,6 +145,23 @@ export async function recordStep(enrollment, stepIndex, kind, outcome, detail = 
 }
 
 /**
+ * Atomically takes ownership of the enrollment's current step. Returns false
+ * when another job got there first (the cursor or due time no longer match).
+ */
+export async function claimStep(enrollment, now = new Date()) {
+  const claimed = await prisma.sequenceEnrollment.updateMany({
+    where: {
+      id: enrollment.id,
+      cursor: enrollment.cursor,
+      status: { in: ['ACTIVE', 'WAITING'] },
+      OR: [{ nextRunAt: null }, { nextRunAt: { lte: now } }],
+    },
+    data: { cursor: enrollment.cursor + 1, status: 'ACTIVE', nextRunAt: new Date(now.getTime() + STEP_LEASE_MS) },
+  });
+  return claimed.count > 0;
+}
+
+/**
  * Runs one step of one enrollment and schedules whatever comes next.
  *
  * Returns { status, nextRunAt } describing where the enrollment now stands.
@@ -155,6 +176,11 @@ export async function advanceEnrollment(enrollmentId, { now = new Date(), send }
   if (!enrollment) return { status: 'MISSING' };
   if (['COMPLETED', 'EXITED', 'FAILED'].includes(enrollment.status)) {
     return { status: enrollment.status };
+  }
+  // Not due yet: a parked wait, or a step another job has claimed and is still
+  // running (the claim below pushes nextRunAt out as a lease).
+  if (enrollment.nextRunAt && new Date(enrollment.nextRunAt) > now) {
+    return { status: 'NOT_DUE', nextRunAt: enrollment.nextRunAt };
   }
 
   // A paused sequence holds its enrollments where they are rather than
@@ -200,6 +226,12 @@ export async function advanceEnrollment(enrollmentId, { now = new Date(), send }
       return { status: 'WAITING', nextRunAt: deferUntil, deferred: 'outside business hours' };
     }
   }
+
+  // Claim the step before running it. The cursor moves past it first, so two
+  // jobs reaching the same enrollment (the sweep and a scheduled follow-up)
+  // cannot both run it, and a crash mid-send is never re-sent by the next
+  // sweep: the lease brings the enrollment back at the following step.
+  if (!(await claimStep(enrollment, now))) return { status: 'BUSY' };
 
   try {
     switch (step.kind) {

@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createBullConnection, logRedisError } from '../lib/redis.js';
 
 // Drives the autonomous agent's schedule.
 //
@@ -17,7 +17,7 @@ export const agentQueue = new Queue('agent', {
   },
 });
 
-agentQueue.on('error', () => {});
+agentQueue.on('error', (err) => logRedisError('agent-queue', err));
 
 // How often the agent wakes. Slow on purpose: this is background hygiene, not
 // a response to a user action, and a tighter loop mostly buys contention.

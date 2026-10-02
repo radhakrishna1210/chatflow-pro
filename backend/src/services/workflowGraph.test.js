@@ -1,13 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateGraph, describeGraph, TRIGGERS, ACTIONS, CONDITIONS, __testing } from './workflowCompiler.service.js';
+import { validateGraph, describeGraph, TRIGGERS, ACTIONS, CONDITIONS, __testing } from './workflowGraph.js';
 
-// The compiler's job is not to produce a graph — it is to refuse a graph the
-// engine cannot run.
-//
-// `workflowSchemas.create` declares `nodes: z.any()`, and the engine reads
-// `node.subtype` and silently does nothing when it does not recognise one. So
-// an invented subtype produces a workflow that saves, appears in the list, and
+// The validator's job is to refuse a graph the engine cannot run. An invented
+// subtype used to produce a workflow that saves, appears in the list, and
 // never fires. That is the failure these tests exist to prevent, because it
 // looks like success.
 

@@ -4,6 +4,7 @@ const DEAL_STAGES = Object.keys(DealStage);
 const LEAD_STATUSES = Object.keys(LeadStatus);
 
 import { hasMeaningfulText } from '../lib/textValidation.js';
+import { workflowNodesSchema } from './workflowNodes.js';
 
 // validate({ body, params, query }) ΓÇö parsed values replace the originals so
 // controllers receive clean, typed input instead of raw request payloads.
@@ -222,17 +223,19 @@ export const templateSchemas = {
   }).strict().superRefine((v, ctx) => checkBodyText(v.components, ctx)),
 };
 
+// `edges` is still accepted so older clients keep working, but the engine runs
+// the ordered node list only and the service no longer stores it.
 export const workflowSchemas = {
   create: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Workflow name'),
-    nodes: z.any(),
-    edges: z.any().optional().default([]),
+    nodes: workflowNodesSchema,
+    edges: z.array(z.unknown()).max(200).optional(),
     isActive: z.boolean().optional(),
   }),
   update: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Workflow name').optional(),
-    nodes: z.any().optional(),
-    edges: z.any().optional(),
+    nodes: workflowNodesSchema.optional(),
+    edges: z.array(z.unknown()).max(200).optional(),
     isActive: z.boolean().optional(),
   }).strict(),
 };
@@ -901,11 +904,4 @@ export const aiAgentsStudioSchemas = {
 // Autonomous CRM agent (/agent).
 export const autonomousAgentSchemas = {
   settings: z.object({ enabled: z.boolean() }).strict(),
-};
-
-export const workflowCompilerSchemas = {
-  compile: z.object({
-    description: z.string().trim().min(1, 'Describe the automation you want').max(1000),
-    name: z.string().trim().min(1).max(120).optional(),
-  }).strict(),
 };

@@ -292,8 +292,8 @@ async function main() {
     console.warn('  ┌─ DEGRADED START ────────────────────────────────────────────┐');
     console.warn('  │ Redis is unreachable, so no background workers are running.  │');
     console.warn('  │                                                              │');
-    console.warn('  │ Disabled: campaign sending, retries, emails (incl. invites   │');
-    console.warn('  │ and OTPs), workflow execution and billing-cycle sweeps.      │');
+    console.warn('  │ Disabled: campaign sending, retries, queued emails (invites, │');
+    console.warn('  │ notifications), workflow execution and billing-cycle sweeps. │');
     console.warn('  │ Launching a campaign will queue nothing and send nothing.    │');
     console.warn('  │                                                              │');
     console.warn(`  │ REDIS_URL = ${String(env.REDIS_URL || '').replace(/:[^:@/]*@/, ':****@').padEnd(48).slice(0, 48)} │`);

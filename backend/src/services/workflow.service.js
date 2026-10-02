@@ -1,4 +1,6 @@
 import { prisma } from '../lib/prisma.js';
+import { cancelRunsForWorkflow } from './workflowEngine.service.js';
+import { validateGraph } from './workflowGraph.js';
 
 export async function listWorkflows(workspaceId) {
   return prisma.workflow.findMany({
@@ -7,14 +9,19 @@ export async function listWorkflows(workspaceId) {
   });
 }
 
-export async function createWorkflow(workspaceId, { name, isActive = true, nodes = [], edges = [] }) {
+// `nodes` are checked against what the engine can run here as well as in the
+// route schema, because not every caller comes through the route (the
+// onboarding assistant creates workflows directly). `edges` is never read by
+// the engine, which runs the ordered node list, so it is stored empty.
+export async function createWorkflow(workspaceId, { name, isActive = true, nodes = [] }) {
+  validateGraph(nodes);
   return prisma.workflow.create({
     data: {
       workspaceId,
       name,
       isActive,
       nodes,
-      edges,
+      edges: [],
     },
   });
 }
@@ -30,13 +37,24 @@ export async function updateWorkflow(workspaceId, id, updates) {
   const data = {};
   if (updates.name !== undefined) data.name = updates.name;
   if (updates.isActive !== undefined) data.isActive = updates.isActive;
-  if (updates.nodes !== undefined) data.nodes = updates.nodes;
-  if (updates.edges !== undefined) data.edges = updates.edges;
-  
-  return prisma.workflow.update({
+  if (updates.nodes !== undefined) {
+    validateGraph(updates.nodes);
+    data.nodes = updates.nodes;
+  }
+
+  const updated = await prisma.workflow.update({
     where: { id },
     data,
   });
+
+  // Switching a workflow off must also stop the runs it already started —
+  // otherwise a run parked on a delay or a question carries on messaging the
+  // customer after the workflow was deactivated.
+  if (workflow.isActive && updates.isActive === false) {
+    await cancelRunsForWorkflow(workspaceId, id, 'The workflow was deactivated')
+      .catch((err) => console.error(`[Workflow] Could not cancel the runs of workflow ${id}:`, err.message));
+  }
+  return updated;
 }
 
 export async function deleteWorkflow(workspaceId, id) {

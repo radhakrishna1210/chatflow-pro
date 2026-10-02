@@ -744,6 +744,14 @@ model WorkflowRun {
   // automation got a byte-identical message.
   variables      Json?
   error          String?
+  // When the engine must next look at this run: the end of a delay, a reply
+  // reminder or reply timeout, or the lease on a run being executed. A
+  // periodic sweep re-enqueues overdue runs, so a delay survives Redis loss.
+  resumeAt       DateTime?
+  // Bumped on every claim and cancellation. Each write the engine makes is
+  // conditional on the version it claimed, so two concurrent advances (or an
+  // advance racing a cancel) cannot both act on the run.
+  version        Int               @default(0)
   startedAt      DateTime          @default(now())
   finishedAt     DateTime?
   workflow       Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
@@ -752,6 +760,7 @@ model WorkflowRun {
 
   @@index([workspaceId, startedAt])
   @@index([workflowId, startedAt])
+  @@index([status, resumeAt])
 
   leadId       String?
   dealId       String?
@@ -766,6 +775,9 @@ enum WorkflowRunStatus {
   WAITING
   COMPLETED
   FAILED
+  // Stopped before finishing: the customer typed a control word, or the
+  // workflow was deactivated.
+  CANCELLED
 }
 
 model ApiKey {

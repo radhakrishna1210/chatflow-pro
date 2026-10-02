@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createBullConnection, logRedisError } from '../lib/redis.js';
 
 export const billingQueue = new Queue('billing', {
   connection: createBullConnection('billing-queue'),
@@ -11,7 +11,7 @@ export const billingQueue = new Queue('billing', {
   },
 });
 
-billingQueue.on('error', () => {});
+billingQueue.on('error', (err) => logRedisError('billing-queue', err));
 
 // Repeatable job: sweep for subscriptions whose billing cycle ended (README
 // §12.6), daily at 02:00. `jobId` makes re-adding this on every boot a no-op

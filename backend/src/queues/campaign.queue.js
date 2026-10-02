@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createBullConnection, logRedisError } from '../lib/redis.js';
 
 export const campaignQueue = new Queue('campaigns', {
   connection: createBullConnection('campaign-queue'),
@@ -11,4 +11,4 @@ export const campaignQueue = new Queue('campaigns', {
   },
 });
 
-campaignQueue.on('error', () => {});
+campaignQueue.on('error', (err) => logRedisError('campaign-queue', err));

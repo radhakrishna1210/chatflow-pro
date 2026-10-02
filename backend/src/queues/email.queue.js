@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { createBullConnection } from '../lib/redis.js';
+import { createBullConnection, logRedisError } from '../lib/redis.js';
 
 export const emailQueue = new Queue('emails', {
   connection: createBullConnection('email-queue'),
@@ -11,4 +11,4 @@ export const emailQueue = new Queue('emails', {
   },
 });
 
-emailQueue.on('error', () => {});
+emailQueue.on('error', (err) => logRedisError('email-queue', err));

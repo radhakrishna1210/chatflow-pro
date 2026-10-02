@@ -4,6 +4,7 @@ import { Btn } from '../components/Btn.jsx';
 import { apiFetch } from '../lib/api.js';
 import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
+import { applyStepChange, TRIGGER_SUBTYPES, ACTION_SUBTYPES, CONDITION_SUBTYPES } from '../lib/automationSteps.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
 import { confirmDialog } from '../components/Feedback.jsx';
@@ -629,7 +630,7 @@ const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit
                 <div style={{ display:'flex', gap:6, marginTop:2, flexWrap:'wrap' }}>
                   <Btn size="sm" onClick={() => onGenerate(wf)} disabled={busy || saved}
                     style={saved ? {} : { boxShadow:'var(--glow)' }}>
-                    {busy ? 'Generating…' : saved ? 'Created ✓' : 'Generate Workflow'}
+                    {busy ? 'Generating…' : saved ? 'Saved as draft ✓' : 'Generate Workflow'}
                   </Btn>
                   <Btn size="sm" variant="ghost" onClick={() => onEdit(wf)} disabled={busy}>Edit in builder</Btn>
                 </div>
@@ -741,7 +742,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
     setError('');
     setSaving(true);
 
-    const payload = { name, isActive: editing ? editing.isActive : true, nodes: steps, edges: [] };
+    const payload = { name, isActive: editing ? editing.isActive : true, nodes: steps };
     const r = editing
       ? await wJson(`/workflows/${editing.id}`, { method:'PATCH', body: JSON.stringify(payload) })
       : await wJson('/workflows', { method:'POST', body: JSON.stringify(payload) });
@@ -817,7 +818,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
     setSavingWfId(wf.id); setAiError('');
     const r = await wJson('/workflows', {
       method: 'POST',
-      body: JSON.stringify({ name: wf.title, isActive: true, nodes: wf.nodes, edges: wf.edges || [] }),
+      body: JSON.stringify({ name: wf.title, isActive: false, nodes: wf.nodes }),
     });
     setSavingWfId(null);
     if (!r.ok) { setAiError(r.error); return; }
@@ -839,7 +840,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
     setAiSaving(true); setAiError('');
     const r = await wJson('/workflows', {
       method: 'POST',
-      body: JSON.stringify({ name: aiPreview.name, isActive: true, nodes: aiPreview.nodes, edges: aiPreview.edges || [] }),
+      body: JSON.stringify({ name: aiPreview.name, isActive: false, nodes: aiPreview.nodes }),
     });
     setAiSaving(false);
     if (!r.ok) { setAiError(r.error); return; }
@@ -957,7 +958,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
 
           <div style={{ padding:'12px 24px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap' }}>
             {aiPreview && <Btn variant="ghost" onClick={useAiPreviewInBuilder} disabled={aiLoading || aiSaving}>Edit in builder</Btn>}
-            {aiPreview && <Btn onClick={saveAiPreview} disabled={aiLoading || aiSaving} style={{ boxShadow:'var(--glow)' }}>{aiSaving ? 'Saving…' : 'Save Workflow'}</Btn>}
+            {aiPreview && <Btn onClick={saveAiPreview} disabled={aiLoading || aiSaving} style={{ boxShadow:'var(--glow)' }}>{aiSaving ? 'Saving…' : 'Save as draft (inactive)'}</Btn>}
             {/* In website mode each card saves itself, so only the analyse
                 action belongs here. */}
             <Btn variant={(aiPreview || aiSite) ? 'outline' : 'primary'} onClick={generateAiPreview} disabled={aiLoading || aiSaving}
@@ -1089,18 +1090,6 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
 };
 
 
-// Mirrors CONDITION_SUBTYPES in backend/src/services/workflowConditions.js. A
-// condition asks something about the conversation and, when the answer is no,
-// skips the steps below it — which is how this linear builder expresses a
-// branch without becoming a graph editor.
-const CONDITION_SUBTYPES = [
-  ['contains', 'Message contains'],
-  ['equals', 'Message is exactly'],
-  ['is_new_contact', 'Is a new contact'],
-  ['has_tag', 'Contact has tag'],
-  ['field_equals', 'Contact field equals'],
-  ['field_set', 'Contact field is set'],
-];
 const CONDITION_NEEDS_VALUE = new Set(['contains', 'equals', 'has_tag', 'field_equals', 'field_set']);
 
 // ─── Workflow canvas ─────────────────────────────────────────────────────────
@@ -1124,31 +1113,6 @@ const NODE_H = 74;
 const NODE_GAP = 44;
 const CANVAS_PAD = 28;
 
-const TRIGGER_SUBTYPES = [
-  ['keyword', 'Keyword Match'], ['welcome', 'New Contact Welcome'], ['missed', 'Missed Inbound Call'],
-  // CRM events. These fire from the leads/deals services rather than from an
-  // inbound message, so a run started by one has no conversation attached.
-  ['lead_created', 'CRM: Lead created'],
-  ['lead_status', 'CRM: Lead status changed'],
-  ['deal_stage', 'CRM: Deal stage changed'],
-  ['score_above', 'CRM: Lead score reaches'],
-];
-
-const ACTION_SUBTYPES = [
-  ['message', 'Send message'],
-  // Tappable choices on WhatsApp, written "Question | Option A | Option B".
-  ['buttons', 'Ask with buttons'],
-  // Pauses the run until the customer answers; conditions below it test the
-  // answer, and a name here saves it as {{name}} for later messages.
-  ['wait_reply', 'Wait for reply'],
-  ['template', 'Send approved template'],
-  ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent'],
-  ['task', 'CRM: Create task'],
-  ['lead_status', 'CRM: Set lead status'],
-  ['owner', 'CRM: Assign owner'],
-  ['sequence', 'CRM: Enrol in sequence'],
-];
-
 // Choice-driven steps get a dropdown rather than a free-text box, so a status
 // or stage cannot be mistyped into a value the server will reject.
 const LEAD_STATUS_CHOICES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'];
@@ -1156,7 +1120,7 @@ const DEAL_STAGE_CHOICES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGO
 const prettyEnum = (s) => String(s).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 
 // Steps needing no configuration at all.
-const NO_CONFIG_SUBTYPES = ['welcome', 'missed', 'lead_created'];
+const NO_CONFIG_SUBTYPES = ['welcome', 'lead_created'];
 
 const PLACEHOLDERS = {
   keyword: 'e.g. HELP',
@@ -1201,7 +1165,7 @@ const PALETTE = [
 ];
 
 const NODE_ICON = {
-  keyword: 'key', welcome: 'user', missed: 'phone',
+  keyword: 'key', welcome: 'user',
   message: 'send', buttons: 'check', delay: 'clock', tag: 'file', agent: 'users',
   wait_reply: 'msg', template: 'file',
 };
@@ -1344,42 +1308,6 @@ const WorkflowCanvas = ({ steps, selectedId, onSelect, onChange, onAdd, onRemove
   );
 };
 
-// Changing a step's kind must reset its value. Switching a keyword trigger to
-// "Deal stage changed" would otherwise leave value:"ORDER" behind — the select
-// would show nothing selected, and saving would store a stage the server never
-// matches.
-const DEFAULT_STEP_VALUE = {
-  keyword: 'HELP',
-  welcome: '', missed: '', lead_created: '',
-  lead_status: '', deal_stage: '',
-  score_above: '70',
-  message: 'Thanks for reaching out. Our team will help you shortly.',
-  buttons: 'How can we help? | Track my order | Talk to support',
-  wait_reply: '', template: '',
-  delay: '1 hour',
-  tag: '', agent: '',
-  task: '', owner: '', sequence: '',
-  contains: '', equals: '', is_new_contact: '', has_tag: '', field_equals: '', field_set: '',
-};
-
-export function applyStepChange(step, fields) {
-  const next = { ...step, ...fields };
-
-  if (fields.type && fields.type !== step.type) {
-    next.subtype = fields.type === 'trigger' ? 'keyword' : fields.type === 'condition' ? 'equals' : 'message';
-    next.value = DEFAULT_STEP_VALUE[next.subtype];
-    if (fields.type === 'condition') next.skipIfFalse = next.skipIfFalse ?? 1;
-    else delete next.skipIfFalse;
-    return next;
-  }
-  if (fields.subtype && fields.subtype !== step.subtype) {
-    next.value = DEFAULT_STEP_VALUE[fields.subtype] ?? '';
-  }
-  // A reminder belongs to a "Wait for reply" step only.
-  if (next.subtype !== 'wait_reply') { delete next.remindAfter; delete next.reminder; }
-  return next;
-}
-
 const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange = false }) => {
   const isTrigger = step.type === 'trigger';
   const isCondition = step.type === 'condition';
@@ -1511,7 +1439,7 @@ const stepLabel = (step) => {
   switch (step.subtype) {
     case 'keyword': return `Keyword: ${step.value}`;
     case 'welcome': return 'New contact';
-    case 'missed':  return 'Missed call';
+    case 'missed':  return 'Missed call (no longer supported — choose another trigger)';
     case 'message': return `Send: "${step.value}"`;
     case 'buttons': {
       const [q, ...opts] = String(step.value || '').split('|').map(x => x.trim()).filter(Boolean);
@@ -1633,7 +1561,7 @@ const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulat
             </div>
           ) : runs.slice(0, 8).map(run => (
             <div key={run.id} style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
-              <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20, color: run.status === 'COMPLETED' ? 'var(--success)' : run.status === 'FAILED' ? '#f87171' : '#fbbf24', background: run.status === 'COMPLETED' ? 'var(--sbg)' : run.status === 'FAILED' ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.08)' }}>
+              <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20, color: run.status === 'COMPLETED' ? 'var(--success)' : run.status === 'FAILED' ? '#f87171' : run.status === 'CANCELLED' ? 'var(--t3)' : '#fbbf24', background: run.status === 'COMPLETED' ? 'var(--sbg)' : run.status === 'FAILED' ? 'rgba(239,68,68,.08)' : run.status === 'CANCELLED' ? 'var(--surf3)' : 'rgba(245,158,11,.08)' }}>
                 {run.status}
               </span>
               <span style={{ fontSize:12, color:'var(--t2)', flex:1, minWidth:160 }}>

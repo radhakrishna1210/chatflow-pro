@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
+import { retryJobId, legacyRetryJobId } from '../queues/jobIds.js';
 import { isRetryableFailure, calculateNextRetry, formatRetryEta, retryPolicySummary } from '../lib/retry.js';
 import { queueCampaignCompletedEmail } from './email.service.js';
 import { runFallbackForRecipient } from './fallback.service.js';
@@ -110,9 +111,10 @@ export async function checkAndCompleteCampaign(campaignId) {
   return false;
 }
 
-// One id per (recipient, attempt). Recovery reconstructs it from the row, so
-// it must stay derivable from data the database already holds.
-export const retryJobId = (recipientId, attempt) => `retry:${recipientId}:${attempt}`;
+// One id per (recipient, attempt), built in queues/jobIds.js. Recovery
+// reconstructs it from the row, so it must stay derivable from data the
+// database already holds.
+export { retryJobId };
 
 // Re-queues retries whose delayed jobs no longer exist.
 //
@@ -152,6 +154,11 @@ export async function recoverPendingRetries() {
     // it queued the job, which is what makes the id line up.
     const attempt = (r.retryCount || 0) + 1;
     const delay = Math.max(0, (r.nextRetryAt?.getTime() ?? 0) - Date.now());
+
+    // Retries used to be queued under a colon id. One that survived in Redis
+    // would not dedupe against the new id and the attempt would run twice.
+    const legacy = await campaignQueue.getJob(legacyRetryJobId(r.id, attempt)).catch(() => null);
+    if (legacy) await legacy.remove().catch(() => {});
 
     await campaignQueue.add(
       'retry-recipient',

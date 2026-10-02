@@ -3,6 +3,8 @@ import { keywordMatches } from './automation.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { evaluateCondition, skipCount, renderTemplate, tidy, CONDITION_SUBTYPES } from './workflowConditions.js';
 import { INTERACTIVE_LIMITS } from '../lib/meta.js';
+// One limit for the save-time validator and the runtime.
+import { MAX_ACTIONS } from './workflowGraph.js';
 
 // The Workflows tab used to be a drawing surface: workflows were saved,
 // toggled active, and never executed by anything. This is the interpreter that
@@ -10,7 +12,14 @@ import { INTERACTIVE_LIMITS } from '../lib/meta.js';
 // { id, type: 'trigger'|'action', subtype, value } — because that's what's
 // already persisted in Workflow.nodes for every existing workspace.
 
-const MAX_ACTIONS = 20;
+const ACTIVE_STATUSES = ['RUNNING', 'WAITING'];
+
+// How long a claimed run may go without writing before the sweep treats the
+// worker running it as dead and resumes it from its last persisted step.
+export const RUN_LEASE_MS = 10 * 60_000;
+// After the sweep re-enqueues a run it pushes resumeAt out by this much, so a
+// run whose resume keeps failing is retried every few minutes, not every tick.
+const SWEEP_BACKOFF_MS = 5 * 60_000;
 
 // "5 min" / "1 hour" / "1 day" / "10" / "10s" / "Immediate" — the strings the
 // builder emits or numeric inputs, defaulting to seconds for bare numbers.
@@ -112,8 +121,8 @@ export function triggerFires(trigger, { messageBody = '', isNewContact = false, 
       return event === 'message' && keywordMatches(trigger.value, messageBody);
     case 'welcome':
       return event === 'message' && isNewContact === true;
-    case 'missed':
-      return event === 'missed_call';
+    // `missed` (missed inbound call) was offered by the builder but nothing
+    // ever emits that event, so it is no longer accepted and never fires.
     default:
       return false;
   }
@@ -412,6 +421,41 @@ const describeFailures = (failures) => failures
   .join('; ')
   .slice(0, 1000);
 
+// Takes ownership of a run for one pass of advanceRun. The claim is a
+// conditional update on the run's version, so of two concurrent callers — two
+// inbound replies processed in parallel, a BullMQ retry, the recovery sweep —
+// exactly one wins; the other sees count 0 and backs off. Returns the claimed
+// version, or null when someone else holds the run or it is no longer active.
+//
+// A RUNNING run is claimable only before its first pass (no lease yet) or once
+// its lease has expired — i.e. the pass that held it died.
+export async function claimRun(run, now = new Date()) {
+  const version = run.version ?? 0;
+  const claimed = await prisma.workflowRun.updateMany({
+    where: {
+      id: run.id,
+      version,
+      OR: [
+        { status: 'WAITING' },
+        { status: 'RUNNING', resumeAt: null },
+        { status: 'RUNNING', resumeAt: { lte: now } },
+      ],
+    },
+    data: { status: 'RUNNING', version: { increment: 1 }, resumeAt: new Date(now.getTime() + RUN_LEASE_MS) },
+  });
+  return claimed.count > 0 ? version + 1 : null;
+}
+
+// Writes to a run this pass has claimed. False means the version moved on —
+// the run was cancelled or claimed by someone else — and the caller must stop
+// rather than overwrite (and resurrect) it.
+async function writeClaimed(runId, version, data) {
+  const res = await prisma.workflowRun.updateMany({ where: { id: runId, version }, data });
+  return res.count > 0;
+}
+
+const leaseFromNow = () => new Date(Date.now() + RUN_LEASE_MS);
+
 // Executes action steps from the run's cursor. A delay step parks the run
 // (status WAITING) and schedules a resume; everything else runs inline. Called
 // both on trigger and by the workflow worker after a delay elapses.
@@ -419,16 +463,42 @@ const describeFailures = (failures) => failures
 // `reply` is passed only when the customer has answered a wait_reply step; a
 // run parked on one is otherwise left alone, so a stray delay job or retry
 // cannot march it past the question without an answer.
+//
+// The cursor is persisted before every step, so a pass that dies part-way (a
+// pool timeout on a write, a crashed process) is resumed from the step it was
+// on rather than re-sending everything since the last park.
 export async function advanceRun(runId, { reply } = {}) {
-  const stored = await prisma.workflowRun.findUnique({ where: { id: runId } });
-  if (!stored) return null;
-  // COMPLETED also covers a run cancelled mid-flight, so a delayed resume that
-  // fires after the customer said "stop" finds the run closed and does nothing.
-  if (stored.status === 'COMPLETED' || stored.status === 'FAILED') return stored;
+  const current = () => prisma.workflowRun.findUnique({ where: { id: runId } });
 
-  const variables = variablesOf(stored);
-  const awaiting = variables[AWAIT_KEY];
-  if (awaiting && reply === undefined) return stored;
+  // A claim lost to a reminder marking the run (which bumps the version but
+  // leaves it waiting) is worth re-reading for; one lost to another pass is not,
+  // and the re-read then finds the run RUNNING under a live lease.
+  let stored = null;
+  let variables = null;
+  let awaiting = null;
+  let version = null;
+  for (let attempt = 0; attempt < 3 && version === null; attempt += 1) {
+    stored = await current();
+    if (!stored) return null;
+    // COMPLETED / FAILED / CANCELLED: a delayed resume that fires after the
+    // customer said "stop" finds the run closed and does nothing.
+    if (!ACTIVE_STATUSES.includes(stored.status)) return stored;
+
+    variables = variablesOf(stored);
+    awaiting = variables[AWAIT_KEY];
+    if (awaiting && reply === undefined) return stored;
+
+    version = await claimRun(stored);
+  }
+  if (version === null) {
+    console.log(`[Workflow] Run ${runId} is already being advanced (or was closed) — leaving it to that pass`);
+    return current();
+  }
+  const persist = async (data) => {
+    const ok = await writeClaimed(runId, version, data);
+    if (!ok) console.warn(`[Workflow] Run ${runId} was cancelled or taken over mid-pass — stopping`);
+    return ok;
+  };
 
   const actions = actionsOf(stored.nodes);
   const trace = Array.isArray(stored.trace) ? [...stored.trace] : [];
@@ -449,6 +519,9 @@ export async function advanceRun(runId, { reply } = {}) {
       result: 'ok',
       at: new Date().toISOString(),
     });
+    // Recorded straight away: a pass that dies after this must resume as
+    // answered, not wait for a reply the customer already gave.
+    if (!(await persist({ trace, variables, triggerMessage: run.triggerMessage }))) return current();
   }
 
   let handedOff = await handedOffSince(run);
@@ -459,6 +532,14 @@ export async function advanceRun(runId, { reply } = {}) {
 
   for (let i = run.cursor; i < actions.length; i += 1) {
     const node = actions[i];
+
+    // Checkpoint before each step after the first: it records progress and,
+    // being conditional on the claimed version, notices a cancel before the
+    // next message goes out.
+    if (i > run.cursor && !(await persist({
+      cursor: i, trace, variables, triggerMessage: run.triggerMessage, resumeAt: leaseFromNow(),
+    }))) return current();
+
     console.log(`[Workflow] Executing node ${i + 1}/${actions.length} (${node.type}:${node.subtype}) for run ${run.id}`);
 
     if (handedOff && (REPLY_SUBTYPES.has(node.subtype) || node.subtype === 'wait_reply')) {
@@ -470,10 +551,10 @@ export async function advanceRun(runId, { reply } = {}) {
       if (undelivered) {
         const error = `Step ${Number(undelivered.step) + 1} (${undelivered.subtype}) was not delivered, so there is nothing to wait for: ${undelivered.detail}`;
         console.error(`[Workflow] Run ${run.id} failed — ${error}`);
-        return prisma.workflowRun.update({
-          where: { id: run.id },
-          data: { status: 'FAILED', cursor: i, trace, variables, triggerMessage: run.triggerMessage, error, finishedAt: new Date() },
+        await persist({
+          status: 'FAILED', cursor: i, trace, variables, triggerMessage: run.triggerMessage, error, finishedAt: new Date(), resumeAt: null,
         });
+        return current();
       }
       const saveAs = variableName(node.value);
       // The options answer only this wait. Left in place, a later "How many
@@ -493,49 +574,43 @@ export async function advanceRun(runId, { reply } = {}) {
         result: 'waiting',
         at: new Date().toISOString(),
       });
-      const parked = await prisma.workflowRun.update({
-        where: { id: run.id },
-        data: { status: 'WAITING', cursor: i + 1, trace, variables, triggerMessage: run.triggerMessage },
-      });
+      // resumeAt is when the sweep must look again: the reminder, or else the
+      // reply timeout that closes the run.
+      const resumeAt = new Date(Date.now() + (remindMs > 0 ? remindMs : REPLY_TIMEOUT_MS));
+      if (!(await persist({
+        status: 'WAITING', cursor: i + 1, trace, variables, triggerMessage: run.triggerMessage, resumeAt,
+      }))) return current();
       if (remindMs > 0) {
-        // A reminder that cannot be scheduled costs the customer a nudge, not
-        // the conversation: the run keeps waiting, and the trace says why no
-        // reminder will come.
+        // A reminder that cannot be queued is not lost: resumeAt is set, and
+        // the sweep enqueues it once Redis is reachable again.
         try {
           const { enqueueReplyReminder } = await import('../queues/workflow.queue.js');
           await enqueueReplyReminder(run.id, i + 1, remindMs);
         } catch (queueErr) {
-          console.error(`[WorkflowEngine] Could not schedule the reply reminder for run ${run.id}:`, queueErr);
-          trace.push({ step: i, subtype: 'reminder', detail: `Reminder not scheduled: ${queueErr.message}`, result: 'failed', at: new Date().toISOString() });
-          return prisma.workflowRun.update({ where: { id: run.id }, data: { trace } });
+          console.error(`[WorkflowEngine] Could not schedule the reply reminder for run ${run.id} (the sweep will retry):`, queueErr.message);
         }
       }
       console.log(`[Workflow] Run ${run.id} waiting for the customer's reply at step ${i + 1}`);
-      return parked;
+      return current();
     }
 
     if (node.subtype === 'delay') {
       const ms = parseDelayMs(node.value);
       if (ms > 0) {
         trace.push({ step: i, subtype: 'delay', detail: `Waiting ${node.value}`, result: 'waiting', at: new Date().toISOString() });
-        await prisma.workflowRun.update({
-          where: { id: run.id },
-          // Resume *after* this delay node, so a re-entrant worker can't
-          // re-park on the same step and loop forever.
-          data: { status: 'WAITING', cursor: i + 1, trace, variables, triggerMessage: run.triggerMessage },
-        });
+        // Resume *after* this delay node, so a re-entrant worker can't
+        // re-park on the same step and loop forever. resumeAt is the durable
+        // copy of the schedule; the queued job is only the fast path.
+        if (!(await persist({
+          status: 'WAITING', cursor: i + 1, trace, variables, triggerMessage: run.triggerMessage, resumeAt: new Date(Date.now() + ms),
+        }))) return current();
         try {
           const { enqueueWorkflowResume } = await import('../queues/workflow.queue.js');
           await enqueueWorkflowResume(run.id, i + 1, ms);
         } catch (queueErr) {
-          console.error(`[WorkflowEngine] Failed to enqueue resume for run ${run.id}:`, queueErr);
-          trace.push({ step: i, subtype: 'delay', detail: `Queue failed: ${queueErr.message}`, result: 'failed', at: new Date().toISOString() });
-          return prisma.workflowRun.update({
-            where: { id: run.id },
-            data: { status: 'FAILED', cursor: i, trace, variables, error: queueErr.message, finishedAt: new Date() },
-          });
+          console.error(`[WorkflowEngine] Could not enqueue the resume for run ${run.id} (the sweep will resume it):`, queueErr.message);
         }
-        return prisma.workflowRun.findUnique({ where: { id: run.id } });
+        return current();
       }
       trace.push({ step: i, subtype: 'delay', detail: 'Immediate', result: 'ok', at: new Date().toISOString() });
       continue;
@@ -573,16 +648,18 @@ export async function advanceRun(runId, { reply } = {}) {
       else if (node.subtype === 'agent') outcome = await actionAgent(run, node);
       else if (node.subtype === 'buttons') outcome = await actionButtons(run, node);
       else {
-          const { runCrmAction } = await import('./workflowCrm.service.js');
-          outcome = await runCrmAction(run, node) ?? { result: 'skipped', detail: `Unknown action "${node.subtype}"` };
-        }
+        const { runCrmAction } = await import('./workflowCrm.service.js');
+        // Workflows are validated on save, so an unknown step here is a run
+        // snapshotted before validation existed; it is a failure, not a skip.
+        outcome = await runCrmAction(run, node) ?? { result: 'failed', detail: `Unknown action "${node.subtype}"` };
+      }
     } catch (err) {
       console.error(`[WorkflowEngine] step ${i} of run ${run.id} failed:`, err);
       trace.push({ step: i, subtype: node.subtype, detail: err.message, result: 'failed', at: new Date().toISOString() });
-      return prisma.workflowRun.update({
-        where: { id: run.id },
-        data: { status: 'FAILED', cursor: i, trace, variables, error: err.message, finishedAt: new Date() },
+      await persist({
+        status: 'FAILED', cursor: i, trace, variables, error: err.message, finishedAt: new Date(), resumeAt: null,
       });
+      return current();
     }
 
     const { options: offered, ...recorded } = outcome;
@@ -613,15 +690,16 @@ export async function advanceRun(runId, { reply } = {}) {
   const status = failures.length ? 'FAILED' : 'COMPLETED';
   const error = failures.length ? describeFailures(failures) : null;
   console.log(`[Workflow] Execution ${status === 'FAILED' ? 'finished with errors' : 'completed'}: ${run.id}${error ? ` — ${error}` : ''}`);
-  return prisma.workflowRun.update({
-    where: { id: run.id },
-    data: { status, cursor: actions.length, trace, variables, triggerMessage: run.triggerMessage, finishedAt: new Date(), ...(error ? { error } : {}) },
+  await persist({
+    status, cursor: actions.length, trace, variables, triggerMessage: run.triggerMessage, finishedAt: new Date(), resumeAt: null, ...(error ? { error } : {}),
   });
+  return current();
 }
 
-// Fired by the workflow worker `remindAfter` after a wait_reply parked. Sends
-// the step's reminder only if the run is still parked on that same wait: an
-// answer, a cancel, a handoff or a later wait all make it stale.
+// Fired by the workflow worker `remindAfter` after a wait_reply parked (or by
+// the recovery sweep when that job was lost). Sends the step's reminder only if
+// the run is still parked on that same wait: an answer, a cancel, a handoff or
+// a later wait all make it stale.
 export async function sendReplyReminder(runId, cursor) {
   const run = await prisma.workflowRun.findUnique({ where: { id: runId } });
   if (!run || run.status !== 'WAITING' || run.cursor !== cursor || !isAwaitingReply(run)) {
@@ -642,6 +720,22 @@ export async function sendReplyReminder(runId, cursor) {
   });
   if (!conversation?.waNumberId) return { sent: false, reason: 'Conversation has no connected number' };
 
+  // Claimed before sending: the reminder job and a sweep-enqueued copy (or a
+  // BullMQ retry) must not both nudge the customer. The claim moves resumeAt
+  // to the reply timeout, which is when the sweep next needs this run.
+  const since = Date.parse(variables[AWAIT_KEY]?.since);
+  variables[AWAIT_KEY] = { ...variables[AWAIT_KEY], reminded: true };
+  const version = (run.version ?? 0) + 1;
+  const claimed = await prisma.workflowRun.updateMany({
+    where: { id: runId, version: run.version ?? 0, status: 'WAITING', cursor },
+    data: {
+      variables,
+      version: { increment: 1 },
+      resumeAt: new Date((Number.isFinite(since) ? since : Date.now()) + REPLY_TIMEOUT_MS),
+    },
+  });
+  if (claimed.count === 0) return { sent: false, reason: 'The run changed before the reminder went out' };
+
   const body = tidy(renderTemplate(node.reminder, {
     contact: conversation.contact,
     variables,
@@ -659,19 +753,17 @@ export async function sendReplyReminder(runId, cursor) {
   // Re-read before writing: the customer may have answered while the send was
   // in flight, and that answer's advance must not be overwritten.
   const latest = await prisma.workflowRun.findUnique({ where: { id: runId } });
-  if (!latest || latest.status !== 'WAITING' || latest.cursor !== cursor) return { sent: Boolean(sent) };
+  if (!latest || latest.version !== version) return { sent: Boolean(sent) };
 
-  const latestVars = variablesOf(latest);
-  if (latestVars[AWAIT_KEY]) latestVars[AWAIT_KEY] = { ...latestVars[AWAIT_KEY], reminded: true };
   const trace = Array.isArray(latest.trace) ? [...latest.trace] : [];
   trace.push({
     step: cursor - 1,
     subtype: 'reminder',
-    detail: sent ? `Sent reminder: "${body}"` : 'Reminder could not be sent (Meta rejected it or the 24-hour window closed)',
+    detail: sent ? `Sent reminder: "${body}"` : 'Reminder could not be sent (Meta rejected it, the 24-hour window closed or the message quota ran out)',
     result: sent ? 'sent' : 'failed',
     at: new Date().toISOString(),
   });
-  await prisma.workflowRun.update({ where: { id: runId }, data: { trace, variables: latestVars } });
+  await writeClaimed(runId, version, { trace });
   console.log(`[Workflow] Reply reminder for run ${runId}: ${sent ? 'sent' : 'not sent'}`);
   return { sent: Boolean(sent) };
 }
@@ -764,15 +856,45 @@ export async function resumeAwaitingRun(workspaceId, conversationId, reply) {
   return advanceRun(run.id, { reply: String(reply ?? '') });
 }
 
+// Ends a run that will not continue (reply timeout, superseded by a newer
+// wait). Conditional on the version read, so a pass that claimed the run in the
+// meantime is not overwritten.
 async function closeRun(run, reason) {
   const trace = Array.isArray(run.trace) ? [...run.trace] : [];
   trace.push({ step: run.cursor, subtype: 'cancelled', detail: reason, result: 'cancelled', at: new Date().toISOString() });
   const variables = variablesOf(run);
   delete variables[AWAIT_KEY];
-  await prisma.workflowRun.update({
-    where: { id: run.id },
-    data: { status: 'COMPLETED', trace, variables, finishedAt: new Date() },
-  }).catch((err) => console.error(`[WorkflowEngine] Could not close run ${run.id}:`, err.message));
+  try {
+    const res = await prisma.workflowRun.updateMany({
+      where: { id: run.id, version: run.version ?? 0, status: { in: ACTIVE_STATUSES } },
+      data: { status: 'COMPLETED', trace, variables, finishedAt: new Date(), resumeAt: null, version: { increment: 1 } },
+    });
+    return res.count > 0;
+  } catch (err) {
+    console.error(`[WorkflowEngine] Could not close run ${run.id}:`, err.message);
+    return false;
+  }
+}
+
+// Marks runs CANCELLED. Unconditional on the version — a cancel must win — but
+// it bumps the version, so a pass that is mid-flight fails its next write and
+// stops instead of resurrecting the run.
+async function cancelRuns(runs, reason) {
+  let cancelled = 0;
+  await Promise.all(runs.map(async (run) => {
+    const trace = Array.isArray(run.trace) ? [...run.trace] : [];
+    trace.push({ step: run.cursor, subtype: 'cancelled', detail: reason, result: 'cancelled', at: new Date().toISOString() });
+    try {
+      const res = await prisma.workflowRun.updateMany({
+        where: { id: run.id, status: { in: ACTIVE_STATUSES } },
+        data: { status: 'CANCELLED', trace, finishedAt: new Date(), resumeAt: null, version: { increment: 1 } },
+      });
+      cancelled += res.count;
+    } catch (err) {
+      console.error(`[WorkflowEngine] Could not cancel run ${run.id}:`, err.message);
+    }
+  }));
+  return cancelled;
 }
 
 // Stops every in-flight run on a conversation.
@@ -780,29 +902,104 @@ async function closeRun(run, reason) {
 // A customer who types "cancel" or "bye" mid-flow must actually leave it
 // (QA BUG-02). Runs parked on a delay would otherwise wake up later and carry
 // on messaging someone who has already said they are done.
-//
-// Recorded as COMPLETED with a `cancelled` trace entry rather than a new status
-// value: WorkflowRunStatus has no CANCELLED member, and adding one would need a
-// schema migration to deploy before this fix could ship.
 export async function cancelActiveRuns(workspaceId, conversationId, reason = 'Cancelled by the customer') {
   if (!conversationId) return 0;
 
   const runs = await prisma.workflowRun.findMany({
-    where: { workspaceId, conversationId, status: { in: ['RUNNING', 'WAITING'] } },
+    where: { workspaceId, conversationId, status: { in: ACTIVE_STATUSES } },
   });
   if (runs.length === 0) return 0;
 
-  await Promise.all(runs.map((run) => {
-    const trace = Array.isArray(run.trace) ? [...run.trace] : [];
-    trace.push({ step: run.cursor, subtype: 'cancelled', detail: reason, result: 'cancelled', at: new Date().toISOString() });
-    return prisma.workflowRun.update({
-      where: { id: run.id },
-      data: { status: 'COMPLETED', trace, finishedAt: new Date() },
-    }).catch((err) => console.error(`[WorkflowEngine] Could not cancel run ${run.id}:`, err.message));
-  }));
-
+  await cancelRuns(runs, reason);
   console.log(`[WorkflowEngine] Cancelled ${runs.length} run(s) on conversation ${conversationId} — ${reason}`);
   return runs.length;
+}
+
+// Stops every in-flight run of one workflow. Called when the workflow is
+// deactivated: switching it off must also stop the runs already parked on a
+// delay or a question, not just prevent new ones.
+export async function cancelRunsForWorkflow(workspaceId, workflowId, reason = 'The workflow was deactivated') {
+  const runs = await prisma.workflowRun.findMany({
+    where: { workspaceId, workflowId, status: { in: ACTIVE_STATUSES } },
+  });
+  if (runs.length === 0) return 0;
+  const cancelled = await cancelRuns(runs, reason);
+  console.log(`[WorkflowEngine] Cancelled ${cancelled} run(s) of workflow ${workflowId} — ${reason}`);
+  return cancelled;
+}
+
+// Recovery sweep, run every minute by the workflow worker. Every parked or
+// executing run records in `resumeAt` when the engine must next look at it;
+// this finds the overdue ones and puts them back on the queue, so a delay,
+// reminder or crashed pass is delayed by a Redis restart rather than lost.
+//
+// - a run waiting on a delay, or RUNNING with an expired lease, is resumed;
+// - a run waiting for a reply gets its reminder if one is still owed, and is
+//   closed once the 24-hour reply timeout has passed (the overall run TTL).
+//
+// The queue helpers are injected so the sweep is testable without Redis.
+export async function sweepDueRuns({ now = new Date(), limit = 100, enqueueResume, enqueueReminder } = {}) {
+  if (!enqueueResume || !enqueueReminder) {
+    const queue = await import('../queues/workflow.queue.js');
+    enqueueResume ??= queue.enqueueWorkflowResume;
+    enqueueReminder ??= queue.enqueueReplyReminder;
+  }
+
+  const due = await prisma.workflowRun.findMany({
+    where: { status: { in: ACTIVE_STATUSES }, resumeAt: { lte: now } },
+    orderBy: { resumeAt: 'asc' },
+    take: limit,
+  });
+
+  const summary = { resumed: 0, reminded: 0, expired: 0 };
+  for (const run of due) {
+    // A parked run has resumeAt pushed out first (conditional on nothing having
+    // changed), so one whose resume keeps failing is retried every few minutes
+    // and two overlapping sweeps do not both enqueue it. A RUNNING run is left
+    // as is: its expired lease is exactly what lets the resume claim it.
+    if (run.status === 'WAITING') {
+      const bumped = await prisma.workflowRun.updateMany({
+        where: { id: run.id, version: run.version ?? 0, status: 'WAITING', resumeAt: run.resumeAt },
+        data: { resumeAt: new Date(now.getTime() + SWEEP_BACKOFF_MS) },
+      });
+      if (bumped.count === 0) continue;
+    }
+
+    try {
+      if (run.status === 'WAITING' && isAwaitingReply(run)) {
+        const awaiting = variablesOf(run)[AWAIT_KEY];
+        const since = Date.parse(awaiting?.since);
+        if (!Number.isFinite(since) || now.getTime() - since > REPLY_TIMEOUT_MS) {
+          if (await closeRun(run, 'No reply within 24 hours')) summary.expired += 1;
+          continue;
+        }
+        const node = actionsOf(run.nodes)[run.cursor - 1];
+        const owesReminder = node?.subtype === 'wait_reply' && node.reminder
+          && parseDelayMs(node.remindAfter) > 0 && !awaiting.reminded;
+        if (owesReminder) {
+          await enqueueReminder(run.id, run.cursor, 0);
+          summary.reminded += 1;
+        } else {
+          // Nothing to do until the reply timeout.
+          await prisma.workflowRun.updateMany({
+            where: { id: run.id, version: run.version ?? 0, status: 'WAITING' },
+            data: { resumeAt: new Date(since + REPLY_TIMEOUT_MS) },
+          });
+        }
+        continue;
+      }
+
+      await enqueueResume(run.id, run.cursor, 0);
+      summary.resumed += 1;
+    } catch (err) {
+      console.error(`[WorkflowEngine] Sweep could not requeue run ${run.id}:`, err.message);
+    }
+  }
+
+  if (due.length) {
+    console.log(`[WorkflowEngine] Sweep: ${due.length} overdue run(s) — ${summary.resumed} resumed, ${summary.reminded} reminder(s), ${summary.expired} expired`);
+  }
+  return { due: due.length, ...summary };
 }
 
 // True if a run parked on a delay is still due to send something. Used to decide

@@ -1,31 +1,16 @@
-import { llmJson, llmAvailable } from '../lib/llm.js';
-import { prisma } from '../lib/prisma.js';
-
-// "Describe an automation" → a real, runnable workflow.
+// What a workflow graph may contain, and the check that enforces it.
 //
-// The second half of the Copilot spec. A person types what they want in
-// English; this turns it into the node graph the existing engine already
-// executes. No new engine, no parallel concept — the output is exactly what the
-// visual builder produces, so a compiled workflow can be opened and edited
-// there like any other.
+// The engine reads `node.subtype` and used to silently skip anything it did
+// not recognise, so an invented subtype (from an API client or an AI draft)
+// produced a workflow that saved, showed up in the list, and never fired — the
+// worst possible failure, because it looks like it works. validateGraph() runs
+// on every workflow create/update (validators/index.js) and refuses rather
+// than guesses.
 //
-// ── Why the validator is the important part ─────────────────────────────────
-//
-// `workflowSchemas.create` declares `nodes: z.any()`. Nothing downstream checks
-// the graph: the engine reads `node.subtype` and silently does nothing when it
-// does not recognise one. So a model that invents `subtype: "send_email"`
-// produces a workflow that saves fine, shows up in the list, and never fires —
-// the worst possible failure, because it looks like it works.
-//
-// Everything below therefore validates against the vocabulary the engine
-// actually implements, and refuses rather than guesses.
-//
-// ── Why compiled workflows are drafts ───────────────────────────────────────
-//
-// A workflow is a standing instruction that messages customers. Activating one
-// straight from a sentence would be the same mistake as letting the copilot
-// write: the person has to see the steps first. `isActive: false` is not
-// negotiable here, and the caller cannot override it.
+// This module used to also hold a second, LLM-driven "compile" generator
+// behind POST /workflows/compile. Nothing called it; the builder's
+// "Create with AI" uses generateWorkflowPreview (automation.service.js), so
+// that is now the one generator, and drafts it produces are saved inactive.
 
 // The engine's real vocabulary, read from workflowEngine.service.js and
 // workflowCrm.service.js. Kept here as one table because "what can a workflow
@@ -74,7 +59,7 @@ const DEAL_STAGES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION
 const DELAY_RE = /^\s*\d+(\.\d+)?\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\s*$/i;
 
 // The engine's own limit (workflowEngine.service.js), counting conditions.
-const MAX_ACTIONS = 20;
+export const MAX_ACTIONS = 20;
 
 const fail = (message, status = 400) => {
   const e = new Error(message);
@@ -147,7 +132,8 @@ export function validateGraph(raw) {
     if (node.subtype === 'lead_status' && !LEAD_STATUSES.includes(String(node.value).toUpperCase())) {
       fail(`Step ${i + 1}: "${node.value}" is not a lead status. One of: ${LEAD_STATUSES.join(', ')}.`);
     }
-    if (node.subtype === 'buttons' && String(node.value).split('|').map((p) => p.trim()).filter(Boolean).length < 2) {
+    if (node.subtype === 'buttons' && !(Array.isArray(node.options) && node.options.length > 0)
+      && String(node.value).split('|').map((p) => p.trim()).filter(Boolean).length < 2) {
       fail(`Step ${i + 1}: buttons are written as "Question | Option A | Option B".`);
     }
   });
@@ -197,75 +183,4 @@ export function describeGraph(nodes) {
     : ACTIONS[a.subtype]?.describe(a.value) ?? a.subtype));
   return `When ${when}, ${steps.join(', then ')}.`;
 }
-
-const SYSTEM = `You turn a description of an automation into a node graph for ChatFlow Pro.
-
-Reply with ONE JSON object, nothing else:
-{"name": "<short name>", "nodes": [ {"type":"trigger","subtype":"...","value":"..."}, {"type":"action","subtype":"...","value":"..."} ]}
-
-Exactly one trigger, then the steps in order. The steps run top to bottom in
-a WhatsApp chat with one customer.
-
-Triggers: ${Object.keys(TRIGGERS).join(', ')}
-Actions:  ${Object.keys(ACTIONS).join(', ')}
-Conditions: {"type":"condition","subtype":"<${Object.keys(CONDITIONS).join('|')}>","value":"...","skipIfFalse":N}
-  — checks the latest customer message (after wait_reply, that is their reply);
-  when false the next N steps are skipped.
-
-Rules:
-- Use ONLY those subtypes. If the request needs something not listed, reply
-  {"error": "<what cannot be done>"} instead of substituting something close.
-- delay values look like "30 minutes", "2 hours", "1 day".
-- keyword values may list alternatives separated by commas: "ORDER, TRACK".
-- buttons values look like "Question? | Option A | Option B" (max 3 options of
-  at most 20 characters). Follow a question or buttons with wait_reply before
-  acting on the answer; wait_reply's optional value names a variable, used
-  later as {{name}}. Branch on a choice with one "equals" condition per option.
-- agent hands the chat to a person; nothing automated runs after it.
-- lead_status values are one of ${LEAD_STATUSES.join(', ')}.
-- deal_stage values are one of ${DEAL_STAGES.join(', ')}.
-- Do not invent a trigger the user did not describe.`;
-
-/**
- * Compiles a description into a draft workflow.
- *
- * Returns { workflow, summary, warnings }. The workflow is saved inactive; a
- * person activates it after reading the summary.
- */
-export async function compile(workspaceId, description, { name } = {}) {
-  const text = String(description ?? '').trim();
-  if (!text) fail('Describe the automation you want.');
-
-  if (!llmAvailable()) {
-    fail('The assistant is not configured, so automations cannot be written from a description. Build it in the workflow editor instead.', 503);
-  }
-
-  const reply = await llmJson(text, SYSTEM);
-  if (!reply || typeof reply !== 'object') {
-    fail('The assistant did not respond. Try again, or build it in the workflow editor.', 503);
-  }
-
-  // The model refusing is a real answer — surfaced as-is rather than retried
-  // into something that merely looks close.
-  if (typeof reply.error === 'string' && reply.error.trim()) {
-    fail(`That cannot be built from the available steps: ${reply.error.trim()}`);
-  }
-
-  const { nodes, warnings } = validateGraph(reply.nodes);
-
-  const workflow = await prisma.workflow.create({
-    data: {
-      workspaceId,
-      name: String(name || reply.name || 'Untitled automation').slice(0, 120),
-      nodes,
-      edges: [],
-      // Non-negotiable. A workflow messages customers; it does not start
-      // running because someone described it.
-      isActive: false,
-    },
-  });
-
-  return { workflow, summary: describeGraph(nodes), warnings };
-}
-
-export const __testing = { MAX_ACTIONS, SYSTEM };
+export const __testing = { MAX_ACTIONS };
