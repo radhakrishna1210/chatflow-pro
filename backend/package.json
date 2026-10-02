@@ -11,6 +11,8 @@
     "dev": "node --env-file=.env --watch src/server.js",
     "prestart": "node scripts/ensure-prisma-client.js",
     "start": "node src/server.js",
+    "prestart:worker": "node scripts/ensure-prisma-client.js",
+    "start:worker": "node src/worker.js",
     "test": "node --import ./tests/setup.mjs --experimental-test-module-mocks --test \"src/**/*.test.js\"",
     "postinstall": "node scripts/ensure-prisma-client.js && node scripts/render-build.js",
     "prestart:prod": "node scripts/ensure-prisma-client.js",

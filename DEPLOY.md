@@ -175,6 +175,22 @@ the owner's `REDIS_URL`, otherwise the jobs the other stack enqueues (campaign
 launches, invite e-mails, workflow resumes) land in a Redis no worker reads.
 Simplest of all is to retire one of the stacks.
 
+**Workers can run in their own process.** By default `npm run start:prod` runs
+the API and all six BullMQ workers in one process. To split them, add a second
+service (a Render *Background Worker* with the same build and env, or a second
+PM2 app) whose start command is `npm run start:worker` (`src/worker.js`: same
+boot, no HTTP listener), and set `RUN_WORKERS=false` on the web service. Keep
+the same `REDIS_URL` on both.
+
+**Database pool size (`DATABASE_POOL_SIZE`, default 5).** Every process opens
+its own Prisma pool of this many connections (an explicit `connection_limit` in
+`DATABASE_URL` takes precedence). The sum over all processes on the database —
+web, worker, the other deployment, migrations — must stay below the database's
+cap; with Supabase's session-mode pooler that is the project's pool size (15 on
+the smallest compute). Raise it (10–15) once only one stack uses the database or
+the workers have their own process; P2024 "Timed out fetching a new connection"
+in the logs means it is too small.
+
 **Don't put the queues back on a per-request-billed Redis.** This deploy ran on
 Upstash first and its 500K/month cap was exhausted (`ERR max requests limit
 exceeded`), which stopped campaigns, emails, and the billing sweep while the API

@@ -89,6 +89,9 @@ const envSchema = z.object({
   // database must agree on exactly one owner, or scheduled campaigns, renewals
   // and agent ticks run once per deployment (DEPLOY.md, "One worker owner").
   RUN_WORKERS: z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1'),
+  // Set to false by src/worker.js (`npm run start:worker`): background work
+  // only, no HTTP listener, so workers can run in their own process.
+  SERVE_HTTP: z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1'),
 
   CAMPAIGN_BATCH_SIZE: z.coerce.number().default(50),
   CAMPAIGN_WORKER_CONCURRENCY: z.coerce.number().default(2),

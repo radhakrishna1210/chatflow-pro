@@ -163,6 +163,9 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `EMAIL_FROM_NAME` | no | `Spandan` | |
 | `EMAIL_FROM` | no | — | |
 | `APP_URL` | **yes** in production | `http://localhost:{PORT}` | Backend's own public URL, used to derive default OAuth/webhook callback URLs |
+| `RUN_WORKERS` | no | `true` | Whether this process runs BullMQ workers, schedules, boot recovery/backfill and the billing sweep. Exactly one process per database should (see DEPLOY.md) |
+| `DATABASE_POOL_SIZE` | no | `5` | Prisma connections per process (ignored when `DATABASE_URL` already sets `connection_limit`) |
+| `PRISMA_PG_ADAPTER` | no | — | `1` uses the `pg` driver adapter instead of Prisma's native engine (sandboxed CI) |
 
 ---
 

@@ -233,6 +233,10 @@ async function main() {
     console.error('[Server] NODE_ENV is not set — refusing to start. Use NODE_ENV=production on servers, development locally.');
     process.exit(1);
   }
+  if (!env.SERVE_HTTP && !env.RUN_WORKERS) {
+    console.error('[Worker] RUN_WORKERS=false in a worker-only process — nothing to run, exiting.');
+    process.exit(1);
+  }
 
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -287,10 +291,14 @@ async function main() {
   // boot (backfill, Redis, workers, recovery, sweeps) can take a while, and a
   // dark port made deploy health checks time out on a healthy release;
   // /health/ready answers 503 until markReady() below.
-  httpServer = app.listen(env.PORT, () => {
-    console.log(`[Server] Spandan backend running on port ${env.PORT}`);
-    console.log(`[Server] Environment: ${env.NODE_ENV}`);
-  });
+  if (env.SERVE_HTTP) {
+    httpServer = app.listen(env.PORT, () => {
+      console.log(`[Server] Spandan backend running on port ${env.PORT}`);
+      console.log(`[Server] Environment: ${env.NODE_ENV}`);
+    });
+  } else {
+    console.log(`[Worker] Worker-only process (no HTTP). Environment: ${env.NODE_ENV}`);
+  }
 
   // The plan upsert and subscription backfill write to the shared database,
   // so only the process that owns background work runs them.
