@@ -501,9 +501,10 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
             body: JSON.stringify({
               name: slug, category, language, components,
               ...(waNumberId ? { waNumberId } : {}),
-              // Binds the stored bytes to the template so campaign sends can
-              // re-upload the picture — Meta's review handle cannot be sent.
-              ...(templateType === 'STANDARD' && headerKind === 'IMAGE' && media?.assetId ? { headerAssetId: media.assetId } : {}),
+              // Binds the stored bytes to the template so sends can re-upload
+              // the header media (image, video or PDF) — Meta's review handle
+              // cannot be sent.
+              ...(templateType === 'STANDARD' && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerKind) && media?.assetId ? { headerAssetId: media.assetId } : {}),
             }),
           });
       const data = await res.json();

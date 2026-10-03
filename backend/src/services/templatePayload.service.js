@@ -32,7 +32,7 @@ import {
   catalogButton,
   carouselCards,
 } from '../lib/templateParams.js';
-import { headerImageComponent, carouselComponent } from './templateImage.service.js';
+import { headerMediaComponent, carouselComponent } from './templateImage.service.js';
 
 const invalid = (message) => {
   const e = new Error(message);
@@ -196,8 +196,10 @@ export async function buildTemplateSendPayload(template, {
     const button = buildCatalogButtonComponent(components);
     if (button) parts.push(button);
   } else {
-    // STANDARD — unchanged from what has always worked.
-    const header = await headerImageComponent(template, { phoneNumberId, accessToken, workspaceId });
+    // STANDARD. The header is built for image, video and document media
+    // alike; it used to be image-only, so every video/document-header send
+    // was rejected by Meta.
+    const header = await headerMediaComponent(template, { phoneNumberId, accessToken, workspaceId });
     if (header) parts.push(header);
     if (templateHasVariables(components)) parts.push(...buildTextComponents(components, resolve));
     parts.push(...buildButtonComponents(components));

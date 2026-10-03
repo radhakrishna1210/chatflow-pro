@@ -10,6 +10,8 @@ const assets = new Map([
   ['asset_a1', { id: 'asset_a1', workspaceId: 'ws_a', mimeType: 'image/png', bytes: Buffer.from('a1') }],
   ['asset_a2', { id: 'asset_a2', workspaceId: 'ws_a', mimeType: 'image/png', bytes: Buffer.from('a2') }],
   ['asset_b1', { id: 'asset_b1', workspaceId: 'ws_b', mimeType: 'image/png', bytes: Buffer.from('b1') }],
+  ['asset_v1', { id: 'asset_v1', workspaceId: 'ws_a', mimeType: 'video/mp4', bytes: Buffer.from('v1') }],
+  ['asset_d1', { id: 'asset_d1', workspaceId: 'ws_a', mimeType: 'application/pdf', bytes: Buffer.from('d1') }],
 ]);
 const uploads = [];
 const cacheWrites = [];
@@ -34,7 +36,7 @@ mock.module('../lib/meta.js', {
   },
 });
 
-const { resolveTemplateAsset, assertCardAssetsOwned, carouselComponent, headerImageComponent } = await import('./templateImage.service.js');
+const { resolveTemplateAsset, assertCardAssetsOwned, carouselComponent, headerImageComponent, headerMediaComponent } = await import('./templateImage.service.js');
 const { buildTemplateSendPayload } = await import('./templatePayload.service.js');
 
 const card = (assetId) => ({
@@ -134,4 +136,50 @@ test('assertCardAssetsOwned refuses a foreign card asset at save and names the c
     (e) => e.status === 400 && e.code === 'TEMPLATE_MEDIA_UNAVAILABLE' && /card 3/.test(e.message),
   );
   await assert.doesNotReject(() => assertCardAssetsOwned('ws_a', [{ type: 'BODY', text: 'no carousel' }]));
+});
+
+// WF-EN-19: VIDEO and DOCUMENT header templates could be created, but every
+// send built an IMAGE header (or none), so Meta rejected them all.
+const mediaTemplate = (format, headerAssetId) => ({
+  id: `tpl_${format}`,
+  workspaceId: 'ws_a',
+  name: `promo_${format.toLowerCase()}`,
+  language: 'en',
+  headerAssetId,
+  components: [{ type: 'HEADER', format }, { type: 'BODY', text: 'Hi' }],
+});
+
+test('a VIDEO header is sent as a video parameter from the stored asset', async () => {
+  uploads.length = 0;
+  const header = await headerMediaComponent(mediaTemplate('VIDEO', 'asset_v1'), send);
+  assert.deepEqual(header, { type: 'header', parameters: [{ type: 'video', video: { id: 'media_header_asset_v1' } }] });
+  assert.deepEqual(uploads, ['header_asset_v1']);
+});
+
+test('a DOCUMENT header is sent as a document parameter with a file name', async () => {
+  const header = await headerMediaComponent(mediaTemplate('DOCUMENT', 'asset_d1'), send);
+  assert.deepEqual(header, {
+    type: 'header',
+    parameters: [{ type: 'document', document: { id: 'media_header_asset_d1', filename: 'promo_document.pdf' } }],
+  });
+});
+
+test('a media header with nothing stored and no sample to recover fails clearly, naming the kind', async () => {
+  const { err } = await quietly(() => headerMediaComponent(mediaTemplate('VIDEO', null), send));
+  assert.equal(err?.status, 422);
+  assert.equal(err?.code, 'TEMPLATE_MEDIA_UNAVAILABLE');
+  assert.match(err.message, /video header but no stored video/);
+});
+
+test('buildTemplateSendPayload puts the video header on a standard template send', async () => {
+  const payload = await buildTemplateSendPayload(mediaTemplate('VIDEO', 'asset_v1'), { ...send, workspaceId: 'ws_a' });
+  assert.equal(payload.components[0].type, 'header');
+  assert.equal(payload.components[0].parameters[0].type, 'video');
+  // The old name still builds image headers.
+  assert.equal(headerImageComponent, headerMediaComponent);
+});
+
+test('a TEXT header or no header adds no media parameter', async () => {
+  assert.equal(await headerMediaComponent({ ...mediaTemplate('TEXT', null), components: [{ type: 'HEADER', format: 'TEXT', text: 'Hello' }] }, send), null);
+  assert.equal(await headerMediaComponent({ ...mediaTemplate('VIDEO', null), components: [{ type: 'BODY', text: 'x' }] }, send), null);
 });
