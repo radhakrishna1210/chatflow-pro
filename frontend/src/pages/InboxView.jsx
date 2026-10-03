@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch } from '../lib/api.js';
+import { wFetch, wDownload } from '../lib/api.js';
 import ContactDetailsPanel from '../components/ContactDetailsPanel.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
@@ -12,6 +12,8 @@ const labelCfg = {
   urgent:   { bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.22)',   c:'#f87171' },
   resolved: { bg:'var(--gbg)',            bd:'var(--gbd)',            c:'var(--green)' },
   billing:  { bg:'rgba(245,158,11,.08)', bd:'rgba(245,158,11,.22)', c:'#fbbf24' },
+  // The channel tag on an Instagram thread.
+  Instagram: { bg:'rgba(225,48,108,.08)', bd:'rgba(225,48,108,.25)', c:'#f472b6' },
 };
 
 
@@ -140,6 +142,57 @@ const ThreadContext = ({ context, onHandBackToAI, busy }) => {
 const MEDIA_ICON = {
   IMAGE: 'eye', VIDEO: 'play', AUDIO: 'phone', DOCUMENT: 'file',
   STICKER: 'sparkl', LOCATION: 'globe', CONTACTS: 'user', UNSUPPORTED: 'alertt',
+};
+
+// The file behind a media message, loaded on demand. Every API route needs the
+// bearer token, so the bytes come down through wFetch as a blob rather than as
+// an <img src> to the API. Photos, voice notes and videos play in place;
+// anything else is saved.
+const MEDIA_TYPES_WITH_FILE = new Set(['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT', 'STICKER']);
+const MediaAttachment = ({ conversationId, message }) => {
+  const [url, setUrl] = useState(null);
+  const [state, setState] = useState('idle'); // idle | loading | error
+  const [error, setError] = useState(null);
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  if (!MEDIA_TYPES_WITH_FILE.has(message.type) || (!message.mediaId && !message.mediaStorageKey)) return null;
+  const path = `/conversations/${conversationId}/messages/${message.id}/media`;
+
+  if (message.type === 'DOCUMENT') {
+    return (
+      <button onClick={() => wDownload(path, message.mediaFilename || 'document').catch(e => notify(e.message, 'error'))}
+        style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--green)', fontSize:11, fontWeight:600 }}>
+        Download
+      </button>
+    );
+  }
+  const load = async () => {
+    setState('loading');
+    try {
+      const res = await wFetch(path);
+      if (!res.ok) {
+        let msg = `Could not load (${res.status})`;
+        try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* not JSON */ }
+        throw new Error(msg);
+      }
+      setUrl(URL.createObjectURL(await res.blob()));
+      setState('idle');
+    } catch (e) {
+      setError(e.message);
+      setState('error');
+    }
+  };
+  if (url) {
+    if (message.type === 'AUDIO') return <audio controls src={url} style={{ width:'100%', maxWidth:260, marginBottom:4 }} />;
+    if (message.type === 'VIDEO') return <video controls src={url} style={{ width:'100%', maxWidth:260, borderRadius:8, marginBottom:4 }} />;
+    return <img src={url} alt={message.mediaFilename || 'Attachment'} style={{ maxWidth:'100%', maxHeight:240, borderRadius:8, marginBottom:4, display:'block' }} />;
+  }
+  return (
+    <button onClick={load} disabled={state === 'loading'} title={error || undefined}
+      style={{ background:'none', border:'none', padding:0, cursor:'pointer', color: state === 'error' ? '#f87171' : 'var(--green)', fontSize:11, fontWeight:600 }}>
+      {state === 'loading' ? 'Loading…' : state === 'error' ? 'Unavailable' : message.type === 'AUDIO' ? 'Play' : 'View'}
+    </button>
+  );
 };
 
 // Delivery state for an outbound message, mirrored from Meta's status webhook.
@@ -595,6 +648,8 @@ export default function InboxView() {
   const active = convs.find(c => c.id === activeId);
   const activeMsgs = msgs[activeId] || [];
   const activeWindow = windowState[activeId] || null;
+  // Instagram threads take text replies only — no templates, no attachments.
+  const isInstagram = active?.channel === 'INSTAGRAM';
   const isBot = activeId ? botState[activeId] !== false : false;
 
   return (
@@ -667,9 +722,10 @@ export default function InboxView() {
                         <span style={{ fontSize:10, color:'var(--t2)', flexShrink:0 }}>{fmtTime(c.lastMessageAt)}</span>
                       </div>
                       <p style={{ fontSize:12, color:'var(--t2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginBottom:5 }}>
-                        {lastMsg?.body || c.messages?.[0]?.body || c.contact?.phoneNumber}
+                        {lastMsg?.body || c.messages?.[0]?.body || (c.channel === 'INSTAGRAM' ? 'Instagram' : c.contact?.phoneNumber)}
                       </p>
                       <div style={{ display:'flex', gap:5, alignItems:'center', flexWrap:'wrap' }}>
+                        {c.channel === 'INSTAGRAM' && <LabelBadge label="Instagram" />}
                         <LabelBadge label={c.label} />
                         {/* Who has this thread, in the same place the design
                             set puts its AI / HUMAN / RESOLVED tag. */}
@@ -738,7 +794,9 @@ export default function InboxView() {
                   <div style={{ display:'flex', alignItems:'center', gap:5, minWidth:0 }}>
                     {!mobile && <I n="phone" s={10} c="var(--t2)" />}
                     <p style={{ fontSize:11, color: mobile ? 'rgba(255,255,255,0.85)' : 'var(--t2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                      {mobile && isBot ? 'Spandan AI active' : active.contact.phoneNumber}
+                      {mobile && isBot ? 'Spandan AI active'
+                        : isInstagram ? `Instagram${active.contact.instagramUsername ? ` · @${active.contact.instagramUsername}` : ''}`
+                        : active.contact.phoneNumber}
                     </p>
                   </div>
                 </div>
@@ -847,6 +905,12 @@ export default function InboxView() {
                                 {m.type === 'LOCATION' && m.locationLat != null
                                   ? `${m.locationLat.toFixed(4)}, ${m.locationLng.toFixed(4)}`
                                   : (m.mediaFilename || m.type.toLowerCase())}
+                                {/* The body below is a machine transcript of
+                                    the voice note, not something they typed. */}
+                                {m.transcript ? ' · transcribed' : ''}
+                              </span>
+                              <span style={{ marginLeft:'auto' }}>
+                                <MediaAttachment conversationId={active.id} message={m} />
                               </span>
                             </div>
                           )}
@@ -899,14 +963,14 @@ export default function InboxView() {
                       {/* The way through the closed window. Telling someone to
                           send a template while offering no way to send one is
                           not a workable instruction. */}
-                      <button onClick={() => setTemplatePickerOpen(o => !o)}
+                      {!isInstagram && <button onClick={() => setTemplatePickerOpen(o => !o)}
                         style={{ marginLeft:'auto', padding:'4px 10px', borderRadius:6, fontSize:11.5, fontWeight:600,
                                  cursor:'pointer', background:'rgba(245,158,11,.12)', border:'1px solid rgba(245,158,11,.35)',
                                  color:'#fbbf24', fontFamily:"'Manrope',sans-serif" }}>
                         {templatePickerOpen ? 'Close' : 'Send a template'}
-                      </button>
+                      </button>}
                     </div>
-                    {templatePickerOpen && (
+                    {templatePickerOpen && !isInstagram && (
                       <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6, maxHeight:180, overflowY:'auto' }}>
                         {templates.length === 0 && (
                           <span style={{ fontSize:11.5, color:'var(--t3)' }}>
@@ -940,7 +1004,7 @@ export default function InboxView() {
                   <input ref={fileInputRef} type="file" hidden
                     accept="image/jpeg,image/png,video/mp4,audio/mpeg,audio/ogg,application/pdf"
                     onChange={e => sendFile(e.target.files?.[0])} />
-                  <button
+                  {!isInstagram && <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={attaching || sending || (activeWindow ? !activeWindow.open : false)}
                     title={activeWindow && !activeWindow.open ? 'Reply window closed' : 'Attach a photo, video or PDF'}
@@ -951,9 +1015,11 @@ export default function InboxView() {
                              opacity: (attaching || (activeWindow && !activeWindow.open)) ? 0.5 : 1,
                              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <I n={attaching ? 'rotate' : 'plus'} s={15} c="var(--t2)" />
-                  </button>
+                  </button>}
                   <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-                    placeholder={activeWindow && !activeWindow.open ? 'Reply window closed — send an approved template' : 'Type a message…'}
+                    placeholder={activeWindow && !activeWindow.open
+                      ? (isInstagram ? 'Reply window closed — wait for the customer to write again' : 'Reply window closed — send an approved template')
+                      : 'Type a message…'}
                     disabled={sending || (activeWindow ? !activeWindow.open : false)}
                     style={{ flex:1, padding:'10px 14px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', transition:'border .15s', opacity: sending ? 0.6 : 1 }}
                     onFocus={e => e.target.style.borderColor='var(--gbd)'}

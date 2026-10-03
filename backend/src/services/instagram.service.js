@@ -2,14 +2,21 @@ import axios from 'axios';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { encrypt, decrypt } from '../lib/encryption.js';
+import { handleInstagramMessage } from './instagramInbox.service.js';
 import { keywordMatches } from './automation.service.js';
+import { getWindowState } from './messagingWindow.js';
+import { consumeMessageCredit, releaseMessageCredit } from './subscription.service.js';
 
 // Instagram Quickflows used to be a static empty state: the "New IG Flow"
 // button had no handler, the client ID was hardcoded in the frontend, and the
 // OAuth callback threw the code away with a "real implementation would…"
 // comment. This is that implementation.
 
-const GRAPH = 'https://graph.facebook.com';
+// A token from Instagram Business Login (api.instagram.com/oauth) is an
+// Instagram User token, which graph.facebook.com does not accept — sends and
+// comment replies were posted there and could only fail. Everything after the
+// OAuth exchange goes to graph.instagram.com.
+const IG_GRAPH = 'https://graph.instagram.com';
 const IG_OAUTH_TOKEN_URL = 'https://api.instagram.com/oauth/access_token';
 
 // Instagram Business Login needs the *Instagram* app id and secret — the pair
@@ -101,11 +108,16 @@ export async function completeOAuth(workspaceId, code, redirectUri) {
   const accessToken = long.access_token || shortToken;
 
   let username = null;
+  let accountId = igUserId;
   try {
     const { data: profile } = await axios.get('https://graph.instagram.com/me', {
-      params: { fields: 'id,username', access_token: accessToken },
+      params: { fields: 'id,username,user_id', access_token: accessToken },
     });
     username = profile.username || null;
+    // `user_id` is the professional account id — the `entry.id` webhooks are
+    // addressed to. The token exchange's user_id is app-scoped and is only a
+    // fallback.
+    if (profile.user_id) accountId = String(profile.user_id);
   } catch (err) {
     console.warn('[Instagram] Could not read profile:', err.response?.data || err.message);
   }
@@ -113,7 +125,7 @@ export async function completeOAuth(workspaceId, code, redirectUri) {
   return prisma.workspace.update({
     where: { id: workspaceId },
     data: {
-      instagramUserId: igUserId,
+      instagramUserId: accountId,
       instagramUsername: username,
       instagramAccessToken: encrypt(accessToken),
       instagramConnectedAt: new Date(),
@@ -202,13 +214,20 @@ async function tokenFor(workspaceId) {
   return { token: decrypt(ws.instagramAccessToken), igUserId: ws.instagramUserId };
 }
 
-export async function sendDm(workspaceId, recipientId, text) {
+// Instagram's quick replies: up to 13, titles of at most 20 characters. The
+// tap comes back as an ordinary message whose text is the title.
+export const IG_QUICK_REPLY_LIMITS = { count: 13, titleChars: 20 };
+
+export async function sendDm(workspaceId, recipientId, text, { quickReplies = [] } = {}) {
   const auth = await tokenFor(workspaceId);
   if (!auth) return null;
+  const replies = quickReplies.slice(0, IG_QUICK_REPLY_LIMITS.count)
+    .map((t) => String(t).slice(0, IG_QUICK_REPLY_LIMITS.titleChars))
+    .map((title) => ({ content_type: 'text', title, payload: title }));
   const { data } = await axios.post(
-    `${GRAPH}/${env.META_API_VERSION}/${auth.igUserId}/messages`,
-    { recipient: { id: recipientId }, message: { text } },
-    { params: { access_token: auth.token } },
+    `${IG_GRAPH}/${env.META_API_VERSION}/me/messages`,
+    { recipient: { id: recipientId }, message: { text, ...(replies.length ? { quick_replies: replies } : {}) } },
+    { headers: { Authorization: `Bearer ${auth.token}` }, timeout: 15_000 },
   );
   return data;
 }
@@ -217,11 +236,127 @@ export async function replyToComment(workspaceId, commentId, text) {
   const auth = await tokenFor(workspaceId);
   if (!auth) return null;
   const { data } = await axios.post(
-    `${GRAPH}/${env.META_API_VERSION}/${commentId}/replies`,
+    `${IG_GRAPH}/${env.META_API_VERSION}/${commentId}/replies`,
     { message: text },
-    { params: { access_token: auth.token } },
+    { headers: { Authorization: `Bearer ${auth.token}` }, timeout: 15_000 },
   );
   return data;
+}
+
+// Name and handle of someone who messaged the account, for a new contact.
+// Best effort: Instagram only answers for users who have messaged the account,
+// and nothing depends on it.
+export async function fetchInstagramProfile(workspaceId, igsid) {
+  const auth = await tokenFor(workspaceId);
+  if (!auth) return null;
+  try {
+    const { data } = await axios.get(`${IG_GRAPH}/${env.META_API_VERSION}/${encodeURIComponent(igsid)}`, {
+      params: { fields: 'name,username' },
+      headers: { Authorization: `Bearer ${auth.token}` },
+      timeout: 10_000,
+    });
+    return { name: data?.name || null, username: data?.username || null };
+  } catch (err) {
+    console.warn('[Instagram] Could not read the sender profile:', err.response?.data?.error?.message || err.message);
+    return null;
+  }
+}
+
+/**
+ * Every reply into an Instagram conversation — automation and inbox alike —
+ * goes through here, with the same rules a WhatsApp reply has
+ * (outbound.service.js#deliverAutomatedReply): the contact has not opted out,
+ * the 24-hour messaging window (Instagram's standard window) is open, a
+ * message credit is claimed first and handed back if Instagram refuses, and
+ * the sent message is stored so it shows in the inbox.
+ *
+ * @returns {Promise<{ ok: true, message } | { ok: false, code: string, detail: string }>}
+ *   codes: EMPTY, NOT_INSTAGRAM, NOT_CONNECTED, OPTED_OUT, WINDOW_CLOSED, NO_CREDIT, IG_REJECTED
+ */
+export async function deliverInstagramReply({
+  conversationId, body, options = [], reason = 'Instagram automated reply', senderUserId = null, recordFailure = false,
+}) {
+  const text = String(body || '').trim();
+  if (!text) return { ok: false, code: 'EMPTY', detail: 'Message was empty' };
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    include: { contact: true },
+  });
+  if (!conversation || conversation.channel !== 'INSTAGRAM' || !conversation.contact?.instagramUserId) {
+    return { ok: false, code: 'NOT_INSTAGRAM', detail: 'Not an Instagram conversation' };
+  }
+  const { workspaceId, contact } = conversation;
+  if (contact.optedOut) {
+    console.log(`[Instagram] ${contact.instagramUserId} has opted out — reply suppressed.`);
+    return { ok: false, code: 'OPTED_OUT', detail: 'Recipient opted out' };
+  }
+
+  const windowState = await getWindowState(conversationId);
+  if (!windowState.open) {
+    console.warn(`[Instagram] Reply on ${conversationId} suppressed — the 24-hour messaging window is closed.`);
+    return { ok: false, code: 'WINDOW_CLOSED', detail: 'Instagram only allows a reply within 24 hours of the customer\'s last message' };
+  }
+
+  let credit;
+  try {
+    credit = await consumeMessageCredit(workspaceId, { reason });
+  } catch (err) {
+    console.error(`[Instagram] Could not meter the send for workspace ${workspaceId}:`, err.message);
+    credit = { ok: false };
+  }
+  if (!credit?.ok) {
+    return { ok: false, code: 'NO_CREDIT', detail: 'Message quota and wallet balance exhausted', creditCode: credit?.code };
+  }
+  const refund = () => releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null })
+    .catch((err) => console.error('[Instagram] Credit refund failed:', err.message));
+
+  const choices = (Array.isArray(options) ? options : [])
+    .map((o) => String(typeof o === 'string' ? o : o?.title ?? '').trim()).filter(Boolean);
+  let result;
+  try {
+    result = await sendDm(workspaceId, contact.instagramUserId, text, { quickReplies: choices });
+  } catch (err) {
+    await refund();
+    const igError = err.response?.data?.error;
+    const detail = String(igError?.message || err.message || 'Instagram rejected the send').slice(0, 500);
+    console.error('[Instagram] Send failed:', igError || err.message);
+    if (recordFailure) {
+      await prisma.message.create({
+        data: {
+          conversationId, body: text, direction: 'OUTBOUND', type: 'TEXT', status: 'FAILED',
+          statusAt: new Date(), errorCode: Number.isFinite(Number(igError?.code)) ? Number(igError.code) : null,
+          errorMessage: detail, sentAt: new Date(), senderUserId,
+        },
+      }).catch(() => {});
+    }
+    return { ok: false, code: 'IG_REJECTED', detail };
+  }
+  if (!result) {
+    await refund();
+    return { ok: false, code: 'NOT_CONNECTED', detail: 'Instagram is not connected for this workspace' };
+  }
+
+  const stored = choices.length ? [text, '', ...choices.map((c) => `• ${c}`)].join('\n') : text;
+  const message = await prisma.message.create({
+    data: {
+      conversationId,
+      body: stored,
+      direction: 'OUTBOUND',
+      type: 'TEXT',
+      metaMessageId: result.message_id || null,
+      status: 'SENT',
+      statusAt: new Date(),
+      sentAt: new Date(),
+      senderUserId,
+    },
+    include: { senderUser: { select: { id: true, name: true } } },
+  });
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { lastMessageAt: new Date(), ...(senderUserId ? { humanHandoffAt: new Date() } : {}) },
+  });
+  return { ok: true, message };
 }
 
 // ── Inbound webhook ────────────────────────────────────────────────────────
@@ -229,7 +364,7 @@ export async function replyToComment(workspaceId, commentId, text) {
 // An empty keyword means "match everything on this source"; otherwise the same
 // whole-word matching WhatsApp triggers use. Longest keyword wins so a specific
 // flow beats a catch-all.
-function pickFlow(flows, source, text) {
+export function pickFlow(flows, source, text) {
   return flows
     .filter((f) => f.source === source)
     .filter((f) => !f.keyword || keywordMatches(f.keyword, text))
@@ -251,28 +386,21 @@ export async function processInstagramWebhook(body) {
     const flows = await prisma.instagramFlow.findMany({
       where: { workspaceId: workspace.id, isActive: true },
     });
-    if (flows.length === 0) continue;
 
-    // DMs arrive under `messaging`, comments under `changes`.
+    // DMs arrive under `messaging`, comments under `changes`. A DM used to be
+    // answered only by a Quickflow and otherwise dropped: it never reached the
+    // inbox, the workflows, the keyword triggers or the AI agent (CF-224). It
+    // now goes through the same pipeline a WhatsApp message does
+    // (instagramInbox.service.js), with Quickflows as its first step.
     for (const event of entry.messaging || []) {
-      // Echoes are our own outbound DMs coming back — replying to them would
-      // put the account in a loop with itself.
-      if (event.message?.is_echo) continue;
-      const text = event.message?.text || '';
-      if (!text) continue;
-
-      const source = event.message?.reply_to?.story ? 'story_reply' : 'dm';
-      const flow = pickFlow(flows, source, text);
-      if (!flow) continue;
-
       try {
-        await sendDm(workspace.id, event.sender?.id, flow.responseTemplate);
-        await prisma.instagramFlow.update({ where: { id: flow.id }, data: { triggeredCount: { increment: 1 } } });
+        await handleInstagramMessage({ workspaceId: workspace.id, accountId: igUserId, event, flows, pickFlow });
       } catch (err) {
-        console.error('[Instagram] DM reply failed:', err.response?.data || err.message);
+        console.error('[Instagram] DM handling failed:', err.response?.data || err.message);
       }
     }
 
+    if (flows.length === 0) continue;
     for (const change of entry.changes || []) {
       if (change.field !== 'comments') continue;
       const value = change.value || {};

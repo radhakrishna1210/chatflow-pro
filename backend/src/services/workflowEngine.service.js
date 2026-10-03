@@ -272,7 +272,10 @@ async function actionMessage(run, node) {
     where: { id: run.conversationId },
     include: { contact: true },
   });
-  if (!conversation?.waNumberId) return { result: 'skipped', detail: 'Conversation has no connected number' };
+  // An Instagram thread has no number; outbound.service sends it via Instagram.
+  if (!conversation?.waNumberId && conversation?.channel !== 'INSTAGRAM') {
+    return { result: 'skipped', detail: 'Conversation has no connected number' };
+  }
 
   // `{{name}}`, `{{customer_name}}`, `{{custom.order_number}}` and anything the run has collected.
   // Without this every automated message was identical for every recipient.
@@ -309,7 +312,10 @@ async function actionButtons(run, node) {
     where: { id: run.conversationId },
     include: { contact: true },
   });
-  if (!conversation?.waNumberId) return { result: 'skipped', detail: 'Conversation has no connected number' };
+  // Instagram offers the options as quick replies.
+  if (!conversation?.waNumberId && conversation?.channel !== 'INSTAGRAM') {
+    return { result: 'skipped', detail: 'Conversation has no connected number' };
+  }
 
   const context = {
     contact: conversation.contact,
@@ -734,7 +740,9 @@ export async function sendReplyReminder(runId, cursor) {
     where: { id: run.conversationId },
     include: { contact: true },
   });
-  if (!conversation?.waNumberId) return { sent: false, reason: 'Conversation has no connected number' };
+  if (!conversation?.waNumberId && conversation?.channel !== 'INSTAGRAM') {
+    return { sent: false, reason: 'Conversation has no connected number' };
+  }
 
   // Claimed before sending: the reminder job and a sweep-enqueued copy (or a
   // BullMQ retry) must not both nudge the customer. The claim moves resumeAt
