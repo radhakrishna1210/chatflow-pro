@@ -257,6 +257,7 @@ release. Do them in this order.
    | `20261003130000_plan_feature_autonomous_agent` | Data: adds `autonomousAgent: true` to paid plans' `features`. Free-plan workspaces are no longer swept by the autonomous CRM agent |
    | `20261003140000_object_storage_keys` | `TemplateAsset.bytes` nullable + `storageKey`; `Message.mediaStorageKey`, `mediaSize` |
    | `20261003141000_instagram_inbox_and_voice_transcripts` | `Message.transcript`; `Conversation.channel` (enum, default WHATSAPP) + one-Instagram-thread-per-contact partial unique index; `Contact.instagramUserId`/`instagramUsername` (unique per workspace) |
+   | `20261003180000_workflow_run_chain_depth` | `WorkflowRun.chainDepth` (int, default 0; `IF NOT EXISTS`): how deep a run sits in a chain of CRM-triggered workflows, so a run resumed after a delay is still held to the chain limit |
 
    Both stacks share the database, so migrations run once; the second stack's
    `migrate deploy` is a no-op.
@@ -499,6 +500,59 @@ Tell workspace owners before the release:
 - **OAuth provider PKCE.** Nothing changes for the existing (confidential)
   Spandan client. A public client registered with `publicClient: true` in
   `seedOAuthClients.js` must use PKCE (S256); see `backend/docs/PUBLIC_API.md`.
+
+### Sequences and CRM events (WF-EV-1 to WF-EV-9)
+
+Migration: `20261003180000_workflow_run_chain_depth` (above). No new
+environment variables, cron jobs or services.
+
+- **Sequences have a "Send template" step.** WhatsApp only accepts free-form
+  text within 24 hours of the contact's last message, so a MESSAGE step after
+  a long wait, or to someone who never wrote in, could never be delivered.
+  A TEMPLATE step sends an approved template with parameters (`{{name}}`,
+  `{{custom.x}}` allowed) and opens a WhatsApp conversation for a contact who
+  has none. Publishing (or editing a published sequence) refuses a template
+  that is not APPROVED. MESSAGE bodies now fill in the same variables.
+- **A refused send fails the step, not the enrollment.** Window closed: the
+  step is recorded as failed and the cadence moves on. No credit: the
+  enrollment waits on that step (`lastError` says why) and retries hourly, so
+  a wallet top-up resumes it; it fails after 7 days. Opted out: the
+  enrollment exits. Existing FAILED enrollments stay FAILED.
+- **Workspace notifications** (`SEQUENCE_ATTENTION`, at most one per sequence
+  per day) when an enrollment fails, pauses for credit or skips a message
+  because the window had closed.
+- **Builder:** a new Wait step defaults to 23 hours (was exactly 24, which put
+  the next message just outside the window), and steps that will not deliver
+  are flagged. Exit-on-reply stays on by default.
+- **Instagram contacts are never enrolled** (skipped with a reason); one
+  enrolled earlier exits. Sequence sends only use the contact's WhatsApp
+  conversation, so an Instagram thread no longer gets a WhatsApp number.
+- **CRM workflow triggers fire more often, correctly.** Status changes made
+  by a workflow's "set lead status" step or a sequence's field-update step
+  now trigger "lead status changed" workflows (chains stop at 3 levels).
+  Creating a deal or converting a lead triggers "deal stage" workflows for
+  the starting stage. `score_above` now fires when a customer reply moves
+  the score, and no longer fires for every row of a CSV import. Review
+  workspaces whose CRM workflows were written around the old gaps.
+- **Bulk edits** look up workflows once per batch and run matching ones at
+  most 3 at a time; events no trigger uses cost no query.
+- **Lost Redis schedules come back.** Every 5 minutes the `RUN_WORKERS`
+  process checks the repeatable jobs (workflow and sequence sweeps, CRM
+  nightly, agent tick and sweep, billing cycle) and re-adds any missing, then
+  re-queues scheduled campaigns and pending retries from the database. Still
+  Redis-only: outgoing-webhook and email retries in flight, and the 60 s
+  debounced lead rescore (the nightly rescore catches it).
+- **Outgoing webhooks:** `contact.created` is now sent (manual and API
+  creates, contact and lead CSV imports, leads for a new number, API sends to
+  a new number, segment adds). Contacts first created by an inbound WhatsApp
+  or Instagram message or a lead form do not raise it yet; those paths call
+  `emitContactCreated` once wired. A `webhookEvents` category selection now
+  filters message events only, so campaign, template, contact, opt-out and
+  custom events arrive whatever categories are chosen.
+- **Campaign quota** (verified, unchanged): a launch reserves at most its
+  recipient count and returns the unused part once when it completes, fails
+  or is cancelled. A campaign larger than the remaining quota still uses it
+  all until it settles, so automated replies in that time draw on the wallet.
 
 ---
 
