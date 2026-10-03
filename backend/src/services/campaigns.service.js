@@ -5,12 +5,12 @@ import { normalizeRetryConfig, retryPolicySummary } from '../lib/retry.js';
 import { credit, debit } from './wallet.service.js';
 import { getOptedOutPhoneSet, normalizePhone } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
-import { rateForCategory } from '../lib/messagePricing.js';
-import { billedCount, getRemainingQuota, reserveCampaignQuota, releaseCampaignQuota } from './campaignBilling.service.js';
+import { billedCount, campaignMessageRate, getRemainingQuota, reserveCampaignQuota, releaseCampaignQuota } from './campaignBilling.service.js';
 import { splitCampaignCharge, settleCampaignUnits } from '../lib/campaignCharge.js';
 import { getAgent } from './aiAgent.service.js';
 import { normalizeCtaLabel, buildCampaignContext, findCtaButton } from './campaignAi.service.js';
 import { isCopyCodeAuthenticationTemplate } from '../authentication/authentication.service.js';
+import { assertPlanFeature } from './planFeatures.service.js';
 
 const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
@@ -40,6 +40,9 @@ async function resolveAiAgentConfig(workspaceId, aiAgent) {
     return { aiAgentEnabled: false, aiAgentId: null, aiAgentCtaLabel: null };
   }
 
+  // A campaign agent is the campaignAi plan feature (CF-051); detaching one
+  // above stays open so a downgraded workspace can still edit its drafts.
+  await assertPlanFeature(workspaceId, 'campaignAi');
   const agent = await getAgent(workspaceId, aiAgent.agentId ?? null);
   if (!agent.deployed) {
     const e = new Error('Deploy your WhatsApp AI Agent before attaching it to a campaign.');
@@ -50,6 +53,14 @@ async function resolveAiAgentConfig(workspaceId, aiAgent) {
     aiAgentId: agent.id,
     aiAgentCtaLabel: normalizeCtaLabel(aiAgent.ctaLabel),
   };
+}
+
+// Fallback channels are the `fallback` plan feature. Saving a config with
+// both channels off (or clearing it) is always allowed.
+async function assertFallbackAllowed(workspaceId, fallbackConfig) {
+  if (fallbackConfig?.smsEnabled || fallbackConfig?.emailEnabled) {
+    await assertPlanFeature(workspaceId, 'fallback');
+  }
 }
 
 // Non-fatal advice for the wizard: without a quick-reply button on the
@@ -264,6 +275,7 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
   }
 
   const aiConfig = await resolveAiAgentConfig(workspaceId, aiAgent);
+  await assertFallbackAllowed(workspaceId, fallbackConfig);
 
   return prisma.campaign.create({
     data: {
@@ -341,7 +353,10 @@ export async function updateCampaign(workspaceId, campaignId, {
   }
   if (retryConfig !== undefined) data.retryConfig = retryConfig ? normalizeRetryConfig(retryConfig) : null;
   if (goal !== undefined) data.goal = goal;
-  if (fallbackConfig !== undefined) data.fallbackConfig = fallbackConfig;
+  if (fallbackConfig !== undefined) {
+    await assertFallbackAllowed(workspaceId, fallbackConfig);
+    data.fallbackConfig = fallbackConfig;
+  }
   const aiConfig = await resolveAiAgentConfig(workspaceId, aiAgent);
   if (aiConfig) Object.assign(data, aiConfig);
 
@@ -495,8 +510,7 @@ async function analyseAudience(workspaceId, contacts) {
   return { valid, duplicates, blocked, invalid };
 }
 
-// Resolves the per-message rate for a campaign's template category, falling
-// back to the workspace rate when the category is missing/unrecognised.
+// The template's category, which prices the campaign (campaignMessageRate).
 async function resolveTemplateCategory(workspaceId, templateId) {
   if (!templateId) return null;
   const template = await prisma.template.findFirst({
@@ -509,12 +523,12 @@ async function resolveTemplateCategory(workspaceId, templateId) {
 async function priceAudience(workspaceId, contacts, templateCategory = null) {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: { walletBalance: true, costPerMessage: true },
+    select: { walletBalance: true },
   });
   if (!workspace) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
 
   const { valid, duplicates, blocked, invalid } = await analyseAudience(workspaceId, contacts);
-  const costPerMessage = rateForCategory(templateCategory, workspace.costPerMessage);
+  const costPerMessage = await campaignMessageRate(workspaceId, templateCategory);
   const { remaining } = await getRemainingQuota(workspaceId);
   const { quotaUnits, walletUnits, totalCost } = splitCampaignCharge({
     units: valid.length, remainingQuota: remaining, rate: costPerMessage,
@@ -695,12 +709,12 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
 
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: { walletBalance: true, costPerMessage: true },
+    select: { walletBalance: true },
   });
-  // Priced by the template's category (marketing/utility/authentication), with
-  // the workspace rate as the fallback. Persisted onto the campaign below, so
+  // Priced by the template's category on this workspace's plan — the same
+  // messageRate() inbox overage uses. Persisted onto the campaign below, so
   // refunds and the campaign detail view keep using the rate actually charged.
-  const costPerMessage = rateForCategory(campaign.template?.category, workspace.costPerMessage);
+  const costPerMessage = await campaignMessageRate(workspaceId, campaign.template?.category);
   const walletBefore = Number(workspace.walletBalance);
 
   // The plan's remaining included messages are spent first; the wallet only
@@ -1334,16 +1348,35 @@ export async function recoverScheduledCampaigns() {
     select: { id: true, workspaceId: true, scheduledAt: true, queueJobId: true },
   });
 
-  let recovered = 0;
-  for (const c of scheduled) {
-    if (c.queueJobId) {
-      const existing = await campaignQueue.getJob(c.queueJobId).catch(() => null);
-      if (existing) continue; // job survived — nothing to do
-    }
-    const delay = Math.max(0, (c.scheduledAt?.getTime() ?? 0) - Date.now());
-    const job = await campaignQueue.add('send-campaign', { campaignId: c.id, workspaceId: c.workspaceId }, { delay });
-    await prisma.campaign.update({ where: { id: c.id }, data: { queueJobId: String(job.id) } });
-    recovered++;
+  if (scheduled.length === 0) return 0;
+
+  // Batched (CF-153): one Redis round trip to see which recorded jobs
+  // survived, one addBulk for the rest, one UPDATE to record their ids —
+  // instead of three round trips per scheduled campaign at boot.
+  const withJob = scheduled.filter((c) => c.queueJobId);
+  const alive = new Set();
+  if (withJob.length > 0) {
+    const client = await campaignQueue.client;
+    const pipeline = client.pipeline();
+    for (const c of withJob) pipeline.exists(campaignQueue.toKey(c.queueJobId));
+    const results = await pipeline.exec();
+    results.forEach(([err, found], i) => { if (!err && Number(found) > 0) alive.add(withJob[i].id); });
   }
-  return recovered;
+
+  const missing = scheduled.filter((c) => !alive.has(c.id));
+  if (missing.length === 0) return 0;
+  const now = Date.now();
+  const jobs = await campaignQueue.addBulk(missing.map((c) => ({
+    name: 'send-campaign',
+    data: { campaignId: c.id, workspaceId: c.workspaceId },
+    opts: { delay: Math.max(0, (c.scheduledAt?.getTime() ?? 0) - now) },
+  })));
+  const ids = missing.map((c) => c.id);
+  const jobIds = jobs.map((job) => String(job.id));
+  await prisma.$executeRaw`
+    UPDATE "Campaign" AS c SET "queueJobId" = v.job
+    FROM unnest(${ids}::text[], ${jobIds}::text[]) AS v(id, job)
+    WHERE c."id" = v.id
+  `;
+  return missing.length;
 }

@@ -2,6 +2,7 @@ import twilio from 'twilio';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import * as voice from '../services/voice.service.js';
+import { planAllows } from '../services/planFeatures.service.js';
 
 // Twilio Programmable Voice webhooks. Configure the number's "A call comes in"
 // URL to POST /api/v1/voice/incoming; the Gather action loops back to
@@ -35,6 +36,11 @@ export async function incoming(req, res) {
   const workspace = await voice.findWorkspaceForNumber(To);
   if (!workspace) {
     console.warn(`[Voice] No Voice-AI-enabled workspace owns ${To} — rejecting.`);
+    return XML(res, voice.hangup('This number is not configured to take calls right now. Goodbye.'));
+  }
+  // Voice AI is the `voice` plan feature; a plan without it answers nothing.
+  if (!await planAllows(workspace.id, 'voice')) {
+    console.warn(`[Voice] Workspace ${workspace.id} has Voice AI on but its plan does not include it — rejecting.`);
     return XML(res, voice.hangup('This number is not configured to take calls right now. Goodbye.'));
   }
 

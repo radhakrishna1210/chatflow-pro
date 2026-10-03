@@ -3,6 +3,7 @@ import { matchIntent as scoreIntent, recordMatch } from './intent.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { realtime } from '../lib/realtimeBus.js';
+import { planAllows } from './planFeatures.service.js';
 
 // Running intent rules against a real inbound message.
 //
@@ -34,6 +35,10 @@ export async function routeByIntent({ workspaceId, conversationId, contact, waNu
     console.log(`[Intent] Intent matching is disabled for workspace ${workspaceId}`);
     return null;
   }
+
+  // Intent matching is part of the campaignAi plan feature; a workspace that
+  // turned it on and was then downgraded no longer routes by it.
+  if (!await planAllows(workspaceId, 'campaignAi')) return null;
 
   const rules = await prisma.intentRule.findMany({ where: { workspaceId, isActive: true } });
   if (rules.length === 0) return null;

@@ -243,6 +243,8 @@ release. Do them in this order.
    | `20261002150000_workflow_run_resume_and_cancel` | `WorkflowRunStatus.CANCELLED`, `WorkflowRun.resumeAt`, `version`, index |
    | `20261002180000_workspace_autonomous_agent_enabled` | `Workspace.autonomousAgentEnabled` (default true) |
    | `20261002190000_fk_actions_and_hot_indexes` | Foreign-key delete/update actions and hot-path indexes |
+   | `20261003100000_workspace_addon_stacking_auto_renew` | Drops the one-row-per-add-on unique index (packs stack, one row per pack); `WorkspaceAddon.autoRenew`, `renewedAt`, `expiredAt`; indexes |
+   | `20261003101000_plan_feature_fallback_voice` | Data: adds `fallback: true` and `voice: true` to every plan's `features` (values already set are kept) |
    | `20261003140000_object_storage_keys` | `TemplateAsset.bytes` nullable + `storageKey`; `Message.mediaStorageKey`, `mediaSize` |
    | `20261003141000_instagram_inbox_and_voice_transcripts` | `Message.transcript`; `Conversation.channel` (enum, default WHATSAPP) + one-Instagram-thread-per-contact partial unique index; `Contact.instagramUserId`/`instagramUsername` (unique per workspace) |
 
@@ -398,6 +400,30 @@ Tell workspace owners before the release:
   (opt-out), and log CRM activities. Unblocking numbers needs CLIENT.
 - Impersonation by a super admin now requires a reason, lasts 30 minutes, is
   tab-scoped and cannot create lasting credentials.
+
+### Billing and campaign changes (CF-030, CF-051, CF-056, CF-206, CF-099)
+
+- **Add-on renewal** needs no new cron: `runAddonRenewalSweep()` runs inside
+  the existing daily `billing` job (02:00) and once at boot on the stack with
+  `RUN_WORKERS=true`. Auto-renew is opt-in per add-on, so nothing is charged
+  until a workspace turns it on; packs without it are marked EXPIRED (with a
+  notification) at the first sweep after they end.
+- **Campaign SMS fallback now needs DLT ids.** A campaign whose fallback has
+  SMS on but no `dltTemplateId`/`dltEntityId` keeps running, but its fallback
+  SMS is skipped (recorded on the recipient, not charged) until the ids are
+  added in the wizard. The DLT templates and the sender header must also be
+  registered with Twilio for India delivery; Twilio matches by sender and body.
+- **Plan feature flags** `fallback` and `voice` are new and on every plan (the
+  migration above). Unticking them in the admin Plans tab now really turns the
+  feature off. `campaignAi` is now also checked at runtime: a workspace whose
+  plan lacks it gets no agent replies, campaign agent sessions or intent
+  routing.
+- **Campaign pricing** uses the plan's per-category rates (Free's 2x overrides
+  now apply to campaigns as they already did to inbox sends), and an
+  unrecognised template category is priced as MARKETING everywhere.
+- **Redeploys during a campaign**: on SIGTERM the send loop stops after the
+  message in flight and queues a `resume-<campaignId>-<ts>` job for the next
+  worker, so the 25 s shutdown budget is no longer exceeded by long campaigns.
 
 ---
 

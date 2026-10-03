@@ -441,7 +441,8 @@ export default function PaymentsView({ initialTab } = {}) {
     setAddonError(''); setAddonMessage(''); setAddonBusy(addon.key);
     try {
       const orderRes = await wFetch('/subscription/addons/checkout', {
-        method: 'POST', body: JSON.stringify({ addonKey: addon.key }),
+        // A new pack follows the add-on's auto-renew setting.
+        method: 'POST', body: JSON.stringify({ addonKey: addon.key, autoRenew: !!addon.autoRenew }),
       });
       const order = await orderRes.json();
       if (!orderRes.ok) { setAddonError(order.error || 'Could not start checkout'); setAddonBusy(null); return; }
@@ -473,7 +474,9 @@ export default function PaymentsView({ initialTab } = {}) {
             });
             const data = await verifyRes.json();
             if (!verifyRes.ok) { setAddonError(data.error || 'Payment verification failed'); return; }
-            setAddonMessage(`${data.addon.title} is active.`);
+            setAddonMessage(data.quantity > 1
+              ? `${data.addon.title} added — ${data.quantity} packs active.`
+              : `${data.addon.title} is active.`);
             await loadAddons();
             loadInvoices();
           } catch {
@@ -502,6 +505,23 @@ export default function PaymentsView({ initialTab } = {}) {
       const res = await wFetch(`/subscription/addons/${addon.key}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) setAddonError(data.error || 'Could not cancel the add-on');
+      else { setAddonMessage(data.message); await loadAddons(); }
+    } catch (e) {
+      setAddonError(e.message);
+    } finally {
+      setAddonBusy(null);
+    }
+  };
+
+  // Opt in/out of renewing the add-on's packs from the wallet when they end.
+  const toggleAddonAutoRenew = async (addon) => {
+    setAddonError(''); setAddonMessage(''); setAddonBusy(addon.key);
+    try {
+      const res = await wFetch(`/subscription/addons/${addon.key}/auto-renew`, {
+        method: 'PATCH', body: JSON.stringify({ autoRenew: !addon.autoRenew }),
+      });
+      const data = await res.json();
+      if (!res.ok) setAddonError(data.error || 'Could not change auto-renew');
       else { setAddonMessage(data.message); await loadAddons(); }
     } catch (e) {
       setAddonError(e.message);
@@ -972,7 +992,8 @@ export default function PaymentsView({ initialTab } = {}) {
                     <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{addon.description}</p>
                     {addon.active && addon.currentPeriodEnd && (
                       <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 6 }}>
-                        {addon.status === 'CANCELLED' ? 'Ends' : 'Active until'} {new Date(addon.currentPeriodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {addon.quantity > 1 ? `${addon.quantity} packs · next ` : ''}
+                        {addon.autoRenew ? 'renews' : addon.status === 'CANCELLED' ? 'ends' : 'expires'} {new Date(addon.currentPeriodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     )}
                   </div>
@@ -984,19 +1005,26 @@ export default function PaymentsView({ initialTab } = {}) {
                       {addon.unavailableReason}
                     </div>
                   ) : isAdmin ? (
-                    addon.canExtend ? (
-                      // One-off 30-day packs: nothing renews them, so the last
-                      // week offers an extension on top of the time left.
+                    // 30-day packs that stack: buying again adds another pack.
+                    // Auto-renew charges the wallet when each pack ends.
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <Btn variant="primary" disabled={busy} onClick={() => buyAddon(addon)} style={{ width: '100%' }}>
-                        {busy ? 'Working…' : 'Extend 30 days'}
+                        {busy ? 'Working…' : addon.active ? 'Add another pack' : 'Add to Plan'}
                       </Btn>
-                    ) : (
-                    <Btn variant={addon.active ? 'outline' : 'primary'} disabled={busy}
-                      onClick={() => (addon.active ? cancelAddon(addon) : buyAddon(addon))}
-                      style={{ width: '100%', borderColor: addon.active ? '#f8717144' : 'var(--bd)', color: addon.active ? '#f87171' : '#0a0b0e' }}>
-                      {busy ? 'Working…' : addon.active ? (addon.status === 'CANCELLED' ? 'Cancelled' : 'Cancel Add-on') : 'Add to Plan'}
-                    </Btn>
-                    )
+                      {addon.active && (
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <Btn variant="outline" disabled={busy} onClick={() => toggleAddonAutoRenew(addon)} style={{ flex: 1 }}>
+                            {addon.autoRenew ? 'Turn off auto-renew' : 'Auto-renew from wallet'}
+                          </Btn>
+                          {addon.status === 'ACTIVE' && (
+                            <Btn variant="outline" disabled={busy} onClick={() => cancelAddon(addon)}
+                              style={{ flex: 1, borderColor: '#f8717144', color: '#f87171' }}>
+                              Cancel
+                            </Btn>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div style={{ width: '100%', textAlign: 'center', padding: '9px 0', borderRadius: 8, border: '1px solid var(--bd)', color: 'var(--t3)', fontSize: 12 }}>
                       {addon.active ? 'Included' : 'Not included'}

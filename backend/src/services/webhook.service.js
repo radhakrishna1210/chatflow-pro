@@ -17,6 +17,7 @@ import { parseInboundMessage, carriesCustomerText, mediaTypeOf } from './inbound
 import { processInboundMedia } from './inboundMedia.service.js';
 import { emitWebhook } from './outgoingWebhook.service.js';
 import { routeByIntent, escalateToHuman, escalationReason } from './intentRouting.service.js';
+import { planAllows } from './planFeatures.service.js';
 import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPLIES } from './conversationControl.service.js';
 import { realtime } from '../lib/realtimeBus.js';
 
@@ -888,7 +889,9 @@ async function handleInboundMessage(value, msg) {
     // the inbox, unread, and the delayed-response automation exists precisely
     // to chase a thread nobody has replied to.
     if (!autoReplyText) {
-      if (workspace?.aiAgentEnabled) {
+      // An agent the plan no longer includes stayed silent on purpose; that
+      // is not a failure to hand to a person.
+      if (workspace?.aiAgentEnabled && await planAllows(workspaceId, 'campaignAi')) {
         await escalateToHuman({
           workspaceId,
           conversationId: conversation.id,

@@ -1464,7 +1464,13 @@ model WorkspaceAddon {
   // Catalogue key, e.g. "crm" ΓÇö see lib/addonCatalogue.js, which is the only
   // place a price is defined.
   addonKey         String
-  status           String    @default("ACTIVE") // ACTIVE | CANCELLED
+  // ACTIVE | CANCELLED (no renewal; usable until currentPeriodEnd) | EXPIRED
+  status           String    @default("ACTIVE")
+  // Opt-in: renew this pack from the wallet when its period ends
+  // (services/addons.service.js#runAddonRenewalSweep).
+  autoRenew        Boolean   @default(false)
+  renewedAt        DateTime?
+  expiredAt        DateTime?
   // What was actually charged, in the smallest currency unit, kept alongside
   // the catalogue key so a later price change never rewrites history.
   amountPaid       Decimal   @db.Decimal(10, 2)
@@ -1476,10 +1482,11 @@ model WorkspaceAddon {
   currentPeriodEnd DateTime
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  // One active row per add-on per workspace. Buying an add-on twice is a
-  // mistake, not an upgrade.
-  @@unique([workspaceId, addonKey])
+  // One row per purchased pack. Packs of the same add-on stack: each grants
+  // its allowance until its own currentPeriodEnd (addonAllowance sums them).
+  @@index([workspaceId, addonKey])
   @@index([workspaceId, status])
+  @@index([status, currentPeriodEnd])
 }
 
 model SupportTicket {

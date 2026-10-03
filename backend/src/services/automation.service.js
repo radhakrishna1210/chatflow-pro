@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { normalizeBusinessHours, mergeBusinessHours, isBusinessHoursEnabled, DEFAULT_BUSINESS_HOURS } from './businessHours.service.js';
 import { detectUrl, analyseWebsite } from './websiteAnalysis.service.js';
+import { assertPlanFeature } from './planFeatures.service.js';
 
 // Lazily initialised: constructing the client at import time crashes startup
 // when GEMINI_API_KEY is not configured (it's optional in the env schema).
@@ -404,6 +405,9 @@ export async function getVoiceSettings(workspaceId) {
 }
 
 export async function updateVoiceSettings(workspaceId, updates) {
+  // Switching Voice AI on is the `voice` plan feature; editing or switching
+  // it off stays open.
+  if (updates?.voiceAiEnabled === true) await assertPlanFeature(workspaceId, 'voice');
   const allowed = {};
   for (const key of Object.keys(VOICE_FIELDS)) {
     if (updates[key] !== undefined) allowed[key] = updates[key];

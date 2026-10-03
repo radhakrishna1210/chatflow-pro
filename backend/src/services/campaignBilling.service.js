@@ -29,7 +29,7 @@
 // exists — the reservation and the settlement are the only two pieces to drop.
 
 import { prisma } from '../lib/prisma.js';
-import { rateForCategory } from '../lib/messagePricing.js';
+import { messageRate } from '../lib/messagePricing.js';
 
 // Keeps a 24-hour hourly retry pattern from growing the row unboundedly.
 const MAX_HISTORY_ENTRIES = 10;
@@ -42,7 +42,15 @@ const MAX_HISTORY_ENTRIES = 10;
 export function campaignRate(campaign) {
   const locked = Number(campaign?.costPerMessage);
   if (Number.isFinite(locked) && locked > 0) return locked;
-  return rateForCategory(campaign?.template?.category, 0);
+  return messageRate(null, campaign?.template?.category);
+}
+
+// The per-message rate a campaign is quoted and launched at: the same
+// messageRate() inbox overage and wallet health use, on this workspace's plan,
+// so a template costs the same as a campaign as it does from the inbox.
+export async function campaignMessageRate(workspaceId, category) {
+  const subscription = await prisma.subscription.findUnique({ where: { workspaceId }, include: { plan: true } });
+  return messageRate(subscription?.plan ?? null, category);
 }
 
 // Claims the charge for one recipient. THE idempotency guard for the whole

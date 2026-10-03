@@ -3,6 +3,7 @@ import { composeAgentPrompt, AGENT_PROMPT_SELECT } from './aiAgent.service.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
 import { contactVariableResolver, fillVariables } from '../lib/templateParams.js';
 import { sendAutomatedReply } from './outbound.service.js';
+import { planAllows } from './planFeatures.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Campaign AI Agent
@@ -512,6 +513,8 @@ export async function handleCampaignAiInbound({
     // configured must fall through to the ordinary automation rather than
     // answer with silence.
     if (!agent?.deployed || !llmAvailable()) return false;
+    // The campaign agent is a plan feature (campaignAi).
+    if (!await planAllows(workspaceId, 'campaignAi')) return false;
 
     const session = await activateSession({
       workspaceId,
@@ -547,9 +550,10 @@ export async function handleCampaignAiInbound({
   }
 
   const agent = await loadAgent(workspaceId, session.agentId);
-  if (!agent?.deployed) {
-    // The agent was undeployed mid-session. Retire the session rather than
-    // leaving the conversation captured by something that can't answer.
+  if (!agent?.deployed || !await planAllows(workspaceId, 'campaignAi')) {
+    // The agent was undeployed mid-session, or the plan no longer includes
+    // it. Retire the session rather than leaving the conversation captured by
+    // something that can't answer.
     await endSession(session.id, 'ENDED');
     return false;
   }

@@ -128,13 +128,21 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
 
   const metaTemplates = await getWabaTemplates(wabaId, accessToken);
   let created = 0, updated = 0;
-  const seenMetaIds = [];
+  const seenMetaIds = metaTemplates.map((mt) => String(mt.id));
+
+  // Every local copy of these templates in one query, rather than a lookup
+  // per template Meta returns (CF-153). A Meta id appears once per number.
+  const existingRows = seenMetaIds.length === 0 ? [] : await prisma.template.findMany({
+    where: { workspaceId, waNumberId: waNumber.id, metaTemplateId: { in: seenMetaIds } },
+  });
+  const existingByMetaId = new Map(existingRows.map((t) => [String(t.metaTemplateId), t]));
+  const toCreate = [];
+  const toUpdate = [];
+  // Sent once the rows are written, so a failed sync announces nothing.
+  const announcements = [];
 
   for (const mt of metaTemplates) {
-    seenMetaIds.push(String(mt.id));
-    const existing = await prisma.template.findFirst({
-      where: { workspaceId, waNumberId: waNumber.id, metaTemplateId: mt.id },
-    });
+    const existing = existingByMetaId.get(String(mt.id));
     const rejectedReason = mt.rejected_reason || null;
     // Meta's copy is authoritative about the approved shape, but it has never
     // seen this product's own bookkeeping — a carousel card's `_assetId`, a
@@ -159,28 +167,34 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
       const data = existing.status === 'DELETED'
         ? { ...payload, status: 'DELETED' }
         : payload;
-      await prisma.template.update({ where: { id: existing.id }, data });
+      // Most syncs change nothing; only rows that differ are written.
+      if (templateChanged(existing, data)) toUpdate.push(prisma.template.update({ where: { id: existing.id }, data }));
       updated++;
       if (existing.status !== 'APPROVED' && payload.status === 'APPROVED') {
-        notifyWorkspace(workspaceId, {
+        announcements.push({
           type: 'TEMPLATE_APPROVED',
           title: `Template "${payload.name}" was approved`,
           body: 'It can now be used in campaigns.',
           link: 'templates',
-        }).catch(() => {});
+        });
       } else if (existing.status !== 'REJECTED' && payload.status === 'REJECTED') {
-        notifyWorkspace(workspaceId, {
+        announcements.push({
           type: 'TEMPLATE_REJECTED',
           title: `Template "${payload.name}" was rejected by Meta`,
           body: rejectedReason || 'Check template guidelines and edit to resubmit.',
           link: 'templates',
-        }).catch(() => {});
+        });
       }
     } else {
-      await prisma.template.create({ data: { workspaceId, waNumberId: waNumber.id, ...payload } });
+      toCreate.push({ workspaceId, waNumberId: waNumber.id, ...payload });
       created++;
     }
   }
+
+  // One batch for the changed rows and one insert for the new ones.
+  if (toUpdate.length > 0) await prisma.$transaction(toUpdate);
+  if (toCreate.length > 0) await prisma.template.createMany({ data: toCreate });
+  for (const note of announcements) notifyWorkspace(workspaceId, note).catch(() => {});
 
   // Anything on this number that Meta no longer returns was deleted there, so
   // mirror the deletion locally. Only rows that were sourced from Meta
@@ -190,6 +204,16 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
   if (metaTemplates.length > 0 || removed > 0) realtime.templateUpdated(workspaceId);
 
   return { total: metaTemplates.length, created, updated, removed };
+}
+
+// Whether a sync would change a stored template. JSON key order can differ
+// between Meta's copy and ours, which only costs an unneeded write.
+function templateChanged(row, data) {
+  return Object.entries(data).some(([key, value]) => (
+    key === 'components'
+      ? JSON.stringify(row.components ?? null) !== JSON.stringify(value ?? null)
+      : String(row[key] ?? '') !== String(value ?? '')
+  ));
 }
 
 // Deletes local templates absent from Meta. Rows referenced by a campaign can't

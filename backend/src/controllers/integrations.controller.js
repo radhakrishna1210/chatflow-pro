@@ -3,24 +3,17 @@ import * as service from '../services/integrations.service.js';
 import { prisma } from '../lib/prisma.js';
 import { encrypt } from '../lib/encryption.js';
 import { env } from '../config/env.js';
-import { hasFeature } from '../services/subscription.service.js';
+import { assertPlanFeature } from '../services/planFeatures.service.js';
 import { pricingForCatalogId, pricingForOAuthProvider } from '../config/integrationCatalog.js';
 import {
   isOAuthProvider, providerConfigured, buildAuthUrl, exchangeCode, listProviders,
 } from '../lib/oauthProviders.js';
 
 // Free integrations are usable on every plan; paid ones require the plan's
-// `integrations` feature flag (PRO/ENTERPRISE in the seed data).
+// `integrations` feature flag (Basic and Growth in the seed data).
 async function assertIntegrationAccess(workspaceId, pricing) {
   if (pricing !== 'paid') return;
-  const allowed = await hasFeature(workspaceId, 'integrations');
-  if (!allowed) {
-    const e = new Error('This integration requires a paid plan. Upgrade to Pro to connect it.');
-    e.status = 403;
-    e.code = 'PLAN_FEATURE_LOCKED';
-    e.feature = 'integrations';
-    throw e;
-  }
+  await assertPlanFeature(workspaceId, 'integrations');
 }
 
 export async function list(req, res) {

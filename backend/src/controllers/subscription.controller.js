@@ -5,6 +5,7 @@ import {
 } from '../services/subscription.service.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import * as addons from '../services/addons.service.js';
+import { planFeatureMap } from '../services/planFeatures.service.js';
 import * as billingProfile from '../services/billingProfile.service.js';
 
 export async function getSummary(req, res) {
@@ -78,6 +79,10 @@ export async function saveBillingProfile(req, res) {
   res.json(await billingProfile.saveBillingProfile(req.params.workspaceId, req.body));
 }
 
+export async function getPlanFeatures(req, res) {
+  res.json({ features: await planFeatureMap(req.params.workspaceId) });
+}
+
 // ─── Add-ons ─────────────────────────────────────────────────────────────────
 // Prices come from lib/addonCatalogue.js, so what the screen shows and what the
 // gateway charges are read from the same place.
@@ -87,7 +92,7 @@ export async function listAddons(req, res) {
 }
 
 export async function createAddonCheckout(req, res) {
-  res.json(await addons.createAddonOrder(req.params.workspaceId, req.body?.addonKey));
+  res.json(await addons.createAddonOrder(req.params.workspaceId, req.body?.addonKey, { autoRenew: req.body?.autoRenew === true }));
 }
 
 export async function verifyAddonCheckout(req, res) {
@@ -96,4 +101,12 @@ export async function verifyAddonCheckout(req, res) {
 
 export async function cancelAddon(req, res) {
   res.json(await addons.cancelAddon(req.params.workspaceId, req.params.addonKey));
+}
+
+export async function setAddonAutoRenew(req, res) {
+  const enabled = req.body?.autoRenew;
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'autoRenew must be true or false' });
+  }
+  res.json(await addons.setAddonAutoRenew(req.params.workspaceId, req.params.addonKey, enabled));
 }
