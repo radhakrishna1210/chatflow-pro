@@ -10,6 +10,7 @@ const state = {};
 function reset() {
   state.country = 'IN';
   state.contacts = [];
+  announced.length = 0;
 }
 
 const matches = (row, where) => Object.entries(where).every(([k, v]) => {
@@ -42,9 +43,22 @@ const fakePrisma = {
       }
       return { count };
     },
+    createManyAndReturn: async ({ data }) => {
+      const out = [];
+      for (const d of data) {
+        if (state.contacts.some((c) => c.workspaceId === d.workspaceId && c.phoneNumber === d.phoneNumber)) continue;
+        const row = { id: `c${state.contacts.length + 1}`, optedOut: false, ...d };
+        state.contacts.push(row);
+        out.push(row);
+      }
+      return out;
+    },
     update: async ({ where, data }) => Object.assign(state.contacts.find((c) => c.id === where.id), data),
   },
 };
+
+// contact.created webhooks raised by the routes (WF-EV-7).
+const announced = [];
 
 let baseUrl;
 let server;
@@ -74,6 +88,12 @@ test.before(async () => {
   });
   mock.module('../services/workspaceCustomFields.service.js', {
     namedExports: { validateCustomFields: async (_ws, v) => v },
+  });
+  mock.module('../services/outgoingWebhook.service.js', {
+    namedExports: {
+      emitContactsCreated: (ws, contacts, { source }) => contacts.forEach((c) => announced.push({ ws, id: c.id, phoneNumber: c.phoneNumber, source })),
+      emitContactCreated: (ws, c, { source }) => announced.push({ ws, id: c.id, phoneNumber: c.phoneNumber, source }),
+    },
   });
 
   const { default: express } = await import('express');
@@ -141,4 +161,14 @@ test('a CSV import normalises every row and skips numbers already stored under a
   const body = await res.json();
   assert.equal(body.imported, 1);
   assert.deepEqual(state.contacts.map((c) => c.phoneNumber).sort(), ['+919822222222', '9811111111']);
+  // contact.created for the one row inserted, not the existing contact.
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(announced.map((a) => [a.phoneNumber, a.source]), [['+919822222222', 'import']]);
+});
+
+test('creating a contact raises contact.created for the workspace webhook', async () => {
+  const res = await send('POST', '/contacts', { name: 'New', phoneNumber: '+919844444444' });
+  assert.equal(res.status, 201);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(announced.map((a) => [a.ws, a.phoneNumber, a.source]), [['ws1', '+919844444444', 'manual']]);
 });

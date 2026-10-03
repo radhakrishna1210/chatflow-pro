@@ -178,6 +178,15 @@ export async function getContact(workspaceId, id) {
   };
 }
 
+// Tells the workspace's webhook endpoint about a contact this created
+// (contact.created). Fire-and-forget; loaded lazily so the delivery queue is
+// only touched when there is something to announce.
+function announceContacts(workspaceId, contacts, source) {
+  import('./outgoingWebhook.service.js')
+    .then((m) => m.emitContactsCreated(workspaceId, contacts, { source }))
+    .catch((err) => console.warn('[Webhook:out] contact.created not sent:', err.message));
+}
+
 export async function createContact(workspaceId, { name, phoneNumber, email, tags = [], customFields }) {
   const { phoneNumber: normalized, country } = await resolveContactPhone(workspaceId, phoneNumber);
   const existing = await findContactByPhone(workspaceId, normalized, { country });
@@ -187,13 +196,15 @@ export async function createContact(workspaceId, { name, phoneNumber, email, tag
   // unknown key is refused rather than quietly stored and never displayed.
   const { validateCustomFields } = await import('./workspaceCustomFields.service.js');
   const custom = await validateCustomFields(workspaceId, customFields);
-  return prisma.contact.create({
+  const contact = await prisma.contact.create({
     data: {
       workspaceId, name: name || normalized, phoneNumber: normalized,
       email: email || null, tags,
       ...(custom === undefined ? {} : { customFields: custom }),
     },
   });
+  announceContacts(workspaceId, [contact], 'manual');
+  return contact;
 }
 
 export async function importContacts(workspaceId, csvBuffer) {
@@ -255,11 +266,17 @@ export async function importContacts(workspaceId, csvBuffer) {
     });
   }
 
-  // createMany reports rows actually inserted; skipDuplicates relies on the
+  // Only rows actually inserted come back; skipDuplicates relies on the
   // (workspaceId, phoneNumber) unique constraint to drop existing contacts.
-  const { count: imported } = fresh.length
-    ? await prisma.contact.createMany({ data: fresh, skipDuplicates: true })
-    : { count: 0 };
+  const created = fresh.length
+    ? await prisma.contact.createManyAndReturn({
+      data: fresh,
+      skipDuplicates: true,
+      select: { id: true, name: true, phoneNumber: true, email: true, tags: true, createdAt: true },
+    })
+    : [];
+  const imported = created.length;
+  announceContacts(workspaceId, created, 'import');
   const duplicates = data.length - imported;
   const matchedContacts = await prisma.contact.findMany({
     where: { workspaceId, phoneNumber: { in: [...canonicalOf.keys()] } },

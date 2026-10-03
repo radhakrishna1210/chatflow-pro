@@ -64,7 +64,11 @@ async function ensureContact(workspaceId, digits) {
   // as-is (lib/phone.js), the same form every other path stores.
   const phoneNumber = toE164(digits, { international: true }) || `+${digits}`;
   try {
-    return await prisma.contact.create({ data: { workspaceId, name: phoneNumber, phoneNumber } });
+    const contact = await prisma.contact.create({ data: { workspaceId, name: phoneNumber, phoneNumber } });
+    import('./outgoingWebhook.service.js')
+      .then((m) => m.emitContactCreated(workspaceId, contact, { source: 'api' }))
+      .catch((err) => console.warn('[Webhook:out] contact.created not sent:', err.message));
+    return contact;
   } catch (err) {
     if (err.code !== 'P2002') throw err;
     const raced = await prisma.contact.findUnique({

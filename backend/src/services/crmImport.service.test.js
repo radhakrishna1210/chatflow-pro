@@ -10,6 +10,7 @@ let members;
 let followUps;
 let contactCreateManyCalls;
 let extraSections = {};
+let announced = [];
 
 const fakePrisma = {
   workspaceMember: {
@@ -18,10 +19,11 @@ const fakePrisma = {
   contact: {
     findMany: async ({ where }) => contacts.filter((c) => where.phoneNumber.in.includes(c.phoneNumber)),
     update: async ({ where, data }) => Object.assign(contacts.find((c) => c.id === where.id), data),
-    createMany: async ({ data }) => {
+    createManyAndReturn: async ({ data }) => {
       contactCreateManyCalls += 1;
-      for (const d of data) contacts.push({ id: `c-${d.phoneNumber}`, ...d });
-      return { count: data.length };
+      const rows = data.map((d) => ({ id: `c-${d.phoneNumber}`, ...d }));
+      contacts.push(...rows);
+      return rows;
     },
   },
   lead: {
@@ -55,6 +57,9 @@ test.before(async () => {
       enqueueImportFollowUp: async (workspaceId, leadIds, opts) => { followUps.push({ workspaceId, leadIds, opts }); },
     },
   });
+  mock.module('./outgoingWebhook.service.js', {
+    namedExports: { emitContactsCreated: (ws, rows, { source }) => announced.push(...rows.map((r) => ({ ws, phoneNumber: r.phoneNumber, source }))) },
+  });
   // The plan contact limit has its own tests in subscription.service.test.js.
   mock.module('./subscription.service.js', { namedExports: { assertContactCapacity: async () => {} } });
   svc = await import('./crmImport.service.js');
@@ -67,6 +72,7 @@ test.beforeEach(() => {
   followUps = [];
   contactCreateManyCalls = 0;
   extraSections = {};
+  announced = [];
 });
 
 const csv = (rows) => Buffer.from(['name,phone,status', ...rows].join('\n'));
@@ -144,4 +150,12 @@ test('rows are held to the workspace lead rules and every adjustment is reported
   assert.match(reasons, /2:Tag\(s\) not configured.*whale/);
   assert.match(reasons, /3:Prospecting criteria require email/);
   assert.match(reasons, /3:Source "Billboard"/);
+});
+
+// WF-EV-7: contacts a lead import creates raise contact.created; existing
+// contacts it reuses do not.
+test('a lead import raises contact.created for the contacts it created only', async () => {
+  await svc.importLeads('ws1', csv(['Asha,+912222222222,NEW', 'Existing,+911111111111,NEW']));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(announced, [{ ws: 'ws1', phoneNumber: '+912222222222', source: 'lead_import' }]);
 });

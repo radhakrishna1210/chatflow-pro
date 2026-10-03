@@ -78,6 +78,9 @@ export async function addContactToSegment(workspaceId, segmentId, contactData) {
       // Contact.name is required; the number stands in, as on every other path.
       const newContact = await prisma.contact.create({ data: { workspaceId, name: contactData.name || phoneNumber, phoneNumber, email: contactData.email || null, tags: contactData.tags || [] } });
       contactId = newContact.id;
+      import('./outgoingWebhook.service.js')
+        .then((m) => m.emitContactCreated(workspaceId, newContact, { source: 'segment' }))
+        .catch((err) => console.warn('[Webhook:out] contact.created not sent:', err.message));
     }
   } else {
     // Ensure contact belongs to workspace

@@ -205,9 +205,13 @@ export async function createLead(workspaceId, body, actorUserId = null) {
     } else {
       await assertContactCapacity(workspaceId);
       tags = intake.tags;
-      contactId = (await prisma.contact.create({
+      const created = await prisma.contact.create({
         data: { workspaceId, name: body.name || phoneNumber, phoneNumber, email: body.email || null, tags },
-      })).id;
+      });
+      contactId = created.id;
+      import('./outgoingWebhook.service.js')
+        .then((m) => m.emitContactCreated(workspaceId, created, { source: 'lead' }))
+        .catch((err) => console.warn('[Webhook:out] contact.created not sent:', err.message));
     }
   } else {
     tags = await mergeContactTags(contact, intake.tags);
