@@ -267,10 +267,11 @@ test('an active workflow replies to a matching WhatsApp message through the send
   const conversation = conversationOf('ws_A');
   const contact = contactOf('ws_A');
   assert.ok(contact, 'the sender became a contact in the number\'s workspace');
-  assert.equal(contact.phoneNumber, CUSTOMER);
+  // Stored as E.164, like every other contact number (CF-200).
+  assert.equal(contact.phoneNumber, `+${CUSTOMER}`);
   assert.equal(sent[0].conversationId, conversation.id);
   assert.equal(sent[0].waNumberId, 'wa_A');
-  assert.equal(sent[0].toPhone, CUSTOMER);
+  assert.equal(sent[0].toPhone, `+${CUSTOMER}`);
 
   const [run] = runs();
   assert.equal(run.status, 'COMPLETED');

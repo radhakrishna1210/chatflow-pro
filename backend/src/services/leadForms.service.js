@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
-import { isValidPhone, normalizePhone } from './contacts.service.js';
+import { isValidPhone, resolveContactPhone, findContactByPhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
@@ -306,9 +306,9 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
     return { ok: true, message: form.successMessage };
   }
 
-  const phoneNumber = normalizePhone(rawPhone);
+  const { phoneNumber, country } = await resolveContactPhone(workspaceId, rawPhone);
 
-  let contact = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
+  let contact = await findContactByPhone(workspaceId, phoneNumber, { country });
   if (contact?.optedOut) {
     await record('OPTED_OUT', 'Contact has opted out', { contactId: contact.id });
     return { ok: true, message: form.successMessage };
@@ -328,7 +328,7 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
       });
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
-      contact = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
+      contact = await findContactByPhone(workspaceId, phoneNumber, { country });
       if (!contact) throw err;
     }
   }

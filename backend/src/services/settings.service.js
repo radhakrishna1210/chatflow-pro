@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { assertResolvesPublic, safeRequest, UnsafeUrlError } from '../lib/safeUrl.js';
+import { PHONE_COUNTRIES } from '../lib/phone.js';
 
 const MAX_WEBHOOK_URL_LENGTH = 2048;
 
@@ -41,6 +42,7 @@ export async function getSettings(workspaceId) {
       name: true,
       industry: true,
       timezone: true,
+      defaultPhoneCountry: true,
       brandColor: true,
       brandLogoUrl: true,
       plan: true,
@@ -72,6 +74,7 @@ const ALLOWED_SETTINGS_FIELDS = [
   'name',
   'industry',
   'timezone',
+  'defaultPhoneCountry',
   'brandColor',
   'brandLogoUrl',
   'autoLeadFromReply',
@@ -128,6 +131,17 @@ function assertBranding(data) {
       throw e;
     }
     data.timezone = value;
+  }
+  if (data.defaultPhoneCountry !== undefined) {
+    const value = String(data.defaultPhoneCountry || '').trim().toUpperCase();
+    // Only countries lib/phone.js knows the number lengths for; anything else
+    // would silently stop numbers being normalised.
+    if (!PHONE_COUNTRIES[value]) {
+      const e = new Error(`Unsupported phone country "${value}"`);
+      e.status = 400;
+      throw e;
+    }
+    data.defaultPhoneCountry = value;
   }
 }
 

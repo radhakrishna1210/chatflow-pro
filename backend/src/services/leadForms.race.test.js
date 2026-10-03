@@ -24,7 +24,6 @@ let leadLookups;
 const fakePrisma = {
   leadForm: { findFirst: async () => FORM },
   contact: {
-    findFirst: async () => contactRows.shift() ?? null,
     create: async ({ data }) => {
       if (contactCreateFails) throw p2002();
       return { id: 'c-new', ...data };
@@ -51,7 +50,8 @@ test.before(async () => {
   mock.module('./contacts.service.js', {
     namedExports: {
       isValidPhone: (v) => /^\+?\d{7,15}$/.test(String(v).replace(/[\s-]/g, '')),
-      normalizePhone: (v) => String(v).replace(/[^\d+]/g, ''),
+      resolveContactPhone: async (_ws, v) => ({ phoneNumber: String(v).replace(/[^\d+]/g, ''), country: 'IN' }),
+      findContactByPhone: async () => contactRows.shift() ?? null,
     },
   });
   mock.module('./leadScoring.service.js', {

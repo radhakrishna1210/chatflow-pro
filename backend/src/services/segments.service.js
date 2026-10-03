@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { setContactOptOut } from './optout.service.js';
 import { assertContactCapacity } from './subscription.service.js';
+import { resolveContactPhone, findContactByPhone } from './contacts.service.js';
 
 // List all segments for a workspace. Contacts are capped per segment and a
 // _count is included, so a 10k-contact segment no longer ships 10k rows on
@@ -55,16 +56,6 @@ export async function deleteSegment(workspaceId, segmentId) {
   await prisma.segment.delete({ where: { id: segmentId } });
 }
 
-// Normalize an inbound phone value: trim, drop formatting, keep a leading +.
-function normalizePhone(value) {
-  if (value === undefined || value === null) return null;
-  const raw = String(value).trim();
-  if (!raw) return null;
-  const digits = raw.replace(/[^\d]/g, '');
-  if (!digits) return null;
-  return raw.startsWith('+') ? `+${digits}` : digits;
-}
-
 // Add a contact to a segment. If contactId provided, link existing contact; otherwise, create new contact.
 export async function addContactToSegment(workspaceId, segmentId, contactData) {
   const segment = await prisma.segment.findFirst({ where: { id: segmentId, workspaceId } });
@@ -72,10 +63,11 @@ export async function addContactToSegment(workspaceId, segmentId, contactData) {
   let contactId = contactData.contactId;
   if (!contactId) {
     // Accept phoneNumber (canonical) or the legacy `phone` alias the UI used to send.
-    const phoneNumber = normalizePhone(contactData.phoneNumber ?? contactData.phone);
-    if (!phoneNumber) { const e = new Error('Phone number is required'); e.status = 400; throw e; }
+    const rawPhone = contactData.phoneNumber ?? contactData.phone;
+    if (!String(rawPhone ?? '').trim()) { const e = new Error('Phone number is required'); e.status = 400; throw e; }
+    const { phoneNumber, country } = await resolveContactPhone(workspaceId, rawPhone);
     // Re-use an existing contact with the same number instead of creating a duplicate.
-    const existing = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
+    const existing = await findContactByPhone(workspaceId, phoneNumber, { country });
     if (existing) {
       contactId = existing.id;
       if (contactData.name && !existing.name) {
@@ -83,7 +75,8 @@ export async function addContactToSegment(workspaceId, segmentId, contactData) {
       }
     } else {
       await assertContactCapacity(workspaceId);
-      const newContact = await prisma.contact.create({ data: { workspaceId, name: contactData.name || null, phoneNumber, email: contactData.email || null, tags: contactData.tags || [] } });
+      // Contact.name is required; the number stands in, as on every other path.
+      const newContact = await prisma.contact.create({ data: { workspaceId, name: contactData.name || phoneNumber, phoneNumber, email: contactData.email || null, tags: contactData.tags || [] } });
       contactId = newContact.id;
     }
   } else {
@@ -109,8 +102,10 @@ export async function updateContactInSegment(workspaceId, segmentId, contactId, 
   // Legacy alias: older clients send `phone` instead of `phoneNumber`.
   if (data.phoneNumber === undefined && updates.phone !== undefined) data.phoneNumber = updates.phone;
   if (data.phoneNumber !== undefined) {
-    const phoneNumber = normalizePhone(data.phoneNumber);
-    if (!phoneNumber) { const e = new Error('Phone number is required'); e.status = 400; throw e; }
+    if (!String(data.phoneNumber ?? '').trim()) { const e = new Error('Phone number is required'); e.status = 400; throw e; }
+    const { phoneNumber, country } = await resolveContactPhone(workspaceId, data.phoneNumber);
+    const clash = await findContactByPhone(workspaceId, phoneNumber, { country });
+    if (clash && clash.id !== contactId) { const e = new Error('A contact with this phone number already exists'); e.status = 409; throw e; }
     data.phoneNumber = phoneNumber;
   }
   const updated = await prisma.contact.update({ where: { id: contactId }, data });

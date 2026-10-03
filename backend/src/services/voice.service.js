@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
+import { resolveContactPhone, findContactByPhone } from './contacts.service.js';
 
 // Voice AI — inbound calls. The tab used to persist four settings that nothing
 // read; there was no call handling anywhere in the backend. This drives a real
@@ -144,17 +145,23 @@ export async function finalizeCall(callId) {
 
   let contactId = null;
   try {
-    const contact = await prisma.contact.upsert({
-      where: { workspaceId_phoneNumber: { workspaceId: call.workspaceId, phoneNumber: call.fromPhone } },
-      update: leadName ? { name: leadName } : {},
-      create: {
-        workspaceId: call.workspaceId,
-        name: leadName || call.fromPhone,
-        phoneNumber: call.fromPhone,
-        ...(leadEmail ? { email: leadEmail } : {}),
-        tags: ['Voice AI Lead'],
-      },
-    });
+    // The caller id is stored the way every other contact number is (E.164),
+    // and an existing contact under an older spelling is reused.
+    const { phoneNumber, country } = await resolveContactPhone(call.workspaceId, call.fromPhone);
+    const existing = await findContactByPhone(call.workspaceId, phoneNumber, { country });
+    const contact = existing
+      ? (leadName ? await prisma.contact.update({ where: { id: existing.id }, data: { name: leadName } }) : existing)
+      : await prisma.contact.upsert({
+        where: { workspaceId_phoneNumber: { workspaceId: call.workspaceId, phoneNumber } },
+        update: leadName ? { name: leadName } : {},
+        create: {
+          workspaceId: call.workspaceId,
+          name: leadName || phoneNumber,
+          phoneNumber,
+          ...(leadEmail ? { email: leadEmail } : {}),
+          tags: ['Voice AI Lead'],
+        },
+      });
     contactId = contact.id;
   } catch (err) {
     console.error('[Voice] Could not upsert contact from call:', err.message);

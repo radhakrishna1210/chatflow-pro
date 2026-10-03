@@ -284,7 +284,7 @@ export async function captureLead(widget, { visitorKey, fields = {}, pageUrl } =
   if (!contactsService.isValidPhone(phone)) fail('That phone number does not look valid.');
 
   const session = await loadSession(widget, visitorKey, { pageUrl });
-  const normalised = contactsService.normalizePhone(phone);
+  const { phoneNumber: normalised, country } = await contactsService.resolveContactPhone(widget.workspaceId, phone);
   const name = values.name || normalised;
   const email = values.email || null;
 
@@ -298,9 +298,7 @@ export async function captureLead(widget, { visitorKey, fields = {}, pageUrl } =
       .slice(0, 5),
   ];
 
-  const existing = await prisma.contact.findFirst({
-    where: { workspaceId: widget.workspaceId, phoneNumber: normalised },
-  });
+  const existing = await contactsService.findContactByPhone(widget.workspaceId, normalised, { country });
 
   let contact;
   if (existing) {

@@ -419,6 +419,9 @@ export const settingsSchemas = {
     name: z.string().trim().min(1, 'Workspace name is required').max(120).optional(),
     industry: z.union([z.string().trim().max(80), z.literal('')]).optional(),
     timezone: z.string().trim().min(1).max(64).optional(),
+    // Country for contact numbers typed without a code; checked against the
+    // supported list in the service.
+    defaultPhoneCountry: z.string().trim().length(2).optional(),
     brandColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Use a 6-digit hex colour').optional(),
     brandLogoUrl: z.union([z.string().trim().url().max(500), z.literal('')]).optional(),
     // Settings -> lead capture: create a lead when a contact replies to a campaign.

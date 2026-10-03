@@ -1,6 +1,7 @@
 import { parse } from 'csv-parse/sync';
 import { prisma } from '../lib/prisma.js';
 import { normalizePhone, isValidPhone } from './contacts.service.js';
+import { phoneVariants, workspacePhoneCountry } from '../lib/phone.js';
 import { getSection } from './crmCustomization.service.js';
 import { assertContactCapacity } from './subscription.service.js';
 
@@ -90,7 +91,7 @@ function parseCsv(buffer) {
  * will happen before committing. Returns per-row problems rather than failing
  * on the first bad line.
  */
-export function previewLeadImport(buffer, { limit = 20, customStatuses = null } = {}) {
+export function previewLeadImport(buffer, { limit = 20, customStatuses = null, country } = {}) {
   const records = parseCsv(buffer);
   if (records.length === 0) {
     const e = new Error('That file has no rows'); e.status = 400; throw e;
@@ -120,11 +121,11 @@ export function previewLeadImport(buffer, { limit = 20, customStatuses = null } 
     const rawPhone = record[mapping.phoneNumber];
     const issues = [];
 
-    if (!isValidPhone(rawPhone)) {
+    const phoneNumber = isValidPhone(rawPhone, { country }) ? normalizePhone(rawPhone, { country }) : null;
+    if (!phoneNumber) {
       issues.push(String(rawPhone || '').trim() ? 'Phone number must contain 7–15 digits' : 'Missing phone number');
     }
 
-    const phoneNumber = isValidPhone(rawPhone) ? normalizePhone(rawPhone) : null;
     if (phoneNumber && seen.has(phoneNumber)) {
       issues.push('Duplicate of an earlier row in this file');
       duplicateInFile += 1;
@@ -179,7 +180,8 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
   }
 
   const customStatuses = await loadCustomStatuses(workspaceId);
-  const { mapping } = previewLeadImport(buffer, { limit: 0, customStatuses });
+  const country = await workspacePhoneCountry(workspaceId);
+  const { mapping } = previewLeadImport(buffer, { limit: 0, customStatuses, country });
   const records = parseCsv(buffer);
 
   const seen = new Set();
@@ -190,11 +192,11 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     const line = i + 2;
     const rawPhone = record[mapping.phoneNumber];
 
-    if (!isValidPhone(rawPhone)) {
+    const phoneNumber = isValidPhone(rawPhone, { country }) ? normalizePhone(rawPhone, { country }) : '';
+    if (!phoneNumber) {
       errors.push({ line, reason: 'Invalid or missing phone number', value: String(rawPhone || '') });
       continue;
     }
-    const phoneNumber = normalizePhone(rawPhone);
     if (seen.has(phoneNumber)) {
       errors.push({ line, reason: 'Duplicate row in file', value: phoneNumber });
       continue;
@@ -224,11 +226,22 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     const chunk = candidates.slice(start, start + CHUNK);
     const phones = chunk.map((r) => r.phoneNumber);
 
+    // Matched under every stored spelling, so a contact saved before numbers
+    // were normalised ("09876543210") is reused rather than duplicated.
+    const canonicalOf = new Map();
+    for (const phone of phones) {
+      for (const v of phoneVariants(phone, { country })) canonicalOf.set(v, phone);
+    }
     const existing = await prisma.contact.findMany({
-      where: { workspaceId, phoneNumber: { in: phones } },
+      where: { workspaceId, phoneNumber: { in: [...canonicalOf.keys()] } },
       select: { id: true, phoneNumber: true },
     });
-    const contactIdByPhone = new Map(existing.map((c) => [c.phoneNumber, c.id]));
+    const contactIdByPhone = new Map();
+    for (const c of existing) {
+      const phone = canonicalOf.get(c.phoneNumber);
+      // The canonical row wins when a legacy duplicate also exists.
+      if (!contactIdByPhone.has(phone) || c.phoneNumber === phone) contactIdByPhone.set(phone, c.id);
+    }
 
     const missing = chunk.filter((r) => !contactIdByPhone.has(r.phoneNumber));
     if (missing.length) {

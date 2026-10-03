@@ -2,19 +2,44 @@ import { prisma } from '../lib/prisma.js';
 import { parse } from 'csv-parse/sync';
 import { assertWithinLimit } from './subscription.service.js';
 import { setContactOptOut } from './optout.service.js';
+import { toE164, phoneVariants, workspacePhoneCountry } from '../lib/phone.js';
 
-// Normalize to E.164-ish: strip everything but digits, keep a leading '+'.
-export function normalizePhone(raw) {
-  const str = String(raw || '').trim();
-  const digits = str.replace(/[^\d]/g, '');
-  if (!digits) return '';
-  return `+${digits}`;
+// Every Contact.phoneNumber is E.164 ("+919876543210"), whichever path wrote
+// it — see lib/phone.js. `country` is the workspace default used for numbers
+// typed without a country code; returns '' when the input cannot be a number.
+export function normalizePhone(raw, { country, international } = {}) {
+  return toE164(raw, { country, international }) || '';
 }
 
-// 7–15 digits per E.164. Rejects junk like "abc", "123", "N/A".
-export function isValidPhone(raw) {
+// 7–15 digits per E.164 once normalised. Rejects junk like "abc", "123", "N/A".
+export function isValidPhone(raw, { country } = {}) {
   const digits = String(raw || '').replace(/[^\d]/g, '');
-  return digits.length >= 7 && digits.length <= 15;
+  return digits.length >= 7 && digits.length <= 15 && toE164(raw, { country }) !== null;
+}
+
+/**
+ * The E.164 form of `raw` for this workspace plus the country used, or a 400
+ * when it cannot be a phone number. Every contact write goes through this.
+ */
+export async function resolveContactPhone(workspaceId, raw, { international = false } = {}) {
+  const country = await workspacePhoneCountry(workspaceId);
+  const phoneNumber = toE164(raw, { country, international });
+  if (!phoneNumber) { const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e; }
+  return { phoneNumber, country };
+}
+
+/**
+ * The contact with this number, however it was spelled when it was stored.
+ * Rows written before numbers were normalised ("09876543210") are found
+ * rather than duplicated. The canonical spelling wins when both exist.
+ */
+export async function findContactByPhone(workspaceId, phoneNumber, { country, client = prisma } = {}) {
+  if (!phoneNumber) return null;
+  const rows = await client.contact.findMany({
+    where: { workspaceId, phoneNumber: { in: phoneVariants(phoneNumber, { country }) } },
+    take: 5,
+  });
+  return rows.find((c) => c.phoneNumber === phoneNumber) || rows[0] || null;
 }
 
 // Sort options the contact list offers, mapped to the order Prisma needs.
@@ -153,11 +178,8 @@ export async function getContact(workspaceId, id) {
 }
 
 export async function createContact(workspaceId, { name, phoneNumber, email, tags = [], customFields }) {
-  if (!isValidPhone(phoneNumber)) {
-    const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e;
-  }
-  const normalized = normalizePhone(phoneNumber);
-  const existing = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber: normalized } });
+  const { phoneNumber: normalized, country } = await resolveContactPhone(workspaceId, phoneNumber);
+  const existing = await findContactByPhone(workspaceId, normalized, { country });
   if (existing) { const e = new Error('A contact with this phone number already exists'); e.status = 409; throw e; }
   await assertWithinLimit(workspaceId, 'contact');
   // Values are checked against the workspace's own field definitions, so an
@@ -181,13 +203,14 @@ export async function importContacts(workspaceId, csvBuffer) {
     const e = new Error(`Could not parse CSV: ${err.message}`); e.status = 400; throw e;
   }
 
+  const country = await workspacePhoneCountry(workspaceId);
   const seen = new Set();
   let invalid = 0;
   const data = [];
   for (const r of records) {
     const rawPhone = r.phoneNumber || r.phone || r.Phone || r.PhoneNumber || '';
-    if (!isValidPhone(rawPhone)) { if (String(rawPhone).trim()) invalid++; continue; }
-    const phoneNumber = normalizePhone(rawPhone);
+    const phoneNumber = isValidPhone(rawPhone, { country }) ? normalizePhone(rawPhone, { country }) : '';
+    if (!phoneNumber) { if (String(rawPhone).trim()) invalid++; continue; }
     if (seen.has(phoneNumber)) continue; // in-file duplicate
     seen.add(phoneNumber);
     data.push({
@@ -209,12 +232,21 @@ export async function importContacts(workspaceId, csvBuffer) {
   // Only phone numbers not already in this workspace actually count against
   // the limit — re-importing existing contacts (skipDuplicates below) is a
   // no-op either way.
+  //
+  // Existing contacts are matched under every spelling they may have been
+  // stored with, so a legacy "09876543210" row is not re-imported as a second
+  // "+919876543210" contact.
+  const canonicalOf = new Map();
+  for (const d of data) {
+    for (const v of phoneVariants(d.phoneNumber, { country })) canonicalOf.set(v, d.phoneNumber);
+  }
   const existingPhones = await prisma.contact.findMany({
-    where: { workspaceId, phoneNumber: { in: data.map((d) => d.phoneNumber) } },
+    where: { workspaceId, phoneNumber: { in: [...canonicalOf.keys()] } },
     select: { phoneNumber: true },
   });
-  const existingSet = new Set(existingPhones.map((c) => c.phoneNumber));
-  const newCount = data.filter((d) => !existingSet.has(d.phoneNumber)).length;
+  const existingSet = new Set(existingPhones.map((c) => canonicalOf.get(c.phoneNumber)));
+  const fresh = data.filter((d) => !existingSet.has(d.phoneNumber));
+  const newCount = fresh.length;
   if (newCount > 0) {
     await assertWithinLimit(workspaceId, 'contact', {
       additional: newCount,
@@ -224,10 +256,12 @@ export async function importContacts(workspaceId, csvBuffer) {
 
   // createMany reports rows actually inserted; skipDuplicates relies on the
   // (workspaceId, phoneNumber) unique constraint to drop existing contacts.
-  const { count: imported } = await prisma.contact.createMany({ data, skipDuplicates: true });
+  const { count: imported } = fresh.length
+    ? await prisma.contact.createMany({ data: fresh, skipDuplicates: true })
+    : { count: 0 };
   const duplicates = data.length - imported;
   const matchedContacts = await prisma.contact.findMany({
-    where: { workspaceId, phoneNumber: { in: data.map((d) => d.phoneNumber) } },
+    where: { workspaceId, phoneNumber: { in: [...canonicalOf.keys()] } },
     select: { id: true, name: true, phoneNumber: true },
   });
   return { imported, duplicates, invalid, totalRows: records.length, contacts: matchedContacts };
@@ -247,8 +281,12 @@ export async function updateContact(workspaceId, id, updates) {
   // The opt-out flag goes through the OptOut list so both sources agree.
   const { optedOut, ...data } = updates;
   if (data.phoneNumber !== undefined) {
-    if (!isValidPhone(data.phoneNumber)) { const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e; }
-    data.phoneNumber = normalizePhone(data.phoneNumber);
+    const { phoneNumber, country } = await resolveContactPhone(workspaceId, data.phoneNumber);
+    // Another contact under any spelling of the new number would become a
+    // duplicate the unique key cannot see.
+    const clash = await findContactByPhone(workspaceId, phoneNumber, { country });
+    if (clash && clash.id !== id) { const e = new Error('A contact with this phone number already exists'); e.status = 409; throw e; }
+    data.phoneNumber = phoneNumber;
   }
   if (data.customFields !== undefined) {
     const { validateCustomFields } = await import('./workspaceCustomFields.service.js');

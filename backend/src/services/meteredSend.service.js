@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { consumeMessageCredit, releaseMessageCredit } from './subscription.service.js';
 import { describeSendFailure } from './conversations.service.js';
 import { normalizePhone } from './optout.service.js';
+import { toE164 } from '../lib/phone.js';
 
 // Sends that do not start from an inbox thread or a campaign — the public API,
 // the OTP API and the API-key playground — go through here so they are billed
@@ -58,7 +59,9 @@ async function ensureContact(workspaceId, digits) {
   });
   if (existing) return existing;
 
-  const phoneNumber = `+${digits}`;
+  // A send target is always a full international number, so it is E.164
+  // as-is (lib/phone.js), the same form every other path stores.
+  const phoneNumber = toE164(digits, { international: true }) || `+${digits}`;
   try {
     return await prisma.contact.create({ data: { workspaceId, name: phoneNumber, phoneNumber } });
   } catch (err) {

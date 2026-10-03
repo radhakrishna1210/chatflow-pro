@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
-import { isValidPhone, normalizePhone } from './contacts.service.js';
+import { resolveContactPhone, findContactByPhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { validateCrmCustomFields } from './customFields.service.js';
@@ -282,11 +282,8 @@ export async function createLead(workspaceId, body, actorUserId = null) {
   const initialTags = Array.isArray(body.tags) ? body.tags : [];
 
   if (!contactId) {
-    if (!isValidPhone(body.phoneNumber)) {
-      const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e;
-    }
-    const phoneNumber = normalizePhone(body.phoneNumber);
-    const existing = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
+    const { phoneNumber, country } = await resolveContactPhone(workspaceId, body.phoneNumber);
+    const existing = await findContactByPhone(workspaceId, phoneNumber, { country });
     if (!existing) await assertContactCapacity(workspaceId);
     contactId = existing
       ? existing.id

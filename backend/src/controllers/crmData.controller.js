@@ -3,6 +3,7 @@ import * as importService from '../services/crmImport.service.js';
 import * as audit from '../services/audit.service.js';
 import { hasCrmPermission, CRM_PERMISSIONS } from '../services/crmPermissions.service.js';
 import { assertWorkspaceMember } from '../services/crmReferences.js';
+import { workspacePhoneCountry } from '../lib/phone.js';
 
 export async function exportCsv(req, res) {
   // Unmasked numbers need the override permission; anyone may ask for masking.
@@ -26,7 +27,8 @@ export async function exportCsv(req, res) {
 export async function previewImport(req, res) {
   if (!req.file) { const e = new Error('No file uploaded'); e.status = 400; throw e; }
   const customStatuses = await importService.loadCustomStatuses(req.params.workspaceId);
-  res.json(importService.previewLeadImport(req.file.buffer, { customStatuses }));
+  const country = await workspacePhoneCountry(req.params.workspaceId);
+  res.json(importService.previewLeadImport(req.file.buffer, { customStatuses, country }));
 }
 
 export async function runImport(req, res) {
