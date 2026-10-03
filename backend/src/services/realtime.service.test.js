@@ -186,6 +186,8 @@ test('event types are forwarded by role, and unknown types not at all', () => {
   for (const role of ['VIEWER', 'AGENT', 'CLIENT', 'ADMIN']) {
     assert.equal(canReceive({ role }, 'message.created'), true, role);
     assert.equal(canReceive({ role }, 'campaign.updated'), true, role);
+    // Workflow run updates (contract C4) reach the same audience as campaigns.
+    assert.equal(canReceive({ role }, 'workflow.run'), true, role);
   }
   assert.equal(canReceive({ role: 'ADMIN' }, 'wallet.debited'), false);
   assert.equal(canReceive({ role: null }, 'message.created'), false);

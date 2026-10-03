@@ -29,6 +29,7 @@ const EVENT_TYPES = [
   'conversation.updated',
   'campaign.updated',
   'template.updated',
+  'workflow.run',
   'resync',
 ];
 

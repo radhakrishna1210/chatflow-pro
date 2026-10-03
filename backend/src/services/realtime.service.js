@@ -104,6 +104,8 @@ export const EVENT_MIN_ROLE = Object.freeze({
   'conversation.updated': 'VIEWER',
   'campaign.updated': 'VIEWER',
   'template.updated': 'VIEWER',
+  // Same audience as campaign progress: the Workflows tab is readable by every role.
+  'workflow.run': 'VIEWER',
 });
 
 export function canReceive(client, type) {
