@@ -128,6 +128,7 @@ const buildTemplatePayload = async (template, contact, { phoneNumberId, accessTo
     : null;
 
   return buildTemplateSendPayload(template, {
+    workspaceId: campaign?.workspaceId ?? template.workspaceId,
     phoneNumberId,
     accessToken,
     resolve: contactVariableResolver(contact),

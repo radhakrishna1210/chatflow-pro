@@ -3,7 +3,7 @@ import { createMetaTemplate, editMetaTemplate, deleteMetaTemplate, getWabaTempla
 import { decrypt } from '../lib/encryption.js';
 import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.js';
 import { normalizeTemplateComponents, detectTemplateType, toMetaComponents, preserveInternalFields } from '../lib/templateStructure.js';
-import { storeAsset } from './templateImage.service.js';
+import { storeAsset, assertCardAssetsOwned } from './templateImage.service.js';
 import { notifyWorkspace } from './notification.service.js';
 
 // Throttle map so auto-checks don't spam Meta Graph API
@@ -246,6 +246,7 @@ export async function createTemplate(workspaceId, { name, category, language, co
   // match its siblings, and reports it hours later as an opaque review failure
   // — so the whole structure is validated against the category up front.
   const safeComponents = normalizeTemplateComponents(category, components);
+  await assertCardAssetsOwned(workspaceId, safeComponents);
 
   const waNumber = await resolveWaNumber(workspaceId, waNumberId);
   const wabaId = waNumber.wabaId;
@@ -299,6 +300,7 @@ export async function updateTemplate(workspaceId, id, updates) {
   // one, so an edit cannot smuggle past what create would have rejected.
   if (updates.components) {
     updates.components = normalizeTemplateComponents(updates.category || template.category, updates.components);
+    await assertCardAssetsOwned(workspaceId, updates.components);
   }
 
   // The stored content is what campaigns build their sends from, so it must

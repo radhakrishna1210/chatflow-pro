@@ -507,6 +507,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
   const resolve = (i, component) => String(supplied[i] ?? '').trim() || contactVariableResolver(conversation.contact)(i, component);
 
   const payload = await buildTemplateSendPayload(template, {
+    workspaceId,
     phoneNumberId: conversation.waNumber.metaPhoneNumberId,
     accessToken,
     resolve,

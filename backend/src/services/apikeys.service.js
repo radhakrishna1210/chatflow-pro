@@ -543,6 +543,7 @@ export async function sendTestMessage(
        * remains compatible with template headers, buttons and carousels.
        */
       const payload = await buildTemplateSendPayload(template, {
+        workspaceId,
         phoneNumberId: waNumber.metaPhoneNumberId,
         accessToken,
 
