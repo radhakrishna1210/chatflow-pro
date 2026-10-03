@@ -87,7 +87,7 @@ export async function listAddons(req, res) {
 }
 
 export async function createAddonCheckout(req, res) {
-  res.json(await addons.createAddonOrder(req.params.workspaceId, req.body?.addonKey));
+  res.json(await addons.createAddonOrder(req.params.workspaceId, req.body?.addonKey, { autoRenew: req.body?.autoRenew === true }));
 }
 
 export async function verifyAddonCheckout(req, res) {
@@ -96,4 +96,12 @@ export async function verifyAddonCheckout(req, res) {
 
 export async function cancelAddon(req, res) {
   res.json(await addons.cancelAddon(req.params.workspaceId, req.params.addonKey));
+}
+
+export async function setAddonAutoRenew(req, res) {
+  const enabled = req.body?.autoRenew;
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'autoRenew must be true or false' });
+  }
+  res.json(await addons.setAddonAutoRenew(req.params.workspaceId, req.params.addonKey, enabled));
 }

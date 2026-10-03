@@ -39,11 +39,13 @@ router.get('/billing-profile', controller.getBillingProfile);
 router.put('/billing-profile', authorize('ADMIN'), validate({ body: billingProfileSchema }), controller.saveBillingProfile);
 
 // Add-ons. Reading the catalogue is open to any member (the Payments screen
-// shows it); buying and cancelling change what the workspace pays, so they sit
+// shows it); buying, cancelling and auto-renew change what the workspace pays, so they sit
 // behind the same ADMIN gate as plan checkout and wallet recharge.
 router.get('/addons', controller.listAddons);
 router.post('/addons/checkout', authorize('ADMIN'), controller.createAddonCheckout);
 router.post('/addons/checkout/verify', authorize('ADMIN'), controller.verifyAddonCheckout);
 router.delete('/addons/:addonKey', authorize('ADMIN'), controller.cancelAddon);
+// Opt in/out of renewing this add-on's packs from the wallet at period end.
+router.patch('/addons/:addonKey/auto-renew', authorize('ADMIN'), controller.setAddonAutoRenew);
 
 export default router;

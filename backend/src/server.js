@@ -36,6 +36,7 @@ import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
 import { recoverStrandedCampaigns, startCampaignRecoverySweep } from './services/campaignRecovery.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
+import { runAddonRenewalSweep } from './services/addons.service.js';
 import { syncIndex as syncSiteKnowledge } from './services/siteKnowledge.service.js';
 import { campaignQueue } from './queues/campaign.queue.js';
 import { emailQueue } from './queues/email.queue.js';
@@ -452,6 +453,14 @@ async function main() {
       }
     } catch (err) {
       console.error('[Recovery] Billing cycle sweep failed:', err.message);
+    }
+    try {
+      const addons = await runAddonRenewalSweep();
+      if (addons.processed > 0) {
+        console.log(`[Recovery] Add-on renewal sweep: processed=${addons.processed} renewed=${addons.renewed} expired=${addons.expired} unpaid=${addons.unpaid} failed=${addons.failed}`);
+      }
+    } catch (err) {
+      console.error('[Recovery] Add-on renewal sweep failed:', err.message);
     }
   }
 }
