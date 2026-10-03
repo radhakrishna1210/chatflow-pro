@@ -7,6 +7,7 @@ import { useIsMobile } from '../lib/useMediaQuery.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { notify, confirmDialog } from '../components/Feedback.jsx';
+import { can } from '../lib/permissions.js';
 
 const labelCfg = {
   urgent:   { bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.22)',   c:'#f87171' },
@@ -179,6 +180,12 @@ const SkeletonRow = () => (
 );
 
 export default function InboxView() {
+  // What this role may do in a thread (lib/permissions.js). Viewers read the
+  // inbox; agents reply, take notes, assign, resolve and toggle the bot; a
+  // template send is a paid send and member-level.
+  const canReply = can('inbox.reply');
+  const canManageThread = can('inbox.manage');
+  const canSendTemplate = can('inbox.sendTemplate');
   const [convs, setConvs]       = useState([]);
   const [msgs, setMsgs]         = useState({});
   // WhatsApp's 24-hour customer service window, per conversation, as reported
@@ -748,9 +755,10 @@ export default function InboxView() {
                   <I n={isBot ? 'bot' : 'user'} s={14} c={isBot ? (mobile ? '#fff' : 'var(--green)') : (mobile ? 'rgba(255,255,255,0.8)' : 'var(--t2)')} />
                   <div role="switch" aria-checked={isBot} tabIndex={0}
                     title={isBot ? 'Automation may reply in this thread — click to keep it out' : 'Automation is paused here — click to hand the thread back to it'}
-                    onClick={() => setBot(!isBot)}
-                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setBot(!isBot); } }}
-                    style={{ width:38, height:21, borderRadius:20, background: isBot ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor: botBusy ? 'wait' : 'pointer', opacity: botBusy ? 0.6 : 1, transition:'background .2s', position:'relative', border:'1px solid var(--bd)' }}>
+                    aria-disabled={!canManageThread}
+                    onClick={() => { if (canManageThread) setBot(!isBot); }}
+                    onKeyDown={e => { if (canManageThread && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setBot(!isBot); } }}
+                    style={{ width:38, height:21, borderRadius:20, background: isBot ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor: !canManageThread ? 'not-allowed' : botBusy ? 'wait' : 'pointer', opacity: botBusy || !canManageThread ? 0.6 : 1, transition:'background .2s', position:'relative', border:'1px solid var(--bd)' }}>
                     <div style={{ position:'absolute', top:2, left: isBot ? 19 : 2, width:15, height:15, borderRadius:'50%', background:'white', transition:'left .2s', boxShadow:'0 1px 4px rgba(0,0,0,0.4)' }} />
                   </div>
                   {!mobile && <span style={{ fontSize:11, color:'var(--t2)' }}>{isBot ? 'Bot' : 'Human'}</span>}
@@ -761,7 +769,7 @@ export default function InboxView() {
                 {!mobile && (
                   <select
                     value={context?.conversation?.assignedTo?.id || ''}
-                    disabled={busyAction}
+                    disabled={busyAction || !canManageThread}
                     onChange={e => assignTo(e.target.value)}
                     style={{ padding:'6px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)', fontSize:12, fontFamily:"'Manrope',sans-serif", outline:'none', colorScheme:'dark',
                              // The assignee names are arbitrary length, so this
@@ -774,7 +782,7 @@ export default function InboxView() {
                     ))}
                   </select>
                 )}
-                {!mobile && (
+                {!mobile && canManageThread && (
                   <Btn variant="outline" size="sm" disabled={busyAction} style={{ flexShrink:0 }}
                     onClick={() => setStatus(active.status === 'RESOLVED' ? 'OPEN' : 'RESOLVED')}>
                     {active.status === 'RESOLVED' ? 'Reopen' : 'Resolve'}
@@ -874,7 +882,7 @@ export default function InboxView() {
                 {/* AI suggestions. Drafted by the same agent the customer
                     would have got, so accepting one sends what it would have
                     sent and editing one is a real edit. */}
-                <div style={{ padding:'8px 16px 0', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', background:'var(--surf)', flexShrink:0 }}>
+                {canManageThread && <div style={{ padding:'8px 16px 0', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', background:'var(--surf)', flexShrink:0 }}>
                   <button onClick={askForSuggestion} disabled={suggesting}
                     style={{ display:'inline-flex', alignItems:'center', gap:6, fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--green)', background:'none', border:'none', cursor: suggesting ? 'wait' : 'pointer', padding:0 }}>
                     <I n="spark" s={11} c="var(--green)" /> {suggesting ? 'Drafting…' : 'AI suggestions'}
@@ -887,7 +895,7 @@ export default function InboxView() {
                     </button>
                   ))}
                   {suggestNote && <span style={{ fontSize:11, color:'var(--t3)' }}>{suggestNote}</span>}
-                </div>
+                </div>}
 
                 {/* WhatsApp's 24-hour rule, stated before the agent types
                     rather than discovered when Meta rejects the send. */}
@@ -899,14 +907,14 @@ export default function InboxView() {
                       {/* The way through the closed window. Telling someone to
                           send a template while offering no way to send one is
                           not a workable instruction. */}
-                      <button onClick={() => setTemplatePickerOpen(o => !o)}
+                      {canSendTemplate && <button onClick={() => setTemplatePickerOpen(o => !o)}
                         style={{ marginLeft:'auto', padding:'4px 10px', borderRadius:6, fontSize:11.5, fontWeight:600,
                                  cursor:'pointer', background:'rgba(245,158,11,.12)', border:'1px solid rgba(245,158,11,.35)',
                                  color:'#fbbf24', fontFamily:"'Manrope',sans-serif" }}>
                         {templatePickerOpen ? 'Close' : 'Send a template'}
-                      </button>
+                      </button>}
                     </div>
-                    {templatePickerOpen && (
+                    {templatePickerOpen && canSendTemplate && (
                       <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6, maxHeight:180, overflowY:'auto' }}>
                         {templates.length === 0 && (
                           <span style={{ fontSize:11.5, color:'var(--t3)' }}>
@@ -933,6 +941,12 @@ export default function InboxView() {
                   </div>
                 )}
 
+                {!canReply ? (
+                  <div style={{ padding:'12px 16px', borderTop:'1px solid var(--bd)', background:'var(--surf)', flexShrink:0, display:'flex', alignItems:'center', gap:8 }}>
+                    <I n="lock" s={13} c="var(--t3)" />
+                    <span style={{ fontSize:12.5, color:'var(--t2)' }}>View only — your role can read conversations but not reply.</span>
+                  </div>
+                ) : (
                 <div style={{ padding:'12px 16px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, alignItems:'center', background:'var(--surf)', flexShrink:0 }}>
                   <Btn variant="outline" size="sm">Quick Reply</Btn>
                   {/* WhatsApp treats an attachment as a free-form message, so
@@ -963,6 +977,7 @@ export default function InboxView() {
                     <I n="send" s={15} c="#08090c" />
                   </button>
                 </div>
+                )}
               </>
             ) : (
               <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
@@ -979,22 +994,22 @@ export default function InboxView() {
                         <span>{note.author?.name || 'Someone'}</span>
                         <span>·</span>
                         <span>{new Date(note.createdAt).toLocaleString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
-                        <button onClick={() => deleteNote(note.id)} title="Delete note" aria-label="Delete note"
+                        {canManageThread && <button onClick={() => deleteNote(note.id)} title="Delete note" aria-label="Delete note"
                           style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'var(--t3)', fontSize:11, padding:0, fontFamily:"'Manrope',sans-serif" }}>
                           Delete
-                        </button>
+                        </button>}
                       </div>
                     </div>
                   ))}
                 </div>
-                <div style={{ padding:'12px 16px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, alignItems:'flex-end', background:'var(--surf)', flexShrink:0 }}>
+                {canManageThread && <div style={{ padding:'12px 16px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, alignItems:'flex-end', background:'var(--surf)', flexShrink:0 }}>
                   <textarea value={noteDraft} onChange={e => setNoteDraft(e.target.value)} rows={2}
                     placeholder="Private note for your team…"
                     style={{ flex:1, padding:'9px 12px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', resize:'vertical' }} />
                   <Btn size="sm" onClick={addNote} disabled={savingNote || !noteDraft.trim()}>
                     {savingNote ? 'Saving…' : 'Add note'}
                   </Btn>
-                </div>
+                </div>}
               </div>
             )}
           </div>
@@ -1016,7 +1031,7 @@ export default function InboxView() {
           <div style={{ width: 300, flexShrink: 0, borderLeft: '1px solid var(--bd)', overflowY: 'auto', background: 'var(--surf)' }}>
             <ThreadContext
               context={context}
-              busy={busyAction}
+              busy={busyAction || !canManageThread}
               onHandBackToAI={() => assignTo(null)}
             />
           </div>
@@ -1033,7 +1048,7 @@ export default function InboxView() {
             topSlot={!wide && context ? (
               <ThreadContext
                 context={context}
-                busy={busyAction}
+                busy={busyAction || !canManageThread}
                 onHandBackToAI={() => assignTo(null)}
               />
             ) : null}

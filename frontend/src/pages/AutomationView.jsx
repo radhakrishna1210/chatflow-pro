@@ -9,16 +9,22 @@ import MobileNavButton from '../components/MobileNavButton.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
 import { confirmDialog } from '../components/Feedback.jsx';
 import { AI_AGENTS_API } from '../lib/aiAgentsApi.js';
+import { can } from '../lib/permissions.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Manrope',sans-serif", boxSizing:'border-box' };
 const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
 
-const Toggle = ({ on, onToggle, disabled = false }) => (
+// Every automation write is member-level (authorize('CLIENT') or the role
+// floor), so for viewers and agents every switch on this page is read-only.
+const Toggle = ({ on, onToggle, disabled: disabledProp = false }) => {
+  const disabled = disabledProp || !can('automation.manage');
+  return (
   <div onClick={disabled ? undefined : onToggle} style={{ width:36, height:20, borderRadius:20, background: on ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, transition:'background .2s', position:'relative', border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`, flexShrink:0 }}>
     <div style={{ position:'absolute', top:2, left: on ? 17 : 2, width:14, height:14, borderRadius:'50%', background:'white', transition:'left .2s', boxShadow:'0 1px 3px rgba(0,0,0,0.4)' }} />
   </div>
-);
+  );
+};
 
 const Banner = ({ tone = 'info', children }) => {
   const palette = {
@@ -3091,6 +3097,9 @@ export default function AutomationView({ initialTab }) {
   };
 
   const isMobile = useIsMobile();
+  // Viewers and agents can look but not change anything here; the disabled
+  // fieldset below makes every control in the tab body read-only at once.
+  const readOnly = !can('automation.manage');
 
   const renderContent = () => {
     switch (activeTab) {
@@ -3140,7 +3149,17 @@ export default function AutomationView({ initialTab }) {
 
       <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'32px' }}>
         <div style={{ maxWidth:'1000px', margin:'0 auto' }}>
-          {renderContent()}
+          {readOnly && (
+            <div role="status" style={{ ...card, padding:'11px 15px', marginBottom:16, display:'flex', alignItems:'center', gap:8 }}>
+              <I n="lock" s={14} c="var(--t2)" />
+              <span style={{ fontSize:12.5, color:'var(--t2)', lineHeight:1.5 }}>
+                View only — automations, intents and forms are changed by workspace members. Ask a member or admin if something needs to change.
+              </span>
+            </div>
+          )}
+          <fieldset disabled={readOnly} style={{ border:0, padding:0, margin:0, minWidth:0 }}>
+            {renderContent()}
+          </fieldset>
         </div>
       </div>
     </div>

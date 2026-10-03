@@ -5,6 +5,7 @@ import { Avatar } from '../components/Avatar.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { Modal } from '../components/Modal.jsx';
 import { wFetch } from '../lib/api.js';
+import { can } from '../lib/permissions.js';
 
 const fmtDate = d => (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 
@@ -128,9 +129,11 @@ export default function TasksView() {
               </button>
             ))}
           </div>
-          <Btn size="sm" onClick={() => setShowNew(true)}>
-            <I n="plus" s={14} c="#060A10" /> New Task
-          </Btn>
+          {can('crm.records') && (
+            <Btn size="sm" onClick={() => setShowNew(true)}>
+              <I n="plus" s={14} c="#060A10" /> New Task
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -165,7 +168,8 @@ export default function TasksView() {
                     <td style={{ padding: '12px 16px' }}>
                       <button 
                         onClick={() => toggleComplete(t)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}
+                        disabled={!can('crm.records')}
+                        style={{ background: 'none', border: 'none', cursor: can('crm.records') ? 'pointer' : 'default', padding: 4, display: 'flex' }}
                         title={t.status === 'COMPLETED' ? 'Mark Pending' : 'Mark Completed'}
                       >
                         <I n={t.status === 'COMPLETED' ? 'check-circle-fill' : 'circle'} s={18} c={t.status === 'COMPLETED' ? 'var(--green)' : 'var(--t3)'} />

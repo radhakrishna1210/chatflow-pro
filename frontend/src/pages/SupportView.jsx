@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { can } from '../lib/permissions.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14 };
 
@@ -48,6 +49,13 @@ export default function SupportView() {
           <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 15, fontWeight: 700, color: 'var(--t1)', marginBottom: 16 }}>Submit a request</h3>
           {err && <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 13, marginBottom: 14 }}>{err}</div>}
           {status === 'success' && <div style={{ padding: '10px 13px', borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', color: 'var(--green)', fontSize: 13, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}><I n="check" s={14} c="var(--green)" w={2} /> Ticket submitted — we'll get back to you by email.</div>}
+          {/* Raising a ticket is a workspace write, which the server refuses
+              for viewers and agents; say so instead of failing on submit. */}
+          {!can('support.create') ? (
+            <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.6 }}>
+              Your role can see this workspace's requests but not raise new ones. Ask a workspace member or admin to submit it.
+            </p>
+          ) : (
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="dash-split" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
               <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" style={inputStyle} maxLength={200} />
@@ -65,6 +73,7 @@ export default function SupportView() {
               <Btn type="submit" disabled={status === 'loading'}>{status === 'loading' ? 'Submitting…' : 'Submit request'}</Btn>
             </div>
           </form>
+          )}
         </div>
 
         <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 12 }}>Your requests</h3>

@@ -6,6 +6,7 @@ import { Modal } from '../components/Modal.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { notify } from '../components/Feedback.jsx';
+import { can } from '../lib/permissions.js';
 
 // Social / Channel icons helper
 const ChannelIcon = ({ source = 'INCOMING' }) => {
@@ -281,9 +282,12 @@ export default function EngagementsView({ user, initialTab }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Btn size="sm" onClick={() => setShowLogModal(true)}>
-            <I n="plus" s={14} c="#060A10" /> Log Engagement
-          </Btn>
+          {/* Logging an activity is agent-level (POST /activities); viewers read. */}
+          {can('activities.log') && (
+            <Btn size="sm" onClick={() => setShowLogModal(true)}>
+              <I n="plus" s={14} c="#060A10" /> Log Engagement
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -511,11 +515,13 @@ export default function EngagementsView({ user, initialTab }) {
                 <td colSpan={8} style={{ padding: 48, textAlign: 'center', color: 'var(--t3)' }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--t2)', marginBottom: 6 }}>No engagements found</div>
                   <div style={{ fontSize: 12.5, color: 'var(--t3)' }}>Log a call, video meeting, visit or message to start tracking team touchpoints.</div>
-                  <div style={{ marginTop: 14 }}>
-                    <Btn size="sm" onClick={() => setShowLogModal(true)}>
-                      <I n="plus" s={14} c="#060A10" /> Log First Engagement
-                    </Btn>
-                  </div>
+                  {can('activities.log') && (
+                    <div style={{ marginTop: 14 }}>
+                      <Btn size="sm" onClick={() => setShowLogModal(true)}>
+                        <I n="plus" s={14} c="#060A10" /> Log First Engagement
+                      </Btn>
+                    </div>
+                  )}
                 </td>
               </tr>
             ) : (

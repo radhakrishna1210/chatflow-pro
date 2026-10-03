@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
-import { canManage, canBill, isReadOnly, canOpenSection, roleLabel, ROLE_LABELS } from '../lib/permissions.js';
+import { can, canManage, canBill, isReadOnly, canOpenSection, roleLabel, ROLE_LABELS } from '../lib/permissions.js';
 import { aiAgentsHref } from '../lib/aiAgentsApi.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
@@ -1131,16 +1131,19 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
     finally { setLifecycleChanging(false); }
   };
 
+  // Every lifecycle action, the export included, is member-level
+  // (authorize('CLIENT') on the routes); viewers and agents get the report.
+  const mayManage = can('campaigns.manage');
   // Members can cancel too — they can create and launch campaigns, so being
   // unable to stop one would be worse than not starting it.
-  const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED'].includes(c.status);
+  const cancellable = mayManage && c && ['DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED'].includes(c.status);
   // A draft is unfinished work, so it gets a way back into the wizard. Only a
   // draft: anything launched is a report, and "editing" it would imply changes
   // reaching messages that have already gone out.
-  const editable = c?.status === 'DRAFT';
+  const editable = mayManage && c?.status === 'DRAFT';
   const isAuthentication = String(c?.template?.category || '').toUpperCase() === 'AUTHENTICATION';
-  const pausable = ['RUNNING', 'SCHEDULED'].includes(c?.status);
-  const resumable = c?.status === 'PAUSED';
+  const pausable = mayManage && ['RUNNING', 'SCHEDULED'].includes(c?.status);
+  const resumable = mayManage && c?.status === 'PAUSED';
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef, true);
@@ -1322,7 +1325,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
 
         <div style={{ padding:'14px 22px', borderTop:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <span style={{ fontSize:11, color:'var(--t3)' }}>
-            {editable
+            {c?.status === 'DRAFT'
               ? 'This campaign is a draft — nothing sends until you launch it.'
               : 'Counters update live from delivery webhooks.'}
           </span>
@@ -1333,7 +1336,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                 {cancelling ? 'Cancelling…' : 'Cancel Campaign'}
               </Btn>
             )}
-            {c && c.status !== 'DRAFT' && (
+            {mayManage && c && c.status !== 'DRAFT' && (
               <Btn variant="outline" size="sm" onClick={exportReport} disabled={exporting}>
                 <I n="download" s={12} c="var(--t2)" />
                 {exporting ? 'Exporting…' : 'Export CSV'}
@@ -1425,9 +1428,13 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
             be admin-only, which left members on a Free plan able to import
             contacts and then do nothing with them. */}
         <WalletStatusBanner style={{ marginBottom: 16 }} />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-          <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>
-        </div>
+        {/* Creating is member work (authorize('CLIENT')); viewers and agents
+            see the campaigns and their results only. */}
+        {can('campaigns.manage') && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+            <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>
+          </div>
+        )}
         {loading ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading campaigns…</div>
         ) : visibleCampaigns.length === 0 ? (

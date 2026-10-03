@@ -5,6 +5,7 @@ import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { notify, confirmDialog } from '../components/Feedback.jsx';
+import { can } from '../lib/permissions.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -271,9 +272,11 @@ const CsvTab = ({ onSaved }) => {
 // ─── Add Contact dialog ────────────────────────────────────────
 const AddContactDialog = ({ onClose, onSaved }) => {
   const [tab, setTab] = useState('manual');
+  // Agents may add a contact by hand (POST /contacts); a CSV import is member
+  // work (POST /contacts/import), so its tab is only offered to members.
   const tabs = [
     { id:'manual', label:'Enter Manually', icon:'edit' },
-    { id:'csv',    label:'Upload CSV',     icon:'columns' },
+    ...(can('contacts.import') ? [{ id:'csv', label:'Upload CSV', icon:'columns' }] : []),
   ];
 
   return (
@@ -287,7 +290,7 @@ const AddContactDialog = ({ onClose, onSaved }) => {
         ))}
       </div>
       {tab === 'manual' && <ManualTab onSaved={onSaved} />}
-      {tab === 'csv'    && <CsvTab    onSaved={onSaved} />}
+      {tab === 'csv' && can('contacts.import') && <CsvTab onSaved={onSaved} />}
     </Modal>
   );
 };
@@ -624,6 +627,11 @@ const EMPTY_FILTERS = {
 const PAGE_SIZE = 20;
 
 export default function ContactsView() {
+  // What this role may do here (lib/permissions.js): agents add and edit
+  // contacts; deleting, importing and clusters are member work.
+  const canEdit = can('contacts.edit');
+  const canDelete = can('contacts.delete');
+  const canClusters = can('segments.manage');
   const [contacts, setContacts]         = useState([]);
   const [total, setTotal]               = useState(0);
   const [search, setSearch]             = useState('');
@@ -786,20 +794,24 @@ export default function ContactsView() {
           <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:1 }}>{total} total contacts</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          {selCount > 0 && (
+          {selCount > 0 && canDelete && (
             <Btn variant="outline" onClick={() => setDeletingMultiple(true)} style={{ borderColor: 'rgba(239,68,68,0.3)', color: '#f87171', background: 'rgba(239,68,68,0.05)' }}>
               <I n="trash" s={14} c="#f87171" />
               Delete {selCount} selected
             </Btn>
           )}
-          <Btn variant="outline" onClick={() => setClusterOpen(true)}>
-            <I n="plus" s={14} c="var(--t2)" />
-            Create Cluster
-          </Btn>
-          <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
-            <I n="plus" s={14} c="#08090c" />
-            Add Contact
-          </Btn>
+          {canClusters && (
+            <Btn variant="outline" onClick={() => setClusterOpen(true)}>
+              <I n="plus" s={14} c="var(--t2)" />
+              Create Cluster
+            </Btn>
+          )}
+          {canEdit && (
+            <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
+              <I n="plus" s={14} c="#08090c" />
+              Add Contact
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -991,7 +1003,7 @@ export default function ContactsView() {
                 <span style={{ fontSize:11.5, color: active ? 'var(--green)' : 'var(--t3)', marginLeft:8, fontWeight:500 }}>
                   ({c.memberCount ?? 0})
                 </span>
-                {active && (
+                {active && canClusters && (
                   <span style={{ display:'flex', gap:2, marginLeft:6 }}>
                     <button title="Edit cluster" aria-label={`Edit ${c.name}`}
                       onClick={e => { e.stopPropagation(); setEditingCluster(c); }}
@@ -1046,10 +1058,12 @@ export default function ContactsView() {
                         ) : (
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14 }}>
                             <span>No contacts yet.</span>
-                            <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
-                              <I n="plus" s={13} c="#08090c" />
-                              Add your first contact
-                            </Btn>
+                            {canEdit && (
+                              <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
+                                <I n="plus" s={13} c="#08090c" />
+                                Add your first contact
+                              </Btn>
+                            )}
                           </div>
                         )
                       }
@@ -1089,18 +1103,18 @@ export default function ContactsView() {
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
                             <I n="msg" s={13} c="var(--t2)" />
                           </button>
-                          <button aria-label="Edit" style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
+                          {canEdit && <button aria-label="Edit" style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
                             onClick={() => setEditingContact(c)}
                             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,165,233,0.1)'; e.currentTarget.style.borderColor = 'rgba(14,165,233,0.3)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
                             <I n="pencil" s={13} c="var(--t2)" />
-                          </button>
-                          <button aria-label="Delete" style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#f87171', transition:'all .15s', flexShrink:0 }}
+                          </button>}
+                          {canDelete && <button aria-label="Delete" style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#f87171', transition:'all .15s', flexShrink:0 }}
                             onClick={() => setDeletingContact(c)}
                             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.3)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
                             <I n="trash" s={13} c="#f87171" />
-                          </button>
+                          </button>}
                         </div>
                       </td>
                     </tr>
