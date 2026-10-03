@@ -1332,16 +1332,35 @@ export async function recoverScheduledCampaigns() {
     select: { id: true, workspaceId: true, scheduledAt: true, queueJobId: true },
   });
 
-  let recovered = 0;
-  for (const c of scheduled) {
-    if (c.queueJobId) {
-      const existing = await campaignQueue.getJob(c.queueJobId).catch(() => null);
-      if (existing) continue; // job survived — nothing to do
-    }
-    const delay = Math.max(0, (c.scheduledAt?.getTime() ?? 0) - Date.now());
-    const job = await campaignQueue.add('send-campaign', { campaignId: c.id, workspaceId: c.workspaceId }, { delay });
-    await prisma.campaign.update({ where: { id: c.id }, data: { queueJobId: String(job.id) } });
-    recovered++;
+  if (scheduled.length === 0) return 0;
+
+  // Batched (CF-153): one Redis round trip to see which recorded jobs
+  // survived, one addBulk for the rest, one UPDATE to record their ids —
+  // instead of three round trips per scheduled campaign at boot.
+  const withJob = scheduled.filter((c) => c.queueJobId);
+  const alive = new Set();
+  if (withJob.length > 0) {
+    const client = await campaignQueue.client;
+    const pipeline = client.pipeline();
+    for (const c of withJob) pipeline.exists(campaignQueue.toKey(c.queueJobId));
+    const results = await pipeline.exec();
+    results.forEach(([err, found], i) => { if (!err && Number(found) > 0) alive.add(withJob[i].id); });
   }
-  return recovered;
+
+  const missing = scheduled.filter((c) => !alive.has(c.id));
+  if (missing.length === 0) return 0;
+  const now = Date.now();
+  const jobs = await campaignQueue.addBulk(missing.map((c) => ({
+    name: 'send-campaign',
+    data: { campaignId: c.id, workspaceId: c.workspaceId },
+    opts: { delay: Math.max(0, (c.scheduledAt?.getTime() ?? 0) - now) },
+  })));
+  const ids = missing.map((c) => c.id);
+  const jobIds = jobs.map((job) => String(job.id));
+  await prisma.$executeRaw`
+    UPDATE "Campaign" AS c SET "queueJobId" = v.job
+    FROM unnest(${ids}::text[], ${jobIds}::text[]) AS v(id, job)
+    WHERE c."id" = v.id
+  `;
+  return missing.length;
 }
