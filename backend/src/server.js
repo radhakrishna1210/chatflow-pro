@@ -20,7 +20,7 @@ logToFile('Server starting up...');
 
 import app from './app.js';
 import { env } from './config/env.js';
-import { startCampaignWorker } from './workers/campaign.worker.js';
+import { startCampaignWorker, stopCampaignSends } from './workers/campaign.worker.js';
 import { startEmailWorker } from './workers/email.worker.js';
 import { startBillingWorker } from './workers/billing.worker.js';
 import { startWorkflowWorker } from './workers/workflow.worker.js';
@@ -473,13 +473,17 @@ main().catch((err) => {
 
 // Graceful shutdown — close workers first so in-flight jobs finish (or are
 // released back to the queue) before connections are torn down. Prevents
-// half-processed campaigns and double sends on redeploys.
+// half-processed campaigns and double sends on redeploys. A campaign send loop
+// is told to stop at once: it finishes the recipient in flight, releases its
+// unsent claims and queues a resume job for the next worker (CF-099), so the
+// active job ends in about one send rather than the whole recipient list.
 let shuttingDown = false;
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[Server] ${signal} received — shutting down gracefully`);
   markNotReady();
+  stopCampaignSends();
   const timeout = setTimeout(() => {
     console.error('[Server] Shutdown timed out — forcing exit');
     process.exit(1);

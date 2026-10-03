@@ -100,6 +100,7 @@ mock.module(here('../lib/meta.js'), {
   namedExports: {
     sendWhatsAppMessage: async (phoneNumberId, token, to) => {
       calls.sent.push(to);
+      if (behaviour.stopAfterFirstSend) stopCampaignSends();
       if (behaviour.metaThrows) throw new Error('Meta down');
       return { messages: [{ id: `wamid.${to}` }] };
     },
@@ -140,7 +141,11 @@ mock.module(here('../services/optout.service.js'), { namedExports: { isOptedOut:
 mock.module(here('../services/notification.service.js'), { namedExports: { notifyWorkspace: async () => {} } });
 mock.module(here('../authentication/authentication.service.js'), { namedExports: { sendAuthenticationOtp: async () => ({ metaMessageId: 'otp' }) } });
 
-const { processCampaign } = await import('./campaign.worker.js');
+mock.module(here('../queues/campaign.queue.js'), {
+  namedExports: { campaignQueue: { add: async (name, data, opts) => { calls.queued.push({ name, data, opts }); return { id: opts?.jobId }; } } },
+});
+
+const { processCampaign, stopCampaignSends } = await import('./campaign.worker.js');
 
 const sendJob = (data = {}, id = 'job1') => ({ id, name: 'send-campaign', data: { campaignId: 'c1', workspaceId: 'w1', ...data } });
 const retryJob = (recipientId, attempt = 1) => ({
@@ -159,7 +164,7 @@ beforeEach(() => {
     { id: 'r2', campaignId: 'c1', contactId: 'k2', phone: '+912222222222', status: 'PENDING', sentAt: null },
     { id: 'r3', campaignId: 'c1', contactId: 'k3', phone: '+913333333333', status: 'PENDING', sentAt: null },
   ];
-  calls = { sent: [], failures: [], completed: [], settled: [], charged: [], consume: 0, release: 0, messageCreate: 0 };
+  calls = { sent: [], failures: [], completed: [], settled: [], charged: [], consume: 0, release: 0, messageCreate: 0, queued: [] };
   behaviour = {};
 });
 
@@ -265,4 +270,32 @@ test('retry: bookkeeping failure after Meta accepted the retry does not reschedu
   assert.equal(calls.failures.length, 0);
   assert.equal(recipients[0].status, 'SENT');
   assert.equal(recipients[0].retryStatus, 'SUCCESS');
+});
+
+// Last on purpose: once raised, the shutdown flag stays up for this process.
+test('shutdown: the send loop stops after the recipient in flight and hands the rest to a resume job', async () => {
+  campaigns[0].status = 'RUNNING';
+  // A claim left by this run that never reached Meta is released too.
+  recipients.push({ id: 'r0', campaignId: 'c1', contactId: 'k0', phone: '+910000000000', status: 'SENDING', sentAt: null });
+  behaviour.stopAfterFirstSend = true;
+
+  await processCampaign(sendJob({ resume: true }));
+
+  assert.equal(calls.sent.length, 1, 'only the recipient in flight was sent');
+  assert.equal(recipients.find((r) => r.id === 'r1').status, 'SENT');
+  assert.deepEqual(recipients.filter((r) => r.status === 'PENDING').map((r) => r.id).sort(), ['r0', 'r2', 'r3']);
+  assert.equal(calls.completed.length, 0, 'an interrupted campaign is not completed');
+  assert.equal(campaigns[0].status, 'RUNNING');
+  assert.equal(calls.queued.length, 1);
+  assert.deepEqual(calls.queued[0].data, { campaignId: 'c1', workspaceId: 'w1', resume: true });
+  assert.equal(campaigns[0].queueJobId, calls.queued[0].opts.jobId, 'the resume job is recorded so recovery does not queue another');
+});
+
+test('shutdown: a campaign that is no longer owned by this job is not re-queued', async () => {
+  campaigns[0].status = 'RUNNING';
+  campaigns[0].queueJobId = 'someone-else';
+  await processCampaign(sendJob({ resume: true }));
+  assert.equal(calls.sent.length, 0);
+  assert.equal(calls.queued.length, 0);
+  assert.ok(recipients.every((r) => r.status === 'PENDING'));
 });
