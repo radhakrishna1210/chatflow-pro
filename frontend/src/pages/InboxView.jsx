@@ -1,18 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { wFetch } from '../lib/api.js';
+import { wFetch, wDownload } from '../lib/api.js';
 import ContactDetailsPanel from '../components/ContactDetailsPanel.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { notify, confirmDialog } from '../components/Feedback.jsx';
 import { can } from '../lib/permissions.js';
+import { useRealtime, useThrottledCallback } from '../lib/realtime.js';
 
 const labelCfg = {
   urgent:   { bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.22)',   c:'#f87171' },
   resolved: { bg:'var(--gbg)',            bd:'var(--gbd)',            c:'var(--green)' },
   billing:  { bg:'rgba(245,158,11,.08)', bd:'rgba(245,158,11,.22)', c:'#fbbf24' },
+  // The channel tag on an Instagram thread.
+  Instagram: { bg:'rgba(225,48,108,.08)', bd:'rgba(225,48,108,.25)', c:'#f472b6' },
 };
 
 
@@ -143,6 +146,57 @@ const MEDIA_ICON = {
   STICKER: 'sparkl', LOCATION: 'globe', CONTACTS: 'user', UNSUPPORTED: 'alertt',
 };
 
+// The file behind a media message, loaded on demand. Every API route needs the
+// bearer token, so the bytes come down through wFetch as a blob rather than as
+// an <img src> to the API. Photos, voice notes and videos play in place;
+// anything else is saved.
+const MEDIA_TYPES_WITH_FILE = new Set(['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT', 'STICKER']);
+const MediaAttachment = ({ conversationId, message }) => {
+  const [url, setUrl] = useState(null);
+  const [state, setState] = useState('idle'); // idle | loading | error
+  const [error, setError] = useState(null);
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  if (!MEDIA_TYPES_WITH_FILE.has(message.type) || (!message.mediaId && !message.mediaStorageKey)) return null;
+  const path = `/conversations/${conversationId}/messages/${message.id}/media`;
+
+  if (message.type === 'DOCUMENT') {
+    return (
+      <button onClick={() => wDownload(path, message.mediaFilename || 'document').catch(e => notify(e.message, 'error'))}
+        style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--green)', fontSize:11, fontWeight:600 }}>
+        Download
+      </button>
+    );
+  }
+  const load = async () => {
+    setState('loading');
+    try {
+      const res = await wFetch(path);
+      if (!res.ok) {
+        let msg = `Could not load (${res.status})`;
+        try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* not JSON */ }
+        throw new Error(msg);
+      }
+      setUrl(URL.createObjectURL(await res.blob()));
+      setState('idle');
+    } catch (e) {
+      setError(e.message);
+      setState('error');
+    }
+  };
+  if (url) {
+    if (message.type === 'AUDIO') return <audio controls src={url} style={{ width:'100%', maxWidth:260, marginBottom:4 }} />;
+    if (message.type === 'VIDEO') return <video controls src={url} style={{ width:'100%', maxWidth:260, borderRadius:8, marginBottom:4 }} />;
+    return <img src={url} alt={message.mediaFilename || 'Attachment'} style={{ maxWidth:'100%', maxHeight:240, borderRadius:8, marginBottom:4, display:'block' }} />;
+  }
+  return (
+    <button onClick={load} disabled={state === 'loading'} title={error || undefined}
+      style={{ background:'none', border:'none', padding:0, cursor:'pointer', color: state === 'error' ? '#f87171' : 'var(--green)', fontSize:11, fontWeight:600 }}>
+      {state === 'loading' ? 'Loading…' : state === 'error' ? 'Unavailable' : message.type === 'AUDIO' ? 'Play' : 'View'}
+    </button>
+  );
+};
+
 // Delivery state for an outbound message, mirrored from Meta's status webhook.
 // Nothing showed this before: statuses were applied only to campaign sends, so
 // an inbox reply never reported whether it had arrived.
@@ -164,8 +218,14 @@ const DeliveryTick = ({ status, error }) => {
 };
 
 const PAGE_SIZE = 30;
-const LIST_POLL_MS = 10_000;
-const MSG_POLL_MS = 5_000;
+// Updates arrive pushed (lib/realtime.js). These polls run only while the
+// live stream is down, which is why they can be this slow.
+const LIST_POLL_MS = 30_000;
+const MSG_POLL_MS = 15_000;
+// At most one refetch per window however busy the workspace is — a campaign
+// sending four messages a second must not turn into four list reloads.
+const LIST_REFRESH_MS = 3_000;
+const THREAD_REFRESH_MS = 800;
 // The filter chips, as the list endpoint's `view` parameter.
 const VIEW_PARAM = { Unassigned: 'unassigned', 'AI-handled': 'ai', Mine: 'mine' };
 
@@ -295,9 +355,33 @@ export default function InboxView() {
     return `/conversations?${p}`;
   }, [query, filter]);
 
-  // First page, then a poll that refreshes it. The poll pauses while the tab
-  // is hidden and catches up the moment it is shown again — every open tab
-  // used to query the full list every five seconds regardless.
+  // Live updates. Events name what changed; the list and the open thread are
+  // refetched (throttled) rather than patched, so what shows is always what
+  // the API returns for this user. `resync` follows a reconnect, when events
+  // may have been missed.
+  const listRefreshRef = useRef(null);
+  const msgsRefreshRef = useRef(null);
+  const activeIdRef = useRef(null);
+  const refreshList = useThrottledCallback(() => listRefreshRef.current?.(), LIST_REFRESH_MS);
+  const refreshThread = useThrottledCallback(() => msgsRefreshRef.current?.(), THREAD_REFRESH_MS);
+  const { live } = useRealtime((evt) => {
+    const isActive = Boolean(evt.data?.conversationId) && evt.data.conversationId === activeIdRef.current;
+    if (evt.type === 'message.created') {
+      refreshList();
+      if (isActive) refreshThread();
+    } else if (evt.type === 'message.status') {
+      if (isActive) refreshThread();
+    } else if (evt.type === 'conversation.updated') {
+      refreshList();
+      if (isActive && evt.data?.change !== 'read') { refreshThread(); loadContext(activeIdRef.current); }
+    } else if (evt.type === 'resync') {
+      refreshList();
+      refreshThread();
+    }
+  });
+
+  // First page. Refreshed by live events; polled only while the stream is
+  // down (below), and then only while the tab is visible.
   useEffect(() => {
     let stopped = false;
     pagesLoadedRef.current = 1;
@@ -332,11 +416,17 @@ export default function InboxView() {
         .finally(() => { if (!stopped && initial) setListLoading(false); });
 
     loadFirstPage(true);
-    const tick = () => { if (document.visibilityState === 'visible') loadFirstPage(false); };
+    listRefreshRef.current = () => loadFirstPage(false);
+    return () => { stopped = true; listRefreshRef.current = null; };
+  }, [listUrl, listReload]);
+
+  useEffect(() => {
+    if (live) return undefined;
+    const tick = () => { if (document.visibilityState === 'visible') listRefreshRef.current?.(); };
     const interval = setInterval(tick, LIST_POLL_MS);
     document.addEventListener('visibilitychange', tick);
-    return () => { stopped = true; clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
-  }, [listUrl, listReload]);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
+  }, [live]);
 
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return;
@@ -359,8 +449,10 @@ export default function InboxView() {
     }
   };
 
-  // The open thread, polled the same way: only while the tab is visible.
+  // The open thread: loaded on selection, refreshed by live events, polled
+  // only while the stream is down.
   useEffect(() => {
+    activeIdRef.current = activeId;
     if (!activeId) return;
     let stopped = false;
     setMsgsError(null);
@@ -384,11 +476,17 @@ export default function InboxView() {
         })
         .catch((e) => { if (!stopped) setMsgsError(e.message || 'Could not load messages'); });
     loadMsgs();
-    const tick = () => { if (document.visibilityState === 'visible') loadMsgs(); };
+    msgsRefreshRef.current = loadMsgs;
+    return () => { stopped = true; msgsRefreshRef.current = null; };
+  }, [activeId]);
+
+  useEffect(() => {
+    if (live || !activeId) return undefined;
+    const tick = () => { if (document.visibilityState === 'visible') msgsRefreshRef.current?.(); };
     const interval = setInterval(tick, MSG_POLL_MS);
     document.addEventListener('visibilitychange', tick);
-    return () => { stopped = true; clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
-  }, [activeId]);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
+  }, [live, activeId]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -602,6 +700,8 @@ export default function InboxView() {
   const active = convs.find(c => c.id === activeId);
   const activeMsgs = msgs[activeId] || [];
   const activeWindow = windowState[activeId] || null;
+  // Instagram threads take text replies only — no templates, no attachments.
+  const isInstagram = active?.channel === 'INSTAGRAM';
   const isBot = activeId ? botState[activeId] !== false : false;
 
   return (
@@ -674,9 +774,10 @@ export default function InboxView() {
                         <span style={{ fontSize:10, color:'var(--t2)', flexShrink:0 }}>{fmtTime(c.lastMessageAt)}</span>
                       </div>
                       <p style={{ fontSize:12, color:'var(--t2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginBottom:5 }}>
-                        {lastMsg?.body || c.messages?.[0]?.body || c.contact?.phoneNumber}
+                        {lastMsg?.body || c.messages?.[0]?.body || (c.channel === 'INSTAGRAM' ? 'Instagram' : c.contact?.phoneNumber)}
                       </p>
                       <div style={{ display:'flex', gap:5, alignItems:'center', flexWrap:'wrap' }}>
+                        {c.channel === 'INSTAGRAM' && <LabelBadge label="Instagram" />}
                         <LabelBadge label={c.label} />
                         {/* Who has this thread, in the same place the design
                             set puts its AI / HUMAN / RESOLVED tag. */}
@@ -745,7 +846,9 @@ export default function InboxView() {
                   <div style={{ display:'flex', alignItems:'center', gap:5, minWidth:0 }}>
                     {!mobile && <I n="phone" s={10} c="var(--t2)" />}
                     <p style={{ fontSize:11, color: mobile ? 'rgba(255,255,255,0.85)' : 'var(--t2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                      {mobile && isBot ? 'Spandan AI active' : active.contact.phoneNumber}
+                      {mobile && isBot ? 'Spandan AI active'
+                        : isInstagram ? `Instagram${active.contact.instagramUsername ? ` · @${active.contact.instagramUsername}` : ''}`
+                        : active.contact.phoneNumber}
                     </p>
                   </div>
                 </div>
@@ -855,6 +958,12 @@ export default function InboxView() {
                                 {m.type === 'LOCATION' && m.locationLat != null
                                   ? `${m.locationLat.toFixed(4)}, ${m.locationLng.toFixed(4)}`
                                   : (m.mediaFilename || m.type.toLowerCase())}
+                                {/* The body below is a machine transcript of
+                                    the voice note, not something they typed. */}
+                                {m.transcript ? ' · transcribed' : ''}
+                              </span>
+                              <span style={{ marginLeft:'auto' }}>
+                                <MediaAttachment conversationId={active.id} message={m} />
                               </span>
                             </div>
                           )}
@@ -907,14 +1016,14 @@ export default function InboxView() {
                       {/* The way through the closed window. Telling someone to
                           send a template while offering no way to send one is
                           not a workable instruction. */}
-                      {canSendTemplate && <button onClick={() => setTemplatePickerOpen(o => !o)}
+                      {canSendTemplate && !isInstagram && <button onClick={() => setTemplatePickerOpen(o => !o)}
                         style={{ marginLeft:'auto', padding:'4px 10px', borderRadius:6, fontSize:11.5, fontWeight:600,
                                  cursor:'pointer', background:'rgba(245,158,11,.12)', border:'1px solid rgba(245,158,11,.35)',
                                  color:'#fbbf24', fontFamily:"'Manrope',sans-serif" }}>
                         {templatePickerOpen ? 'Close' : 'Send a template'}
                       </button>}
                     </div>
-                    {templatePickerOpen && canSendTemplate && (
+                    {templatePickerOpen && canSendTemplate && !isInstagram && (
                       <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6, maxHeight:180, overflowY:'auto' }}>
                         {templates.length === 0 && (
                           <span style={{ fontSize:11.5, color:'var(--t3)' }}>
@@ -954,7 +1063,7 @@ export default function InboxView() {
                   <input ref={fileInputRef} type="file" hidden
                     accept="image/jpeg,image/png,video/mp4,audio/mpeg,audio/ogg,application/pdf"
                     onChange={e => sendFile(e.target.files?.[0])} />
-                  <button
+                  {!isInstagram && <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={attaching || sending || (activeWindow ? !activeWindow.open : false)}
                     title={activeWindow && !activeWindow.open ? 'Reply window closed' : 'Attach a photo, video or PDF'}
@@ -965,9 +1074,11 @@ export default function InboxView() {
                              opacity: (attaching || (activeWindow && !activeWindow.open)) ? 0.5 : 1,
                              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <I n={attaching ? 'rotate' : 'plus'} s={15} c="var(--t2)" />
-                  </button>
+                  </button>}
                   <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-                    placeholder={activeWindow && !activeWindow.open ? 'Reply window closed — send an approved template' : 'Type a message…'}
+                    placeholder={activeWindow && !activeWindow.open
+                      ? (isInstagram ? 'Reply window closed — wait for the customer to write again' : 'Reply window closed — send an approved template')
+                      : 'Type a message…'}
                     disabled={sending || (activeWindow ? !activeWindow.open : false)}
                     style={{ flex:1, padding:'10px 14px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', transition:'border .15s', opacity: sending ? 0.6 : 1 }}
                     onFocus={e => e.target.style.borderColor='var(--gbd)'}

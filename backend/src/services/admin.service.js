@@ -5,6 +5,7 @@ import { getWabaPhoneNumbers, requestOtp, verifyOtp, systemClient } from '../lib
 import { deleteWaNumbers } from './whatsapp.service.js';
 import { env } from '../config/env.js';
 import { normalizeOverageRates } from '../lib/messagePricing.js';
+import { PLAN_FEATURE_KEYS } from './planFeatures.service.js';
 
 // ── Pool summary ──────────────────────────────────────────────
 export async function getPoolSummary() {
@@ -714,9 +715,10 @@ export async function getWorkspaceAnalytics() {
     .sort((a, b) => b.messages.sent - a.messages.sent);
 }
 
-// Feature flags enforced elsewhere (requireFeature / hasFeature). Surfaced to
-// the admin UI as known toggles; arbitrary extra flags are still accepted.
-export const KNOWN_FEATURE_FLAGS = ['automation', 'workflows', 'aiOnboarding', 'integrations', 'campaignAi', 'autonomousAgent'];
+// Feature flags enforced elsewhere (services/planFeatures.service.js lists
+// each one and where it is checked). Surfaced to the admin UI as known
+// toggles; arbitrary extra flags are still accepted.
+export const KNOWN_FEATURE_FLAGS = PLAN_FEATURE_KEYS;
 
 const badRequest = (message) => { const e = new Error(message); e.status = 400; throw e; };
 

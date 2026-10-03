@@ -4,6 +4,7 @@ import { Btn } from '../Btn.jsx';
 import { wJson } from '../../lib/automationApi.js';
 import { can, canBill } from '../../lib/permissions.js';
 import { AI_AGENTS_API } from '../../lib/aiAgentsApi.js';
+import { usePlanFeatures } from '../../lib/usePlanFeatures.js';
 
 // The autonomous CRM agent, workspace-wide: its on/off switch, the plan gate,
 // and — for admins — the work it has queued, what failed, and the suggestions
@@ -52,6 +53,7 @@ const Row = ({ title, sub, meta, actions }) => (
 
 export default function AutonomousAgentPanel() {
   const isAdmin = can('autonomousAgent.manage');
+  const { allows } = usePlanFeatures();
   const [settings, setSettings] = useState(null);
   const [queue, setQueue] = useState(null);
   const [queueError, setQueueError] = useState(null);
@@ -87,7 +89,7 @@ export default function AutonomousAgentPanel() {
   };
 
   const enabled = settings?.enabled === true;
-  const planAllows = settings ? settings.planAllows !== false : true;
+  const planAllows = allows('autonomousAgent');
   const live = enabled && planAllows;
 
   const toggle = () => act('switch', `${API}/settings`, {

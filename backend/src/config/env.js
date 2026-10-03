@@ -98,6 +98,17 @@ const envSchema = z.object({
   // only, no HTTP listener, so workers can run in their own process.
   SERVE_HTTP: z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1'),
 
+  // Server-sent events for the inbox, campaign and template screens
+  // (lib/realtimeBus.js, services/realtime.service.js). "false" turns the push
+  // channel off everywhere; the screens then poll as they did before.
+  REALTIME_ENABLED: z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1'),
+  // Open streams one user may hold on one web process. A new one beyond this
+  // closes that user's oldest (most often a tab left open somewhere).
+  REALTIME_MAX_STREAMS_PER_USER: z.coerce.number().int().min(1).default(5),
+  // Comment line written to every stream this often so proxies (Render,
+  // nginx's 60 s proxy_read_timeout) never see it idle.
+  REALTIME_HEARTBEAT_MS: z.coerce.number().int().min(1000).default(25_000),
+
   CAMPAIGN_BATCH_SIZE: z.coerce.number().default(50),
   CAMPAIGN_WORKER_CONCURRENCY: z.coerce.number().default(2),
   // Meta Cloud API Tier-1 numbers allow ~250 msgs/min → 1 msg / 250ms is safe.
@@ -182,6 +193,29 @@ const envSchema = z.object({
   EMAIL_FROM_NAME: z.string().default('Spandan'),
   EMAIL_FROM: z.string().optional(),
   APP_URL: z.string().url().optional(),
+
+  // File storage (lib/storage). Unset, files go to local disk, which Render
+  // wipes on every deploy. Setting S3_BUCKET selects the S3-compatible driver:
+  // AWS S3, Cloudflare R2 (S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com,
+  // S3_REGION=auto), Supabase Storage (S3_ENDPOINT=https://<ref>.supabase.co/storage/v1/s3)
+  // or MinIO. STORAGE_DRIVER pins one explicitly.
+  STORAGE_DRIVER: z.enum(['disk', 's3']).optional(),
+  STORAGE_DISK_ROOT: z.string().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().optional(),
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_SESSION_TOKEN: z.string().optional(),
+  S3_FORCE_PATH_STYLE: z.string().optional(),
+  // Prepended to every object key, so one bucket can serve several stacks.
+  S3_PREFIX: z.string().optional(),
+  // Inbound WhatsApp media larger than this is not archived (it stays
+  // re-fetchable from Meta for ~30 days). Meta's own ceiling is 100 MB.
+  MEDIA_ARCHIVE_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
+  // Voice notes are transcribed with Gemini (GEMINI_API_KEY) so they reach the
+  // same automation as typed text. "false" turns it off.
+  VOICE_TRANSCRIPTION: z.string().default('true').transform((v) => v !== 'false' && v !== '0'),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -9,6 +9,7 @@ let twilioFails;
 let debits;
 let credits;
 let balanceOk;
+let planHasFallback;
 
 const here = (rel) => new URL(rel, import.meta.url).href;
 mock.module('twilio', {
@@ -28,6 +29,7 @@ mock.module(here('../lib/prisma.js'), {
 });
 mock.module(here('../lib/mailer.js'), { namedExports: { sendMail: async () => {} } });
 mock.module(here('./optout.service.js'), { namedExports: { isOptedOut: async () => optedOut } });
+mock.module(here('./planFeatures.service.js'), { namedExports: { planAllows: async (ws, flag) => flag === 'fallback' && planHasFallback } });
 mock.module(here('./wallet.service.js'), {
   namedExports: {
     debit: async (ws, amount, opts) => { debits.push({ amount, key: opts.idempotencyKey }); return balanceOk ? { ok: true } : { ok: false }; },
@@ -38,7 +40,8 @@ mock.module(here('./wallet.service.js'), {
 const { runFallbackForRecipient } = await import('./fallback.service.js');
 const { SMS_FALLBACK_RATE } = await import('../lib/messagePricing.js');
 
-const campaign = { id: 'c1', workspaceId: 'w1', name: 'Diwali', fallbackConfig: { smsEnabled: true, smsFrom: '+1555', smsText: 'Hi {{1}}' } };
+const DLT = { dltTemplateId: '1007161234567890123', dltEntityId: '1201161234567890123' };
+const campaign = { id: 'c1', workspaceId: 'w1', name: 'Diwali', fallbackConfig: { smsEnabled: true, smsFrom: 'SPNDAN', smsText: 'Hi {{1}}', ...DLT } };
 const recipient = { id: 'r1' };
 const contact = { id: 'k1', name: 'Asha', phoneNumber: '+919999999999' };
 
@@ -49,6 +52,7 @@ beforeEach(() => {
   debits = [];
   credits = [];
   balanceOk = true;
+  planHasFallback = true;
 });
 
 test('a fallback SMS is charged to the wallet once per recipient', async () => {
@@ -58,12 +62,37 @@ test('a fallback SMS is charged to the wallet once per recipient', async () => {
   assert.equal(smsSent[0].body, 'Hi Asha');
 });
 
+test('without a DLT template or entity id no SMS is sent and nothing is charged', async () => {
+  for (const missing of ['dltTemplateId', 'dltEntityId']) {
+    smsSent = []; debits = [];
+    const fallbackConfig = { ...campaign.fallbackConfig, [missing]: undefined };
+    const r = await runFallbackForRecipient({ ...campaign, fallbackConfig }, recipient, contact);
+    assert.equal(smsSent.length, 0);
+    assert.equal(debits.length, 0);
+    assert.deepEqual(r.succeeded, []);
+    assert.match(r.failed[0], /^sms: No DLT (template|entity) id configured/);
+  }
+});
+
+test('a sent SMS records the DLT template it went out under', async () => {
+  const r = await runFallbackForRecipient(campaign, recipient, contact);
+  assert.equal(r.attempts[0].dltTemplateId, DLT.dltTemplateId);
+});
+
 test('an opted-out contact gets no fallback and is not charged', async () => {
   optedOut = true;
   const r = await runFallbackForRecipient(campaign, recipient, contact);
   assert.equal(smsSent.length, 0);
   assert.equal(debits.length, 0);
   assert.deepEqual(r.succeeded, []);
+});
+
+test('a plan without the fallback feature sends nothing and charges nothing (CF-051)', async () => {
+  planHasFallback = false;
+  const r = await runFallbackForRecipient(campaign, recipient, contact);
+  assert.equal(smsSent.length, 0);
+  assert.equal(debits.length, 0);
+  assert.match(r.failed[0], /not included in the current plan/);
 });
 
 test('no wallet balance, no SMS', async () => {

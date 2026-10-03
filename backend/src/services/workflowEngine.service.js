@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { keywordMatches } from './automation.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
+import { realtime } from '../lib/realtimeBus.js';
 import { evaluateCondition, skipCount, renderTemplate, tidy, CONDITION_SUBTYPES } from './workflowConditions.js';
 import { INTERACTIVE_LIMITS } from '../lib/meta.js';
 // One limit for the save-time validator and the runtime.
@@ -114,19 +115,35 @@ const actionsOf = (nodes) => (Array.isArray(nodes) ? nodes : [])
 
 // Decides whether a workflow's trigger fires for this inbound event. Mirrors
 // the trigger subtypes the builder offers.
-export function triggerFires(trigger, { messageBody = '', isNewContact = false, event = 'message' } = {}) {
+export function triggerFires(trigger, {
+  messageBody = '', isNewContact = false, event = 'message', mediaType = null,
+} = {}) {
   if (!trigger) return false;
   switch (trigger.subtype) {
     case 'keyword':
       return event === 'message' && keywordMatches(trigger.value, messageBody);
     case 'welcome':
-      return event === 'message' && isNewContact === true;
+      return (event === 'message' || event === 'media') && isNewContact === true;
+    // A photo, video, document, sticker or voice note arrived. The value
+    // narrows it to one kind ('image', 'audio', ...); empty or 'any' takes all.
+    // Fires for a transcribed voice note too, after any keyword workflow had
+    // its chance at the transcript (see the ordering below).
+    case 'media': {
+      if (!mediaType) return false;
+      const wanted = String(trigger.value || '').trim().toLowerCase();
+      return !wanted || wanted === 'any' || wanted === mediaType;
+    }
     // `missed` (missed inbound call) was offered by the builder but nothing
     // ever emits that event, so it is no longer accepted and never fires.
     default:
       return false;
   }
 }
+
+// Longest keyword first; a media trigger below every keyword and welcome
+// trigger, so the words of a transcribed voice note win over "a voice note
+// arrived".
+const triggerRank = (trigger) => (trigger?.subtype === 'media' ? -1 : String(trigger?.value || '').length);
 
 // All active workflows in the workspace whose trigger fires. Keyword workflows
 // are ordered longest-keyword-first so the most specific one is attempted
@@ -140,7 +157,7 @@ export async function findMatchingWorkflows(workspaceId, ctx) {
   const matched = workflows
     .map((w) => ({ workflow: w, trigger: triggerOf(w.nodes) }))
     .filter(({ trigger }) => triggerFires(trigger, ctx))
-    .sort((a, b) => String(b.trigger?.value || '').length - String(a.trigger?.value || '').length)
+    .sort((a, b) => triggerRank(b.trigger) - triggerRank(a.trigger))
     .map(({ workflow }) => workflow);
 
   // "Why didn't my workflow reply?" is almost always a trigger that does not
@@ -256,7 +273,10 @@ async function actionMessage(run, node) {
     where: { id: run.conversationId },
     include: { contact: true },
   });
-  if (!conversation?.waNumberId) return { result: 'skipped', detail: 'Conversation has no connected number' };
+  // An Instagram thread has no number; outbound.service sends it via Instagram.
+  if (!conversation?.waNumberId && conversation?.channel !== 'INSTAGRAM') {
+    return { result: 'skipped', detail: 'Conversation has no connected number' };
+  }
 
   // `{{name}}`, `{{customer_name}}`, `{{custom.order_number}}` and anything the run has collected.
   // Without this every automated message was identical for every recipient.
@@ -293,7 +313,10 @@ async function actionButtons(run, node) {
     where: { id: run.conversationId },
     include: { contact: true },
   });
-  if (!conversation?.waNumberId) return { result: 'skipped', detail: 'Conversation has no connected number' };
+  // Instagram offers the options as quick replies.
+  if (!conversation?.waNumberId && conversation?.channel !== 'INSTAGRAM') {
+    return { result: 'skipped', detail: 'Conversation has no connected number' };
+  }
 
   const context = {
     contact: conversation.contact,
@@ -370,6 +393,7 @@ async function actionAgent(run, node) {
       humanHandoffAt: new Date(),
     },
   });
+  realtime.conversationUpdated(run.workspaceId, run.conversationId, 'assigned');
 
   const exact = matched ? '' : ` (no member matched "${node.value}", used ${assignee.user.name})`;
   return { result: 'ok', detail: `Assigned to ${assignee.user.name}${exact}` };
@@ -718,7 +742,9 @@ export async function sendReplyReminder(runId, cursor) {
     where: { id: run.conversationId },
     include: { contact: true },
   });
-  if (!conversation?.waNumberId) return { sent: false, reason: 'Conversation has no connected number' };
+  if (!conversation?.waNumberId && conversation?.channel !== 'INSTAGRAM') {
+    return { sent: false, reason: 'Conversation has no connected number' };
+  }
 
   // Claimed before sending: the reminder job and a sweep-enqueued copy (or a
   // BullMQ retry) must not both nudge the customer. The claim moves resumeAt

@@ -20,7 +20,7 @@ logToFile('Server starting up...');
 
 import app from './app.js';
 import { env } from './config/env.js';
-import { startCampaignWorker } from './workers/campaign.worker.js';
+import { startCampaignWorker, stopCampaignSends } from './workers/campaign.worker.js';
 import { startEmailWorker } from './workers/email.worker.js';
 import { startBillingWorker } from './workers/billing.worker.js';
 import { startWorkflowWorker } from './workers/workflow.worker.js';
@@ -36,8 +36,11 @@ import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
 import { recoverStrandedCampaigns, startCampaignRecoverySweep } from './services/campaignRecovery.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
+import { runAddonRenewalSweep } from './services/addons.service.js';
 import { syncIndex as syncSiteKnowledge } from './services/siteKnowledge.service.js';
 import { campaignQueue } from './queues/campaign.queue.js';
+import { closeRealtimeStreams } from './services/realtime.service.js';
+import { closeRealtimeBus } from './lib/realtimeBus.js';
 import { emailQueue } from './queues/email.queue.js';
 import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
 import { workflowQueue } from './queues/workflow.queue.js';
@@ -48,6 +51,7 @@ import { prisma } from './lib/prisma.js';
 import { loadPlatformSettings, startPlatformSettingsRefresh } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
 import { markReady, markNotReady } from './lib/readiness.js';
+import { storage, ephemeralDiskWarning } from './lib/storage/index.js';
 
 let campaignWorker = null;
 let emailWorker = null;
@@ -81,7 +85,7 @@ async function initializeSubscriptions() {
       overageRates: { MARKETING: 2.18, UTILITY: 0.32, AUTHENTICATION: 0.26 },
       // Keep in sync with scripts/seed-plans.js. Only used to create a plan
       // that is missing; existing rows (and super-admin edits) are left alone.
-      features: { automation: true, workflows: true },
+      features: { automation: true, workflows: true, fallback: true, voice: true },
     },
     // Basic carries the former Pro limits and features; Growth carries the
     // former Enterprise ones. STARTER/PRO/ENTERPRISE are retired below.
@@ -99,7 +103,7 @@ async function initializeSubscriptions() {
       overageRatePerMsg: 0.01,
       // null = charge cost: the shared per-category rates.
       overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, autonomousAgent: true },
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true, autonomousAgent: true },
     },
     {
       key: 'GROWTH',
@@ -114,7 +118,7 @@ async function initializeSubscriptions() {
       apiKeyLimit: null,
       overageRatePerMsg: 0.008,
       overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, autonomousAgent: true },
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true, autonomousAgent: true },
     },
   ];
 
@@ -249,6 +253,18 @@ async function main() {
     console.error('[Worker] RUN_WORKERS=false in a worker-only process — nothing to run, exiting.');
     process.exit(1);
   }
+
+  // File storage. A half-configured bucket is refused outright (every media
+  // write would fail later, one message at a time); local disk on Render is
+  // allowed but announced loudly, since each deploy wipes it.
+  try {
+    console.log(`[Storage] Files are stored in ${storage.describe()}`);
+  } catch (err) {
+    console.error(`[Storage] ${err.message}`);
+    if (env.NODE_ENV === 'production') process.exit(1);
+  }
+  const storageWarning = ephemeralDiskWarning(process.env);
+  if (storageWarning) console.error(storageWarning);
 
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -453,6 +469,14 @@ async function main() {
     } catch (err) {
       console.error('[Recovery] Billing cycle sweep failed:', err.message);
     }
+    try {
+      const addons = await runAddonRenewalSweep();
+      if (addons.processed > 0) {
+        console.log(`[Recovery] Add-on renewal sweep: processed=${addons.processed} renewed=${addons.renewed} expired=${addons.expired} unpaid=${addons.unpaid} failed=${addons.failed}`);
+      }
+    } catch (err) {
+      console.error('[Recovery] Add-on renewal sweep failed:', err.message);
+    }
   }
 }
 
@@ -464,19 +488,25 @@ main().catch((err) => {
 
 // Graceful shutdown — close workers first so in-flight jobs finish (or are
 // released back to the queue) before connections are torn down. Prevents
-// half-processed campaigns and double sends on redeploys.
+// half-processed campaigns and double sends on redeploys. A campaign send loop
+// is told to stop at once: it finishes the recipient in flight, releases its
+// unsent claims and queues a resume job for the next worker (CF-099), so the
+// active job ends in about one send rather than the whole recipient list.
 let shuttingDown = false;
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[Server] ${signal} received — shutting down gracefully`);
   markNotReady();
+  stopCampaignSends();
   const timeout = setTimeout(() => {
     console.error('[Server] Shutdown timed out — forcing exit');
     process.exit(1);
   }, 25_000);
 
   try {
+    // Open event streams never end by themselves, and close() waits for them.
+    closeRealtimeStreams();
     if (httpServer) await new Promise((res) => httpServer.close(res));
     await Promise.allSettled([
       campaignWorker?.close(),
@@ -490,7 +520,7 @@ async function shutdown(signal) {
       agentWorker?.close(),
     ]);
     await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close(), webhookQueue.close(), outgoingWebhookQueue.close(), crmMaintenanceQueue.close(), agentQueue.close()]);
-    await Promise.allSettled([redis.quit()]);
+    await Promise.allSettled([closeRealtimeBus(), redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);
     console.log('[Server] Shutdown complete');

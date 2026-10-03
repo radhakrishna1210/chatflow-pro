@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { debit, credit } from './wallet.service.js';
-import { overageRateFor } from '../lib/messagePricing.js';
+import { messageRate } from '../lib/messagePricing.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
 import { env } from '../config/env.js';
 import { applyGatewayPaymentOnce } from './gatewayPayment.service.js';
@@ -98,7 +98,7 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
     // Otherwise overflow to the wallet, priced by the message's category so
     // the charge tracks what the send actually costs. `amount` is returned so
     // releaseMessageCredit can give back exactly what was taken.
-    const amount = overageRateFor(plan, messageCategory);
+    const amount = messageRate(plan, messageCategory);
     // A plan configured with a zero overage rate makes over-quota sends free;
     // debit() rejects a zero amount, which would otherwise fail the send.
     if (!(amount > 0)) {
@@ -170,7 +170,7 @@ async function releaseMessageCreditUnsafe(workspaceId, { source, amount: charged
     // would refund the wrong amount if the plan's rates changed in between.
     const amount = charged != null && Number.isFinite(Number(charged))
       ? Number(charged)
-      : overageRateFor(subscription.plan, messageCategory);
+      : messageRate(subscription.plan, messageCategory);
     if (!(amount > 0)) return { released: false };
     await credit(workspaceId, amount, { reason, category: 'REFUND', gateway: 'system' });
     return { released: true, source, amount };

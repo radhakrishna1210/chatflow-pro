@@ -7,6 +7,7 @@ import { validateMeaningfulText } from '../lib/validation.js';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 import { notify } from '../components/Feedback.jsx';
 import { AI_AGENTS_API } from '../lib/aiAgentsApi.js';
+import { usePlanFeatures } from '../lib/usePlanFeatures.js';
 
 // Extract body text from Meta components array
 const getBodyText = (components) => {
@@ -905,6 +906,9 @@ const CTA_PRESETS = ['Ask Anything', 'Have a Question?', 'Need Help?', 'Agent Su
 const CTA_MAX = 25;
 
 const StepAiAgent = ({ enabled, setEnabled, agents, agentId, setAgentId, ctaLabel, setCtaLabel, template, onNext }) => {
+  // Attaching an agent is the campaignAi plan feature (enforced server-side).
+  const { allows } = usePlanFeatures();
+  const planLocked = !allows('campaignAi');
   const deployed = agents.filter(a => a.deployed);
   const quickReplies = quickReplyButtons(template?.components);
   const matching = quickReplies.find(t => ctaKey(t) === ctaKey(ctaLabel));
@@ -917,13 +921,19 @@ const StepAiAgent = ({ enabled, setEnabled, agents, agentId, setAgentId, ctaLabe
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
         <div style={{ paddingTop: '2px' }}>
-          <Toggle on={enabled} onToggle={() => setEnabled(!enabled)} />
+          {/* Switching off stays possible on a plan without the agent. */}
+          <Toggle on={enabled} onToggle={() => { if (enabled || !planLocked) setEnabled(!enabled); }} />
         </div>
         <div>
           <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--t1)', marginBottom: '3px' }}>Enable AI Agent for this Campaign</p>
           <p style={{ fontSize: '12px', color: 'var(--t2)', lineHeight: 1.55 }}>
             Customers who tap the CTA start a chat with your agent, which already knows what this campaign said.
           </p>
+          {planLocked && (
+            <p style={{ fontSize: '12px', color: '#fbbf24', lineHeight: 1.55, marginTop: 4 }}>
+              The Campaign AI Agent is not included in your plan. Upgrade from Payments to attach one.
+            </p>
+          )}
         </div>
       </div>
 
@@ -1125,15 +1135,24 @@ const StepRetries = ({ initial = null, onRetryToggle, onSaved, onCommit }) => {
 
 // ─── Step 9 · Fallback Channels ───────────────────────────────────────────────────
 const StepFallback = ({ retriesActive, onSaved }) => {
+  // Fallback channels are the `fallback` plan feature (enforced server-side).
+  const { allows } = usePlanFeatures();
   const [caps, setCaps]       = useState({ sms: false, email: false });
   const [smsEnabled, setSmsEnabled]     = useState(false);
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [smsFrom, setSmsFrom]     = useState('');
   const [smsText, setSmsText]     = useState('');
+  // Indian SMS must go out under a DLT-registered template and entity.
+  const [dltTemplateId, setDltTemplateId] = useState('');
+  const [dltEntityId, setDltEntityId]     = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailText, setEmailText] = useState('');
   const [saved, setSaved] = useState(false);
-  const canEnable = !retriesActive;
+  const planLocked = !allows('fallback');
+  const canEnable = !retriesActive && !planLocked;
+  const isDltId = (v) => /^\d{19}$/.test(v.trim());
+  const smsReady = smsFrom.trim() && smsText.trim() && isDltId(dltTemplateId) && isDltId(dltEntityId);
+  const smsBlocked = smsEnabled && caps.sms && !smsReady;
 
   useEffect(() => {
     wFetch('/campaigns/fallback-capabilities').then(r => r.ok ? r.json() : null).then(d => { if (d) setCaps(d); }).catch(() => {});
@@ -1142,6 +1161,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
   const commit = () => {
     onSaved?.({
       smsEnabled: smsEnabled && caps.sms, smsFrom, smsText,
+      dltTemplateId: dltTemplateId.trim(), dltEntityId: dltEntityId.trim(),
       emailEnabled: emailEnabled && caps.email, emailSubject, emailText,
     });
     setSaved(true); setTimeout(() => setSaved(false), 1800);
@@ -1165,7 +1185,12 @@ const StepFallback = ({ retriesActive, onSaved }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      {!canEnable && (
+      {planLocked && (
+        <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.25)', color: '#f59e0b', fontSize: '12.5px', lineHeight: 1.5 }}>
+          SMS and email fallback are not included in your plan. Upgrade from Payments to use them.
+        </div>
+      )}
+      {retriesActive && (
         <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', color: '#f87171', fontSize: '12.5px', lineHeight: 1.5 }}>
           Fallback channels cannot be enabled when Retries are active. Turn off Retries to configure Fallbacks.
         </div>
@@ -1179,13 +1204,29 @@ const StepFallback = ({ retriesActive, onSaved }) => {
               </div>
             )}
             <div>
-              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>Sender Number</label>
-              <input value={smsFrom} onChange={e => setSmsFrom(e.target.value)} placeholder="e.g. +14155552671" style={fieldStyle} />
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>Sender ID (DLT header)</label>
+              <input value={smsFrom} onChange={e => setSmsFrom(e.target.value)} placeholder="e.g. SPNDAN" style={fieldStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>DLT Template ID</label>
+              <input value={dltTemplateId} onChange={e => setDltTemplateId(e.target.value)} inputMode="numeric" placeholder="19-digit id from your DLT portal" style={fieldStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>DLT Principal Entity ID</label>
+              <input value={dltEntityId} onChange={e => setDltEntityId(e.target.value)} inputMode="numeric" placeholder="19-digit entity id" style={fieldStyle} />
             </div>
             <div>
               <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>SMS Message Text</label>
               <textarea value={smsText} onChange={e => setSmsText(e.target.value)} placeholder="Hello {{1}}..." style={{ ...fieldStyle, minHeight: '60px', resize: 'vertical' }} />
+              <div style={{ fontSize: '11px', color: 'var(--t3)', marginTop: '4px', lineHeight: 1.5 }}>
+                Must match the registered DLT template word for word; operators block anything else.
+              </div>
             </div>
+            {smsBlocked && (
+              <div style={{ fontSize: '11.5px', color: '#f87171', lineHeight: 1.5 }}>
+                Enter the sender ID, both 19-digit DLT ids and the registered text to use SMS fallback.
+              </div>
+            )}
           </div>
         </ChannelCard>
 
@@ -1204,7 +1245,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-        <Btn onClick={commit} disabled={!canEnable}>{saved ? 'Saved ✓' : 'Save Fallback Config'}</Btn>
+        <Btn onClick={commit} disabled={!canEnable || smsBlocked}>{saved ? 'Saved ✓' : 'Save Fallback Config'}</Btn>
       </div>
     </div>
   );

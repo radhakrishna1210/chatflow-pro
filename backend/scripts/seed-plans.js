@@ -30,7 +30,9 @@ const PLANS = [
     // forms, Instagram, Voice AI) is available on every plan. Free accounts are
     // still bounded by messageQuota/contactLimit above, which is what actually
     // meters usage — gating the feature only made the tab look broken.
-    features: { automation: true, workflows: true },
+    // Fallback channels and Voice AI are on every plan too; they are flags
+    // (services/planFeatures.service.js) so the admin can switch them off.
+    features: { automation: true, workflows: true, fallback: true, voice: true },
   },
   // Basic carries the former Pro limits and features; Growth carries the
   // former Enterprise ones.
@@ -48,7 +50,7 @@ const PLANS = [
     overageRatePerMsg: 0.01,
     // null = charge cost: the shared per-category rates.
     overageRates: null,
-    features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, autonomousAgent: true },
+    features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true, autonomousAgent: true },
   },
   {
     key: 'GROWTH',
@@ -63,7 +65,7 @@ const PLANS = [
     apiKeyLimit: null,
     overageRatePerMsg: 0.008,
     overageRates: null,
-    features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, autonomousAgent: true },
+    features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true, autonomousAgent: true },
   },
 ];
 

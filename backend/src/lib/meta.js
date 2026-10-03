@@ -189,6 +189,48 @@ export async function uploadPhoneMedia({ phoneNumberId, accessToken, buffer, mim
   }
 }
 
+// Where Meta serves media downloads from. The URL comes back from the Graph
+// API, but it is still checked before the access token is sent to it.
+const META_MEDIA_DOWNLOAD_HOST = /(^|\.)(fbsbx\.com|whatsapp\.net|fbcdn\.net|facebook\.com)$/i;
+
+// Fetches an inbound (or previously uploaded) media object by its id: one call
+// for the short-lived download URL, a second, authenticated, for the bytes.
+// The id stays valid for ~30 days; the URL for about five minutes.
+//
+// Refuses anything over `maxBytes` before downloading it when Meta reports the
+// size, and stops reading at `maxBytes` when it does not.
+export async function downloadPhoneMedia({ mediaId, accessToken, maxBytes = 100 * 1024 * 1024 }) {
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const { data: info } = await axios.get(`${BASE}/${encodeURIComponent(mediaId)}`, { headers: auth, timeout: 15_000 });
+  if (!info?.url) {
+    const e = new Error('Meta returned no download URL for this media'); e.status = 502; throw e;
+  }
+  const declared = Number(info.file_size) || null;
+  if (declared && declared > maxBytes) {
+    const e = new Error(`Media is ${declared} bytes, over the ${maxBytes}-byte limit`);
+    e.code = 'MEDIA_TOO_LARGE';
+    throw e;
+  }
+  const target = new URL(info.url);
+  if (target.protocol !== 'https:' || !META_MEDIA_DOWNLOAD_HOST.test(target.hostname)) {
+    const e = new Error(`Meta's media URL is not on a Meta host (${target.hostname}) — not downloading it`);
+    e.status = 502;
+    throw e;
+  }
+  const res = await axios.get(target.toString(), {
+    headers: auth,
+    responseType: 'arraybuffer',
+    timeout: 60_000,
+    maxContentLength: maxBytes,
+    maxRedirects: 2,
+  });
+  return {
+    buffer: Buffer.from(res.data),
+    mimeType: String(info.mime_type || res.headers?.['content-type'] || 'application/octet-stream'),
+    sha256: info.sha256 || null,
+  };
+}
+
 function describeUploadError(err, what) {
   const m = err.response?.data?.error;
   const detail = m

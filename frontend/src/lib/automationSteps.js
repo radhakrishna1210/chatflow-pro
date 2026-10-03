@@ -7,6 +7,9 @@ export const TRIGGER_SUBTYPES = [
   // A "Missed inbound call" trigger used to be offered here, but nothing ever
   // delivers a missed-call event to the engine, so it could never fire.
   ['keyword', 'Keyword Match'], ['welcome', 'New Contact Welcome'],
+  // A photo, video, document or voice note arrived (a transcribed voice note
+  // also reaches keyword triggers first).
+  ['media', 'Media Received'],
   // CRM events. These fire from the leads/deals services rather than from an
   // inbound message, so a run started by one has no conversation attached.
   ['lead_created', 'CRM: Lead created'],
@@ -49,7 +52,7 @@ export const CONDITION_SUBTYPES = [
 // matches.
 export const DEFAULT_STEP_VALUE = {
   keyword: 'HELP',
-  welcome: '', lead_created: '',
+  welcome: '', lead_created: '', media: '',
   lead_status: '', deal_stage: '',
   score_above: '70',
   message: 'Thanks for reaching out. Our team will help you shortly.',

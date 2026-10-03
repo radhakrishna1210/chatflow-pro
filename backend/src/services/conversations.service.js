@@ -10,6 +10,8 @@ import { countVariables, buildTextComponents, buildButtonComponents, contactVari
 import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
 import { assertWorkspaceMember } from './crmReferences.js';
+import { realtime } from '../lib/realtimeBus.js';
+import { archiveOutboundMedia } from './inboundMedia.service.js';
 
 // Keyset cursor over (lastMessageAt desc, id desc), opaque to the client. A
 // page/skip offset shifts under the inbox's feet as new messages reorder it.
@@ -96,7 +98,7 @@ export async function listConversations(workspaceId, {
       take: limit + 1,
       orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
       include: {
-        contact: { select: { id: true, name: true, phoneNumber: true, email: true, optedOut: true } },
+        contact: { select: { id: true, name: true, phoneNumber: true, email: true, optedOut: true, instagramUsername: true } },
         waNumber: { select: { id: true, phoneNumber: true, displayName: true, status: true } },
         // Two messages rather than one: the preview needs the latest, and
         // "who is handling this" needs the latest *outbound*, which is often
@@ -161,7 +163,9 @@ export async function getOrCreateConversation(workspaceId, { contactId, waNumber
   }
 
   if (conversation) {
-    if (!conversation.waNumberId && resolvedWaNumberId) {
+    // An Instagram thread never gets a WhatsApp number attached: its replies
+    // must keep going out through Instagram.
+    if (!conversation.waNumberId && resolvedWaNumberId && conversation.channel !== 'INSTAGRAM') {
       conversation = await prisma.conversation.update({
         where: { id: conversation.id },
         data: { waNumberId: resolvedWaNumberId },
@@ -186,6 +190,7 @@ export async function getOrCreateConversation(workspaceId, { contactId, waNumber
       waNumber: true,
     },
   });
+  realtime.conversationUpdated(workspaceId, conversation.id, 'created');
 
   return conversation;
 }
@@ -197,6 +202,8 @@ export async function getMessages(workspaceId, conversationId) {
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
 
   await prisma.conversation.update({ where: { id: conversationId }, data: { unreadCount: 0 } });
+  // Only when it changed: an open thread refetches on this, and must not loop.
+  if (conversation.unreadCount > 0) realtime.conversationUpdated(workspaceId, conversationId, 'read');
 
   const messages = await prisma.message.findMany({
     where: { conversationId },
@@ -250,6 +257,43 @@ export function describeSendFailure(err) {
   return e;
 }
 
+// Instagram threads take text only: there is no template to reopen a closed
+// window with, and attachments are not sent from the inbox.
+function assertWhatsAppThread(conversation, what) {
+  if (conversation.channel !== 'INSTAGRAM') return;
+  const e = new Error(`${what} can only be sent on WhatsApp conversations. Reply to this Instagram conversation with text.`);
+  e.status = 409; e.code = 'NOT_SUPPORTED_ON_INSTAGRAM'; e.expose = true;
+  throw e;
+}
+
+// An agent's reply in an Instagram thread. The same rules as a WhatsApp reply
+// — opt-out, the 24-hour window, one metered credit refunded on failure — are
+// enforced in deliverInstagramReply; this turns its outcome into the errors
+// the composer already understands.
+async function sendInstagramInboxReply(conversation, userId, body) {
+  const { deliverInstagramReply } = await import('./instagram.service.js');
+  const outcome = await deliverInstagramReply({
+    conversationId: conversation.id, body, reason: 'Message overage', senderUserId: userId ?? null,
+  });
+  if (outcome.ok) {
+    if (userId) markFirstResponseForConversation(conversation.workspaceId, conversation.id).catch(() => {});
+    return outcome.message;
+  }
+  const errors = {
+    EMPTY: [400, 'Message is empty'],
+    OPTED_OUT: [409, 'This contact asked not to be messaged.'],
+    WINDOW_CLOSED: [409, 'Instagram only allows a reply within 24 hours of the customer’s last message. Wait for them to write again.'],
+    NO_CREDIT: [403, 'Message quota and wallet balance exhausted — recharge your wallet or upgrade your plan'],
+    NOT_CONNECTED: [409, 'Instagram is not connected for this workspace — reconnect it under Automation → Instagram.'],
+  };
+  const [status, message] = errors[outcome.code] || [502, `Instagram refused the message: ${outcome.detail}`];
+  const e = new Error(message);
+  e.status = status;
+  e.code = outcome.code === 'WINDOW_CLOSED' ? 'OUTSIDE_24H_WINDOW' : outcome.code;
+  e.expose = true;
+  throw e;
+}
+
 export async function sendMessage(workspaceId, conversationId, userId, { type, body, contactId, phoneNumber } = {}) {
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
@@ -265,6 +309,8 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     const e = new Error('Recipient mismatch: conversation phone number does not match the target contact');
     e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
   }
+
+  if (conversation.channel === 'INSTAGRAM') return sendInstagramInboxReply(conversation, userId, body);
 
   // The thread survives its number being disconnected, but there is nothing left
   // to send from — the history stays readable, replies do not.
@@ -338,6 +384,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
       ...(userId ? { humanHandoffAt: new Date() } : {}),
     },
   });
+  realtime.messageCreated(workspaceId, conversationId, { messageId: message.id, direction: 'OUTBOUND' });
 
   return message;
 }
@@ -371,6 +418,7 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     include: { contact: true, waNumber: true },
   });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+  assertWhatsAppThread(conversation, 'Attachments');
   if (!conversation.waNumber) {
     const e = new Error('The WhatsApp number for this conversation was disconnected — connect a number to reply.');
     e.status = 409; throw e;
@@ -428,6 +476,10 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     include: { senderUser: { select: { id: true, name: true } } },
   });
   if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
+  // Our own copy in file storage: Meta drops the media after ~30 days, and the
+  // thread should still be able to show what was sent. Not awaited — the send
+  // has happened either way.
+  archiveOutboundMedia({ workspaceId, messageId: message.id, buffer, mimeType }).catch(() => {});
 
   await prisma.conversation.update({
     where: { id: conversationId },
@@ -436,6 +488,7 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
       ...(userId ? { humanHandoffAt: new Date() } : {}),
     },
   });
+  realtime.messageCreated(workspaceId, conversationId, { messageId: message.id, direction: 'OUTBOUND' });
 
   return message;
 }
@@ -462,6 +515,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     const e = new Error('Recipient mismatch: conversation phone number does not match the target contact');
     e.status = 400; e.code = 'RECIPIENT_MISMATCH'; e.expose = true; throw e;
   }
+  assertWhatsAppThread(conversation, 'Templates');
   if (!conversation.waNumber) {
     const e = new Error('The WhatsApp number for this conversation was disconnected — connect a number to reply.');
     e.status = 409; throw e;
@@ -542,6 +596,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     where: { id: conversationId },
     data: { lastMessageAt: new Date() },
   });
+  realtime.messageCreated(workspaceId, conversationId, { messageId: message.id, direction: 'OUTBOUND' });
 
   // Deliberately does NOT touch lastInboundAt. A template does not reopen the
   // free-form window — only the customer replying does. Setting it here would
@@ -755,11 +810,13 @@ export async function assignConversation(workspaceId, conversationId, assignedTo
   const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
   if (assignedToUserId) await assertWorkspaceMember(workspaceId, assignedToUserId, 'Assignee');
-  return prisma.conversation.update({
+  const updated = await prisma.conversation.update({
     where: { id: conversationId },
     data: { assignedToUserId: assignedToUserId || null },
     include: { assignedTo: { select: { id: true, name: true } } },
   });
+  realtime.conversationUpdated(workspaceId, conversationId, 'assigned');
+  return updated;
 }
 
 // OPEN | PENDING | RESOLVED | CLOSED, as the schema's ConversationStatus enum
@@ -774,7 +831,7 @@ export async function setConversationStatus(workspaceId, conversationId, status)
   }
   const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
-  return prisma.conversation.update({
+  const updated = await prisma.conversation.update({
     where: { id: conversationId },
     data: {
       status: next,
@@ -783,6 +840,8 @@ export async function setConversationStatus(workspaceId, conversationId, status)
       ...(next === 'RESOLVED' ? { humanHandoffAt: null } : {}),
     },
   });
+  realtime.conversationUpdated(workspaceId, conversationId, 'status');
+  return updated;
 }
 
 // Hands a conversation back to the automation, or takes it away from it.
@@ -800,6 +859,7 @@ export async function setBotEnabled(workspaceId, conversationId, enabled) {
     where: { id: conversationId },
     data: { humanHandoffAt: enabled ? null : new Date() },
   });
+  realtime.conversationUpdated(workspaceId, conversationId, 'bot');
   return {
     botEnabled: updated.humanHandoffAt === null,
     humanHandoffAt: updated.humanHandoffAt,

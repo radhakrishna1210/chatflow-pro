@@ -1,6 +1,6 @@
 import * as templatesService from '../services/templates.service.js';
 import { generateTemplateDraft, generateUtilityVariant, TEMPLATE_SUGGESTIONS } from '../services/templateAi.service.js';
-import { generateHeaderImage, getAsset, storeAsset, toDataUri } from '../services/templateImage.service.js';
+import { generateHeaderImage, getAsset, storeAsset, readAssetBytes, toDataUri } from '../services/templateImage.service.js';
 
 // Uploads a header sample to Meta and hands back the media handle. For an
 // image the bytes are also kept (see TemplateAsset) because the handle Meta
@@ -19,7 +19,7 @@ export async function uploadMedia(req, res) {
     prompt = null;
   } else if (req.body?.assetId) {
     const asset = await getAsset(workspaceId, req.body.assetId);
-    buffer = Buffer.from(asset.bytes);
+    buffer = await readAssetBytes(asset);
     mimeType = asset.mimeType;
     fileName = `generated-header-${asset.id}`;
     source = asset.source;
@@ -58,9 +58,10 @@ export async function aiImage(req, res) {
 // show the picture it will actually send.
 export async function headerImage(req, res) {
   const asset = await getAsset(req.params.workspaceId, req.params.assetId);
+  const buffer = await readAssetBytes(asset);
   res.set('Content-Type', asset.mimeType);
   res.set('Cache-Control', 'private, max-age=86400');
-  res.send(Buffer.from(asset.bytes));
+  res.send(buffer);
 }
 
 export async function aiSuggestions(req, res) {

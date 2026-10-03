@@ -16,6 +16,8 @@ import { claimRecipientCharge, markRecipientNotCharged, recordAttempt } from '..
 import { isOptedOut } from '../services/optout.service.js';
 import { notifyWorkspace } from '../services/notification.service.js';
 import { sendAuthenticationOtp } from '../authentication/authentication.service.js';
+import { realtime } from '../lib/realtimeBus.js';
+import { campaignQueue } from '../queues/campaign.queue.js';
 // Meta Cloud API Tier-1 numbers are limited to ~250 msgs/min. The old 60ms
 // delay (~1000/min) triggered rate-limit errors (code 131042). 250ms ≈ 240/min.
 const RATE_DELAY_MS = Math.max(env.CAMPAIGN_RATE_DELAY_MS, 250);
@@ -161,6 +163,47 @@ const snapshotRecipientContext = async (campaign, recipient) => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Graceful shutdown (CF-099). BullMQ's Worker.close() waits for the active
+// job, but a send loop over thousands of recipients outlasts any shutdown
+// budget, so the process used to be killed mid-loop with rows left SENDING and
+// a RUNNING campaign nothing resumed. Once this is set, every send loop stops
+// after the recipient in flight and hands the rest to the next worker
+// (handOffCampaign). Set by the worker's close(), i.e. by server.js#shutdown.
+let stopping = false;
+export function stopCampaignSends() {
+  stopping = true;
+}
+
+// Checkpoints a campaign interrupted by shutdown so another worker resumes it:
+// claims this run took but never sent go back to PENDING (a row with sentAt
+// reached Meta and is left alone, so nothing is sent twice), and a `resume`
+// job is queued under an id recorded on the campaign first — the same
+// compare-and-set the recovery sweep uses, so the two never both enqueue. If
+// the queue is unreachable, queueJobId names a job that does not exist and the
+// recovery sweep re-queues the campaign.
+async function handOffCampaign(job, campaign) {
+  const campaignId = campaign.id;
+  await prisma.campaignRecipient.updateMany({
+    where: { campaignId, status: 'SENDING', sentAt: null },
+    data: { status: 'PENDING' },
+  }).catch((err) => console.error(`[CampaignWorker] Could not release claims on ${campaignId}:`, err.message));
+
+  const jobId = `resume-${campaignId}-${Date.now()}`;
+  const claimed = await prisma.campaign.updateMany({
+    where: { id: campaignId, status: 'RUNNING', queueJobId: job.id == null ? null : String(job.id) },
+    data: { queueJobId: jobId },
+  });
+  // Paused or cancelled meanwhile (whoever resumes it queues its own job), or
+  // already re-queued by someone else.
+  if (claimed.count === 0) return;
+  try {
+    await campaignQueue.add('send-campaign', { campaignId, workspaceId: campaign.workspaceId, resume: true }, { jobId });
+    console.log(`[CampaignWorker] Shutting down — campaign ${campaignId} handed off to job ${jobId}`);
+  } catch (err) {
+    console.error(`[CampaignWorker] Could not queue the resume of ${campaignId}; the recovery sweep will:`, err.message);
+  }
+}
+
 // Hands one recipient's message to Meta and returns the message id. This is
 // the only step whose failure means "not sent".
 async function sendToRecipient(campaign, recipient, { phoneNumberId, accessToken }) {
@@ -245,6 +288,7 @@ async function persistOutboundMessage(campaign, recipient, metaMessageId, body) 
       sentAt: new Date(),
     },
   });
+  realtime.messageCreated(campaign.workspaceId, convo.id, { direction: 'OUTBOUND' });
 }
 
 async function processRetryJob(job) {
@@ -477,6 +521,7 @@ async function failCampaign(campaignId, message) {
 
   const failed = await prisma.campaign.findUnique({ where: { id: campaignId } }).catch(() => null);
   if (!failed) return;
+  realtime.campaignUpdated(failed.workspaceId, failed.id, { status: 'FAILED' });
   await settleCampaignRefund(failed.id, 'Refund for failed campaign').catch((e) =>
     console.error(`[Campaign] Settlement failed for ${failed.id}:`, e.message));
 
@@ -562,13 +607,9 @@ export async function processCampaign(job) {
     }
   }
 
-  const recipients = await prisma.campaignRecipient.findMany({
-    where: { campaignId, status: 'PENDING' },
-    include: { contact: true },
-  });
-
   let cancelled = false;
   let paused = false;
+  let interrupted = false;
   let processed = 0;
   let lastId = null;
   let statusCheckedAt = 0;
@@ -578,7 +619,7 @@ export async function processCampaign(job) {
   // than all at once, so a 100k-recipient campaign does not hold 100k contact
   // rows in memory. Rows that leave PENDING drop out of the filter on their
   // own; the id bound is what moves the page past rows claimed elsewhere.
-  while (!cancelled && !paused) {
+  while (!cancelled && !paused && !interrupted) {
     const batch = await prisma.campaignRecipient.findMany({
       where: { campaignId, status: 'PENDING', ...(lastId ? { id: { gt: lastId } } : {}) },
       include: { contact: true },
@@ -589,6 +630,9 @@ export async function processCampaign(job) {
     lastId = batch[batch.length - 1].id;
 
     for (const recipient of batch) {
+      // Shutting down: stop before claiming anyone else. The recipient that
+      // was in flight has finished, so the budget is one send, not the list.
+      if (stopping) { interrupted = true; break; }
       // Pause and cancel have to bite within moments, not at the end of a
       // page, but a status read before every single send was one extra round
       // trip per message. Re-read it at most every STATUS_CHECK_MS.
@@ -617,8 +661,15 @@ export async function processCampaign(job) {
       processed += 1;
 
       const attempted = await sendClaimedRecipient(campaign, recipient, { phoneNumberId, accessToken, memo });
-      if (attempted) await sleep(RATE_DELAY_MS);
+      realtime.campaignUpdated(workspaceId, campaignId); // coalesced: about once a second
+      if (attempted && !stopping) await sleep(RATE_DELAY_MS);
     }
+  }
+
+  if (interrupted) {
+    console.log(`[CampaignWorker] Shutdown during campaign ${campaignId} — stopping after ${processed} recipient(s).`);
+    await handOffCampaign(job, campaign);
+    return;
   }
 
   // A cancelled campaign must stay CANCELLED — never flip it to COMPLETED.
@@ -650,8 +701,21 @@ export function startCampaignWorker() {
     stalledInterval: env.WORKER_STALLED_INTERVAL_MS,
   });
 
+  // close() is what graceful shutdown calls; raising the flag first makes the
+  // active send loops wind down instead of close() waiting on all of them.
+  const close = worker.close.bind(worker);
+  worker.close = (...args) => {
+    stopCampaignSends();
+    return close(...args);
+  };
+
   worker.on('error', (err) => logRedisError('campaign-worker', err));
   worker.on('completed', (job) => console.log(`[CampaignWorker] Job ${job.id} completed`));
+  // Every way a job can move a campaign — started, finished, failed, a retry
+  // settled — ends in one of these, so open campaign screens hear about it.
+  for (const evt of ['active', 'completed', 'failed']) {
+    worker.on(evt, (job) => { if (job?.data?.workspaceId) realtime.campaignUpdated(job.data.workspaceId, job.data.campaignId); });
+  }
   worker.on('failed', async (job, err) => {
     console.error(`[CampaignWorker] Job ${job?.id} failed:`, err.message);
     // Only flag FAILED after the final attempt of a main send job. A retry

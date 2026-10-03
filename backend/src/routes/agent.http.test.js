@@ -39,6 +39,7 @@ const fakePrisma = {
     findUnique: async () => ({ id: 's1', currentPeriodStart: new Date(0), currentPeriodEnd: new Date(), plan: { features: state.planFeatures } }),
   },
   usageCounter: { findUnique: async () => ({ messagesUsed: 0 }) },
+  plan: { findMany: async () => [{ name: 'Basic', features: { autonomousAgent: true } }] },
   agentTask: {
     count: async ({ where }) => state.tasks.filter((t) => matches(t, where)).length,
     findMany: async ({ where, select }) => state.tasks.filter((t) => matches(t, where)).map((t) => pick(t, select)),

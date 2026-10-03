@@ -6,6 +6,7 @@ import { wJson } from '../../lib/automationApi.js';
 import { validateMeaningfulText } from '../../lib/validation.js';
 import { can } from '../../lib/permissions.js';
 import { AI_AGENTS_API } from '../../lib/aiAgentsApi.js';
+import { usePlanFeatures } from '../../lib/usePlanFeatures.js';
 
 // The live WhatsApp AI agent: persona, knowledge, guardrails, campaign
 // awareness, the test lab and the deploy switch. It used to be the Automation
@@ -121,6 +122,9 @@ const WhatsAppAgentPanel = () => {
   // (the inbox uses the same preview). Mirrors lib/permissions CAPABILITIES.
   const canEdit = can('aiAgents.manage');
   const canTest = can('aiAgent.test');
+  // Deploying and testing the agent is the campaignAi plan feature.
+  const { allows } = usePlanFeatures();
+  const planLocked = !allows('campaignAi');
 
   const [cfg, setCfg] = useState(null);
   const [section, setSection] = useState('identity');
@@ -317,7 +321,7 @@ const WhatsAppAgentPanel = () => {
         badge={deployed && <Pill>Live</Pill>}>
         {canEdit && <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
           <Btn variant="outline" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Btn>
-          <Btn onClick={deploy} disabled={deploying || llmMissing}
+          <Btn onClick={deploy} disabled={deploying || llmMissing || (planLocked && !deployed)}
             style={deployed ? { background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', boxShadow:'none' } : { boxShadow:'var(--glow)' }}>
             {deploying ? 'Working…' : deployed ? 'Undeploy agent' : <><I n="play" s={14} c="#08090c"/> Deploy agent</>}
           </Btn>
@@ -326,6 +330,7 @@ const WhatsAppAgentPanel = () => {
 
       {!canEdit && <Banner tone="info">View only — your role can see this agent's settings but not change or deploy them.</Banner>}
 
+      {planLocked && <Banner tone="warn">The Campaign AI Agent is not included in your plan. You can configure it here; upgrade from Payments to deploy it.</Banner>}
       {llmMissing && <Banner tone="warn">No LLM provider is configured on the server. Set <code>GEMINI_API_KEY</code> in the backend environment to enable deployment and live testing.</Banner>}
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 

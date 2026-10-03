@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { consumeMessageCredit, releaseMessageCredit } from './subscription.service.js';
 import { describeSendFailure } from './conversations.service.js';
 import { normalizePhone } from './optout.service.js';
+import { realtime } from '../lib/realtimeBus.js';
 
 // Sends that do not start from an inbox thread or a campaign — the public API,
 // the OTP API and the API-key playground — go through here so they are billed
@@ -113,6 +114,7 @@ export async function recordOutboundMessage(workspaceId, {
       },
     });
     await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: now } });
+    realtime.messageCreated(workspaceId, conversation.id, { messageId: message.id, direction: 'OUTBOUND' });
     return message;
   } catch (err) {
     console.error(`[MeteredSend] Sent message ${metaMessageId ?? '?'} could not be recorded for ${workspaceId}:`, err.message);

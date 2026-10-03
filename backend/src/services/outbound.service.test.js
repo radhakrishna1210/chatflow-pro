@@ -43,6 +43,13 @@ mock.module('./messagingWindow.js', {
   },
 });
 
+const igReplies = [];
+mock.module('./instagram.service.js', {
+  namedExports: {
+    deliverInstagramReply: async (a) => { igReplies.push(a); return { ok: true, message: { id: 'ig_out' } }; },
+  },
+});
+
 const { prisma } = await import('../lib/prisma.js');
 const { deliverAutomatedReply, sendAutomatedReply } = await import('./outbound.service.js');
 
@@ -131,4 +138,15 @@ test('a missing number is reported, not thrown', async () => {
   const out = await deliverAutomatedReply({ ...args, waNumberId: 'nope' });
   assert.equal(out.code, 'NO_NUMBER');
   assert.equal(calls.consume.length, 0);
+});
+
+test('an Instagram thread (no WhatsApp number) is answered through Instagram', async () => {
+  reset();
+  igReplies.length = 0;
+  prisma.conversation.findUnique = async ({ where }) => (where.id === 'conv_ig' ? { channel: 'INSTAGRAM' } : null);
+  const out = await deliverAutomatedReply({ conversationId: 'conv_ig', waNumberId: null, toPhone: 'ig:abc', body: 'Hi', options: ['A', 'B'] });
+  assert.equal(out.ok, true);
+  assert.deepEqual(igReplies[0], { conversationId: 'conv_ig', body: 'Hi', options: ['A', 'B'], reason: 'Automated reply', recordFailure: false });
+  assert.equal(calls.meta.length, 0, 'nothing went to WhatsApp');
+  assert.equal(calls.consume.length, 0, 'Instagram meters its own send');
 });

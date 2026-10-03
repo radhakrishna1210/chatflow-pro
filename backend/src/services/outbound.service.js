@@ -4,6 +4,7 @@ import { sendTextMessage, sendButtonMessage, sendListMessage, INTERACTIVE_LIMITS
 import { isOptedOut } from './optout.service.js';
 import { getWindowState, WINDOW_MS } from './messagingWindow.js';
 import { consumeMessageCredit, releaseMessageCredit } from './subscription.service.js';
+import { realtime } from '../lib/realtimeBus.js';
 
 // Records that Meta has stopped accepting this number, so the fault is visible
 // on the Number Setup screen rather than only in the log. Two numbers in the
@@ -48,6 +49,17 @@ export async function deliverAutomatedReply({
     .map((o) => String(typeof o === 'string' ? o : o?.title ?? '').trim())
     .filter(Boolean)
     .slice(0, INTERACTIVE_LIMITS.rowCount);
+
+  // An Instagram thread has no WhatsApp number. Its replies — a workflow step,
+  // a trigger, the agent — go out through Instagram with the same window,
+  // opt-out and metering rules (instagram.service.js#deliverInstagramReply).
+  if (!waNumberId && conversationId) {
+    const convo = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { channel: true } });
+    if (convo?.channel === 'INSTAGRAM') {
+      const { deliverInstagramReply } = await import('./instagram.service.js');
+      return deliverInstagramReply({ conversationId, body: text, options: choices, reason, recordFailure });
+    }
+  }
 
   const waNumber = waNumberId ? await prisma.waNumber.findUnique({ where: { id: waNumberId } }) : null;
   if (!waNumber) {
@@ -135,7 +147,8 @@ export async function deliverAutomatedReply({
           errorMessage: detail,
           sentAt: new Date(),
         },
-      }).catch((e) => console.error('[Outbound] Could not record the failed send:', e.message));
+      }).then(() => realtime.messageCreated(workspaceId, conversationId, { direction: 'OUTBOUND' }))
+        .catch((e) => console.error('[Outbound] Could not record the failed send:', e.message));
     }
     return { ok: false, code: 'META_REJECTED', detail };
   }
@@ -169,6 +182,7 @@ export async function deliverAutomatedReply({
     where: { id: conversationId },
     data: { lastMessageAt: new Date() },
   });
+  realtime.messageCreated(workspaceId, conversationId, { messageId: message.id, direction: 'OUTBOUND' });
 
   return { ok: true, message };
 }

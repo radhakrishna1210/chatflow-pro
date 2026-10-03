@@ -110,10 +110,19 @@ export function parseInboundMessage(msg) {
   return out;
 }
 
-// Only a message the customer typed should drive keyword triggers, intent
-// matching or an AI reply. Matching "STOP" against the placeholder text we
-// invented for a photo would be our own words triggering our own automation.
+// Only a message the customer typed — or said, once a voice note has been
+// transcribed (services/inboundMedia.service.js) — should drive keyword
+// triggers, intent matching or an AI reply. Matching "STOP" against the
+// placeholder text we invented for a photo would be our own words triggering
+// our own automation.
 export function carriesCustomerText(parsed) {
+  if (parsed.type === 'AUDIO') return Boolean(parsed.transcript?.trim());
   return (parsed.type === 'TEXT' || parsed.type === 'BUTTON' || parsed.type === 'INTERACTIVE')
     && Boolean(parsed.body?.trim());
+}
+
+// 'image' | 'video' | 'audio' | 'document' | 'sticker' for a media message,
+// else null. What the workflow `media` trigger matches on.
+export function mediaTypeOf(parsed) {
+  return parsed?.media ? String(parsed.type).toLowerCase() : null;
 }

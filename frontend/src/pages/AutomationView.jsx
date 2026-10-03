@@ -10,6 +10,7 @@ import { useIsMobile } from '../lib/useMediaQuery.js';
 import { confirmDialog } from '../components/Feedback.jsx';
 import { AI_AGENTS_API } from '../lib/aiAgentsApi.js';
 import { can } from '../lib/permissions.js';
+import { usePlanFeatures } from '../lib/usePlanFeatures.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Manrope',sans-serif", boxSizing:'border-box' };
@@ -52,10 +53,8 @@ const PlanLocked = ({ feature }) => (
     <div>
       <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:17, fontWeight:700, color:'var(--t1)', marginBottom:6 }}>Not included in your plan</h3>
       <p style={{ fontSize:13, color:'var(--t2)', maxWidth:420 }}>
-        {feature === 'workflows'
-          ? 'Workflows are available on the Pro plan and above.'
-          : 'Automation is available on the Starter plan and above.'}
-        {' '}Upgrade to turn this on.
+        {({ workflows: 'Workflows are', voice: 'Voice AI is', campaignAi: 'The Campaign AI Agent is' })[feature] || 'Automation is'}
+        {' '}not part of your current plan. Upgrade to turn this on.
       </p>
     </div>
     <Btn onClick={() => { window.location.href = '/dashboard/settings?tab=billing'; }} style={{ boxShadow:'var(--glow)' }}>
@@ -1121,6 +1120,12 @@ const CANVAS_PAD = 28;
 // or stage cannot be mistyped into a value the server will reject.
 const LEAD_STATUS_CHOICES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'];
 const DEAL_STAGE_CHOICES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
+// The `media` trigger's kinds; '' is any media (backend workflowGraph.js MEDIA_KINDS).
+const MEDIA_TRIGGER_CHOICES = [
+  ['', 'Any media'], ['audio', 'Voice note / audio'], ['image', 'Photo'],
+  ['video', 'Video'], ['document', 'Document'], ['sticker', 'Sticker'],
+];
+
 const prettyEnum = (s) => String(s).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 
 // Steps needing no configuration at all.
@@ -1169,7 +1174,7 @@ const PALETTE = [
 ];
 
 const NODE_ICON = {
-  keyword: 'key', welcome: 'user',
+  keyword: 'key', welcome: 'user', media: 'file',
   message: 'send', buttons: 'check', delay: 'clock', tag: 'file', agent: 'users',
   wait_reply: 'msg', template: 'file',
 };
@@ -1351,6 +1356,10 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
           {isTrigger && <option value="" style={{ background:'#07090F' }}>Any status</option>}
           {LEAD_STATUS_CHOICES.map(v => <option key={v} value={v} style={{ background:'#07090F' }}>{prettyEnum(v)}</option>)}
         </select>
+      ) : step.subtype === 'media' ? (
+        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
+          {MEDIA_TRIGGER_CHOICES.map(([v, label]) => <option key={v} value={v} style={{ background:'#07090F' }}>{label}</option>)}
+        </select>
       ) : step.subtype === 'deal_stage' ? (
         <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
           {isTrigger && <option value="" style={{ background:'#07090F' }}>Any stage</option>}
@@ -1443,6 +1452,7 @@ const stepLabel = (step) => {
   switch (step.subtype) {
     case 'keyword': return `Keyword: ${step.value}`;
     case 'welcome': return 'New contact';
+    case 'media': return `Media received${step.value ? `: ${(MEDIA_TRIGGER_CHOICES.find(([v]) => v === step.value) || [, step.value])[1]}` : ''}`;
     case 'missed':  return 'Missed call (no longer supported — choose another trigger)';
     case 'message': return `Send: "${step.value}"`;
     case 'buttons': {
@@ -1728,6 +1738,9 @@ const IntentEditor = ({ intent, onClose, onSaved }) => {
 };
 
 const AIIntentMatchingTab = () => {
+  // Intent matching is the campaignAi plan feature (enforced server-side).
+  const { allows } = usePlanFeatures();
+  const planLocked = !allows('campaignAi');
   const [enabled, setEnabled] = useState(false);
   const [threshold, setThreshold] = useState(0.6);
   const [llmAvailable, setLlmAvailable] = useState(true);
@@ -1817,13 +1830,14 @@ const AIIntentMatchingTab = () => {
         title="Intent matching" subtitle={`Rules that route messages before the AI · ${activeCount} active`}
         badge={enabled && <Pill>On</Pill>}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <Btn variant="outline" onClick={() => setEditor({ intent: null })}>
+          <Btn variant="outline" onClick={() => setEditor({ intent: null })} disabled={planLocked}>
             <I n="plus" s={13} c="var(--t2)" /> New intent
           </Btn>
-          <Toggle on={enabled} onToggle={() => persist(!enabled, threshold)} disabled={saving} />
+          <Toggle on={enabled} onToggle={() => persist(!enabled, threshold)} disabled={saving || (planLocked && !enabled)} />
         </div>
       </TabHeader>
 
+      {planLocked && <Banner tone="warn">Intent matching is not included in your plan. Upgrade from Payments to turn it on.</Banner>}
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 
       <div className="intent-grid" style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 320px', gap:16, alignItems:'start' }}>
@@ -2212,6 +2226,8 @@ const InstagramQuickflowsTab = () => {
 // 7. VOICE AI
 // ─────────────────────────────────────────────
 const VoiceAITab = () => {
+  // Switching Voice AI on is the `voice` plan feature (enforced server-side).
+  const { allows } = usePlanFeatures();
   const [cfg, setCfg] = useState(null);
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2243,6 +2259,7 @@ const VoiceAITab = () => {
   if (loading) return <Loading />;
   if (locked) return <PlanLocked feature={locked} />;
   if (!cfg) return <Banner tone="error">Could not load voice settings.</Banner>;
+  if (!cfg.voiceAiEnabled && !allows('voice')) return <PlanLocked feature="voice" />;
 
   if (!cfg.voiceAiEnabled) {
     return (

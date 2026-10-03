@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { ask } from './siteAssistant.service.js';
 import * as contactsService from './contacts.service.js';
 import { normaliseDomain } from './widget.service.js';
+import { realtime } from '../lib/realtimeBus.js';
 
 // Everything the embedded widget on a customer's website is allowed to do.
 //
@@ -386,6 +387,7 @@ async function seedInboxContext(widget, session, { reason }) {
     where: { id: conversation.id },
     data: { lastMessageAt: new Date(), unreadCount: { increment: 1 } },
   });
+  realtime.messageCreated(widget.workspaceId, conversation.id, { direction: 'INBOUND' });
 
   return conversation;
 }

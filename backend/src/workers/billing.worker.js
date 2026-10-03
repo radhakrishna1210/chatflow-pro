@@ -2,10 +2,16 @@ import { Worker } from 'bullmq';
 import { createBullConnection, logRedisError } from '../lib/redis.js';
 import { env } from '../config/env.js';
 import { runBillingCycleSweep } from '../services/subscription.service.js';
+import { runAddonRenewalSweep } from '../services/addons.service.js';
 
 async function processBillingCycle(job) {
   const result = await runBillingCycleSweep();
   console.log(`[BillingWorker] Job ${job.id}: processed=${result.processed} renewed=${result.renewed} cancelled=${result.cancelled} failed=${result.failed}`);
+  // Add-on packs renew (auto-renew, from the wallet) or expire on the same
+  // daily tick. Each pack is renewed under a per-period key, so the job's
+  // retries cannot charge a period twice.
+  const addons = await runAddonRenewalSweep();
+  console.log(`[BillingWorker] Job ${job.id}: add-ons processed=${addons.processed} renewed=${addons.renewed} expired=${addons.expired} unpaid=${addons.unpaid} failed=${addons.failed}`);
 }
 
 export function startBillingWorker() {

@@ -4,6 +4,7 @@ import { Btn } from './Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import { can } from '../lib/permissions.js';
 import { AI_AGENTS_API, aiAgentsHref } from '../lib/aiAgentsApi.js';
+import { usePlanFeatures } from '../lib/usePlanFeatures.js';
 
 const AUTONOMOUS = AI_AGENTS_API.autonomous;
 
@@ -133,18 +134,14 @@ export default function AgentTab({ targetType, targetId }) {
   // in AI Agents → Autonomous agent.
   const canManageAgent = can('autonomousAgent.manage');
   const [agentOn, setAgentOn] = useState(null);
-  const [planAllows, setPlanAllows] = useState(true);
+  const planAllows = usePlanFeatures().allows('autonomousAgent');
   const [switchBusy, setSwitchBusy] = useState(false);
   const [switchError, setSwitchError] = useState(null);
 
   useEffect(() => {
     wFetch(`${AUTONOMOUS}/settings`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((s) => {
-        if (!s) return;
-        setAgentOn(s.enabled === true);
-        setPlanAllows(s.planAllows !== false);
-      })
+      .then((s) => { if (s) setAgentOn(s.enabled === true); })
       .catch(() => {});
   }, []);
 

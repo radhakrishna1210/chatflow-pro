@@ -41,17 +41,19 @@ const session = (await req('POST', '/auth/login', {
 const TOKEN = session.accessToken;
 const WS = session.workspace.id;
 
-// Grant an add-on directly. The purchase path has its own coverage in
+// Grant an add-on directly: exactly one live pack (packs stack, so any earlier
+// rows are removed first). The purchase path has its own coverage in
 // regression-check.mjs; what is under test here is what the grant unlocks.
-const grant = (addonKey) => prisma.workspaceAddon.upsert({
-  where: { workspaceId_addonKey: { workspaceId: WS, addonKey } },
-  update: { status: 'ACTIVE', currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000) },
-  create: {
-    workspaceId: WS, addonKey, status: 'ACTIVE', amountPaid: 499, currency: 'INR',
-    currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
-  },
-});
 const revoke = (addonKey) => prisma.workspaceAddon.deleteMany({ where: { workspaceId: WS, addonKey } });
+const grant = async (addonKey) => {
+  await revoke(addonKey);
+  return prisma.workspaceAddon.create({
+    data: {
+      workspaceId: WS, addonKey, status: 'ACTIVE', amountPaid: 499, currency: 'INR',
+      currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+    },
+  });
+};
 
 try {
   await prisma.workspaceCustomField.deleteMany({ where: { workspaceId: WS } });

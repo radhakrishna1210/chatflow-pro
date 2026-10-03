@@ -72,6 +72,7 @@ import crmCustomizationRoutes from './crmCustomization.routes.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import { checkReadiness } from '../lib/readiness.js';
 import authenticationConfigRoutes from '../authentication/authentication-config.routes.js';
+import realtimeRoutes from './realtime.routes.js';
 const router = Router();
 
 
@@ -225,6 +226,8 @@ ws.use('/ai-agent', aiAgentRoutes);
 ws.use('/intents', intentRoutes);
 ws.use('/invitations', invitationsRoutes);
 ws.use('/switch', workspaceSwitchRoutes);
+// Server-sent events: inbox, campaign and template updates as they happen.
+ws.use('/realtime', realtimeRoutes);
 // AI drafting (templates, campaigns) and the workflow simulator.
 ws.use('/ai', aiRoutes);
 

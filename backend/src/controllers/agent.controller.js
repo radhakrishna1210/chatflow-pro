@@ -1,6 +1,6 @@
 import * as agent from '../services/agent.service.js';
 import { enqueueRunNow } from '../queues/agent.queue.js';
-import { hasFeature } from '../services/subscription.service.js';
+import { planAllows as planGrants } from '../services/planFeatures.service.js';
 
 export async function history(req, res) {
   const { targetType, targetId } = req.params;
@@ -32,7 +32,7 @@ export async function getSettings(req, res) {
   const { workspaceId } = req.params;
   const [settings, planAllows] = await Promise.all([
     agent.getAgentSettings(workspaceId),
-    hasFeature(workspaceId, agent.AUTONOMOUS_AGENT_FEATURE).catch(() => false),
+    planGrants(workspaceId, agent.AUTONOMOUS_AGENT_FEATURE),
   ]);
   res.json({ ...settings, planAllows });
 }

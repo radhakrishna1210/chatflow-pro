@@ -114,13 +114,26 @@ const campaignRetryConfig = z.object({
   noRetryStart: retryTime.optional(),
   noRetryEnd: retryTime.optional(),
 });
+// Indian SMS must carry a template registered on the operators' DLT platform
+// (TRAI TCCCPR 2018): the template id and the sender's Principal Entity id are
+// both 19-digit numbers. Fallback SMS cannot be switched on without them, and
+// fallback.service.js refuses to send (uncharged) when they are missing.
+const dltId = z.string().trim().regex(/^\d{19}$/, 'must be the 19-digit id from your DLT portal');
 const campaignFallbackConfig = z.object({
   smsEnabled: z.boolean().default(false),
   smsFrom: z.string().trim().max(32).optional(),
   smsText: z.string().max(1500).optional(),
+  dltTemplateId: z.union([dltId, z.literal('')]).optional(),
+  dltEntityId: z.union([dltId, z.literal('')]).optional(),
   emailEnabled: z.boolean().default(false),
   emailSubject: z.string().max(200).optional(),
   emailText: z.string().max(5000).optional(),
+}).superRefine((v, ctx) => {
+  if (!v.smsEnabled) return;
+  if (!v.smsFrom) ctx.addIssue({ code: 'custom', path: ['smsFrom'], message: 'SMS fallback needs a sender ID (your DLT-registered header)' });
+  if (!v.dltTemplateId) ctx.addIssue({ code: 'custom', path: ['dltTemplateId'], message: 'SMS fallback needs the DLT template id the message text is registered under' });
+  if (!v.dltEntityId) ctx.addIssue({ code: 'custom', path: ['dltEntityId'], message: 'SMS fallback needs your DLT Principal Entity id' });
+  if (!v.smsText?.trim()) ctx.addIssue({ code: 'custom', path: ['smsText'], message: 'SMS fallback needs the registered message text' });
 });
 // Reply flows and conversion tracking were stored but never executed. Until
 // they exist a value is refused rather than silently ignored; null is still

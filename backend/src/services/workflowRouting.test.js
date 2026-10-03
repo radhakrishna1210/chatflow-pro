@@ -283,3 +283,23 @@ test('simulateWorkflow handles template action subtype properly', async () => {
     prisma.workflow.findFirst = originalFindFirst;
   }
 });
+
+// ── media trigger (CF-224) ──────────────────────────────────────────────────
+
+test('triggerFires: a media trigger fires on its kind, or on any media when unset', () => {
+  assert.equal(triggerFires({ subtype: 'media', value: 'audio' }, { event: 'media', mediaType: 'audio' }), true);
+  assert.equal(triggerFires({ subtype: 'media', value: 'image' }, { event: 'media', mediaType: 'audio' }), false);
+  assert.equal(triggerFires({ subtype: 'media', value: '' }, { event: 'media', mediaType: 'document' }), true);
+  assert.equal(triggerFires({ subtype: 'media', value: 'any' }, { event: 'media', mediaType: 'sticker' }), true);
+  assert.equal(triggerFires({ subtype: 'media', value: '' }, { event: 'message', messageBody: 'hi' }), false, 'text is not media');
+  // A transcribed voice note is a `message` event that still carries its kind.
+  assert.equal(triggerFires({ subtype: 'media', value: 'audio' }, { event: 'message', mediaType: 'audio', messageBody: 'hello' }), true);
+});
+
+test('triggerFires: our placeholder for a photo never matches a keyword', () => {
+  assert.equal(triggerFires({ subtype: 'keyword', value: 'PHOTO' }, { event: 'media', mediaType: 'image', messageBody: '[photo]' }), false);
+});
+
+test('triggerFires: a new contact whose first message is media is still welcomed', () => {
+  assert.equal(triggerFires({ subtype: 'welcome' }, { event: 'media', mediaType: 'image', isNewContact: true }), true);
+});

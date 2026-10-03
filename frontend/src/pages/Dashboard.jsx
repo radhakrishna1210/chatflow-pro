@@ -6,6 +6,7 @@ import { Btn } from '../components/Btn.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { openMobileNav } from '../components/MobileNavButton.jsx';
 import { usePolling } from '../lib/usePolling.js';
+import { useRealtime, useThrottledCallback } from '../lib/realtime.js';
 import { useWallet } from '../lib/useWallet.js';
 import { wFetch, apiFetch, wDownload } from '../lib/api.js';
 import { impersonationInfo, endImpersonation } from '../lib/tabSession.js';
@@ -1089,7 +1090,17 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
     } catch (e) { setErr(e.message); }
   };
 
-  useEffect(() => { load(); const iv = setInterval(load, 8000); return () => clearInterval(iv); }, [campaignId]); // eslint-disable-line
+  // Refetched when the server says this campaign moved (lib/realtime.js).
+  // Polled only while the live stream is down, only in a visible tab, and not
+  // at all once the campaign has finished.
+  const refreshDetail = useThrottledCallback(() => load(), 1500);
+  const { live } = useRealtime((evt) => {
+    if (evt.type === 'resync') refreshDetail();
+    else if (evt.type === 'campaign.updated' && (!evt.data?.campaignId || evt.data.campaignId === campaignId)) refreshDetail();
+  });
+  useEffect(() => { load(); }, [campaignId]); // eslint-disable-line
+  const detailFinished = ['COMPLETED', 'FAILED', 'CANCELLED'].includes(c?.status);
+  usePolling(load, 20000, { enabled: !live && !detailFinished, immediate: false });
 
   // The retry countdowns are rendered from nextRetryAt against the clock, so
   // they need a re-render of their own — otherwise a modal left open on a
@@ -1369,8 +1380,9 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
   const [search, setSearch]       = useState('');
   const campaignType = 'regular';
 
-  const loadCampaigns = async () => {
-    setLoading(true);
+  // `silent` refreshes in place; only the first load shows the spinner.
+  const loadCampaigns = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const res = await wFetch(`/campaigns?type=${campaignType}`);
       const data = await res.json();
@@ -1404,12 +1416,14 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
     if (id) setDetailId(id);
   }, []);
 
-  useEffect(() => {
-    const active = campaigns.some(c => c.status === 'RUNNING' || c.status === 'SCHEDULED');
-    if (!active) return;
-    const iv = setInterval(loadCampaigns, 10000);
-    return () => clearInterval(iv);
-  }, [campaigns]); // eslint-disable-line
+  // Status and counters arrive pushed (lib/realtime.js); a running campaign
+  // is polled only while the live stream is down.
+  const refreshCampaigns = useThrottledCallback(() => loadCampaigns({ silent: true }), 3000);
+  const { live: campaignsLive } = useRealtime((evt) => {
+    if (evt.type === 'campaign.updated' || evt.type === 'resync') refreshCampaigns();
+  });
+  const campaignsActive = campaigns.some(c => c.status === 'RUNNING' || c.status === 'SCHEDULED');
+  usePolling(() => loadCampaigns({ silent: true }), 30000, { enabled: !campaignsLive && campaignsActive, immediate: false });
 
   useEffect(() => {
     const onDataUpdated = (e) => {
@@ -2012,18 +2026,22 @@ const TemplatesView = () => {
 
   const hasPending = templates.some(t => t.status === 'PENDING');
 
-  useEffect(() => {
-    loadHasNumber();
-    // Poll every 12s if templates are awaiting Meta approval, or every 25s when idle,
-    // so status changes (PENDING → APPROVED / REJECTED) surface automatically without
-    // requiring manual "Sync from Meta" clicks.
-    const pollMs = hasPending ? 12000 : 25000;
-    const interval = setInterval(() => {
-      loadTemplates();
-      if (tab === 'library') loadLibrary();
-    }, pollMs);
-    return () => clearInterval(interval);
-  }, [hasPending, tab]); // eslint-disable-line
+  useEffect(() => { loadHasNumber(); }, [hasPending, tab]); // eslint-disable-line
+
+  // Status changes (PENDING → APPROVED / REJECTED, from Meta's webhook or a
+  // sync) and other members' edits arrive pushed (lib/realtime.js).
+  const refreshTemplateLists = () => { loadTemplates(); if (tab === 'library') loadLibrary(); };
+  const refreshTemplates = useThrottledCallback(refreshTemplateLists, 2000);
+  const { live: templatesLive } = useRealtime((evt) => {
+    if (evt.type === 'template.updated' || evt.type === 'resync') refreshTemplates();
+  });
+  // Listing while a template is PENDING is also what asks Meta for its review
+  // result (autoSyncPendingTemplates on the server) — the only route to it
+  // when Meta's template webhook is not configured — so pending templates keep
+  // a slow poll even while live. Otherwise this runs only when the stream is
+  // down, and never in a hidden tab.
+  const templatePollMs = templatesLive ? (hasPending ? 60000 : 0) : (hasPending ? 30000 : 120000);
+  usePolling(refreshTemplateLists, templatePollMs || 60000, { enabled: templatePollMs > 0, immediate: false });
 
   useEffect(() => {
     const onDataUpdated = (e) => {
