@@ -33,22 +33,34 @@ export async function listSequences(workspaceId, { status = '' } = {}) {
   };
 }
 
-export async function getSequence(workspaceId, id) {
-  const sequence = await prisma.sequence.findFirst({
-    where: { id, workspaceId },
+/**
+ * One sequence with its newest 100 enrolments.
+ *
+ * `user` applies the workspace's record visibility (OWN/TEAM) to the
+ * enrolments, by the same rule as enrolment itself (CF-162): one is listed
+ * when its contact has no lead, or has a lead the caller may see. A contact
+ * is someone's lead at most once (Lead.contactId is unique), so this also
+ * covers enrolments made by picking the contact rather than the lead. A null
+ * user is an internal caller and is not scoped.
+ */
+export async function getSequence(workspaceId, id, user = null) {
+  const sequence = await prisma.sequence.findFirst({ where: { id, workspaceId } });
+  if (!sequence) { const e = new Error('Sequence not found'); e.status = 404; throw e; }
+
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const visible = Object.keys(scope).length > 0
+    ? { contact: { is: { OR: [{ lead: { is: null } }, { lead: { is: scope } }] } } }
+    : {};
+  const enrollments = await prisma.sequenceEnrollment.findMany({
+    where: withScope({ sequenceId: id, workspaceId }, visible),
+    take: 100,
+    orderBy: [{ enrolledAt: 'desc' }, { id: 'desc' }],
     include: {
-      enrollments: {
-        take: 100,
-        orderBy: { enrolledAt: 'desc' },
-        include: {
-          contact: { select: { id: true, name: true, phoneNumber: true } },
-          stepRuns: { orderBy: { ranAt: 'asc' }, take: 50 },
-        },
-      },
+      contact: { select: { id: true, name: true, phoneNumber: true } },
+      stepRuns: { orderBy: { ranAt: 'asc' }, take: 50 },
     },
   });
-  if (!sequence) { const e = new Error('Sequence not found'); e.status = 404; throw e; }
-  return sequence;
+  return { ...sequence, enrollments };
 }
 
 export async function createSequence(workspaceId, body, userId) {

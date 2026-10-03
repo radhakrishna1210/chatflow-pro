@@ -5,7 +5,8 @@ export async function list(req, res) {
   res.json(await sequencesService.listSequences(req.params.workspaceId, { status: req.query.status }));
 }
 export async function get(req, res) {
-  res.json(await sequencesService.getSequence(req.params.workspaceId, req.params.id));
+  // req.user applies record visibility to the enrolments listed (CF-162).
+  res.json(await sequencesService.getSequence(req.params.workspaceId, req.params.id, req.user));
 }
 export async function create(req, res) {
   res.status(201).json(await sequencesService.createSequence(req.params.workspaceId, req.body, req.user.id));

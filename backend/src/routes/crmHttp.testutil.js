@@ -9,16 +9,27 @@
 
 // Prisma-style where matching: equality, null, { in, notIn, not, equals,
 // contains, gte, lte, gt, lt }, JSON { path, equals }, AND / OR / NOT.
-// Relation filters ({ is }, { some }, { none }) are not modelled and pass.
-export function matchesWhere(row, where = {}) {
+// Relation filters ({ is, isNot, some, every, none }) pass unless the store
+// was given that relation (createStore's `relations`): `related(key, row)`
+// resolves one to { value, match }, or null when it is not modelled.
+export function matchesWhere(row, where = {}, related = null) {
   if (!where) return true;
   return Object.entries(where).every(([key, cond]) => {
-    if (key === 'AND') return (Array.isArray(cond) ? cond : [cond]).every((w) => matchesWhere(row, w));
-    if (key === 'OR') return cond.some((w) => matchesWhere(row, w));
-    if (key === 'NOT') return !(Array.isArray(cond) ? cond : [cond]).some((w) => matchesWhere(row, w));
+    if (key === 'AND') return (Array.isArray(cond) ? cond : [cond]).every((w) => matchesWhere(row, w, related));
+    if (key === 'OR') return cond.some((w) => matchesWhere(row, w, related));
+    if (key === 'NOT') return !(Array.isArray(cond) ? cond : [cond]).some((w) => matchesWhere(row, w, related));
     const value = row[key];
     if (cond === null || typeof cond !== 'object' || cond instanceof Date) return (value ?? null) === cond;
-    if ('is' in cond || 'some' in cond || 'none' in cond || 'every' in cond || 'isNot' in cond) return true;
+    if ('is' in cond || 'some' in cond || 'none' in cond || 'every' in cond || 'isNot' in cond) {
+      const link = related?.(key, row);
+      if (!link) return true;
+      const { value: rel, match } = link;
+      if ('is' in cond) return cond.is === null ? rel == null : rel != null && match(rel, cond.is);
+      if ('isNot' in cond) return cond.isNot === null ? rel != null : !(rel != null && match(rel, cond.isNot));
+      if ('some' in cond) return rel.some((r) => match(r, cond.some));
+      if ('every' in cond) return rel.every((r) => match(r, cond.every));
+      return !rel.some((r) => match(r, cond.none));
+    }
     if (Array.isArray(cond.path)) {
       const at = cond.path.reduce((v, p) => (v == null ? undefined : v[p]), value);
       return 'equals' in cond ? (at ?? null) === cond.equals : true;
@@ -46,11 +57,26 @@ const p2002 = () => Object.assign(new Error('Unique constraint failed'), { code:
  * be unique (id always is); `defaults` the column defaults a create fills in.
  * `findUnique` accepts `{ id }` or a compound key such as
  * `{ userId_workspaceId: { … } }`.
+ *
+ * `relations` opts a model's relation filters into being evaluated instead of
+ * passing: `{ model: { field: { model, from } | { model, to, many } } }`, where
+ * `from` names this row's foreign key to the other row's id, and `to` the
+ * other row's foreign key to this row's id (`many` for a list relation).
  */
-export function createStore({ uniques = {}, defaults = {} } = {}) {
+export function createStore({ uniques = {}, defaults = {}, relations = {} } = {}) {
   const tables = {};
   let seq = 0;
   const rows = (model) => (tables[model] ??= []);
+
+  const relatedFor = (model) => (key, row) => {
+    const r = relations[model]?.[key];
+    if (!r) return null;
+    const linked = rows(r.model).filter((o) => (r.from ? o.id === row[r.from] : o[r.to] === row.id));
+    return {
+      value: r.many ? linked : (linked[0] ?? null),
+      match: (o, w) => matchesWhere(o, w, relatedFor(r.model)),
+    };
+  };
 
   const keyWhere = (where) => {
     const out = {};
@@ -79,55 +105,58 @@ export function createStore({ uniques = {}, defaults = {} } = {}) {
   // not see a later write change it underneath them.
   const copy = (row) => (row ? { ...row } : null);
 
-  const delegate = (model) => ({
-    findMany: async ({ where, take, skip } = {}) => rows(model).filter((r) => matchesWhere(r, where)).slice(skip ?? 0, take ? (skip ?? 0) + take : undefined).map(copy),
-    findFirst: async ({ where } = {}) => copy(rows(model).find((r) => matchesWhere(r, where))),
-    findUnique: async ({ where }) => copy(rows(model).find((r) => matchesWhere(r, keyWhere(where)))),
-    count: async ({ where } = {}) => rows(model).filter((r) => matchesWhere(r, where)).length,
-    create: async ({ data }) => copy(insert(model, data)),
-    createMany: async ({ data, skipDuplicates }) => {
-      let count = 0;
-      for (const d of data) {
-        try { insert(model, d); count += 1; } catch (err) { if (!skipDuplicates) throw err; }
-      }
-      return { count };
-    },
-    createManyAndReturn: async ({ data, skipDuplicates }) => {
-      const out = [];
-      for (const d of data) {
-        try { out.push(copy(insert(model, d))); } catch (err) { if (!skipDuplicates) throw err; }
-      }
-      return out;
-    },
-    update: async ({ where, data }) => {
-      const row = rows(model).find((r) => matchesWhere(r, keyWhere(where)));
-      if (!row) throw Object.assign(new Error('Record to update not found'), { code: 'P2025' });
-      const next = { ...row, ...data, updatedAt: new Date() };
-      assertUnique(model, next, row);
-      return copy(Object.assign(row, next));
-    },
-    updateMany: async ({ where, data }) => {
-      const hit = rows(model).filter((r) => matchesWhere(r, where));
-      for (const r of hit) Object.assign(r, data, { updatedAt: new Date() });
-      return { count: hit.length };
-    },
-    upsert: async ({ where, create, update }) => {
-      const row = rows(model).find((r) => matchesWhere(r, keyWhere(where)));
-      return copy(row ? Object.assign(row, update) : insert(model, create));
-    },
-    delete: async ({ where }) => {
-      const i = rows(model).findIndex((r) => matchesWhere(r, keyWhere(where)));
-      if (i < 0) throw Object.assign(new Error('Record to delete does not exist'), { code: 'P2025' });
-      return copy(rows(model).splice(i, 1)[0]);
-    },
-    deleteMany: async ({ where } = {}) => {
-      const keep = rows(model).filter((r) => !matchesWhere(r, where));
-      const count = rows(model).length - keep.length;
-      tables[model] = keep;
-      return { count };
-    },
-    groupBy: async () => [],
-  });
+  const delegate = (model) => {
+    const matches = (r, where) => matchesWhere(r, where, relatedFor(model));
+    return {
+      findMany: async ({ where, take, skip } = {}) => rows(model).filter((r) => matches(r, where)).slice(skip ?? 0, take ? (skip ?? 0) + take : undefined).map(copy),
+      findFirst: async ({ where } = {}) => copy(rows(model).find((r) => matches(r, where))),
+      findUnique: async ({ where }) => copy(rows(model).find((r) => matches(r, keyWhere(where)))),
+      count: async ({ where } = {}) => rows(model).filter((r) => matches(r, where)).length,
+      create: async ({ data }) => copy(insert(model, data)),
+      createMany: async ({ data, skipDuplicates }) => {
+        let count = 0;
+        for (const d of data) {
+          try { insert(model, d); count += 1; } catch (err) { if (!skipDuplicates) throw err; }
+        }
+        return { count };
+      },
+      createManyAndReturn: async ({ data, skipDuplicates }) => {
+        const out = [];
+        for (const d of data) {
+          try { out.push(copy(insert(model, d))); } catch (err) { if (!skipDuplicates) throw err; }
+        }
+        return out;
+      },
+      update: async ({ where, data }) => {
+        const row = rows(model).find((r) => matches(r, keyWhere(where)));
+        if (!row) throw Object.assign(new Error('Record to update not found'), { code: 'P2025' });
+        const next = { ...row, ...data, updatedAt: new Date() };
+        assertUnique(model, next, row);
+        return copy(Object.assign(row, next));
+      },
+      updateMany: async ({ where, data }) => {
+        const hit = rows(model).filter((r) => matches(r, where));
+        for (const r of hit) Object.assign(r, data, { updatedAt: new Date() });
+        return { count: hit.length };
+      },
+      upsert: async ({ where, create, update }) => {
+        const row = rows(model).find((r) => matches(r, keyWhere(where)));
+        return copy(row ? Object.assign(row, update) : insert(model, create));
+      },
+      delete: async ({ where }) => {
+        const i = rows(model).findIndex((r) => matches(r, keyWhere(where)));
+        if (i < 0) throw Object.assign(new Error('Record to delete does not exist'), { code: 'P2025' });
+        return copy(rows(model).splice(i, 1)[0]);
+      },
+      deleteMany: async ({ where } = {}) => {
+        const keep = rows(model).filter((r) => !matches(r, where));
+        const count = rows(model).length - keep.length;
+        tables[model] = keep;
+        return { count };
+      },
+      groupBy: async () => [],
+    };
+  };
 
   const client = new Proxy({}, {
     get(_t, prop) {
