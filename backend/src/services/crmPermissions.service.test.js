@@ -58,53 +58,15 @@ test('CRM Permissions - getUserCrmPermissions outputs accurate flags', () => {
   assert.equal(agentPerms.canLaunchCampaigns, false);
 });
 
-test('CRM Permissions - requireCrmPermission middleware enforces role checks', () => {
-  const mw = requireCrmPermission(CRM_PERMISSIONS.CAMPAIGN_LAUNCH);
+// That the matrix is enforced on the routes it governs (and fails closed for
+// roles below it) is tested over HTTP in routes/crmAccess.http.test.js.
 
-  let nextCalled = false;
-  const mockReqAllowed = { user: { role: 'CLIENT' } };
-  const mockRes = {
-    status(code) {
-      this.statusCode = code;
-      return this;
-    },
-    json(body) {
-      this.body = body;
-      return this;
-    },
-  };
-
-  mw(mockReqAllowed, mockRes, () => { nextCalled = true; });
-  assert.equal(nextCalled, true);
-
-  // Denied case
-  let nextCalledDenied = false;
-  const mockReqDenied = { user: { role: 'AGENT' } };
-  mw(mockReqDenied, mockRes, () => { nextCalledDenied = true; });
-  assert.equal(nextCalledDenied, false);
-  assert.equal(mockRes.statusCode, 403);
-  assert.match(mockRes.body.error, /Insufficient CRM permission/);
-
-  // No role (middleware mounted before workspaceContext) fails closed.
-  let nextCalledNoRole = false;
-  mw({ user: {} }, mockRes, () => { nextCalledNoRole = true; });
-  assert.equal(nextCalledNoRole, false);
-});
-
-test('CRM Permissions - the governed routes are guarded by the matrix, not a separate role level', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const read = (f) => readFile(new URL(`../routes/${f}`, import.meta.url), 'utf8');
-  const guards = [
-    ['leads.routes.js', /router\.delete\('\/:id', requireCrmPermission\(CRM_PERMISSIONS\.LEAD_DELETE\)/],
-    ['leads.routes.js', /'\/bulk-delete', requireCrmPermission\(CRM_PERMISSIONS\.LEAD_DELETE\)/],
-    ['leads.routes.js', /'\/bulk-assign', requireCrmPermission\(CRM_PERMISSIONS\.LEAD_BULK_ASSIGN\)/],
-    ['leadDistribution.routes.js', /'\/rules', requireCrmPermission\(CRM_PERMISSIONS\.DISTRIBUTION_RULES_MANAGE\)/],
-    ['crmData.routes.js', /'\/export\/:entity', requireCrmPermission\(CRM_PERMISSIONS\.LEAD_EXPORT\)/],
-    ['crmSalesInbox.routes.js', /'\/launch-bulk-campaign', requireCrmPermission\(CRM_PERMISSIONS\.CAMPAIGN_LAUNCH\)/],
-    ['crm-analytics.routes.js', /post\('\/reports\/saved', requireCrmPermission\(CRM_PERMISSIONS\.CUSTOM_REPORTS_MANAGE\)/],
-    ['crm-analytics.routes.js', /delete\('\/reports\/saved\/:id', requireCrmPermission\(CRM_PERMISSIONS\.CUSTOM_REPORTS_MANAGE\)/],
-  ];
-  for (const [file, pattern] of guards) {
-    assert.match(await read(file), pattern, `${file} must guard with ${pattern}`);
-  }
+test('CRM Permissions - the middleware fails closed when no role was resolved', () => {
+  // Only reachable if it were mounted before workspaceContext, which HTTP
+  // tests cannot arrange; kept as a unit check of the guard itself.
+  const res = { status(code) { this.statusCode = code; return this; }, json() { return this; } };
+  let passed = false;
+  requireCrmPermission(CRM_PERMISSIONS.CAMPAIGN_LAUNCH)({ user: {} }, res, () => { passed = true; });
+  assert.equal(passed, false);
+  assert.equal(res.statusCode, 403);
 });
