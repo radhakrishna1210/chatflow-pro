@@ -183,6 +183,55 @@ function resolveChoice(field, answer) {
 
 const schemaOf = (form) => (Array.isArray(form.schema) ? form.schema : []);
 
+// An open submission used to own the conversation forever: one abandoned
+// "Pick a size" question answered every later message with "Please reply with
+// one of: Small, Large", 90 days on and with the form paused (WF-IN-7). Now a
+// submission is abandoned after a day without an answer, or as soon as its
+// form is no longer Active; and one that has sat for a few minutes lets go
+// when the customer sends something an active workflow or trigger answers.
+export const FORM_ABANDON_AFTER_MS = 24 * 3_600_000;
+export const FORM_STALE_AFTER_MS = 10 * 60_000;
+
+const lastActivity = (submission) => new Date(submission.updatedAt ?? submission.createdAt ?? 0).getTime();
+
+// Why an open submission should no longer hold the conversation, or null.
+function abandonReason(submission, now = Date.now()) {
+  if (submission.form && submission.form.status !== 'Active') return `the form is ${String(submission.form.status || 'not active').toLowerCase()}`;
+  if (now - lastActivity(submission) > FORM_ABANDON_AFTER_MS) return 'no answer for 24 hours';
+  return null;
+}
+
+async function abandonSubmission(submission, why) {
+  const now = new Date();
+  await prisma.whatsappFormSubmission.update({
+    where: { id: submission.id },
+    data: { completed: true, completedAt: now, abandonedAt: now },
+  });
+  console.log(`[Forms] Submission ${submission.id} on ${submission.conversationId} abandoned — ${why}.`);
+}
+
+// The live submission on a conversation, abandoning any that have lapsed on
+// the way. `null` when none is live.
+async function liveSubmission(conversationId, now = Date.now()) {
+  const open = await prisma.whatsappFormSubmission.findFirst({
+    where: { conversationId, completed: false },
+    orderBy: { createdAt: 'desc' },
+    include: { form: true },
+  });
+  if (!open) return null;
+  const why = abandonReason(open, now);
+  if (!why) return open;
+  await abandonSubmission(open, why);
+  return null;
+}
+
+// Abandons lapsed submissions on a conversation. Called by the inbound handler
+// before anything consults "is a form open?".
+export async function expireStaleSubmissions(conversationId) {
+  if (!conversationId) return;
+  await liveSubmission(conversationId);
+}
+
 // Closes any in-flight submission on a conversation. Used when a control word
 // or an escalation ends the flow from outside this module.
 export async function cancelOpenSubmission(conversationId) {
@@ -199,19 +248,21 @@ export async function cancelOpenSubmission(conversationId) {
   return true;
 }
 
-// Is the customer part-way through a form right now?
+// Is the customer part-way through a form right now? A lapsed submission (a
+// day old, or of a form no longer Active) does not count, and is abandoned.
 export async function hasOpenSubmission(conversationId) {
   if (!conversationId) return false;
-  const count = await prisma.whatsappFormSubmission.count({
-    where: { conversationId, completed: false },
-  });
-  return count > 0;
+  return Boolean(await liveSubmission(conversationId));
 }
 
 // Called by the inbound handler before any other automation. Returns true when
 // the message was consumed by a form (either continuing one or starting one),
 // so the caller skips triggers/workflows/AI for this message.
-export async function handleFormInbound({ workspaceId, conversation, contact, messageBody }) {
+//
+// `matchesAutomation(body)` (optional) says whether an active workflow or
+// keyword trigger would answer this message; a submission idle for more than
+// FORM_STALE_AFTER_MS steps aside for one.
+export async function handleFormInbound({ workspaceId, conversation, contact, messageBody, matchesAutomation = null }) {
   const body = String(messageBody || '').trim();
   if (!body || !conversation?.waNumberId) return false;
 
@@ -223,11 +274,13 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
   });
 
   // 1. An in-flight submission takes priority — the customer is mid-form.
-  const open = await prisma.whatsappFormSubmission.findFirst({
-    where: { conversationId: conversation.id, completed: false },
-    orderBy: { createdAt: 'desc' },
-    include: { form: true },
-  });
+  const open = await liveSubmission(conversation.id);
+
+  if (open && Date.now() - lastActivity(open) > FORM_STALE_AFTER_MS && typeof matchesAutomation === 'function'
+    && await Promise.resolve(matchesAutomation(body)).catch(() => false)) {
+    await abandonSubmission(open, `the customer moved on ("${body.slice(0, 40)}" matches an active automation)`);
+    return false;
+  }
 
   if (open) {
     const fields = schemaOf(open.form);
@@ -244,7 +297,10 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
 
     // Global control words beat the question on screen (QA BUG-02). Without
     // this, "bye" and "done" were filed as answers and the form kept asking.
-    const control = detectControlCommand(body);
+    // Exact words only, and never one of the offered choices: a choice
+    // question whose options include "Done" or "Agent" gets that answer.
+    const current = fields[Math.min(open.cursor, fields.length - 1)];
+    const control = detectControlCommand(body, { options: current?.type === 'choice' ? current.options : [] });
     if (control && interruptsFlow(control.command)) {
       if (control.command === 'restart') {
         await prisma.whatsappFormSubmission.update({
