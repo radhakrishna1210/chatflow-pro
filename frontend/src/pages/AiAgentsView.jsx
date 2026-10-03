@@ -5,17 +5,134 @@ import { Modal } from '../components/Modal.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { notify, confirmDialog } from '../components/Feedback.jsx';
+import { can } from '../lib/permissions.js';
+import { AI_AGENTS_API, AI_AGENTS_PATH } from '../lib/aiAgentsApi.js';
+import WhatsAppAgentPanel from '../components/aiAgents/WhatsAppAgentPanel.jsx';
+import AutonomousAgentPanel from '../components/aiAgents/AutonomousAgentPanel.jsx';
+import MobileNavButton from '../components/MobileNavButton.jsx';
+import { useIsMobile } from '../lib/useMediaQuery.js';
 
-export default function AiAgentsView({ user, initialTab }) {
-  const [activeTab, setActiveTab] = useState(() => {
-    if (!initialTab) return 'agents';
-    const t = String(initialTab).toLowerCase();
-    if (t.includes('bot')) return 'chat-bots';
-    if (t.includes('know')) return 'knowledge';
-    if (t.includes('guide')) return 'guidelines';
-    if (t.includes('action')) return 'actions';
-    return 'agents';
-  });
+// ─── AI Agents ───────────────────────────────────────────────────────────────
+//
+// The one AI Agents area. There used to be three separate screens on three
+// API families: this studio (/ai-agents), the WhatsApp AI agent as a tab of
+// Automation reachable only by deep link (/ai-agent), and the autonomous CRM
+// agent with no screen at all beyond each record's Agent tab (/agent). They
+// are now three sections of this page on one API family (lib/aiAgentsApi.js),
+// selected by ?tab= so each stays linkable:
+//
+//   ?tab=whatsapp      the live WhatsApp agent — config, knowledge, deploy, test
+//   ?tab=agents|chat-bots|knowledge|guidelines|actions
+//                      the agent studio and its sub-tabs
+//   ?tab=autonomous    the autonomous CRM agent — switch, plan, queue
+//
+// Old links (/dashboard/automation?tab=wa-agent, /dashboard/ai-chatbots) are
+// redirected here by Dashboard.jsx.
+
+const STUDIO_TABS = ['agents', 'chat-bots', 'knowledge', 'guidelines', 'actions'];
+
+// Older ?tab= values were free-form ("bots", "knowledge-base"…), so they are
+// matched loosely, as the studio always did.
+function studioTabFor(tab) {
+  const t = String(tab || '').toLowerCase();
+  if (t.includes('bot')) return 'chat-bots';
+  if (t.includes('know')) return 'knowledge';
+  if (t.includes('guide')) return 'guidelines';
+  if (t.includes('action')) return 'actions';
+  return 'agents';
+}
+
+function sectionFor(tab) {
+  const t = String(tab || '').toLowerCase();
+  if (!t || t === 'whatsapp' || t === 'wa-agent') return 'whatsapp';
+  if (t.startsWith('autonom')) return 'autonomous';
+  return 'studio';
+}
+
+const SECTIONS = [
+  { id: 'whatsapp',   label: 'WhatsApp agent',       icon: 'bot',   hint: 'The live agent answering customers' },
+  { id: 'studio',     label: 'Agent studio',         icon: 'spark', hint: 'Draft, test and apply personas' },
+  { id: 'autonomous', label: 'Autonomous CRM agent', icon: 'brain', hint: 'Background CRM work and its queue' },
+];
+
+export default function AiAgentsView({ initialTab }) {
+  const [tab, setTab] = useState(() => initialTab || 'whatsapp');
+  // The route can change while this instance stays mounted (a Quick Link to
+  // another section of this page), so the prop is followed, not just read once.
+  useEffect(() => { if (initialTab) setTab(initialTab); }, [initialTab]);
+
+  const section = sectionFor(tab);
+  const isMobile = useIsMobile();
+
+  // Keeps the address bar on the section shown, without a remount.
+  const select = (next) => {
+    setTab(next);
+    const target = `${AI_AGENTS_PATH}?tab=${encodeURIComponent(next)}`;
+    if (window.location.pathname + window.location.search !== target) window.history.replaceState({}, '', target);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div style={{ padding: '14px 24px 0', borderBottom: '1px solid var(--bd)', background: 'var(--surf)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          {isMobile && <MobileNavButton />}
+          <div>
+            <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--t1)' }}>AI Agents</h1>
+            <p style={{ margin: '3px 0 0', color: 'var(--t2)', fontSize: 12.5 }}>
+              Every AI agent in this workspace, in one place.
+            </p>
+          </div>
+        </div>
+        <div role="tablist" aria-label="AI Agents sections" style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
+          {SECTIONS.map((sec) => {
+            const on = sec.id === section;
+            return (
+              <button key={sec.id} role="tab" aria-selected={on} title={sec.hint}
+                onClick={() => select(sec.id === 'studio' ? 'agents' : sec.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
+                  background: on ? 'rgba(53,232,242,0.1)' : 'transparent', border: 'none', borderRadius: '8px 8px 0 0',
+                  borderBottom: on ? '2px solid var(--green)' : '2px solid transparent',
+                  color: on ? 'var(--green)' : 'var(--t2)', fontFamily: "'Manrope',sans-serif", fontSize: 13, fontWeight: on ? 700 : 500,
+                }}>
+                <I n={sec.icon} s={15} c={on ? 'var(--green)' : 'currentColor'} />
+                {sec.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {section === 'whatsapp' && (
+        <div className="dash-page" style={{ padding: 24 }}>
+          <div style={{ maxWidth: 1240, margin: '0 auto' }}><WhatsAppAgentPanel /></div>
+        </div>
+      )}
+      {section === 'studio' && (
+        <AgentStudio
+          initialTab={studioTabFor(tab)}
+          onTabChange={select}
+          onOpenWhatsApp={() => select('whatsapp')}
+        />
+      )}
+      {section === 'autonomous' && (
+        <div className="dash-page" style={{ padding: 24 }}>
+          <div style={{ maxWidth: 1000, margin: '0 auto' }}><AutonomousAgentPanel /></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Agent studio ────────────────────────────────────────────────────────────
+// Personas you draft and test, then apply to the WhatsApp channel.
+function AgentStudio({ initialTab, onTabChange, onOpenWhatsApp }) {
+  const canEdit = can('aiAgents.manage');
+  const canTest = can('aiAgents.studioTest');
+  const canEditKnowledge = can('widgets.manage');
+  const [activeTab, setActiveTabState] = useState(() => (STUDIO_TABS.includes(initialTab) ? initialTab : 'agents'));
+  useEffect(() => { if (STUDIO_TABS.includes(initialTab)) setActiveTabState(initialTab); }, [initialTab]);
+  const setActiveTab = (id) => { setActiveTabState(id); onTabChange?.(id); };
 
   const [agents, setAgents] = useState([]);
   const [guidelines, setGuidelines] = useState([]);
@@ -56,7 +173,7 @@ export default function AiAgentsView({ user, initialTab }) {
   // Fetch agents
   const loadAgents = useCallback(async () => {
     try {
-      const res = await wFetch('/ai-agents');
+      const res = await wFetch(AI_AGENTS_API.studio);
       if (res.ok) {
         const d = await res.json();
         setAgents(d.data || []);
@@ -69,7 +186,7 @@ export default function AiAgentsView({ user, initialTab }) {
   // Fetch guidelines
   const loadGuidelines = useCallback(async () => {
     try {
-      const res = await wFetch('/ai-agents/guidelines');
+      const res = await wFetch(`${AI_AGENTS_API.studio}/guidelines`);
       if (res.ok) {
         const d = await res.json();
         setGuidelines(d.data || []);
@@ -82,7 +199,7 @@ export default function AiAgentsView({ user, initialTab }) {
   // Fetch actions
   const loadActions = useCallback(async () => {
     try {
-      const res = await wFetch('/ai-agents/actions');
+      const res = await wFetch(`${AI_AGENTS_API.studio}/actions`);
       if (res.ok) {
         const d = await res.json();
         setActions(d.data || []);
@@ -109,7 +226,7 @@ export default function AiAgentsView({ user, initialTab }) {
   // channels, which used to report agents as "Connected & Active".
   const loadChannels = useCallback(async () => {
     try {
-      const res = await wFetch('/ai-agents/channels');
+      const res = await wFetch(`${AI_AGENTS_API.studio}/channels`);
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
         setChannels(d.data || []);
@@ -138,13 +255,10 @@ export default function AiAgentsView({ user, initialTab }) {
     setChannelMsg('');
   };
 
-  // The WhatsApp AI agent's full settings (knowledge, guardrails, deploy) live
-  // on the Automation page's WhatsApp AI Agent tab; this page links there
-  // rather than keeping a second copy of them.
-  const openWhatsAppAgentSettings = () => {
-    window.history.pushState({}, '', '/dashboard/automation?tab=wa-agent');
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  };
+  // The WhatsApp AI agent's full settings (knowledge, guardrails, deploy) are
+  // the WhatsApp agent section of this page; the studio switches to it rather
+  // than keeping a second copy of them.
+  const openWhatsAppAgentSettings = () => onOpenWhatsApp?.();
 
   const handleSaveChannel = async () => {
     if (!configuringChannel) return;
@@ -163,7 +277,7 @@ export default function AiAgentsView({ user, initialTab }) {
       return;
     }
     try {
-      const res = await wFetch(`/ai-agents/channels/${configuringChannel.channelKey}`, {
+      const res = await wFetch(`${AI_AGENTS_API.studio}/channels/${configuringChannel.channelKey}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -227,7 +341,7 @@ export default function AiAgentsView({ user, initialTab }) {
         systemPrompt: formPrompt.trim(),
       };
 
-      const url = editingAgent ? `/ai-agents/${editingAgent.id}` : '/ai-agents';
+      const url = editingAgent ? `${AI_AGENTS_API.studio}/${editingAgent.id}` : AI_AGENTS_API.studio;
       const method = editingAgent ? 'PUT' : 'POST';
 
       const res = await wFetch(url, {
@@ -253,7 +367,7 @@ export default function AiAgentsView({ user, initialTab }) {
   const handleDeleteAgent = async (agent) => {
     if (!await confirmDialog(`Are you sure you want to delete "${agent.name}"?`, { danger: true })) return;
     try {
-      const res = await wFetch(`/ai-agents/${agent.id}`, { method: 'DELETE' });
+      const res = await wFetch(`${AI_AGENTS_API.studio}/${agent.id}`, { method: 'DELETE' });
       if (res.ok) {
         loadAgents();
       } else {
@@ -282,7 +396,7 @@ export default function AiAgentsView({ user, initialTab }) {
     setTestLoading(true);
 
     try {
-      const res = await wFetch(`/ai-agents/${testingAgent.id}/test`, {
+      const res = await wFetch(`${AI_AGENTS_API.studio}/${testingAgent.id}/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMsg }),
@@ -344,7 +458,7 @@ export default function AiAgentsView({ user, initialTab }) {
       >
         <div>
           <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 17, fontWeight: 700, margin: 0, color: 'var(--t1)', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span>AI Chatbots & Agents</span>
+            <span>Agent studio</span>
             <span
               style={{
                 fontSize: 11,
@@ -385,9 +499,11 @@ export default function AiAgentsView({ user, initialTab }) {
             <I n="spark" s={14} c="var(--accent, #35e8f2)" /> WhatsApp AI Agent settings
           </button>
 
-          <Btn size="sm" onClick={openCreateModal}>
-            <I n="plus" s={14} c="#060A10" /> New Chat Agent
-          </Btn>
+          {canEdit && (
+            <Btn size="sm" onClick={openCreateModal}>
+              <I n="plus" s={14} c="#060A10" /> New Chat Agent
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -463,7 +579,7 @@ export default function AiAgentsView({ user, initialTab }) {
           ) : agents.length === 0 ? (
             <div style={{ padding: 60, textAlign: 'center', color: 'var(--t3)' }}>
               <p>No agents configured yet.</p>
-              <Btn size="sm" onClick={openCreateModal}>+ Create Your First Agent</Btn>
+              {canEdit && <Btn size="sm" onClick={openCreateModal}>+ Create Your First Agent</Btn>}
             </div>
           ) : (
             <div
@@ -561,24 +677,33 @@ export default function AiAgentsView({ user, initialTab }) {
                       fontWeight: 600,
                     }}
                   >
-                    <button
-                      onClick={() => openEditModal(agent)}
-                      style={{ background: 'none', border: 'none', color: '#818cf8', cursor: 'pointer', padding: 0 }}
-                    >
-                      Modify
-                    </button>
-                    <button
-                      onClick={() => openReviewModal(agent)}
-                      style={{ background: 'none', border: 'none', color: 'var(--accent, #35e8f2)', cursor: 'pointer', padding: 0 }}
-                    >
-                      AI Review
-                    </button>
-                    <button
-                      onClick={() => handleDeleteAgent(agent)}
-                      style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0, marginLeft: 'auto' }}
-                    >
-                      Delete
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => openEditModal(agent)}
+                        style={{ background: 'none', border: 'none', color: '#818cf8', cursor: 'pointer', padding: 0 }}
+                      >
+                        Modify
+                      </button>
+                    )}
+                    {canTest && (
+                      <button
+                        onClick={() => openReviewModal(agent)}
+                        style={{ background: 'none', border: 'none', color: 'var(--accent, #35e8f2)', cursor: 'pointer', padding: 0 }}
+                      >
+                        AI Review
+                      </button>
+                    )}
+                    {canEdit && (
+                      <button
+                        onClick={() => handleDeleteAgent(agent)}
+                        style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0, marginLeft: 'auto' }}
+                      >
+                        Delete
+                      </button>
+                    )}
+                    {!canEdit && !canTest && (
+                      <span style={{ color: 'var(--t3)', fontWeight: 500 }}>View only</span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -602,7 +727,7 @@ export default function AiAgentsView({ user, initialTab }) {
           </div>
 
           {/* Add FAQ form */}
-          <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: 18, marginBottom: 24 }}>
+          {canEditKnowledge && <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: 18, marginBottom: 24 }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 12px', color: 'var(--t1)' }}>+ Add FAQ Item</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <FInput
@@ -622,7 +747,7 @@ export default function AiAgentsView({ user, initialTab }) {
                 </Btn>
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* List of existing knowledge */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -744,7 +869,7 @@ export default function AiAgentsView({ user, initialTab }) {
                   <span style={{ fontSize: 11.5, fontWeight: 600, color: ch.live ? '#22c55e' : ch.connectedNumbers === 0 ? '#fbbf24' : 'var(--t3)' }}>
                     ● {ch.status}
                   </span>
-                  <button
+                  {canTest && <button
                     onClick={() => handleTestChannel(ch)}
                     style={{
                       padding: '5px 12px',
@@ -761,10 +886,12 @@ export default function AiAgentsView({ user, initialTab }) {
                     }}
                   >
                     <I n="play" s={12} c="var(--accent, #35e8f2)" /> Test Bot
-                  </button>
-                  <Btn outline size="sm" onClick={() => handleOpenConfigure(ch)}>
-                    Configure
-                  </Btn>
+                  </button>}
+                  {canEdit && (
+                    <Btn outline size="sm" onClick={() => handleOpenConfigure(ch)}>
+                      Configure
+                    </Btn>
+                  )}
                 </div>
               </div>
             ))}

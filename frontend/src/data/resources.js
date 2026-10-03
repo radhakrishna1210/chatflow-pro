@@ -20,7 +20,7 @@ export const MODULE_ROUTE = {
   campaigns: '/dashboard/campaigns',
   inbox: '/dashboard/inbox',
   automation: '/dashboard/automation',
-  'ai-agent': '/dashboard/automation',
+  'ai-agent': '/dashboard/ai-agent',
   'website-widget': '/dashboard/integrations',
   instagram: '/dashboard/integrations',
   'voice-ai': '/dashboard/integrations',

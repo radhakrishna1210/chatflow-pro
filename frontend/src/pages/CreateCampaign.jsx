@@ -6,6 +6,7 @@ import { wFetch } from '../lib/api.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 import { notify } from '../components/Feedback.jsx';
+import { AI_AGENTS_API } from '../lib/aiAgentsApi.js';
 
 // Extract body text from Meta components array
 const getBodyText = (components) => {
@@ -910,7 +911,7 @@ const StepAiAgent = ({ enabled, setEnabled, agents, agentId, setAgentId, ctaLabe
   const custom = ctaLabel.trim() && !CTA_PRESETS.some(p => ctaKey(p) === ctaKey(ctaLabel));
 
   const openAgentSettings = () =>
-    window.dispatchEvent(new CustomEvent('app:nav', { detail: { section: 'automation', subTab: 'wa-agent' } }));
+    window.dispatchEvent(new CustomEvent('app:nav', { detail: { section: 'ai-agent', subTab: 'whatsapp' } }));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1492,7 +1493,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
     wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t=>(t.status==='APPROVED'||t.status==='Approved') && (String(t.category).toUpperCase() !== 'AUTHENTICATION' || isCopyCodeOtpTemplate(t)))); }).catch(()=>{});
     // Deployed agents the campaign can be pointed at. One deployed agent is
     // preselected so enabling the step is a single click.
-    wFetch('/ai-agent/agents').then(r=>r.ok&&r.json()).then(d=>{
+    wFetch(`${AI_AGENTS_API.whatsapp}/agents`).then(r=>r.ok&&r.json()).then(d=>{
       if (!Array.isArray(d)) return;
       setAgents(d);
       const live = d.filter(a => a.deployed);
