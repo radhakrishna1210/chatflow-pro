@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { validTimeZone, zonedDayKey, zonedDayWindow, weekdayOfKey } from '../lib/zonedTime.js';
+import { forEachChunk, findManyChunked } from '../lib/paging.js';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -27,18 +28,6 @@ async function workspaceTimeZone(workspaceId) {
 // A recipient the network accepted. FAILED/SKIPPED rows can carry a sentAt
 // from an attempt and are not sends.
 const SENT_STATUSES = ['SENT', 'DELIVERED', 'READ'];
-
-// Average of (eventAt - sentAt) across campaign recipients that have both
-// timestamps. Returns milliseconds (0 when there is nothing to average).
-const averageLatencyMs = (items, field) => {
-  const latencies = items
-    .filter((item) => item.sentAt && item[field])
-    .map((item) => item[field].getTime() - item.sentAt.getTime())
-    .filter((value) => value >= 0);
-
-  if (!latencies.length) return 0;
-  return Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length);
-};
 
 export async function getOverview(workspaceId, daysParam) {
   const days = clampRangeDays(daysParam);
@@ -105,21 +94,10 @@ export async function getOverview(workspaceId, daysParam) {
 
 export async function getDeliveryStats(workspaceId, daysParam) {
   const days = clampRangeDays(daysParam);
-  // One query for the whole window, bucketed in memory by the workspace's
-  // calendar day.
+  // Bucketed by the workspace's calendar day, folding the window's recipients
+  // in chunks rather than holding them all at once (CF-048).
   const timeZone = await workspaceTimeZone(workspaceId);
   const { keys, since: windowStart } = zonedDayWindow(days, timeZone);
-
-  const recipients = await prisma.campaignRecipient.findMany({
-    where: {
-      campaign: { workspaceId },
-      OR: [
-        { sentAt: { gte: windowStart } },
-        { deliveredAt: { gte: windowStart } },
-      ],
-    },
-    select: { status: true, sentAt: true, deliveredAt: true },
-  });
 
   const buckets = new Map();
   const daysList = keys.map((key) => {
@@ -128,16 +106,27 @@ export async function getDeliveryStats(workspaceId, daysParam) {
     return entry;
   });
 
-  for (const r of recipients) {
-    if (r.sentAt && SENT_STATUSES.includes(r.status)) {
-      const bucket = buckets.get(zonedDayKey(r.sentAt, timeZone));
-      if (bucket) bucket.sent += 1;
+  await forEachChunk(prisma.campaignRecipient, {
+    where: {
+      campaign: { workspaceId },
+      OR: [
+        { sentAt: { gte: windowStart } },
+        { deliveredAt: { gte: windowStart } },
+      ],
+    },
+    select: { status: true, sentAt: true, deliveredAt: true },
+  }, (recipients) => {
+    for (const r of recipients) {
+      if (r.sentAt && SENT_STATUSES.includes(r.status)) {
+        const bucket = buckets.get(zonedDayKey(r.sentAt, timeZone));
+        if (bucket) bucket.sent += 1;
+      }
+      if (r.deliveredAt) {
+        const bucket = buckets.get(zonedDayKey(r.deliveredAt, timeZone));
+        if (bucket) bucket.delivered += 1;
+      }
     }
-    if (r.deliveredAt) {
-      const bucket = buckets.get(zonedDayKey(r.deliveredAt, timeZone));
-      if (bucket) bucket.delivered += 1;
-    }
-  }
+  });
   for (const d of daysList) d.rate = percent(Math.min(d.delivered, d.sent), d.sent);
   return daysList;
 }
@@ -194,8 +183,9 @@ export async function getAgentStats(workspaceId, daysParam) {
 // ─── Chat analysis ───────────────────────────────────────────────────────────
 // Aggregates messages, conversations, campaigns, contacts and top agents for a
 // workspace over the last N days (7 / 30 / 90). Everything uses normal Prisma
-// queries scoped to workspaceId; only the per-day message volume uses a raw
-// query because Prisma has no portable DATE() grouping helper.
+// queries scoped to workspaceId; the per-day message volume and the campaign
+// latency averages use raw queries because Prisma has no portable DATE()
+// grouping or interval-average helper.
 export async function getChatAnalytics(workspaceId, daysParam = 30) {
   const days = clampDays(daysParam);
   const timeZone = await workspaceTimeZone(workspaceId);
@@ -216,11 +206,11 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
     labelGroups,           // conversation label distribution
     openUnreadAverage,     // avg unreadCount for OPEN conversations
     campaignTotals,        // sum of sent/delivered/read/failed counters
-    campaignRecipients,    // for delivery + read latency
+    latencyRows,           // average delivery + read latency
     contactsTotal,
     contactsOptedOut,
     topAgentGroups,        // outbound grouped by senderUserId
-    dailyRows,             // raw per-day volume (the only $queryRaw usage)
+    dailyRows,             // raw per-day volume
   ] = await Promise.all([
     prisma.message.groupBy({
       by: ['direction'],
@@ -251,14 +241,19 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
       where: { workspaceId },
       _sum: { sent: true, delivered: true, read: true, failed: true },
     }),
-    prisma.campaignRecipient.findMany({
-      where: {
-        campaign: { workspaceId },
-        sentAt: { not: null },
-        OR: [{ deliveredAt: { not: null } }, { readAt: { not: null } }],
-      },
-      select: { sentAt: true, deliveredAt: true, readAt: true },
-    }),
+    // Averaged in SQL. This used to load every recipient the workspace ever
+    // had (it is not windowed) to average two subtractions in JS (CF-048).
+    prisma.$queryRaw`
+      SELECT
+        AVG(EXTRACT(EPOCH FROM (r."deliveredAt" - r."sentAt")) * 1000)
+          FILTER (WHERE r."deliveredAt" >= r."sentAt") AS "deliveryMs",
+        AVG(EXTRACT(EPOCH FROM (r."readAt" - r."sentAt")) * 1000)
+          FILTER (WHERE r."readAt" >= r."sentAt") AS "readMs"
+      FROM "CampaignRecipient" r
+      INNER JOIN "Campaign" c ON c."id" = r."campaignId"
+      WHERE c."workspaceId" = ${workspaceId}
+        AND r."sentAt" IS NOT NULL
+    `,
     prisma.contact.count({ where: { workspaceId } }),
     prisma.contact.count({ where: { workspaceId, optedOut: true } }),
     prisma.message.groupBy({
@@ -356,8 +351,8 @@ export async function getChatAnalytics(workspaceId, daysParam = 30) {
       deliveryRate: percent(campaignDelivered, campaignSent),
       readRate: percent(campaignRead, campaignSent),
       failedRate: percent(campaignFailed, campaignSent),
-      deliveryLatencyMs: averageLatencyMs(campaignRecipients, 'deliveredAt'),
-      readLatencyMs: averageLatencyMs(campaignRecipients, 'readAt'),
+      deliveryLatencyMs: Math.round(Number(latencyRows?.[0]?.deliveryMs ?? 0)),
+      readLatencyMs: Math.round(Number(latencyRows?.[0]?.readMs ?? 0)),
     },
     contacts: {
       total: contactsTotal,
@@ -378,23 +373,18 @@ export async function getPaidMessagesInsights(workspaceId, daysParam = 7) {
   const timeZone = await workspaceTimeZone(workspaceId);
   const { keys, since: startDate } = zonedDayWindow(days, timeZone);
 
-  const recipients = await prisma.campaignRecipient.findMany({
-    where: {
-      campaign: { workspaceId },
-      sentAt: { gte: startDate },
-      status: { in: SENT_STATUSES },
-    },
-    include: {
-      campaign: {
-        include: {
-          template: { select: { category: true } },
-        },
-      },
-    },
+  // Each recipient used to carry its whole Campaign row and template, so a
+  // 100k-recipient campaign repeated the campaign 100k times. The category is
+  // now looked up once per campaign, and recipients are folded in chunks
+  // (CF-048).
+  const campaigns = await prisma.campaign.findMany({
+    where: { workspaceId, recipients: { some: { sentAt: { gte: startDate } } } },
+    select: { id: true, template: { select: { category: true } } },
   });
+  const categoryOf = new Map(campaigns.map((c) => [c.id, c.template?.category]));
 
   const totals = {
-    totalPaidMessages: recipients.length,
+    totalPaidMessages: 0,
     utility: 0,
     marketing: 0,
     marketingLite: 0, // Mock category, kept for UI compatibility
@@ -411,18 +401,28 @@ export async function getPaidMessagesInsights(workspaceId, daysParam = 7) {
     return entry;
   });
 
-  for (const r of recipients) {
-    if (!r.sentAt) continue;
-    const cat = r.campaign?.template?.category;
-    if (cat === 'UTILITY') totals.utility++;
-    else if (cat === 'MARKETING') totals.marketing++;
-    else if (cat === 'AUTHENTICATION') totals.authMessages++;
+  await forEachChunk(prisma.campaignRecipient, {
+    where: {
+      campaign: { workspaceId },
+      sentAt: { gte: startDate },
+      status: { in: SENT_STATUSES },
+    },
+    select: { sentAt: true, campaignId: true },
+  }, (recipients) => {
+    totals.totalPaidMessages += recipients.length;
+    for (const r of recipients) {
+      if (!r.sentAt) continue;
+      const cat = categoryOf.get(r.campaignId);
+      if (cat === 'UTILITY') totals.utility++;
+      else if (cat === 'MARKETING') totals.marketing++;
+      else if (cat === 'AUTHENTICATION') totals.authMessages++;
 
-    const key = zonedDayKey(r.sentAt, timeZone);
-    if (buckets.has(key)) {
-      buckets.get(key).val++;
+      const key = zonedDayKey(r.sentAt, timeZone);
+      if (buckets.has(key)) {
+        buckets.get(key).val++;
+      }
     }
-  }
+  });
 
   return { totals, chartData };
 }
@@ -458,24 +458,14 @@ export async function getAudienceAnalytics(workspaceId, weeksParam = 12) {
   const now = new Date();
   const firstWeek = weekStart(new Date(now.getTime() - (weeks - 1) * WEEK_MS));
 
-  const [total, optedOut, contacts, activity] = await Promise.all([
+  const [total, optedOut, contacts] = await Promise.all([
     prisma.contact.count({ where: { workspaceId } }),
     prisma.contact.count({ where: { workspaceId, optedOut: true } }),
     // Only what the maths needs. A workspace can hold hundreds of thousands of
-    // contacts, so this selects two columns rather than whole rows.
-    prisma.contact.findMany({
+    // contacts, so this selects two columns rather than whole rows, in chunks.
+    findManyChunked(prisma.contact, {
       where: { workspaceId, createdAt: { gte: firstWeek } },
       select: { id: true, createdAt: true },
-    }),
-    // Every inbound message in the window, with the contact it came from. This
-    // is what "active" means here: the customer wrote back.
-    prisma.message.findMany({
-      where: {
-        direction: 'INBOUND',
-        sentAt: { gte: firstWeek },
-        conversation: { workspaceId },
-      },
-      select: { sentAt: true, conversation: { select: { contactId: true } } },
     }),
   ]);
 
@@ -499,15 +489,28 @@ export async function getAudienceAnalytics(workspaceId, weeksParam = 12) {
   // week. W0 is not forced to 100%: a contact imported from a CSV who never
   // writes back was never retained in the first place, and pretending otherwise
   // is what makes cohort tables lie.
+  //
+  // Every inbound message in the window, with the contact it came from, is
+  // what "active" means here: the customer wrote back. Folded in chunks, so
+  // memory follows the number of active contacts, not messages (CF-048).
   const activeByContactWeek = new Map();   // contactId -> Set(weekIndex)
-  for (const m of activity) {
-    const contactId = m.conversation?.contactId;
-    if (!contactId) continue;
-    const i = bucketIndex(m.sentAt);
-    if (i < 0 || i >= buckets.length) continue;
-    if (!activeByContactWeek.has(contactId)) activeByContactWeek.set(contactId, new Set());
-    activeByContactWeek.get(contactId).add(i);
-  }
+  await forEachChunk(prisma.message, {
+    where: {
+      direction: 'INBOUND',
+      sentAt: { gte: firstWeek },
+      conversation: { workspaceId },
+    },
+    select: { sentAt: true, conversation: { select: { contactId: true } } },
+  }, (activity) => {
+    for (const m of activity) {
+      const contactId = m.conversation?.contactId;
+      if (!contactId) continue;
+      const i = bucketIndex(m.sentAt);
+      if (i < 0 || i >= buckets.length) continue;
+      if (!activeByContactWeek.has(contactId)) activeByContactWeek.set(contactId, new Set());
+      activeByContactWeek.get(contactId).add(i);
+    }
+  });
 
   const cohortWeeks = Math.min(6, weeks);
   const cohorts = [];
@@ -745,15 +748,14 @@ export async function getConversationInsights(workspaceId, daysParam = 30) {
   const questionMessages = messages.filter(m => String(m.body || '').includes('?'));
   if (questionMessages.length) {
     const conversationIds = [...new Set(questionMessages.map(m => m.conversationId))].slice(0, 500);
-    const replies = await prisma.message.findMany({
+    // Only the latest reply per conversation matters, so ask for exactly that:
+    // at most one row per conversation instead of every outbound message.
+    const replies = await prisma.message.groupBy({
+      by: ['conversationId'],
       where: { conversationId: { in: conversationIds }, direction: 'OUTBOUND', sentAt: { gte: since } },
-      select: { conversationId: true, sentAt: true },
+      _max: { sentAt: true },
     });
-    const lastReplyAt = new Map();
-    for (const r of replies) {
-      const prev = lastReplyAt.get(r.conversationId);
-      if (!prev || r.sentAt > prev) lastReplyAt.set(r.conversationId, r.sentAt);
-    }
+    const lastReplyAt = new Map(replies.map((r) => [r.conversationId, r._max.sentAt]));
     for (const q of questionMessages) {
       const answeredAt = lastReplyAt.get(q.conversationId);
       if (!answeredAt || answeredAt < q.sentAt) addGap(q.body);
@@ -803,11 +805,7 @@ export async function getPerformance(workspaceId, daysParam = 14) {
   // Every funnel stage is measured on one population: campaign recipients the
   // network accepted in the window. Mixing in organic inbox traffic let
   // "Replied" exceed "Delivered".
-  const [recipients, lastInbound, aiSessions, conversations, campaigns] = await Promise.all([
-    prisma.campaignRecipient.findMany({
-      where: { campaign: { workspaceId }, sentAt: { gte: since }, status: { in: SENT_STATUSES } },
-      select: { contactId: true, status: true, sentAt: true, readAt: true },
-    }),
+  const [lastInbound, aiSessions, conversations, campaigns] = await Promise.all([
     // Each conversation's latest inbound message in the window; a recipient
     // replied if their contact wrote in at or after the send.
     prisma.message.groupBy({
@@ -864,13 +862,24 @@ export async function getPerformance(workspaceId, daysParam = 14) {
     if (!prev || at > prev) lastInboundByContact.set(contactId, at);
   }
 
-  const sent = recipients.length;
-  const delivered = recipients.filter((r) => r.status === 'DELIVERED' || r.status === 'READ').length;
-  const readCount = recipients.filter((r) => r.status === 'READ' || r.readAt).length;
-  const replied = recipients.filter((r) => {
-    const at = lastInboundByContact.get(r.contactId);
-    return at && r.sentAt && at >= r.sentAt;
-  }).length;
+  // The recipients themselves are folded in chunks: a big campaign in the
+  // window no longer means every recipient row in memory at once (CF-048).
+  let sent = 0;
+  let delivered = 0;
+  let readCount = 0;
+  let replied = 0;
+  await forEachChunk(prisma.campaignRecipient, {
+    where: { campaign: { workspaceId }, sentAt: { gte: since }, status: { in: SENT_STATUSES } },
+    select: { contactId: true, status: true, sentAt: true, readAt: true },
+  }, (recipients) => {
+    for (const r of recipients) {
+      sent += 1;
+      if (r.status === 'DELIVERED' || r.status === 'READ') delivered += 1;
+      if (r.status === 'READ' || r.readAt) readCount += 1;
+      const at = lastInboundByContact.get(r.contactId);
+      if (at && r.sentAt && at >= r.sentAt) replied += 1;
+    }
+  });
 
   const stage = (label, value, note) => ({
     label,

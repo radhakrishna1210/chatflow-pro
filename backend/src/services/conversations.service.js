@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 import { markFirstResponseForConversation } from './tickets.service.js';
 import { generateAgentReply } from './aiAgent.service.js';
 import { decrypt } from '../lib/encryption.js';
@@ -190,7 +191,7 @@ export async function getOrCreateConversation(workspaceId, { contactId, waNumber
   return conversation;
 }
 
-export async function getMessages(workspaceId, conversationId) {
+export async function getMessages(workspaceId, conversationId, { limit } = {}) {
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
   });
@@ -198,11 +199,17 @@ export async function getMessages(workspaceId, conversationId) {
 
   await prisma.conversation.update({ where: { id: conversationId }, data: { unreadCount: 0 } });
 
-  const messages = await prisma.message.findMany({
+  // The newest `take` messages, still returned oldest-first. A years-long
+  // thread used to come back whole on every open and every poll (CF-048).
+  const { take } = listWindow({ limit }, { defaultLimit: 500, maxLimit: 2000 });
+  const newest = await prisma.message.findMany({
     where: { conversationId },
-    orderBy: { sentAt: 'asc' },
+    orderBy: [{ sentAt: 'desc' }, { id: 'desc' }],
     include: { senderUser: { select: { id: true, name: true } } },
+    take: take + 1,
   });
+  const hasMore = newest.length > take;
+  const messages = newest.slice(0, take).reverse();
 
   // The composer needs to know whether a free-form reply is even allowed before
   // the agent types one. Returned alongside the thread so the inbox can say
@@ -211,6 +218,7 @@ export async function getMessages(workspaceId, conversationId) {
 
   return {
     messages,
+    hasMore,
     // Whether the automation is currently allowed to answer this thread, so the
     // composer can show it rather than leaving the agent guessing whether the
     // bot is about to reply over them.

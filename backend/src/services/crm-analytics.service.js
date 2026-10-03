@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { findManyChunked } from '../lib/paging.js';
 import { scopeFilter, activityScopeFilter, withScope } from './recordScope.service.js';
 
 const CLOSED_STAGES = ['CLOSED_WON', 'CLOSED_LOST'];
@@ -77,11 +78,11 @@ export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {
 
   // Batch 2: Deals timeline and top deals (3 queries)
   const [createdInWindow, wonInWindow, topOpenDeals] = await Promise.all([
-    prisma.deal.findMany({
+    findManyChunked(prisma.deal, {
       where: { ...baseWhere, createdAt: { gte: startOfChart } },
       select: { value: true, createdAt: true },
     }),
-    prisma.deal.findMany({
+    findManyChunked(prisma.deal, {
       where: { ...baseWhere, stage: 'CLOSED_WON', closedAt: { gte: startOfChart } },
       select: { value: true, closedAt: true },
     }),
@@ -120,7 +121,7 @@ export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {
         deal: { select: { title: true, contact: { select: { name: true } } } },
       },
     }),
-    prisma.lead.findMany({
+    findManyChunked(prisma.lead, {
       where: withScope({ workspaceId, ...(startDate ? { createdAt: { gte: startDate } } : {}) }, ownedScope),
       select: {
         id: true,

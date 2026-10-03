@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 import { resolveCrmReferences } from './crmReferences.js';
 import { autoGenerateOutcomeTask } from './crmCustomization.service.js';
 import { activityScopeFilter, assertInScope, withScope } from './recordScope.service.js';
@@ -59,6 +60,8 @@ const ACTIVITY_INCLUDE = {
   },
 };
 
+const DEAL_TIMELINE_MAX = 1000;
+
 export async function listActivities(workspaceId, {
   leadId,
   dealId,
@@ -70,6 +73,9 @@ export async function listActivities(workspaceId, {
   limit = 200,
   page = 1,
 } = {}, user = null) {
+  // `limit` arrives from the query string and was not capped (CF-048).
+  ({ take: limit } = listWindow({ limit }, { defaultLimit: 200, maxLimit: 1000 }));
+  page = Math.max(Number.parseInt(page, 10) || 1, 1);
   const scope = user ? await activityScopeFilter(workspaceId, user) : {};
   const where = { workspaceId };
   if (leadId) where.leadId = leadId;
@@ -109,15 +115,18 @@ export async function listActivities(workspaceId, {
     // caller may open.
     if (user) await assertInScope(workspaceId, user, 'deal', dealId);
     const [activities, stageHistory] = await Promise.all([
+      // One deal's timeline: the newest DEAL_TIMELINE_MAX of each kind.
       prisma.crmActivity.findMany({
         where: withScope(where, scope),
         include: ACTIVITY_INCLUDE,
         orderBy: { createdAt: 'desc' },
+        take: DEAL_TIMELINE_MAX,
       }),
       prisma.dealStageHistory.findMany({
         where: { workspaceId, dealId },
         include: { changedByUser: { select: { id: true, name: true } } },
         orderBy: { changedAt: 'desc' },
+        take: DEAL_TIMELINE_MAX,
       }),
     ]);
 

@@ -4,6 +4,7 @@ export async function list(req, res) {
   res.json(await productsService.listProducts(req.params.workspaceId, {
     search: req.query.search, category: req.query.category,
     includeInactive: req.query.includeInactive === 'true',
+    limit: req.query.limit, offset: req.query.offset,
   }));
 }
 export async function get(req, res) {

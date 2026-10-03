@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { forEachChunk } from '../lib/paging.js';
 
 export const MAX_HEALTH = 100;
 
@@ -178,26 +179,33 @@ export function buildSignals(deal, { lastActivityAt, openTaskCount = 0, now = ne
   };
 }
 
-// Scores every open deal in the workspace in a fixed number of queries,
-// regardless of how many deals there are — the board renders health on every
-// card, so a per-deal query here would be a page-load N+1.
-export async function computeWorkspaceDealHealth(workspaceId, { ownerUserId } = {}) {
+// Scores every open deal in the workspace (or just `dealIds`, e.g. the page
+// of the board being shown) in a fixed number of queries per chunk of deals —
+// the board renders health on every card, so a per-deal query here would be a
+// page-load N+1. Chunked so neither the deal rows nor the IN lists below grow
+// with the workspace (CF-048).
+export async function computeWorkspaceDealHealth(workspaceId, { ownerUserId, dealIds: only } = {}) {
+  if (Array.isArray(only) && only.length === 0) return new Map();
   const where = {
     workspaceId,
     stage: { notIn: CLOSED_STAGES },
     ...(ownerUserId ? { ownerUserId } : {}),
+    ...(Array.isArray(only) ? { id: { in: only } } : {}),
   };
 
-  const deals = await prisma.deal.findMany({
+  const result = new Map();
+  await forEachChunk(prisma.deal, {
     where,
     select: {
       id: true, stage: true, value: true, ownerUserId: true,
       expectedCloseDate: true, createdAt: true,
       stageHistory: { orderBy: { changedAt: 'asc' }, select: { changedAt: true } },
     },
-  });
-  if (deals.length === 0) return new Map();
+  }, (deals) => scoreChunk(workspaceId, deals, result));
+  return result;
+}
 
+async function scoreChunk(workspaceId, deals, result) {
   const dealIds = deals.map((d) => d.id);
 
   const [activityGroups, stageGroups, taskGroups] = await Promise.all([
@@ -223,7 +231,6 @@ export async function computeWorkspaceDealHealth(workspaceId, { ownerUserId } = 
   const openTasks = new Map(taskGroups.map((g) => [g.dealId, g._count._all]));
 
   const now = new Date();
-  const result = new Map();
   for (const deal of deals) {
     // A stage move is itself activity on the deal — a rep advancing a deal
     // yesterday has clearly not gone quiet, even with no note logged.
@@ -233,7 +240,6 @@ export async function computeWorkspaceDealHealth(workspaceId, { ownerUserId } = 
     const signals = buildSignals(deal, { lastActivityAt, openTaskCount: openTasks.get(deal.id) ?? 0, now });
     result.set(deal.id, scoreDealHealth(signals));
   }
-  return result;
 }
 
 // Health for a single deal, used by the detail view.

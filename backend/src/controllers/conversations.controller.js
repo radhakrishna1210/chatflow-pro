@@ -27,7 +27,7 @@ export async function createOrGet(req, res) {
 }
 
 export async function getMessages(req, res) {
-  const messages = await conversationsService.getMessages(req.params.workspaceId, req.params.id);
+  const messages = await conversationsService.getMessages(req.params.workspaceId, req.params.id, { limit: req.query.limit });
   res.json(messages);
 }
 

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { forEachChunk } from '../lib/paging.js';
 import { createCampaign, setRecipients, launchCampaign } from './campaigns.service.js';
 import { normalizePhone } from './contacts.service.js';
 import { scopeFilter, withScope } from './recordScope.service.js';
@@ -87,21 +88,25 @@ function exclusionReason(contact) {
 
 // Every lead in the segment, reduced to what eligibility needs. This stays on
 // the server; the browser only receives the preview.
+// Read in chunks (CF-048); only the eligible ids are kept.
 async function resolveAudience(where) {
-  const rows = await prisma.lead.findMany({
-    where,
-    select: { contactId: true, contact: { select: { phoneNumber: true, optedOut: true } } },
-  });
   const eligibleContactIds = [];
+  let matchingCount = 0;
   let optedOutCount = 0;
   let invalidPhoneCount = 0;
-  for (const r of rows) {
-    const reason = exclusionReason(r.contact);
-    if (reason === 'OPTED_OUT') optedOutCount++;
-    else if (reason === 'INVALID_PHONE') invalidPhoneCount++;
-    else eligibleContactIds.push(r.contactId);
-  }
-  return { matchingCount: rows.length, eligibleContactIds, optedOutCount, invalidPhoneCount };
+  await forEachChunk(prisma.lead, {
+    where,
+    select: { contactId: true, contact: { select: { phoneNumber: true, optedOut: true } } },
+  }, (rows) => {
+    matchingCount += rows.length;
+    for (const r of rows) {
+      const reason = exclusionReason(r.contact);
+      if (reason === 'OPTED_OUT') optedOutCount++;
+      else if (reason === 'INVALID_PHONE') invalidPhoneCount++;
+      else eligibleContactIds.push(r.contactId);
+    }
+  });
+  return { matchingCount, eligibleContactIds, optedOutCount, invalidPhoneCount };
 }
 
 /**

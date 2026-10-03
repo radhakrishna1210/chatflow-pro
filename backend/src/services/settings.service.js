@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 import { assertResolvesPublic, safeRequest, UnsafeUrlError } from '../lib/safeUrl.js';
 
 const MAX_WEBHOOK_URL_LENGTH = 2048;
@@ -153,8 +154,14 @@ export async function updateSettings(workspaceId, updates) {
   return getSettings(workspaceId);
 }
 
-export async function getInvoices(workspaceId) {
-  const invoices = await prisma.invoice.findMany({ where: { workspaceId }, orderBy: { invoiceDate: 'desc' } });
+// Newest first, optionally paged (CF-048): one row per renewal and recharge,
+// so the list only ever grows.
+export async function getInvoices(workspaceId, page = {}) {
+  const invoices = await prisma.invoice.findMany({
+    where: { workspaceId },
+    orderBy: [{ invoiceDate: 'desc' }, { id: 'desc' }],
+    ...listWindow(page),
+  });
   // amount is a Decimal, which serialises as a string; the screens format a number.
   return invoices.map((inv) => ({ ...inv, amount: Number(inv.amount) }));
 }

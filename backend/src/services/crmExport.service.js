@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { forEachChunk } from '../lib/paging.js';
 
 // Characters that make Excel, LibreOffice and Google Sheets treat a cell as a
 // formula rather than text. A contact named `=cmd|'/c calc'!A1` becomes code
@@ -28,10 +29,11 @@ export function toCsvValue(value) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+const csvHeader = (columns) => columns.map((c) => toCsvValue(c.label)).join(',');
+const csvLine = (row, columns, options) => columns.map((c) => toCsvValue(c.value(row, options))).join(',');
+
 export function toCsv(rows, columns, options = {}) {
-  const header = columns.map((c) => toCsvValue(c.label)).join(',');
-  const body = rows.map((row) => columns.map((c) => toCsvValue(c.value(row, options))).join(','));
-  return [header, ...body].join('\r\n');
+  return [csvHeader(columns), ...rows.map((row) => csvLine(row, columns, options))].join('\r\n');
 }
 
 const isoDate = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
@@ -39,13 +41,11 @@ const isoDate = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
 const EXPORTS = {
   leads: {
     filename: 'leads',
-    async fetch(workspaceId) {
-      return prisma.lead.findMany({
-        where: { workspaceId },
-        include: { contact: true, owner: { select: { name: true, email: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
-    },
+    query: (workspaceId) => [prisma.lead, {
+      where: { workspaceId },
+      include: { contact: true, owner: { select: { name: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+    }],
     columns: [
       { label: 'Name', value: (l) => l.contact?.name },
       { label: 'Phone', value: (l, opt) => (opt?.maskPhone ? maskPhoneNumber(l.contact?.phoneNumber) : l.contact?.phoneNumber) },
@@ -61,13 +61,11 @@ const EXPORTS = {
   },
   deals: {
     filename: 'deals',
-    async fetch(workspaceId) {
-      return prisma.deal.findMany({
-        where: { workspaceId },
-        include: { contact: { select: { name: true } }, owner: { select: { name: true, email: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
-    },
+    query: (workspaceId) => [prisma.deal, {
+      where: { workspaceId },
+      include: { contact: { select: { name: true } }, owner: { select: { name: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+    }],
     columns: [
       { label: 'Title', value: (d) => d.title },
       { label: 'Contact', value: (d) => d.contact?.name },
@@ -83,13 +81,11 @@ const EXPORTS = {
   },
   tasks: {
     filename: 'tasks',
-    async fetch(workspaceId) {
-      return prisma.task.findMany({
-        where: { workspaceId },
-        include: { assignedTo: { select: { name: true, email: true } }, deal: { select: { title: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
-    },
+    query: (workspaceId) => [prisma.task, {
+      where: { workspaceId },
+      include: { assignedTo: { select: { name: true, email: true } }, deal: { select: { title: true } } },
+      orderBy: { createdAt: 'desc' },
+    }],
     columns: [
       { label: 'Title', value: (t) => t.title },
       { label: 'Description', value: (t) => t.description },
@@ -102,9 +98,7 @@ const EXPORTS = {
   },
   products: {
     filename: 'products',
-    async fetch(workspaceId) {
-      return prisma.product.findMany({ where: { workspaceId }, orderBy: { name: 'asc' } });
-    },
+    query: (workspaceId) => [prisma.product, { where: { workspaceId }, orderBy: { name: 'asc' } }],
     columns: [
       { label: 'Name', value: (p) => p.name },
       { label: 'SKU', value: (p) => p.sku },
@@ -126,10 +120,17 @@ export async function exportEntity(workspaceId, entity, options = {}) {
     e.status = 400;
     throw e;
   }
-  const rows = await spec.fetch(workspaceId);
+  // Read in id-cursor chunks and turned into CSV lines as it goes, so a large
+  // workspace's export never loads every row with its includes in one query
+  // (CF-048).
+  const [delegate, args] = spec.query(workspaceId);
+  const lines = [csvHeader(spec.columns)];
+  await forEachChunk(delegate, args, (rows) => {
+    for (const row of rows) lines.push(csvLine(row, spec.columns, options));
+  });
   return {
-    csv: toCsv(rows, spec.columns, options),
+    csv: lines.join('\r\n'),
     filename: `${spec.filename}-${new Date().toISOString().slice(0, 10)}.csv`,
-    count: rows.length,
+    count: lines.length - 1,
   };
 }

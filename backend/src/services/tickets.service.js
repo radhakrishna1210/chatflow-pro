@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 import { scopeFilter, withScope } from './recordScope.service.js';
 import { assertRecordReferences } from './crmReferences.js';
 import { awardXp, revokeXp } from './gamification.service.js';
@@ -80,7 +81,9 @@ function viewFilter(view, userId) {
   }
 }
 
-export async function listTickets(workspaceId, { view = 'open', status = '', priority = '' } = {}, user = null) {
+export async function listTickets(workspaceId, { view = 'open', status = '', priority = '', limit, offset } = {}, user = null) {
+  // Optional paging; the default covers a normal queue in full (CF-048).
+  const { take, skip } = listWindow({ limit, offset });
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const where = withScope({
     workspaceId,
@@ -95,7 +98,9 @@ export async function listTickets(workspaceId, { view = 'open', status = '', pri
       include: TICKET_INCLUDE,
       // Urgent first, then closest to breaching. A queue sorted by creation
       // date buries the ticket that is about to miss its target.
-      orderBy: [{ priority: 'desc' }, { dueAt: 'asc' }],
+      orderBy: [{ priority: 'desc' }, { dueAt: 'asc' }, { id: 'asc' }],
+      skip,
+      take,
     }),
     prisma.crmTicket.count({ where }),
   ]);

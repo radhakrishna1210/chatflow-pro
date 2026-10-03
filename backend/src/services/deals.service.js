@@ -49,13 +49,14 @@ export async function listDeals(workspaceId, { stage = '', ownerUserId = '', lim
   // AND, not spread: the stage filter's `OR` would otherwise replace the scope.
   const where = withScope(filters, scope);
 
-  // Health for the whole board is computed in one fixed set of queries rather
-  // than per card, so adding it to the list costs a constant amount.
-  const [rows, count, health] = await Promise.all([
+  // Health is computed for the page being returned, in one fixed set of
+  // queries rather than per card — not for every open deal in the workspace,
+  // which it used to be on every board load (CF-048).
+  const [rows, count] = await Promise.all([
     prisma.deal.findMany({ where, include: DEAL_INCLUDE, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], skip, take }),
     prisma.deal.count({ where }),
-    computeWorkspaceDealHealth(workspaceId, { ownerUserId: ownerUserId || undefined }),
   ]);
+  const health = await computeWorkspaceDealHealth(workspaceId, { dealIds: rows.map((deal) => deal.id) });
   const data = stage ? rows.filter((deal) => (deal.customFields?.stageKey || deal.stage) === stage) : rows;
   return {
     data: data.map((deal) => {

@@ -5,5 +5,5 @@ export async function create(req, res) {
   res.status(201).json(ticket);
 }
 export async function list(req, res) {
-  res.json(await service.listWorkspaceTickets(req.params.workspaceId));
+  res.json(await service.listWorkspaceTickets(req.params.workspaceId, { limit: req.query.limit, offset: req.query.offset }));
 }

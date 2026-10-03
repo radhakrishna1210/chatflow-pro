@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 import { isValidPhone, normalizePhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
@@ -130,7 +131,9 @@ const LEAD_INCLUDE = {
 // `user` carries the caller's identity and role. Record visibility is applied
 // here rather than in the controller so every path — list, get, and the
 // exports that reuse them — is scoped by the same rule.
-export async function listLeads(workspaceId, { category = '', status = '', source = '', tag = '', ownerUserId = '', search = '', sort = 'score', preset = '', awaitingTask = false, uncontacted = false } = {}, user = null) {
+export async function listLeads(workspaceId, { category = '', status = '', source = '', tag = '', ownerUserId = '', search = '', sort = 'score', preset = '', awaitingTask = false, uncontacted = false, limit, offset } = {}, user = null) {
+  // Optional paging; the default covers a normal workspace's whole list (CF-048).
+  const { take, skip } = listWindow({ limit, offset });
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const filters = {
     workspaceId,
@@ -194,7 +197,9 @@ export async function listLeads(workspaceId, { category = '', status = '', sourc
   // which used to overwrite the scope fragment and list every lead.
   const where = withScope(filters, scope);
 
-  const orderBy = sort === 'newest' ? { createdAt: 'desc' } : [{ score: 'desc' }, { createdAt: 'desc' }];
+  const orderBy = sort === 'newest'
+    ? [{ createdAt: 'desc' }, { id: 'desc' }]
+    : [{ score: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }];
   const [data, total] = await Promise.all([
     prisma.lead.findMany({
       where,
@@ -216,6 +221,8 @@ export async function listLeads(workspaceId, { category = '', status = '', sourc
         },
       },
       orderBy,
+      skip,
+      take,
     }),
     prisma.lead.count({ where }),
   ]);
@@ -225,6 +232,8 @@ export async function listLeads(workspaceId, { category = '', status = '', sourc
       status: l.customFields?.statusKey || l.status,
     })),
     total,
+    limit: take,
+    offset: skip,
   };
 }
 

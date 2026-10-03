@@ -112,7 +112,7 @@ export async function metaTestCalls(req, res) {
 }
 
 export async function listWorkspaces(req, res) {
-  const workspaces = await adminService.listWorkspaces();
+  const workspaces = await adminService.listWorkspaces({ limit: req.query.limit, offset: req.query.offset });
   res.json(workspaces);
 }
 
@@ -135,7 +135,7 @@ export async function platformStats(req, res) {
 }
 
 export async function listWorkspacesDetailed(req, res) {
-  res.json(await adminService.listWorkspacesDetailed());
+  res.json(await adminService.listWorkspacesDetailed({ limit: req.query.limit, offset: req.query.offset }));
 }
 
 export async function suspendWorkspace(req, res) {
@@ -180,7 +180,7 @@ export async function revenueOverview(req, res) {
 }
 
 export async function workspaceAnalytics(req, res) {
-  res.json(await adminService.getWorkspaceAnalytics());
+  res.json(await adminService.getWorkspaceAnalytics({ limit: req.query.limit, offset: req.query.offset }));
 }
 
 export async function paymentsAnalysis(req, res) {

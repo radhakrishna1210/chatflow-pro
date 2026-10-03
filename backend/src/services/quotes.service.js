@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 import { calculateLine, calculateDocument } from './lineItems.js';
 import { awardXp } from './gamification.service.js';
 import { quoteScopeFilter, scopedWhere, withScope } from './recordScope.service.js';
@@ -47,18 +48,22 @@ async function nextQuoteNumber(tx, workspaceId) {
   return `Q-${String(n).padStart(4, '0')}`;
 }
 
-export async function listQuotes(workspaceId, { status = '', dealId = '' } = {}, user = null) {
+export async function listQuotes(workspaceId, { status = '', dealId = '', limit, offset } = {}, user = null) {
+  // Optional paging; the default covers a normal workspace in full (CF-048).
+  const { take, skip } = listWindow({ limit, offset });
   const scope = user ? await quoteScopeFilter(workspaceId, user) : {};
   const where = withScope({ workspaceId, ...(status ? { status } : {}), ...(dealId ? { dealId } : {}) }, scope);
   const [data, total] = await Promise.all([
     prisma.quote.findMany({
       where,
       include: { contact: QUOTE_INCLUDE.contact, deal: QUOTE_INCLUDE.deal, _count: { select: { lineItems: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip,
+      take,
     }),
     prisma.quote.count({ where }),
   ]);
-  return { data, total };
+  return { data, total, limit: take, offset: skip };
 }
 
 export async function getQuote(workspaceId, id, user = null) {
