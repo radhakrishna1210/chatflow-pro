@@ -16,6 +16,8 @@ import { LeadDistributionModal } from '../components/LeadDistributionModal.jsx';
 import { LogInteractionModal } from '../components/LogInteractionModal.jsx';
 import { BulkTaskModal } from '../components/BulkTaskModal.jsx';
 import { can } from '../lib/permissions.js';
+import { ListPager } from '../components/ListPager.jsx';
+import { PAGE_SIZE, pageParams, pageCount } from '../lib/paging.js';
 
 const DEFAULT_LEAD_STAGES = [
   { key: 'NEW', label: 'New Lead', color: '#3b82f6' },
@@ -1169,6 +1171,10 @@ export default function LeadsView() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState(null);
+  // The list is read a page at a time (CF-048): the server caps it, and a
+  // workspace above the cap used to see only its first 500 leads.
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const lifecycleStages = crmConfig?.lead_lifecycle?.stages?.length > 0 ? crmConfig.lead_lifecycle.stages : DEFAULT_LEAD_STAGES;
   const configuredSources = crmConfig?.lead_sources?.sources || [];
@@ -1199,6 +1205,9 @@ export default function LeadsView() {
   const inflight = useRef(null);
   useEffect(() => () => inflight.current?.abort(), []);
 
+  // Any change to what is being asked for starts again from page 1.
+  useEffect(() => { setPage(1); }, [debouncedSearch, category, status, owner, sourceFilter, tagFilter, preset, sort]);
+
   const load = useCallback(() => {
     inflight.current?.abort();
     const controller = new AbortController();
@@ -1213,12 +1222,22 @@ export default function LeadsView() {
     if (tagFilter) qs.set('tag', tagFilter);
     if (preset && preset !== 'all') qs.set('preset', preset);
     qs.set('sort', sort);
-    wFetch(`/leads?${qs}`, { signal: controller.signal })
+    wFetch(`/leads?${pageParams(qs, page, PAGE_SIZE)}`, { signal: controller.signal })
       .then(r => (r.ok ? r.json() : Promise.reject(new Error('Could not load leads'))))
-      .then(d => { if (!controller.signal.aborted) setLeads(d.data ?? []); })
+      .then(d => {
+        if (controller.signal.aborted) return;
+        const list = d.data ?? [];
+        const count = d.total ?? list.length;
+        // A delete can empty the last page: step back to the new last one.
+        if (list.length === 0 && page > 1 && count > 0) { setPage(pageCount(count, PAGE_SIZE)); return; }
+        setLeads(list);
+        setTotal(count);
+        // A selection refers to rows on screen; select-all is this page.
+        setSelectedIds(new Set());
+      })
       .catch(e => { if (!controller.signal.aborted) setErr(e.message); })
       .finally(() => { if (inflight.current === controller) setLoading(false); });
-  }, [debouncedSearch, category, status, owner, sourceFilter, tagFilter, preset, sort]);
+  }, [debouncedSearch, category, status, owner, sourceFilter, tagFilter, preset, sort, page]);
 
   const toggleSelect = (id, e) => {
     e.stopPropagation();
@@ -1229,12 +1248,10 @@ export default function LeadsView() {
     });
   };
 
+  // Select-all covers the page on screen, and says so when there are more.
+  const allOnPageSelected = leads.length > 0 && leads.every(l => selectedIds.has(l.id));
   const toggleSelectAll = () => {
-    if (selectedIds.size === leads.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(leads.map(l => l.id)));
-    }
+    setSelectedIds(allOnPageSelected ? new Set() : new Set(leads.map(l => l.id)));
   };
 
   const handleBulkAssign = async (userId) => {
@@ -1355,7 +1372,7 @@ export default function LeadsView() {
       <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', flexShrink: 0, background: 'var(--surf)' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Leads Workspace</span>
-          <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{leads.length} leads</span>
+          <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{total.toLocaleString('en-IN')} lead{total === 1 ? '' : 's'}</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1428,12 +1445,18 @@ export default function LeadsView() {
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>
               <input
                 type="checkbox"
-                checked={selectedIds.size === leads.length && leads.length > 0}
+                checked={allOnPageSelected}
                 onChange={toggleSelectAll}
+                title={total > leads.length ? `Select all ${leads.length} on this page` : 'Select all'}
                 style={{ cursor: 'pointer', accentColor: 'var(--accent)' }}
               />
               <span>{selectedIds.size} selected</span>
             </label>
+            {total > leads.length && (
+              <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>
+                Select-all covers this page ({leads.length} of {total.toLocaleString('en-IN')}).
+              </span>
+            )}
             <button
               onClick={() => setSelectedIds(new Set())}
               style={{ background: 'none', border: 'none', color: 'var(--t3)', fontSize: 11.5, textDecoration: 'underline', cursor: 'pointer' }}
@@ -1677,6 +1700,10 @@ export default function LeadsView() {
               );
             })}
           </div>
+          {total > PAGE_SIZE && (
+            <ListPager page={page} pageSize={PAGE_SIZE} total={total} loading={loading} onPage={setPage}
+              noun="lead" compact style={{ padding: '10px 14px', borderTop: '1px solid var(--bd)', flexShrink: 0 }} />
+          )}
         </div>
 
         {/* Right Side: 360° Lead View */}

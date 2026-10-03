@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
+import { ListPager } from '../components/ListPager.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -758,7 +759,6 @@ export default function ContactsView() {
     tags: f.tags.includes(tag) ? f.tags.filter(t => t !== tag) : [...f.tags, tag],
   }));
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const allChecked = contacts.length > 0 && contacts.every(c => selected.has(c.id));
 
@@ -1124,24 +1124,8 @@ export default function ContactsView() {
             </table>
           </div>
           {/* Pagination over the filtered+sorted result, not over the page. */}
-          <div style={{ marginTop:14, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
-            <p style={{ fontSize:11, color:'var(--t3)' }}>
-              {total === 0
-                ? 'No contacts'
-                : `Showing ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, total)} of ${total} contact${total === 1 ? '' : 's'}`}
-            </p>
-            {totalPages > 1 && (
-              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <Btn variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage(p => Math.max(1, p - 1))}>
-                  Previous
-                </Btn>
-                <span style={{ fontSize:12, color:'var(--t2)' }}>Page {page} of {totalPages}</span>
-                <Btn variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
-                  Next
-                </Btn>
-              </div>
-            )}
-          </div>
+          <ListPager page={page} pageSize={PAGE_SIZE} total={total} loading={loading}
+            onPage={setPage} noun="contact" style={{ marginTop:14 }} />
         </div>
       </div>
 
