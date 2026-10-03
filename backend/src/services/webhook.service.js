@@ -6,23 +6,43 @@ import { handleCampaignAiInbound, parseCampaignCtaPayload } from './campaignAi.s
 import { queueTemplateApprovedEmail, queueTemplateRejectedEmail } from './email.service.js';
 import { handleRecipientFailure } from './retry.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
-import { runWorkflowsForInbound, runWillSendMessage, cancelActiveRuns, hasActiveRun, resumeAwaitingRun } from './workflowEngine.service.js';
+import {
+  runWorkflowsForInbound, runWillSendMessage, cancelActiveRuns, hasActiveRun, resumeAwaitingRun,
+  findMatchingWorkflows, REPLY_TIMEOUT_MS,
+} from './workflowEngine.service.js';
 import { handleFormInbound, cancelOpenSubmission, hasOpenSubmission } from './whatsappForms.service.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import { isWithinBusinessHours, describeBusinessHours } from './businessHours.service.js';
-import { matchOptOutKeyword, recordOptOut, isFlowControlKeyword } from './optout.service.js';
+import {
+  matchOptOutKeyword, recordOptOut, matchOptInKeyword, recordOptIn, isOptedOut, OPT_IN_CONFIRMATION,
+} from './optout.service.js';
 import { captureReplyAsLead } from './campaignLeads.service.js';
 import { toE164 } from '../lib/phone.js';
+import { llmAvailable } from '../lib/llm.js';
 import { notifyWorkspace } from './notification.service.js';
-import { parseInboundMessage, carriesCustomerText, mediaTypeOf } from './inboundMessage.js';
+import {
+  parseInboundMessage, carriesCustomerText, mediaTypeOf, isButtonReply, inboundEvent,
+} from './inboundMessage.js';
 import { processInboundMedia } from './inboundMedia.service.js';
 import { emitWebhook } from './outgoingWebhook.service.js';
-import { routeByIntent, escalateToHuman, escalationReason } from './intentRouting.service.js';
+import {
+  routeByIntent, escalateToHuman, escalationMatch, escalationRulesApply,
+} from './intentRouting.service.js';
 import { planAllows } from './planFeatures.service.js';
-import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPLIES } from './conversationControl.service.js';
+import {
+  detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPLIES, normalise,
+} from './conversationControl.service.js';
+import { resolveHandoff, HANDOFF_REASONS } from './automationPause.service.js';
+import { recordSuppressedAutomation, SUPPRESSION_REASONS } from './automationSuppression.service.js';
 import { realtime } from '../lib/realtimeBus.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
+
+// A BullMQ retry (or Meta redelivery) that finds the message already stored
+// but its automation unfinished picks the automation up again — within this
+// window. Past it the moment has gone: a reply an hour late to "hi" is worse
+// than none (WF-IN-12).
+const AUTOMATION_RESUME_WINDOW_MS = 60 * 60_000;
 
 // The statuses a message may move to each status from (see handleStatusUpdate).
 const MESSAGE_STATUS_FROM = {
@@ -233,25 +253,34 @@ async function handleTemplateCategoryUpdate(wabaId, value) {
 // answered by whichever one happened to run first (QA BUG-05). The order below
 // is the contract; anything added later has to be given a place in it.
 //
-//   1. Opt-out              — "stop"/"unsubscribe" always win. "cancel", "quit"
-//                             and "end" defer to the flow when one is open.
-//   2. Human handoff        — a person has the thread; automation stays out.
-//   3. Global commands      — cancel / bye / done / exit / restart / human,
-//                             which outrank whatever flow is mid-question.
-//   4. Campaign AI session  — a live conversation about a specific campaign.
-//   5. Form in flight       — the customer is answering a question we asked.
-//   6. Workflows            — a workflow trigger matched.
-//   7. Escalation rules     — the workspace's own "hand this to a person" rules.
+//   1. Opt-in               — START/SUBSCRIBE from an opted-out contact.
+//   2. Opt-out              — STOP/UNSUBSCRIBE typed as the whole message. With
+//                             a form or workflow open it ends that flow first.
+//   3. Human handoff        — a person has the thread; automation stays out
+//                             until HANDOFF_TTL_HOURS pass without them
+//                             replying, or the thread is closed and reopened.
+//   4. Control commands     — explicit phrases ("talk to a human", "stop
+//                             this") always; bare words ("agent", "cancel")
+//                             only while a form or a parked run is open, and
+//                             never as the answer a workflow is waiting for.
+//   5. Campaign AI session  — a live conversation about a specific campaign.
+//   6. Form in flight       — the customer is answering a question we asked.
+//   7. Workflows            — a run waiting on this customer takes the reply
+//                             first; otherwise a workflow trigger matched.
 //   8. Exact keyword trigger
 //   9. Intent rules         — the Intent Matching screen's rules.
 //  10. Fuzzy keyword trigger
-//  11. Welcome / out-of-office
-//  12. General conversation — greeting, goodbye, thanks, working hours.
-//  13. AI agent
-//  14. Fallback             — hand to a person rather than say nothing.
+//  11. Escalation rules     — the AI agent's "hand this to a person" rules,
+//                             only while an agent is deployed.
+//  12. Welcome / out-of-office
+//  13. General conversation — greeting, goodbye, thanks, working hours.
+//  14. AI agent             — when it has nothing to say the message is left
+//                             for the inbox; the contact is not handed off.
 //
 // Earlier layers are more deterministic and more specific; the model only sees
-// what nothing above it claimed.
+// what nothing above it claimed. A layer that keeps a message from a workflow
+// that would have matched it records why in that workflow's run history
+// (automationSuppression.service.js).
 async function handleInboundMessage(value, msg) {
   const phoneNumberId = value.metadata?.phone_number_id;
   const fromPhone = msg.from;
@@ -284,42 +313,9 @@ async function handleInboundMessage(value, msg) {
   }
   console.log(`[Inbound] matched waNumber id=${waNumber.id} workspace=${waNumber.workspaceId} — writing message to DB`);
 
-  // Meta sends bare digits ("919876543210"); contacts may be stored with
-  // "+" / spaces. Match on normalized digits so imported contacts are found.
+  const workspaceId = waNumber.workspaceId;
   const digits = String(fromPhone || '').replace(/[^\d]/g, '');
-  let contact = await prisma.contact.findFirst({
-    where: {
-      workspaceId: waNumber.workspaceId,
-      OR: [
-        { phoneNumber: fromPhone },
-        { phoneNumber: digits },
-        { phoneNumber: `+${digits}` },
-      ],
-    },
-  });
-  if (!contact && digits) {
-    // Last-resort fuzzy match: same trailing 10 digits within the workspace.
-    const tail = digits.slice(-10);
-    const candidates = await prisma.contact.findMany({
-      where: { workspaceId: waNumber.workspaceId, phoneNumber: { contains: tail } },
-      take: 5,
-    });
-    contact = candidates.find((c) => String(c.phoneNumber).replace(/[^\d]/g, '') === digits) || null;
-    // A contact saved in national format ("9876543210", "09876543210") never
-    // equals Meta's international digits and used to be duplicated. Accept it
-    // only when it is the one national-format number ending in these digits,
-    // so an ambiguous match never lands on the wrong person.
-    if (!contact) {
-      const national = candidates.filter((c) => {
-        const stored = String(c.phoneNumber).replace(/[^\d]/g, '').replace(/^0+/, '');
-        return !String(c.phoneNumber).trim().startsWith('+')
-          && stored.length >= 7 && stored.length <= 10 && stored.length < digits.length
-          && digits.endsWith(stored);
-      });
-      if (national.length === 1) contact = national[0];
-    }
-  }
-  const isNewContact = !contact;
+  let contact = await findContactByPhone(workspaceId, fromPhone);
 
   if (!contact) {
     const displayName = value.contacts?.[0]?.profile?.name || fromPhone;
@@ -338,7 +334,7 @@ async function handleInboundMessage(value, msg) {
       // Stored as E.164 like every other contact number; Meta's `from` is
       // always international digits without the "+".
       contact = await prisma.contact.create({
-        data: { workspaceId: waNumber.workspaceId, name: displayName, phoneNumber: toE164(fromPhone, { international: true }) || fromPhone },
+        data: { workspaceId, name: displayName, phoneNumber: toE164(fromPhone, { international: true }) || fromPhone },
       });
     } catch (err) {
       if (err.code !== 'P2002') throw err;
@@ -346,7 +342,7 @@ async function handleInboundMessage(value, msg) {
       // digits from another webhook).
       contact = await prisma.contact.findFirst({
         where: {
-          workspaceId: waNumber.workspaceId,
+          workspaceId,
           OR: [{ phoneNumber: fromPhone }, { phoneNumber: digits }, { phoneNumber: `+${digits}` }],
         },
       });
@@ -358,13 +354,13 @@ async function handleInboundMessage(value, msg) {
   // reach this point before either has created the conversation.
   const ensureConversation = async () => {
     const found = await prisma.conversation.findFirst({
-      where: { workspaceId: waNumber.workspaceId, contactId: contact.id, waNumberId: waNumber.id },
+      where: { workspaceId, contactId: contact.id, waNumberId: waNumber.id },
     });
     if (found) return found;
     try {
       return await prisma.conversation.create({
         data: {
-          workspaceId: waNumber.workspaceId,
+          workspaceId,
           contactId: contact.id,
           waNumberId: waNumber.id,
           status: 'OPEN',
@@ -372,7 +368,7 @@ async function handleInboundMessage(value, msg) {
       });
     } catch (err) {
       const retry = await prisma.conversation.findFirst({
-        where: { workspaceId: waNumber.workspaceId, contactId: contact.id, waNumberId: waNumber.id },
+        where: { workspaceId, contactId: contact.id, waNumberId: waNumber.id },
       });
       if (retry) return retry;
       throw err;
@@ -380,11 +376,14 @@ async function handleInboundMessage(value, msg) {
   };
 
   let conversation = await prisma.conversation.findFirst({
-    where: { workspaceId: waNumber.workspaceId, contactId: contact.id, waNumberId: waNumber.id },
+    where: { workspaceId, contactId: contact.id, waNumberId: waNumber.id },
   });
   const previousLastMessageAt = conversation?.lastMessageAt ?? null;
 
   if (!conversation) conversation = await ensureConversation();
+  // Read before this message reopens the thread: a closed conversation the
+  // customer writes to again starts afresh, handoff included.
+  const previousStatus = conversation.status ?? null;
 
   // Idempotency. Meta redelivers a webhook until it gets a 200, and retries are
   // routine — a slow response, a deploy mid-delivery, a 500. Nothing guarded
@@ -398,7 +397,6 @@ async function handleInboundMessage(value, msg) {
   // Attribute only when Meta provides exact evidence: the CTA payload or an
   // explicit reply context pointing at an outbound campaign message. Generic
   // inbound messages have no reliable campaign identity and stay unlinked.
-  const workspaceId = waNumber.workspaceId;
   const payloadRecipientId = parseCampaignCtaPayload(buttonPayload);
   const quotedMessageId = msg.context?.id || null;
   let campaignRecipient = null;
@@ -419,6 +417,9 @@ async function handleInboundMessage(value, msg) {
     }
   }
   let stored;
+  // True when this is a retry of a delivery whose automation never finished:
+  // the message is already stored (and counted), only the automation is left.
+  let resuming = false;
   try {
     stored = await prisma.message.create({
       data: {
@@ -438,14 +439,28 @@ async function handleInboundMessage(value, msg) {
       },
     });
   } catch (err) {
-    if (err.code === 'P2002') {
+    if (err.code !== 'P2002') {
+      console.error(`[Inbound] STORE FAILED — could not save message ${msg.id} to conversation ${conversation.id}: ${err.message}`);
+      throw err;
+    }
+    // Already stored. A redelivery of a message whose automation completed is
+    // dropped, as before. One whose automation did not finish — the first
+    // attempt threw part-way (a pool timeout, a deploy) and BullMQ is retrying
+    // — used to be dropped too, so the workflow it should have started never
+    // ran (WF-IN-12). It is picked up again instead.
+    const existing = await prisma.message.findUnique({
+      where: { metaMessageId: msg.id },
+      select: { id: true, conversationId: true, direction: true, createdAt: true, automationProcessedAt: true, transcript: true },
+    });
+    if (!automationUnfinished(existing)) {
       console.log(`[Inbound] Duplicate delivery of ${msg.id} — already processed, ignoring.`);
       return;
     }
-    console.error(`[Inbound] STORE FAILED — could not save message ${msg.id} to conversation ${conversation.id}: ${err.message}`);
-    throw err;
+    stored = existing;
+    resuming = true;
+    console.log(`[Inbound] Redelivery of ${msg.id}: stored, but its automation never finished — resuming it.`);
   }
-  console.log(`[Inbound] Message stored: ${msg.id} → conversation ${conversation.id}`);
+  if (!resuming) console.log(`[Inbound] Message stored: ${msg.id} → conversation ${conversation.id}`);
 
   // A `system` event (e.g. the customer changed number) is Meta talking, not
   // the customer, and a reaction is not something anyone needs to answer.
@@ -457,7 +472,8 @@ async function handleInboundMessage(value, msg) {
   await prisma.conversation.update({
     where: { id: conversation.id },
     data: {
-      ...(actionable ? { unreadCount: { increment: 1 } } : {}),
+      // Counted once: a resumed delivery was already counted by its first try.
+      ...(actionable && !resuming ? { unreadCount: { increment: 1 } } : {}),
       lastMessageAt: new Date(),
       // Opens (or re-opens) the 24-hour window in which Meta permits a
       // free-form reply. Every outbound path checks this — see
@@ -469,7 +485,7 @@ async function handleInboundMessage(value, msg) {
     },
   });
   if (actionable) conversation.status = 'OPEN';
-  realtime.messageCreated(workspaceId, conversation.id, { direction: 'INBOUND' });
+  if (!resuming) realtime.messageCreated(workspaceId, conversation.id, { direction: 'INBOUND' });
 
   // Immediately exit active sequence cadences with exitOnReply enabled
   if (!systemEvent) await prisma.sequenceEnrollment.updateMany({
@@ -500,7 +516,11 @@ async function handleInboundMessage(value, msg) {
   // said rather than ignore it (CF-224). Without a transcript the message is
   // routed as an audio message: no keyword, intent or AI step reads it, and a
   // workflow can still pick it up with the `media` trigger.
-  if (parsed.media?.mediaId) {
+  if (resuming && stored.transcript) {
+    parsed.transcript = stored.transcript;
+    parsed.body = stored.transcript;
+    messageBody = stored.transcript;
+  } else if (parsed.media?.mediaId) {
     const media = await processInboundMedia({ workspaceId, messageId: stored.id, parsed, waNumber })
       .catch((err) => {
         console.error(`[Inbound] Media handling failed for ${msg.id}:`, err.message);
@@ -514,8 +534,8 @@ async function handleInboundMessage(value, msg) {
   }
 
   // Tell the customer's own system. This is the event an integration is most
-  // likely to want, and until now nothing was ever dispatched.
-  emitWebhook(workspaceId, 'message.received', {
+  // likely to want, and until now nothing was ever dispatched. Sent once.
+  if (!resuming) emitWebhook(workspaceId, 'message.received', {
     conversationId: conversation.id,
     contact: { id: contact.id, name: contact.name, phoneNumber: contact.phoneNumber },
     message: {
@@ -530,37 +550,241 @@ async function handleInboundMessage(value, msg) {
     },
   });
 
-  if (!actionable) return;
-
-  // 0. Opt-out beats everything. A STOP (or any accepted opt-out keyword)
-  //    blocks the number for good and stops this message from triggering any
-  //    automation — replying to someone who just asked to be left alone is
-  //    exactly what opting out is supposed to prevent. Matching ignores case,
-  //    surrounding spaces and punctuation, so "STOP", " stop ", "Stop." and
-  //    "STOP!" all land here. Repeat STOPs are idempotent.
-  // Only words the customer actually typed. `messageBody` may be a placeholder
-  // we generated for a photo or a location, and matching our own text against
-  // the opt-out keywords would let a picture opt someone out.
-  const customerText = carriesCustomerText(parsed);
-  let optOutKeyword = customerText ? matchOptOutKeyword(messageBody) : null;
-
-  // "cancel", "quit" and "end" are opt-out keywords *and* the words a customer
-  // uses to back out of a form. Answering a form question with "cancel"
-  // unsubscribed the contact from the workspace entirely (QA BUG-02/BUG-05),
-  // which is not what anyone meant by it. While a flow is mid-question those
-  // three mean "leave the flow" and are handled further down; "stop" and
-  // "unsubscribe" always opt out, flow or no flow.
-  if (optOutKeyword && isFlowControlKeyword(optOutKeyword)) {
-    const [formOpen, runOpen] = await Promise.all([
-      hasOpenSubmission(conversation.id),
-      hasActiveRun(workspaceId, conversation.id),
-    ]);
-    if (formOpen || runOpen) {
-      console.log(`[Inbound] "${optOutKeyword}" read as leaving the active flow, not as an opt-out.`);
-      optOutKeyword = null;
+  if (actionable) {
+    // A retry must not answer twice. If the first attempt got as far as a
+    // reply or a workflow run before it failed, that part is not repeated.
+    if (resuming && await automationAlreadyActed(workspaceId, conversation.id, stored.createdAt)) {
+      console.log(`[Inbound] ${msg.id}: the first attempt already replied or started a workflow — not repeating it.`);
+    } else {
+      // "First INBOUND message from this contact in this workspace", not "a
+      // number we have never seen": contacts imported from a CSV, sent a
+      // campaign or captured by a lead form exist before they ever write, and
+      // were never welcomed (WF-IN-10).
+      const isNewContact = await isFirstInboundMessage(workspaceId, contact.id, stored.id);
+      await runInboundAutomation({
+        parsed, messageBody, fromPhone, buttonPayload, waNumber, workspaceId, contact, conversation,
+        previousStatus, previousLastMessageAt, isNewContact,
+      });
     }
   }
 
+  // Reached only when the pipeline finished: a throw above leaves the marker
+  // unset, so the queue's retry resumes the automation.
+  await prisma.message.update({
+    where: { id: stored.id },
+    data: { automationProcessedAt: new Date() },
+  }).catch((err) => console.error(`[Inbound] Could not mark ${msg.id} as processed:`, err.message));
+}
+
+// Is this stored message one whose automation a retry should pick up?
+function automationUnfinished(existing) {
+  if (!existing || existing.direction !== 'INBOUND' || existing.automationProcessedAt) return false;
+  const created = new Date(existing.createdAt ?? 0).getTime();
+  return Date.now() - created < AUTOMATION_RESUME_WINDOW_MS;
+}
+
+// Did an earlier attempt at this message already reply or start a workflow?
+// Either one means the automation reached its decision; doing it again would
+// send the customer the same answer twice. A workflow run is the engine's to
+// finish (its own claims and the recovery sweep cover it).
+async function automationAlreadyActed(workspaceId, conversationId, since) {
+  const after = new Date(since ?? 0);
+  const [reply, run] = await Promise.all([
+    prisma.message.findFirst({
+      where: { conversationId, direction: 'OUTBOUND', createdAt: { gte: after } },
+      select: { id: true },
+    }),
+    prisma.workflowRun.findFirst({
+      where: { workspaceId, conversationId, startedAt: { gte: after } },
+      select: { id: true },
+    }),
+  ]);
+  return Boolean(reply || run);
+}
+
+async function isFirstInboundMessage(workspaceId, contactId, messageId) {
+  try {
+    const earlier = await prisma.message.findFirst({
+      where: {
+        direction: 'INBOUND',
+        id: { not: messageId },
+        conversation: { workspaceId, contactId },
+      },
+      select: { id: true },
+    });
+    return !earlier;
+  } catch (err) {
+    console.warn(`[Inbound] Could not check whether ${contactId} has written before:`, err.message);
+    return false;
+  }
+}
+
+// Meta sends bare international digits ("919876543210"); contacts may be stored
+// with "+", spaces, dashes or in national format. Matching is on digits only,
+// within the workspace, so "+91 98000 00001" (saved before numbers were
+// normalised on write, CF-200) is the same person as Meta's "919800000001"
+// rather than a duplicate contact treated as brand new (WF-IN-11).
+async function findContactByPhone(workspaceId, fromPhone) {
+  const digits = String(fromPhone || '').replace(/[^\d]/g, '');
+  const exact = await prisma.contact.findFirst({
+    where: {
+      workspaceId,
+      OR: [
+        { phoneNumber: fromPhone },
+        { phoneNumber: digits },
+        { phoneNumber: `+${digits}` },
+      ],
+    },
+  });
+  if (exact || !digits) return exact;
+
+  // Any spelling ending in the same ten digits, compared digits-only in SQL —
+  // a LIKE on the raw column cannot see through the separators.
+  const tail = digits.slice(-10);
+  let candidates = [];
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT "id" FROM "Contact"
+      WHERE "workspaceId" = ${workspaceId}
+        AND right(regexp_replace("phoneNumber", '[^0-9]', '', 'g'), 10) = ${tail}
+      LIMIT 5`;
+    const ids = (Array.isArray(rows) ? rows : []).map((r) => r.id).filter(Boolean);
+    if (ids.length) candidates = await prisma.contact.findMany({ where: { workspaceId, id: { in: ids } } });
+  } catch (err) {
+    // The lookup only prevents a duplicate; it must not cost the message.
+    console.warn(`[Inbound] Digits-only contact lookup failed in ${workspaceId}:`, err.message);
+    return null;
+  }
+
+  const sameDigits = candidates.find((c) => String(c.phoneNumber).replace(/[^\d]/g, '') === digits);
+  if (sameDigits) return sameDigits;
+  // A contact saved in national format ("9876543210", "09876543210") never
+  // equals Meta's international digits and used to be duplicated. Accept it
+  // only when it is the one national-format number ending in these digits,
+  // so an ambiguous match never lands on the wrong person.
+  const national = candidates.filter((c) => {
+    const stored = String(c.phoneNumber).replace(/[^\d]/g, '').replace(/^0+/, '');
+    return !String(c.phoneNumber).trim().startsWith('+')
+      && stored.length >= 7 && stored.length <= 10 && stored.length < digits.length
+      && digits.endsWith(stored);
+  });
+  return national.length === 1 ? national[0] : null;
+}
+
+// The newest run on the conversation that is waiting for the customer's answer,
+// with the options it offered. Read here rather than in the engine so the
+// pipeline can tell an answer from a command before anything consumes it.
+async function awaitingRunFor(workspaceId, conversationId) {
+  const waiting = await prisma.workflowRun.findMany({
+    where: { workspaceId, conversationId, status: 'WAITING' },
+    orderBy: { startedAt: 'desc' },
+    select: { id: true, variables: true, startedAt: true },
+  });
+  for (const run of waiting) {
+    const vars = run.variables && typeof run.variables === 'object' && !Array.isArray(run.variables) ? run.variables : {};
+    const awaiting = vars.__awaitingReply;
+    if (!awaiting) continue;
+    // A wait past its timeout is closed by the engine on this message, not
+    // answered by it.
+    const since = Date.parse(awaiting.since);
+    if (Number.isFinite(since) && Date.now() - since > REPLY_TIMEOUT_MS) return null;
+    const offered = Array.isArray(awaiting.options) && awaiting.options.length
+      ? awaiting.options
+      : (Array.isArray(vars.__lastOptions) ? vars.__lastOptions : []);
+    return { id: run.id, options: offered.map((o) => String(o ?? '')) };
+  }
+  return null;
+}
+
+async function runInboundAutomation({
+  parsed, messageBody, fromPhone, buttonPayload, waNumber, workspaceId, contact, conversation,
+  previousStatus, previousLastMessageAt, isNewContact,
+}) {
+  // Only words the customer actually sent — typed, a caption, a transcribed
+  // voice note or a button they tapped. `messageBody` may be a placeholder we
+  // generated for a photo or a location ("[photo]"), and matching our own text
+  // against keywords, opt-out words or intents would let a picture opt someone
+  // out or start a workflow.
+  const customerText = carriesCustomerText(parsed);
+  const mediaType = mediaTypeOf(parsed);
+  // What the workflow engine matches this message on, and what a suppression
+  // record tests against.
+  const match = { messageBody, event: inboundEvent(parsed), mediaType, isNewContact };
+  const suppressed = (reason) => recordSuppressedAutomation({
+    workspaceId, conversationId: conversation.id, contactId: contact.id, reason, match,
+  });
+  const reply = (body) => sendAutomatedReply({
+    conversationId: conversation.id, waNumberId: waNumber.id, toPhone: fromPhone, body,
+  });
+
+  // What is open on the conversation. A form submission left unanswered for a
+  // day, or whose form is no longer Active, is abandoned by the check rather
+  // than counted (whatsappForms.service.js).
+  const [formOpen, runOpen, awaitingRun] = await Promise.all([
+    hasOpenSubmission(conversation.id),
+    hasActiveRun(workspaceId, conversation.id),
+    awaitingRunFor(workspaceId, conversation.id),
+  ]);
+  const flowOpen = formOpen || runOpen;
+  const offeredOptions = awaitingRun?.options ?? [];
+  const isOfferedOption = customerText && offeredOptions.map(normalise).includes(normalise(messageBody));
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: {
+      autoWelcomeEnabled: true,
+      autoOooEnabled: true,
+      autoDelayedEnabled: true,
+      welcomeMessage: true,
+      oooMessage: true,
+      delayedAfterMinutes: true,
+      businessHours: true,
+      // Whether an agent is actually deployed: the escalation rules are the
+      // agent's, and only apply while it is.
+      aiAgentEnabled: true,
+      escalationRules: true,
+    },
+  });
+
+  // 1. Opt back in. A contact who opted out and sends START / SUBSCRIBE is
+  //    messageable again, and is told so — the confirmation goes out because
+  //    the opt-out is cleared before it is sent. For anyone not opted out,
+  //    "start" is an ordinary message.
+  if (customerText && !isButtonReply(parsed)) {
+    const optIn = matchOptInKeyword(messageBody);
+    if (optIn && await isOptedOut(workspaceId, fromPhone, { contact }).catch(() => false)) {
+      await recordOptIn({ workspaceId, phoneNumber: fromPhone, contactId: contact.id, keyword: optIn });
+      contact.optedOut = false;
+      console.log(`[Inbound] ${fromPhone} opted back in to workspace ${workspaceId} via "${optIn}"`);
+      emitWebhook(workspaceId, 'optout.removed', { phoneNumber: fromPhone, keyword: optIn, contactId: contact.id });
+      await notifyWorkspace(workspaceId, {
+        type: 'OPT_IN',
+        title: 'A contact opted back in',
+        body: `${contact.name || fromPhone} sent "${optIn}" and can be messaged again.`,
+        link: 'settings',
+        meta: { phoneNumber: fromPhone, keyword: optIn },
+      }).catch((err) => console.warn('[Inbound] Opt-in notification failed:', err.message));
+      await reply(OPT_IN_CONFIRMATION);
+      return;
+    }
+  }
+
+  // 2. Opt-out. STOP / UNSUBSCRIBE, typed as the whole message, blocks the
+  //    number and stops this message from triggering anything. A tap on one of
+  //    our own buttons is never an opt-out, whatever its title says ("No
+  //    thanks" is an answer). With a form or workflow open, STOP ends that flow
+  //    first — the customer may mean "stop asking me this" — and a second STOP
+  //    opts out.
+  const optOutKeyword = customerText && !isButtonReply(parsed) && !isOfferedOption
+    ? matchOptOutKeyword(messageBody)
+    : null;
+  if (optOutKeyword && flowOpen) {
+    if (formOpen) await cancelOpenSubmission(conversation.id).catch((err) => console.error(`[Inbound] Could not cancel the open form for ${conversation.id}:`, err.message));
+    if (runOpen) await cancelActiveRuns(workspaceId, conversation.id, `Customer sent "${optOutKeyword}"`).catch((err) => console.error(`[Inbound] Could not cancel workflow runs for ${conversation.id}:`, err.message));
+    console.log(`[Inbound] "${optOutKeyword}" ended the open flow on ${conversation.id}; a second one opts out.`);
+    await reply(CONTROL_REPLIES.stop);
+    return;
+  }
   if (optOutKeyword) {
     try {
       await recordOptOut({
@@ -580,13 +804,14 @@ async function handleInboundMessage(value, msg) {
       await notifyWorkspace(workspaceId, {
         type: 'OPT_OUT',
         title: 'A contact opted out',
-        body: `${contact.name || fromPhone} sent "${optOutKeyword}" and will no longer receive messages.`,
+        body: `${contact.name || fromPhone} sent "${optOutKeyword}" and will no longer receive messages. They can send START to opt back in.`,
         link: 'settings',
         meta: { phoneNumber: fromPhone, keyword: optOutKeyword },
       }).catch((err) => console.warn('[Inbound] Opt-out notification failed:', err.message));
     } catch (err) {
       console.error('[Inbound] Could not record opt-out:', err.message);
     }
+    await suppressed(SUPPRESSION_REASONS.optout(optOutKeyword));
     return;
   }
 
@@ -596,106 +821,77 @@ async function handleInboundMessage(value, msg) {
   // never cost the platform an inbound message.
   captureReplyAsLead(workspaceId, contact.id);
 
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: {
-      autoWelcomeEnabled: true,
-      autoOooEnabled: true,
-      autoDelayedEnabled: true,
-      welcomeMessage: true,
-      oooMessage: true,
-      delayedAfterMinutes: true,
-      businessHours: true,
-      // Whether an agent is actually deployed — the fallback below has to tell
-      // "the agent tried and failed" apart from "there is no agent at all".
-      aiAgentEnabled: true,
-      // Read at last: the AI Agent screen has offered these for a long time
-      // and nothing consulted them, so the agent answered every message itself
-      // and there was no route from automation to a person.
-      escalationRules: true,
-    },
-  });
-
-  // 0. Campaign AI Agent. A customer who tapped a campaign's "Ask Anything"
-  //    CTA is in a conversation *about that campaign*, and every message until
-  //    the session expires belongs to the agent that was attached to it.
-  //    Ahead of everything else on purpose: the generic fallback agent (step 5)
-  //    would otherwise answer campaign questions with no campaign in front of
-  //    it, and a keyword trigger would talk over a live chat. Returns false
-  //    unless a CTA was tapped or a session is live, so nothing changes for
-  //    workspaces that don't use the feature.
-  // A person is holding this conversation. The message is stored, the inbox
-  // shows it and the webhook fires, but no automation runs — replying over an
-  // agent mid-conversation is worse than not replying at all, and it is exactly
-  // what handing off is meant to stop.
+  // 3. A person is holding this conversation. The message is stored, the inbox
+  //    shows it and the webhook fires, but no automation runs — replying over
+  //    an agent mid-conversation is worse than not replying at all. The
+  //    delayed-response check is skipped too: someone is on it.
   //
-  // The delayed-response check is skipped too: its whole purpose is to chase a
-  // thread nobody has answered, and someone has.
-  if (conversation.humanHandoffAt) {
-    console.log(`[Inbound] Conversation ${conversation.id} is with a human since `
-      + `${conversation.humanHandoffAt.toISOString()} — automation suppressed.`);
+  //    The hold lapses: after HANDOFF_TTL_HOURS with no reply from a person, or
+  //    once the conversation has been closed, the next message runs the
+  //    automation again (WF-IN-1). It used to last until someone resolved the
+  //    thread by hand, so one "agent" or one escalation switched every
+  //    workflow off for that contact for good.
+  const handoff = await resolveHandoff(conversation, { previousStatus, workspaceId });
+  if (handoff.paused) {
+    console.log(`[Inbound] Conversation ${conversation.id} is with a human (${handoff.reason}) until `
+      + `${handoff.resumesAt.toISOString()} — automation suppressed.`);
+    await suppressed(SUPPRESSION_REASONS.handoff(handoff.reasonText));
     return;
   }
 
-  // 0. Global control commands. "cancel", "bye", "done", "exit", "restart" and
-  //    "human" belong to the customer, not to whichever flow happens to be
-  //    holding the conversation — before this, a form or workflow filed them as
-  //    answers and kept asking its question (QA BUG-02).
+  // 4. Control commands. "cancel", "bye", "done", "restart" and "human" belong
+  //    to the customer, not to whichever flow happens to be holding the
+  //    conversation (QA BUG-02).
   //
-  //    "stop" is not in this list on purpose: it is handled above as an
-  //    opt-out, which WhatsApp expects a business to honour and which stops the
-  //    flow anyway by suppressing every outbound message.
-  //
-  //    Only intercepts when something is actually running. With no flow in
-  //    flight, "bye" is an ordinary message and carries on down the chain so a
-  //    workspace's own goodbye automation still gets its turn.
+  //    Matched exactly — no typo tolerance — and, while a workflow is waiting
+  //    for this customer's answer, only explicit phrases ("stop this", "talk
+  //    to a human") that are not one of the options offered: "None", "Done" or
+  //    a button titled "Agent" are answers (WF-IN-5). Asking for a person with
+  //    nothing running needs an explicit request too; a bare "agent" carries
+  //    on so a workflow with that keyword can answer it (WF-IN-2).
   if (customerText) {
-    const control = detectControlCommand(messageBody);
-    if (control && interruptsFlow(control.command)) {
-      const [formOpen, runOpen] = await Promise.all([
-        hasOpenSubmission(conversation.id),
-        hasActiveRun(workspaceId, conversation.id),
-      ]);
+    const control = detectControlCommand(messageBody, { awaitingReply: Boolean(awaitingRun), options: offeredOptions });
+    if (control?.command === 'human' && (control.explicit || flowOpen)) {
+      // Asking for a person ends the flow whether or not one is running.
+      if (formOpen) await cancelOpenSubmission(conversation.id).catch((err) => console.error(`[Inbound] Could not cancel the open form for ${conversation.id}:`, err.message));
+      if (runOpen) await cancelActiveRuns(workspaceId, conversation.id, 'Customer asked for a person').catch((err) => console.error(`[Inbound] Could not cancel workflow runs for ${conversation.id}:`, err.message));
+      await escalateToHuman({
+        workspaceId, conversationId: conversation.id, contact,
+        reason: 'The customer asked to speak to a person',
+        reasonCode: HANDOFF_REASONS.CUSTOMER_ASKED_HUMAN,
+      });
+      await suppressed(SUPPRESSION_REASONS.control(control.matched));
+      await scheduleDelayedResponse(workspace, conversation.id);
+      return;
+    }
 
-      if (control.command === 'human') {
-        // Asking for a person ends the flow whether or not one is running.
-        if (formOpen) await cancelOpenSubmission(conversation.id).catch((err) => console.error(`[Inbound] Could not cancel the open form for ${conversation.id}:`, err.message));
-        if (runOpen) await cancelActiveRuns(workspaceId, conversation.id, 'Customer asked for a person').catch((err) => console.error(`[Inbound] Could not cancel workflow runs for ${conversation.id}:`, err.message));
-        await escalateToHuman({
-          workspaceId, conversationId: conversation.id, contact,
-          reason: 'The customer asked to speak to a person',
-        });
-        await scheduleDelayedResponse(workspace, conversation.id);
-        return;
+    if (control && control.command !== 'human' && interruptsFlow(control.command) && flowOpen) {
+      // Any workflow parked on a delay is torn down either way, so it cannot
+      // wake up hours later and carry on messaging someone who has left.
+      if (runOpen) {
+        await cancelActiveRuns(workspaceId, conversation.id, `Customer sent "${control.matched}"`).catch((err) => console.error(`[Inbound] Could not cancel workflow runs for ${conversation.id}:`, err.message));
       }
 
-      if (formOpen || runOpen) {
-        // Any workflow parked on a delay is torn down either way, so it cannot
-        // wake up hours later and carry on messaging someone who has left.
-        if (runOpen) {
-          await cancelActiveRuns(workspaceId, conversation.id, `Customer sent "${control.matched}"`).catch((err) => console.error(`[Inbound] Could not cancel workflow runs for ${conversation.id}:`, err.message));
-        }
-
-        // When a form is open it owns the acknowledgement: it is the only layer
-        // that knows how to re-ask question one for "restart", and it replies
-        // for the other commands too. Cancelling the submission here as well
-        // would leave the customer with no answer at all.
-        if (formOpen) {
-          console.log(`[Inbound] "${control.matched}" interrupting the open form.`);
-        } else {
-          await sendAutomatedReply({
-            conversationId: conversation.id,
-            waNumberId: waNumber.id,
-            toPhone: fromPhone,
-            body: CONTROL_REPLIES[control.command] || CONTROL_REPLIES.cancel,
-          });
-          await scheduleDelayedResponse(workspace, conversation.id);
-          return;
-        }
+      // When a form is open it owns the acknowledgement: it is the only layer
+      // that knows how to re-ask question one for "restart", and it replies
+      // for the other commands too. Cancelling the submission here as well
+      // would leave the customer with no answer at all.
+      if (formOpen) {
+        console.log(`[Inbound] "${control.matched}" interrupting the open form.`);
+      } else {
+        await reply(CONTROL_REPLIES[control.command] || CONTROL_REPLIES.cancel);
+        await suppressed(SUPPRESSION_REASONS.control(control.matched));
+        await scheduleDelayedResponse(workspace, conversation.id);
+        return;
       }
     }
   }
 
+  // 5. Campaign AI Agent. A customer who tapped a campaign's "Ask Anything"
+  //    CTA is in a conversation *about that campaign*, and every message until
+  //    the session expires belongs to the agent that was attached to it.
+  //    Returns false unless a CTA was tapped or a session is live, so nothing
+  //    changes for workspaces that don't use the feature.
   const consumedByCampaignAi = await handleCampaignAiInbound({
     workspaceId,
     conversation,
@@ -711,40 +907,47 @@ async function handleInboundMessage(value, msg) {
     return;
   }
 
-  // 0. A form in progress owns the conversation until it finishes — the
-  //    customer is answering a question, not starting a new automation.
-  const consumedByForm = await handleFormInbound({
-    workspaceId,
-    conversation,
-    contact,
-    messageBody,
-  }).catch((err) => {
-    console.error('[Inbound] Form handling failed:', err);
-    return false;
-  });
-  if (consumedByForm) {
-    await scheduleDelayedResponse(workspace, conversation.id);
-    return;
+  // 6. A form in progress owns the conversation until it finishes — the
+  //    customer is answering a question, not starting a new automation. A
+  //    photo or an untranscribed voice note is not an answer (its body is our
+  //    placeholder), so the form keeps waiting for one. A submission idle for a
+  //    few minutes lets go when the message is something an active workflow
+  //    or trigger answers.
+  if (customerText) {
+    const consumedByForm = await handleFormInbound({
+      workspaceId,
+      conversation,
+      contact,
+      messageBody,
+      matchesAutomation: (body) => automationWouldAnswer(workspaceId, { ...match, messageBody: body }),
+    }).catch((err) => {
+      console.error('[Inbound] Form handling failed:', err);
+      return false;
+    });
+    if (consumedByForm) {
+      await suppressed(SUPPRESSION_REASONS.form(formOpen ? 'it answered the question on screen' : 'its keyword started a form'));
+      await scheduleDelayedResponse(workspace, conversation.id);
+      return;
+    }
   }
 
-  // 1. Workflows. Previously the Workflows tab saved rows that nothing ever
-  //    read; the engine now runs the matching workflow's steps for real.
-  //    A run waiting on this customer's answer takes the message first — they
-  //    are replying to its question, not starting something new.
+  // 7. Workflows. A run waiting on this customer's answer takes the message
+  //    first — they are replying to its question, not starting something new.
+  //    Only customer text answers it: a photo or a voice note with no
+  //    transcript used to be saved as the literal "[photo]" (WF-IN-9); the run
+  //    now keeps waiting, and the media can still start a `media` workflow.
   let workflowWillReply = false;
   try {
     console.log(`[Automation] Checking active workflows for conversation ${conversation.id} (workspace ${workspaceId})`);
-    const resumed = await resumeAwaitingRun(workspaceId, conversation.id, messageBody);
-    if (resumed) console.log(`[Automation] Reply resumed waiting run ${resumed.id} → ${resumed.status}`);
-    // A photo or an untranscribed voice note is a `media` event: our
-    // placeholder text ("[photo]") must not match a keyword workflow, but a
-    // workflow can trigger on the media itself.
-    const mediaType = mediaTypeOf(parsed);
+    let resumed = null;
+    if (customerText) {
+      resumed = await resumeAwaitingRun(workspaceId, conversation.id, messageBody);
+      if (resumed) console.log(`[Automation] Reply resumed waiting run ${resumed.id} → ${resumed.status}`);
+    } else if (awaitingRun) {
+      console.log(`[Automation] Run ${awaitingRun.id} is waiting for a reply; a ${parsed.type.toLowerCase()} message with no text does not answer it — still waiting.`);
+    }
     const runs = resumed ? [resumed] : await runWorkflowsForInbound(workspaceId, {
-      event: mediaType && !customerText ? 'media' : 'message',
-      mediaType,
-      messageBody,
-      isNewContact,
+      ...match,
       conversationId: conversation.id,
       contactId: contact.id,
     });
@@ -756,37 +959,15 @@ async function handleInboundMessage(value, msg) {
   let autoReplyText = null;
   let intentHint = null;
 
-  // 1.5 Escalation. A customer asking for a person, or raising a refund, must
-  //     reach one — checked before any automation answers, because the worst
-  //     outcome here is a bot talking over someone who has already asked it to
-  //     stop. Which conditions apply is the workspace's own choice
-  //     (escalationRules on the AI Agent screen), and until now nothing read
-  //     them.
-  if (customerText && !workflowWillReply) {
-    const reason = escalationReason(messageBody, workspace?.escalationRules);
-    if (reason) {
-      // Logged loudly: this sends the customer nothing and suppresses every
-      // automation on the thread from here on, so a workflow meant for this
-      // message whose trigger did not match looks exactly like "no reply".
-      console.log(`[Inbound] Escalation rule claimed "${messageBody.slice(0, 80)}" (${reason}) — no workflow matched; `
-        + 'conversation handed to a person and automation paused on it.');
-      await escalateToHuman({ workspaceId, conversationId: conversation.id, contact, reason });
-      await scheduleDelayedResponse(workspace, conversation.id);
-      return;
-    }
-  }
-
-  // 2. Exact keyword trigger (deterministic, highest priority after workflows).
+  // 8. Exact keyword trigger (deterministic, highest priority after workflows).
   if (customerText && !workflowWillReply) {
     const trigger = await findMatchingTrigger(workspaceId, messageBody);
     if (trigger) autoReplyText = trigger.responseTemplate;
 
-    // 3. Intent rules. The Intent Matching screen creates, tests and charts
-    //    these, and nothing in the inbound path ever consulted them — the only
-    //    importer of intent.service.js was its own controller, so every rule
-    //    routed nothing at all. A rule can hand the thread to a person, answer
-    //    from a trigger, start a workflow, or tell the agent what the customer
-    //    is asking about.
+    // 9. Intent rules. A rule can hand the thread to a person, answer from a
+    //    trigger, start a workflow, or tell the agent what the customer is
+    //    asking about. Available on every plan: only the model needs
+    //    campaignAi (WF-IN-14).
     if (!autoReplyText) {
       const routed = await routeByIntent({
         workspaceId, conversationId: conversation.id, contact, waNumber, messageBody,
@@ -802,7 +983,7 @@ async function handleInboundMessage(value, msg) {
       if (routed?.intentHint) intentHint = routed.intentHint;
     }
 
-    // 3b. Legacy fuzzy keyword matching against automation triggers, kept as
+    // 10. Legacy fuzzy keyword matching against automation triggers, kept as
     //     the last deterministic attempt before the model.
     //
     //     Skipped when an intent rule has already classified the message and
@@ -816,20 +997,37 @@ async function handleInboundMessage(value, msg) {
     }
   }
 
-  // 4. Welcome / out-of-office. Both messages are workspace-configurable now,
-  //    and OOO additionally fires outside working hours — which is what the UI
-  //    has always claimed it did.
+  // 11. Escalation rules. "Refund", "this is useless", "customer service" —
+  //     the AI agent's own rules for stepping back and bringing in a person.
+  //     They apply only while an agent is deployed, and only once workflows,
+  //     keyword triggers and intent rules have had their chance (WF-IN-3).
+  //     They used to run on every workspace that had ever saved the AI Agent
+  //     screen, ahead of the keyword triggers, and silently paused automation
+  //     on the contact.
+  if (customerText && !workflowWillReply && !autoReplyText && escalationRulesApply(workspace)) {
+    const hit = escalationMatch(messageBody, workspace.escalationRules);
+    if (hit) {
+      console.log(`[Inbound] Escalation rule "${hit.rule}" claimed "${messageBody.slice(0, 80)}" — `
+        + 'conversation handed to a person; automation paused on it until someone replies or it lapses.');
+      await escalateToHuman({
+        workspaceId, conversationId: conversation.id, contact, reason: hit.reason, reasonCode: hit.reasonCode,
+      });
+      await scheduleDelayedResponse(workspace, conversation.id);
+      return;
+    }
+  }
+
+  // 12. Welcome / out-of-office. Both messages are workspace-configurable now,
+  //     and OOO additionally fires outside working hours — which is what the UI
+  //     has always claimed it did.
   if (!autoReplyText && !workflowWillReply) {
     const isReturningAfterGap = !isNewContact && previousLastMessageAt
       && (Date.now() - new Date(previousLastMessageAt).getTime()) > WELCOME_MESSAGE_GAP_MS;
     const closedNow = !isWithinBusinessHours(workspace?.businessHours);
 
-    // `isNewContact` is only true for the very first message ever received from
-    // a number, and a burst of messages or a workflow that answered the first
-    // one meant the greeting was sometimes sent twice and sometimes never
-    // (QA BUG-07). The rule is now stated once: greet a first-time contact, or
-    // one coming back after a day away, and only if we have not already greeted
-    // them inside that same window.
+    // Greet a contact on their first message, or one coming back after a day
+    // away, and only if we have not already greeted them inside that same
+    // window (QA BUG-07).
     const shouldWelcome = workspace?.autoWelcomeEnabled
       && workspace.welcomeMessage
       && (isNewContact || isReturningAfterGap);
@@ -841,15 +1039,10 @@ async function handleInboundMessage(value, msg) {
     }
   }
 
-  // 4.5 Everyday conversational messages. "hi", "bye", "thanks" and "working
+  // 13. Everyday conversational messages. "hi", "bye", "thanks" and "working
   //     hours" are the messages every business receives and the ones the
-  //     workspace is least likely to have written a rule for. They used to fall
-  //     all the way through to the model, so the same greeting was answered
-  //     differently from one day to the next, or not at all (QA BUG-03).
-  //
-  //     Deliberately below the workspace's own automations: a business that has
-  //     built a greeting trigger or a "Greeting" intent keeps using it, and this
-  //     only catches what nothing else claimed.
+  //     workspace is least likely to have written a rule for (QA BUG-03).
+  //     Deliberately below the workspace's own automations.
   if (!autoReplyText && !workflowWillReply && customerText) {
     const general = detectGeneralIntent(messageBody);
     if (general) {
@@ -860,14 +1053,8 @@ async function handleInboundMessage(value, msg) {
     }
   }
 
-  // 5. AI Agent fallback — a deployed LLM agent answers free-form questions when
-  //    nothing above matched. Only fires if explicitly deployed.
-  //
-  //    The conversation and the number are passed so the agent can read the
-  //    thread so far, name the business it answers for, and pick up the
-  //    campaign this conversation was about if there was one. Without them it
-  //    answered every message in isolation and offered a human whenever the
-  //    knowledge base fell short.
+  // 14. AI Agent fallback — a deployed LLM agent answers free-form questions
+  //     when nothing above matched.
   if (!autoReplyText && !workflowWillReply && customerText) {
     autoReplyText = await generateAgentReply(workspaceId, messageBody, {
       contactName: contact?.name,
@@ -876,50 +1063,44 @@ async function handleInboundMessage(value, msg) {
       intentHint,
     }).catch((err) => { console.error(`[Inbound] AI agent reply failed for ${conversation.id}:`, err.message); return null; });
 
-    // The agent had nothing to say. Handing the thread to a person is right
-    // when an agent was *supposed* to answer and could not — the provider
-    // failed, or it declined.
-    //
-    // It is wrong when the workspace has no agent deployed at all. Escalating
-    // there sets humanHandoffAt, which suppresses automation on the
-    // conversation from then on — so on a workspace with no AI agent (the
-    // default), the first message that matched nothing silently switched off
-    // every keyword trigger, workflow and form for that contact, permanently.
-    // That is the "sometimes received no appropriate workflow response"
-    // behaviour in the QA report (BUG-03).
-    //
-    // With no agent deployed the message is simply left unanswered: it is in
-    // the inbox, unread, and the delayed-response automation exists precisely
-    // to chase a thread nobody has replied to.
+    // Nothing to say. The message is left unanswered: it is in the inbox,
+    // unread, and the delayed-response automation exists to chase exactly
+    // this. It is NOT handed to a person — a missing API key or a Gemini 503
+    // used to escalate, which paused every workflow on the contact (WF-IN-4).
     if (!autoReplyText) {
-      // An agent the plan no longer includes stayed silent on purpose; that
-      // is not a failure to hand to a person.
-      if (workspace?.aiAgentEnabled && await planAllows(workspaceId, 'campaignAi')) {
-        await escalateToHuman({
-          workspaceId,
-          conversationId: conversation.id,
-          contact,
-          reason: 'The AI agent could not answer this message',
-        });
-      } else {
-        console.log(`[Inbound] Nothing matched "${messageBody}" and no AI agent is deployed — `
-          + 'left for the inbox rather than seizing the conversation.');
-      }
+      const cause = await agentSilenceCause(workspaceId, workspace);
+      console.log(`[Inbound] Nothing answered "${String(messageBody).slice(0, 80)}" — ${cause}. `
+        + 'Left for the inbox; automation stays on for this contact.');
       await scheduleDelayedResponse(workspace, conversation.id);
       return;
     }
   }
 
-  if (autoReplyText) {
-    await sendAutomatedReply({
-      conversationId: conversation.id,
-      waNumberId: waNumber.id,
-      toPhone: fromPhone,
-      body: autoReplyText,
-    });
-  }
+  if (autoReplyText) await reply(autoReplyText);
 
   await scheduleDelayedResponse(workspace, conversation.id);
+}
+
+// Would an active workflow or keyword trigger answer this message? Lets a
+// stale form submission step aside for one.
+async function automationWouldAnswer(workspaceId, match) {
+  const [workflows, trigger] = await Promise.all([
+    findMatchingWorkflows(workspaceId, match).catch(() => []),
+    findMatchingTrigger(workspaceId, match.messageBody).catch(() => null),
+  ]);
+  return workflows.length > 0 || Boolean(trigger);
+}
+
+// Why the AI agent produced no reply, stated precisely. The old log said "no
+// AI agent is deployed" whenever the agent was silent, which sent people
+// looking in the wrong place when the real cause was the plan or the provider.
+async function agentSilenceCause(workspaceId, workspace) {
+  if (!workspace?.aiAgentEnabled) return 'no AI agent is deployed';
+  if (!llmAvailable()) return 'the AI agent is deployed but no LLM provider is configured (GEMINI_API_KEY)';
+  if (!await planAllows(workspaceId, 'campaignAi')) {
+    return "the AI agent is deployed but the workspace's plan does not include the campaignAi feature";
+  }
+  return 'the AI agent returned no reply (provider error, timeout or rate limit)';
 }
 
 // Have we already sent this workspace's welcome message on this conversation

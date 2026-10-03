@@ -124,7 +124,12 @@ prisma.contact.findFirst = async ({ where }) => {
   return clone(db.contacts.find((c) => c.workspaceId === where.workspaceId && phones.includes(c.phoneNumber)) ?? null);
 };
 prisma.contact.findMany = async ({ where }) => clone(db.contacts.filter((c) => c.workspaceId === where.workspaceId
+  && (!where.id?.in || where.id.in.includes(c.id))
   && String(c.phoneNumber).includes(where.phoneNumber?.contains ?? '')));
+// The inbound handler's digits-only contact lookup (right 10 digits).
+prisma.$queryRaw = async (strings, workspaceId, tail) => db.contacts
+  .filter((c) => c.workspaceId === workspaceId && String(c.phoneNumber).replace(/D/g, '').slice(-10) === tail)
+  .map((c) => ({ id: c.id }));
 prisma.contact.create = async ({ data }) => {
   const row = { id: id('ct'), tags: [], createdAt: new Date(), ...data };
   db.contacts.push(row);
@@ -460,13 +465,16 @@ test('P: a run does not wait for the answer to a question that was never deliver
 // ── Other automations sharing the message ───────────────────────────────────
 
 test('a matching workflow outranks the refund escalation rule; without one the rule still hands off', async () => {
-  // ws_A has escalationRules.refund on. With the workflow in place the
-  // workflow answers and the thread stays automated.
+  // ws_A has escalationRules.refund on, and an AI agent deployed (the rules
+  // are the agent's and apply only while it is). With the workflow in place
+  // the workflow answers and the thread stays automated.
+  db.workspaces.ws_A.aiAgentEnabled = true;
   addWorkflow(REFUND);
   await customerSends('I want a refund');
   assert.equal(conversationOf('ws_A').humanHandoffAt, null);
 
   resetDb();
+  db.workspaces.ws_A.aiAgentEnabled = true;
   assert.deepEqual(await customerSends('I want a refund'), []);
   assert.ok(conversationOf('ws_A').humanHandoffAt, 'no workflow claimed it, so the escalation rule did');
 });
@@ -476,7 +484,9 @@ test('a conversation already handed to a person runs no workflow', async () => {
   await customerSends('hello');
   conversationOf('ws_A').humanHandoffAt = new Date();
   assert.deepEqual(await customerSends('WFTEST'), []);
-  assert.equal(runs().length, 0);
+  // Nothing ran; the run history says why (WF-IN-16).
+  assert.deepEqual(runs().map((r) => r.status), ['CANCELLED']);
+  assert.match(runs()[0].error, /^Not run: a person is handling this chat/);
 });
 
 // ── Q: what Create with AI saves actually runs ──────────────────────────────

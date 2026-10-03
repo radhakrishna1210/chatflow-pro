@@ -112,7 +112,12 @@ prisma.contact.findFirst = async ({ where }) => {
   return clone(db.contacts.find((c) => c.workspaceId === where.workspaceId && phones.includes(c.phoneNumber)) ?? null);
 };
 prisma.contact.findMany = async ({ where }) => clone(db.contacts.filter((c) => c.workspaceId === where.workspaceId
+  && (!where.id?.in || where.id.in.includes(c.id))
   && String(c.phoneNumber).includes(where.phoneNumber?.contains ?? '')));
+// The inbound handler's digits-only contact lookup (right 10 digits).
+prisma.$queryRaw = async (strings, workspaceId, tail) => db.contacts
+  .filter((c) => c.workspaceId === workspaceId && String(c.phoneNumber).replace(/D/g, '').slice(-10) === tail)
+  .map((c) => ({ id: c.id }));
 prisma.contact.create = async ({ data }) => {
   const row = { id: id('ct'), tags: [], ...data };
   db.contacts.push(row);
