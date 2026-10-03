@@ -7,7 +7,9 @@ import { matchIntent, generateAgentReply } from './aiAgent.service.js';
 import { runWorkflowsForInbound, runWillSendMessage, resumeAwaitingRun } from './workflowEngine.service.js';
 import { matchOptOutKeyword } from './optout.service.js';
 import { isWithinBusinessHours } from './businessHours.service.js';
-import { escalateToHuman, escalationReason } from './intentRouting.service.js';
+import { escalateToHuman, escalationMatch, escalationRulesApply } from './intentRouting.service.js';
+import { resolveHandoff } from './automationPause.service.js';
+import { recordSuppressedAutomation, SUPPRESSION_REASONS } from './automationSuppression.service.js';
 import { emitWebhook } from './outgoingWebhook.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { transcribeVoiceNote } from './inboundMedia.service.js';
@@ -23,8 +25,10 @@ import { deliverInstagramReply, fetchInstagramProfile } from './instagram.servic
 // minus what is WhatsApp-only — campaign AI chats, WhatsApp forms, intent
 // routing (its actions send WhatsApp messages) and the delayed-response check:
 //
-//   store → opt-out → Quickflow → workflows → escalation rules → keyword
-//   trigger → fuzzy intent → welcome / out-of-office → AI agent
+//   store → handoff (lapses) → opt-out → waiting workflow run → workflow
+//   triggers → keyword Quickflows → keyword trigger → fuzzy intent →
+//   escalation rules (agent deployed) → welcome / out-of-office → catch-all
+//   Quickflow → AI agent
 //
 // Every reply goes through instagram.service.js#deliverInstagramReply, which
 // enforces the 24-hour window, the opt-out and the message metering.
@@ -110,8 +114,9 @@ export function parseInstagramEvent(event, accountId) {
     type,
     body,
     // Only words the customer typed (or a quick reply they tapped) count as
-    // text for the automation; a placeholder never does.
-    text: type === 'TEXT' ? text : '',
+    // text for the automation; a placeholder never does. Text sent with a
+    // photo or video is the customer's own words, so it counts (WF-IN-8).
+    text,
     media,
     storyReply: Boolean(m.reply_to?.story),
     sentAt: Number.isFinite(Number(event.timestamp)) ? new Date(Number(event.timestamp)) : new Date(),
@@ -220,6 +225,8 @@ export async function handleInstagramMessage({ workspaceId, accountId, event, fl
   const { contact, isNew } = await ensureContact(workspaceId, parsed.senderId);
   const conversation = await ensureConversation(workspaceId, contact.id);
   const previousLastMessageAt = conversation.lastMessageAt ?? null;
+  // Read before this message reopens the thread (see resolveHandoff).
+  const previousStatus = conversation.status ?? null;
 
   // Idempotent on Instagram's message id, like WhatsApp's: a redelivered
   // webhook must not store the message twice or answer it twice.
@@ -265,6 +272,7 @@ export async function handleInstagramMessage({ workspaceId, accountId, event, fl
     if (media.transcript) messageBody = media.transcript;
   }
   const customerText = Boolean(messageBody);
+  const mediaType = parsed.media ? parsed.type.toLowerCase() : null;
 
   emitWebhook(workspaceId, 'message.received', {
     conversationId: conversation.id,
@@ -280,11 +288,22 @@ export async function handleInstagramMessage({ workspaceId, accountId, event, fl
     },
   });
 
-  if (conversation.humanHandoffAt) return { handled: false, step: 'human', conversationId: conversation.id };
+  // A person is holding the thread. The hold lapses after HANDOFF_TTL_HOURS
+  // with no reply from them, or once the thread was closed (WF-IN-1).
+  const handoff = await resolveHandoff(conversation, { previousStatus, workspaceId });
+  const match = { messageBody: messageBody || parsed.body, event: customerText ? 'message' : 'media', mediaType, isNewContact: isNew };
+  const suppressed = (reason) => recordSuppressedAutomation({
+    workspaceId, conversationId: conversation.id, contactId: contact.id, reason, match,
+  });
+  if (handoff.paused) {
+    await suppressed(SUPPRESSION_REASONS.handoff(handoff.reasonText));
+    return { handled: false, step: 'human', conversationId: conversation.id };
+  }
 
   // Opt-out. Instagram has no STOP convention of its own, but a customer who
   // writes it means it: the contact is flagged and every send path refuses it.
-  if (customerText && matchOptOutKeyword(messageBody)) {
+  const optOutKeyword = customerText ? matchOptOutKeyword(messageBody) : null;
+  if (optOutKeyword) {
     await prisma.contact.update({ where: { id: contact.id }, data: { optedOut: true, optedOutAt: new Date() } })
       .catch((err) => console.error('[InstagramInbox] Could not record opt-out:', err.message));
     await notifyWorkspace(workspaceId, {
@@ -294,34 +313,24 @@ export async function handleInstagramMessage({ workspaceId, accountId, event, fl
       link: 'inbox',
       meta: { conversationId: conversation.id },
     }).catch((err) => console.warn('[InstagramInbox] Opt-out notification failed:', err.message));
+    await suppressed(SUPPRESSION_REASONS.optout(optOutKeyword));
     return { handled: true, step: 'optout', conversationId: conversation.id };
   }
 
-  // 1. Quickflows — the Instagram-specific keyword replies.
-  if (customerText && pickFlow) {
-    const flow = pickFlow(flows, parsed.storyReply ? 'story_reply' : 'dm', messageBody);
-    if (flow) {
-      const sent = await reply(conversation.id, flow.responseTemplate);
-      if (sent.ok) {
-        await prisma.instagramFlow.update({ where: { id: flow.id }, data: { triggeredCount: { increment: 1 } } })
-          .catch((err) => console.warn(`[InstagramInbox] Could not count a trigger of flow ${flow.id}:`, err.message));
-      }
-      return { handled: true, step: 'quickflow', conversationId: conversation.id };
-    }
-  }
-
-  // 2. Workflows. Message and button steps send through deliverInstagramReply
-  //    (outbound.service.js routes an Instagram conversation there); template
-  //    steps are WhatsApp-only and are skipped.
-  const mediaType = parsed.media ? parsed.type.toLowerCase() : null;
+  // 1. A workflow waiting on this customer's answer takes it first, then
+  //    workflow triggers. Message and button steps send through
+  //    deliverInstagramReply (outbound.service.js routes an Instagram
+  //    conversation there); template steps are WhatsApp-only and are skipped.
+  //
+  //    Quickflows used to run before both, so a catch-all Quickflow ("blank =
+  //    every DM") answered every message — including the answer to a
+  //    workflow's question — and no Instagram workflow ever ran (WF-IN-15).
+  //    A photo with no text does not answer a waiting question.
   let workflowWillReply = false;
   try {
-    const resumed = await resumeAwaitingRun(workspaceId, conversation.id, messageBody || parsed.body);
+    const resumed = customerText ? await resumeAwaitingRun(workspaceId, conversation.id, messageBody) : null;
     const runs = resumed ? [resumed] : await runWorkflowsForInbound(workspaceId, {
-      event: mediaType && !customerText ? 'media' : 'message',
-      mediaType,
-      messageBody: messageBody || parsed.body,
-      isNewContact: isNew,
+      ...match,
       conversationId: conversation.id,
       contactId: contact.id,
     });
@@ -330,6 +339,25 @@ export async function handleInstagramMessage({ workspaceId, accountId, event, fl
     console.error('[InstagramInbox] Workflow execution failed:', err);
   }
   if (workflowWillReply) return { handled: true, step: 'workflow', conversationId: conversation.id };
+
+  // 2. Quickflows with a keyword — the Instagram-specific keyword replies.
+  //    The catch-all ones (no keyword) wait until everything more specific
+  //    has had its turn (step 6).
+  const source = parsed.storyReply ? 'story_reply' : 'dm';
+  const sendQuickflow = async (flow) => {
+    const sent = await reply(conversation.id, flow.responseTemplate);
+    if (sent.ok) {
+      await prisma.instagramFlow.update({ where: { id: flow.id }, data: { triggeredCount: { increment: 1 } } })
+        .catch((err) => console.warn(`[InstagramInbox] Could not count a trigger of flow ${flow.id}:`, err.message));
+    }
+    return { handled: true, step: 'quickflow', conversationId: conversation.id };
+  };
+  const keywordFlows = flows.filter((f) => String(f.keyword || '').trim());
+  const catchAllFlows = flows.filter((f) => !String(f.keyword || '').trim());
+  if (customerText && pickFlow) {
+    const flow = pickFlow(keywordFlows, source, messageBody);
+    if (flow) return sendQuickflow(flow);
+  }
 
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
@@ -342,18 +370,21 @@ export async function handleInstagramMessage({ workspaceId, accountId, event, fl
   let replyText = null;
   let step = null;
   if (customerText) {
-    // 3. The workspace's own escalation rules.
-    const reason = escalationReason(messageBody, workspace?.escalationRules);
-    if (reason) {
-      await escalateToHuman({ workspaceId, conversationId: conversation.id, contact, reason });
-      return { handled: true, step: 'escalated', conversationId: conversation.id };
-    }
-    // 4. Keyword trigger, then the fuzzy intent match.
+    // 3. Keyword trigger, then the fuzzy intent match.
     const trigger = await findMatchingTrigger(workspaceId, messageBody);
     if (trigger) { replyText = trigger.responseTemplate; step = 'trigger'; }
     if (!replyText) {
       const intent = await matchIntent(workspaceId, messageBody).catch(() => null);
       if (intent?.trigger) { replyText = intent.trigger.responseTemplate; step = 'intent'; }
+    }
+    // 4. The AI agent's escalation rules — only while an agent is deployed,
+    //    and only once the workspace's own automations had their turn.
+    if (!replyText && escalationRulesApply(workspace)) {
+      const hit = escalationMatch(messageBody, workspace.escalationRules);
+      if (hit) {
+        await escalateToHuman({ workspaceId, conversationId: conversation.id, contact, reason: hit.reason, reasonCode: hit.reasonCode });
+        return { handled: true, step: 'escalated', conversationId: conversation.id };
+      }
     }
   }
 
@@ -368,17 +399,21 @@ export async function handleInstagramMessage({ workspaceId, accountId, event, fl
     }
   }
 
-  // 6. The AI agent, when one is deployed.
+  // 6. A catch-all Quickflow ("every DM"), last of the configured replies.
+  if (!replyText && customerText && pickFlow) {
+    const flow = pickFlow(catchAllFlows, source, messageBody);
+    if (flow) return sendQuickflow(flow);
+  }
+
+  // 7. The AI agent, when one is deployed. With nothing to say the DM is left
+  //    for the inbox; the contact is not handed off (WF-IN-4).
   if (!replyText && customerText) {
     replyText = await generateAgentReply(workspaceId, messageBody, {
       contactName: contact.name, conversationId: conversation.id,
     }).catch(() => null);
     if (replyText) step = 'agent';
     else if (workspace?.aiAgentEnabled) {
-      await escalateToHuman({
-        workspaceId, conversationId: conversation.id, contact, reason: 'The AI agent could not answer this message',
-      });
-      return { handled: true, step: 'escalated', conversationId: conversation.id };
+      console.log(`[InstagramInbox] The AI agent produced no reply on ${conversation.id} — left for the inbox.`);
     }
   }
 

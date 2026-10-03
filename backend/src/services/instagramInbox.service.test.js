@@ -26,9 +26,12 @@ mock.module('./aiAgent.service.js', {
 });
 const workflowCalls = [];
 let workflowReplies = false;
+let resumedRun = null;
+const resumeCalls = [];
 mock.module('./workflowEngine.service.js', {
   namedExports: {
-    resumeAwaitingRun: async () => null,
+    resumeAwaitingRun: async (ws, conv, text) => { resumeCalls.push(text); return resumedRun; },
+    findMatchingWorkflows: async () => [],
     runWorkflowsForInbound: async (ws, ctx) => { workflowCalls.push(ctx); return workflowReplies ? [{ id: 'run_1' }] : []; },
     runWillSendMessage: () => workflowReplies,
   },
@@ -38,7 +41,8 @@ mock.module('./businessHours.service.js', { namedExports: { isWithinBusinessHour
 const escalations = [];
 mock.module('./intentRouting.service.js', {
   namedExports: {
-    escalationReason: (text) => (/refund/i.test(text) ? 'Refund requested' : null),
+    escalationMatch: (text) => (/refund/i.test(text) ? { rule: 'refund', reason: 'Refund requested', reasonCode: 'escalation_rule:refund' } : null),
+    escalationRulesApply: (ws) => ws?.aiAgentEnabled === true,
     escalateToHuman: async (args) => { escalations.push(args); },
   },
 });
@@ -75,6 +79,7 @@ function reset() {
   db = { contacts: [], conversations: [], messages: [], workspace: { autoWelcomeEnabled: false, aiAgentEnabled: false, escalationRules: {} } };
   replies.length = 0; agentCalls.length = 0; workflowCalls.length = 0; escalations.length = 0; webhooks.length = 0; fetched.length = 0;
   objects.clear();
+  resumedRun = null; resumeCalls.length = 0;
   trigger = null; agentReply = null; workflowReplies = false; transcript = null; profile = { name: 'Riya', username: 'riya.k' };
 }
 
@@ -110,6 +115,8 @@ prisma.message.create = async ({ data }) => {
 };
 prisma.message.update = async ({ where, data }) => Object.assign(db.messages.find((m) => m.id === where.id), data);
 prisma.workspace.findUnique = async () => db.workspace;
+// No person has replied in these threads (automationPause.service.js).
+prisma.message.findFirst = async () => null;
 const flowHits = [];
 prisma.instagramFlow.update = async ({ where }) => { flowHits.push(where.id); return {}; };
 
@@ -144,7 +151,7 @@ test('a first DM creates an Instagram contact and thread, lands in the inbox, an
   assert.equal(webhooks[0].payload.channel, 'instagram');
 });
 
-test('a Quickflow keyword wins over the general triggers, and is counted', async () => {
+test('a Quickflow keyword wins over the general triggers, and is counted — after the workflows had their turn', async () => {
   reset();
   flowHits.length = 0;
   trigger = { keyword: 'price', responseTemplate: 'general' };
@@ -152,7 +159,7 @@ test('a Quickflow keyword wins over the general triggers, and is counted', async
   assert.equal(out.step, 'quickflow');
   assert.equal(replies[0].body, 'Here is our price list');
   assert.deepEqual(flowHits, ['flow_1']);
-  assert.equal(workflowCalls.length, 0);
+  assert.equal(workflowCalls.length, 1, 'workflows are consulted before Quickflows (WF-IN-15)');
 });
 
 test('echoes, our own account, deletions and reactions are not customer messages', async () => {
@@ -185,11 +192,13 @@ test('nothing matched: the deployed AI agent answers, with the conversation for 
   assert.equal(replies[0].body, 'We open at 10am.');
 });
 
-test('the AI agent failing hands the thread to a person when an agent is deployed', async () => {
+test('the AI agent producing no reply leaves the DM for the inbox — it does not hand the thread off (WF-IN-4)', async () => {
   reset();
   db.workspace.aiAgentEnabled = true;
   const out = await run(dm({ text: 'something unusual' }));
-  assert.equal(out.step, 'escalated');
+  assert.equal(out.step, 'unanswered');
+  assert.equal(escalations.length, 0);
+  assert.equal(db.conversations[0].humanHandoffAt, null);
   assert.equal(replies.length, 0);
 });
 
@@ -204,8 +213,9 @@ test('a workflow that will reply keeps the triggers and agent quiet', async () =
   assert.equal(replies.length, 0);
 });
 
-test('escalation rules and a human takeover stop the automation', async () => {
+test('escalation rules (agent deployed) and a human takeover stop the automation', async () => {
   reset();
+  db.workspace.aiAgentEnabled = true;
   agentReply = 'bot';
   assert.equal((await run(dm({ text: 'I want a refund' }))).step, 'escalated');
   assert.equal(escalations[0].reason, 'Refund requested');
@@ -269,4 +279,75 @@ test('parse: shares and story replies', () => {
 test('placeholder phone is stable, unique per IGSID and digit-free', () => {
   assert.equal(instagramPlaceholderPhone('1234567890'), 'ig:bcdefghija');
   assert.notEqual(instagramPlaceholderPhone('12'), instagramPlaceholderPhone('21'));
+});
+
+// ── WF-IN-15: Quickflows no longer run ahead of workflows ──────────────────
+
+const CATCH_ALL = { id: 'flow_all', source: 'dm', keyword: '', responseTemplate: 'Thanks for your DM!' };
+
+test('a catch-all Quickflow does not swallow the answer to a waiting workflow question', async () => {
+  reset();
+  resumedRun = { id: 'run_wait', status: 'COMPLETED' };
+  workflowReplies = true;
+  const out = await run(dm({ text: 'Order 4411' }), [CATCH_ALL]);
+  assert.equal(out.step, 'workflow');
+  assert.deepEqual(resumeCalls, ['Order 4411'], 'the waiting run got the reply first');
+  assert.equal(replies.length, 0, 'the catch-all did not answer over it');
+});
+
+test('a catch-all Quickflow does not swallow a workflow trigger', async () => {
+  reset();
+  workflowReplies = true;
+  const out = await run(dm({ text: 'MENU' }), [CATCH_ALL]);
+  assert.equal(out.step, 'workflow');
+  assert.equal(workflowCalls.length, 1);
+  assert.equal(replies.length, 0);
+});
+
+test('the catch-all Quickflow comes after keyword triggers, and still answers what nothing else did', async () => {
+  reset();
+  trigger = { keyword: 'price', responseTemplate: 'Prices start at 499.' };
+  assert.equal((await run(dm({ text: 'price?' }), [CATCH_ALL])).step, 'trigger');
+  assert.equal(replies.at(-1).body, 'Prices start at 499.');
+
+  agentReply = 'the agent would answer';
+  const out = await run(dm({ text: 'random chatter' }), [CATCH_ALL]);
+  assert.equal(out.step, 'quickflow');
+  assert.equal(replies.at(-1).body, 'Thanks for your DM!');
+  assert.equal(agentCalls.length, 0, 'the catch-all keeps its old precedence over the AI agent');
+});
+
+test('escalation rules do nothing on Instagram while no AI agent is deployed (WF-IN-3)', async () => {
+  reset();
+  db.workspace.escalationRules = { refund: true };
+  const out = await run(dm({ text: 'I want a refund' }));
+  assert.notEqual(out.step, 'escalated');
+  assert.equal(escalations.length, 0);
+});
+
+test('a photo with text: the text is the customer\'s words and reaches the triggers (WF-IN-8)', async () => {
+  reset();
+  trigger = { keyword: 'order', responseTemplate: 'Order desk here.' };
+  const out = await run(dm({ text: 'ORDER 77 arrived broken', attachments: [{ type: 'image', payload: { url: 'https://evil.example.com/a.jpg' } }] }));
+  assert.equal(out.step, 'trigger');
+  assert.equal(workflowCalls[0].event, 'message');
+  assert.equal(workflowCalls[0].mediaType, 'image');
+});
+
+test('a photo with no text does not answer a waiting workflow question', async () => {
+  reset();
+  resumedRun = { id: 'run_wait', status: 'WAITING' };
+  await run(dm({ attachments: [{ type: 'image', payload: { url: 'https://evil.example.com/a.jpg' } }] }));
+  assert.deepEqual(resumeCalls, [], 'not resumed with "[photo]"');
+  assert.equal(workflowCalls[0].event, 'media');
+});
+
+test('a handoff with no reply from a person for HANDOFF_TTL_HOURS lapses, and automation answers again (WF-IN-1)', async () => {
+  reset();
+  trigger = { keyword: 'hi', responseTemplate: 'Hello!' };
+  await run(dm({ text: 'hi' }));
+  db.conversations[0].humanHandoffAt = new Date(Date.now() - 25 * 3_600_000);
+  const out = await run(dm({ text: 'hi again' }));
+  assert.equal(out.step, 'trigger');
+  assert.equal(db.conversations[0].humanHandoffAt, null);
 });
