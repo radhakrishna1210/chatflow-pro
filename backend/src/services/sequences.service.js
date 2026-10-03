@@ -43,14 +43,21 @@ export async function listSequences(workspaceId, { status = '' } = {}) {
  * covers enrolments made by picking the contact rather than the lead. A null
  * user is an internal caller and is not scoped.
  */
+// Enrolments an OWN/TEAM user may see: the contact has no lead, or a lead in
+// their record-visibility scope. Empty (no restriction) for admins, ALL
+// visibility and internal callers (no user).
+async function enrollmentVisibility(workspaceId, user) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  return Object.keys(scope).length > 0
+    ? { contact: { is: { OR: [{ lead: { is: null } }, { lead: { is: scope } }] } } }
+    : {};
+}
+
 export async function getSequence(workspaceId, id, user = null) {
   const sequence = await prisma.sequence.findFirst({ where: { id, workspaceId } });
   if (!sequence) { const e = new Error('Sequence not found'); e.status = 404; throw e; }
 
-  const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const visible = Object.keys(scope).length > 0
-    ? { contact: { is: { OR: [{ lead: { is: null } }, { lead: { is: scope } }] } } }
-    : {};
+  const visible = await enrollmentVisibility(workspaceId, user);
   const enrollments = await prisma.sequenceEnrollment.findMany({
     where: withScope({ sequenceId: id, workspaceId }, visible),
     take: 100,
@@ -265,10 +272,13 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
 }
 
 // `sequenceId`, when given, must match: the route is
-// /sequences/:id/enrollments/:enrollmentId and used to ignore the :id.
-export async function unenroll(workspaceId, enrollmentId, reason = 'Unenrolled manually', { sequenceId } = {}) {
+// /sequences/:id/enrollments/:enrollmentId and used to ignore the :id. With a
+// `user`, an enrolment outside their record visibility is "not found", the
+// same as one that does not exist.
+export async function unenroll(workspaceId, enrollmentId, reason = 'Unenrolled manually', { sequenceId, user = null } = {}) {
+  const visible = await enrollmentVisibility(workspaceId, user);
   const enrollment = await prisma.sequenceEnrollment.findFirst({
-    where: { id: enrollmentId, workspaceId, ...(sequenceId ? { sequenceId } : {}) }, select: { id: true, status: true },
+    where: withScope({ id: enrollmentId, workspaceId, ...(sequenceId ? { sequenceId } : {}) }, visible), select: { id: true, status: true },
   });
   if (!enrollment) { const e = new Error('Enrollment not found'); e.status = 404; throw e; }
   if (['COMPLETED', 'EXITED'].includes(enrollment.status)) return enrollment;

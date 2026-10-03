@@ -38,5 +38,5 @@ export async function enroll(req, res) {
   res.status(201).json(result);
 }
 export async function unenroll(req, res) {
-  res.json(await sequencesService.unenroll(req.params.workspaceId, req.params.enrollmentId, undefined, { sequenceId: req.params.id }));
+  res.json(await sequencesService.unenroll(req.params.workspaceId, req.params.enrollmentId, undefined, { sequenceId: req.params.id, user: req.user }));
 }

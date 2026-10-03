@@ -85,3 +85,26 @@ test('a sequence from another workspace is still a 404', async () => {
   const res = await app.call('GET', '/sequences/seq1', undefined, { workspace: 'ws2' });
   assert.equal(res.status, 404);
 });
+
+// The write side: unenrolling by id is held to the same visibility, and a
+// hidden enrolment answers exactly like one that does not exist.
+test('an OWN-scoped member cannot unenroll a colleague\'s lead, by lead or by contact', async () => {
+  seed('OWN');
+  for (const id of ['e-theirs', 'e-theirs-direct', 'e-missing']) {
+    const res = await app.call('DELETE', `/sequences/seq1/enrollments/${id}`, undefined, { user: 'u1' });
+    assert.equal(res.status, 404, id);
+  }
+  assert.deepEqual(await enrolmentIds({ user: 'u2' }), ['e-plain', 'e-theirs', 'e-theirs-direct', 'e-unowned']);
+  const untouched = await store.prisma.sequenceEnrollment.findFirst({ where: { id: 'e-theirs' } });
+  assert.notEqual(untouched.status, 'EXITED');
+});
+
+test('an OWN-scoped member can unenroll their own lead; an admin can unenroll any', async () => {
+  seed('OWN');
+  let res = await app.call('DELETE', '/sequences/seq1/enrollments/e-mine', undefined, { user: 'u1' });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).status, 'EXITED');
+  res = await app.call('DELETE', '/sequences/seq1/enrollments/e-theirs', undefined, { user: 'u1', role: 'ADMIN' });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).status, 'EXITED');
+});
