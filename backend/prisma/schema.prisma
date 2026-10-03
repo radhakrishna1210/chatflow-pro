@@ -615,6 +615,12 @@ model Conversation {
   // out of the thread; resolving the conversation, or switching the bot back
   // on from the inbox, clears it.
   humanHandoffAt   DateTime?
+  // Why automation was paused (services/automationPause.service.js): e.g.
+  // "customer_asked_human", "escalation_rule:refund", "intent_rule:<name>".
+  // Null when the handoff was set by a path that does not record one; the
+  // reason is then inferred. A handoff lapses after HANDOFF_TTL_HOURS without
+  // a person replying.
+  handoffReason    String?
   lastMessageAt    DateTime            @default(now())
   // When the customer last wrote to us. Meta only allows a free-form (non
   // template) reply within 24 hours of this moment; outside it the send is
@@ -730,6 +736,10 @@ model Message {
   locationLat         Float?
   locationLng         Float?
   locationName        String?
+  // Inbound only: when the automation pipeline finished with this message. A
+  // webhook retry that finds the row stored but this unset (the first attempt
+  // failed part-way) carries on with the automation instead of dropping it.
+  automationProcessedAt DateTime?
 
   sentAt            DateTime           @default(now())
   createdAt         DateTime           @default(now())
@@ -1172,6 +1182,10 @@ model WhatsappFormSubmission {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   completedAt    DateTime?
+  // Set (with completed) when the submission was given up on rather than
+  // finished: a day without an answer, its form no longer Active, or the
+  // customer moving on to another automation.
+  abandonedAt    DateTime?
   form           WhatsappForm @relation(fields: [formId], references: [id], onDelete: Cascade)
   workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
