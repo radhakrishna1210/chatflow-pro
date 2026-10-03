@@ -292,9 +292,9 @@ function AuditTab() {
     if (action) qs.set('action', action);
     if (search.trim()) qs.set('search', search.trim());
     Promise.all([
-      adminFetch(`/platform/audit?${qs.toString()}`).then(r => (r.ok ? r.json() : [])).catch(() => []),
-      adminFetch('/platform/audit/actions').then(r => (r.ok ? r.json() : [])).catch(() => []),
-      adminFetch('/platform/audit/summary').then(r => (r.ok ? r.json() : null)).catch(() => null),
+      adminFetch(`/platform/audit?${qs.toString()}`).then(r => (r.ok ? r.json() : [])).catch((err) => { console.warn('[SuperAdminView] Loading audit log failed:', err?.message || err); return []; }),
+      adminFetch('/platform/audit/actions').then(r => (r.ok ? r.json() : [])).catch((err) => { console.warn('[SuperAdminView] Loading audit actions failed:', err?.message || err); return []; }),
+      adminFetch('/platform/audit/summary').then(r => (r.ok ? r.json() : null)).catch((err) => { console.warn('[SuperAdminView] Loading audit summary failed:', err?.message || err); return null; }),
     ]).then(([rows, acts, sum]) => {
       setEntries(Array.isArray(rows) ? rows : []);
       setActions(Array.isArray(acts) ? acts : []);
@@ -1282,7 +1282,7 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input readOnly value={issued.url || ''} onFocus={(e) => e.target.select()}
                       style={{ flex: 1, minWidth: 0, padding: '7px 10px', borderRadius: 7, background: 'rgba(0,0,0,0.25)', border: '1px solid var(--bd)', color: 'var(--t2)', fontSize: 11.5, fontFamily: 'ui-monospace, monospace', outline: 'none' }} />
-                    <button onClick={async () => { try { await navigator.clipboard.writeText(issued.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} }}
+                    <button onClick={async () => { try { await navigator.clipboard.writeText(issued.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* clipboard blocked: the link is shown */ } }}
                       style={{ padding: '7px 12px', borderRadius: 7, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                       {copied ? 'Copied ✓' : 'Copy link'}
                     </button>

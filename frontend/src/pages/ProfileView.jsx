@@ -364,7 +364,7 @@ const ManageSessionsModal = ({ onClose, onChanged }) => {
     try {
       const currentToken = localStorage.getItem('refreshToken') || '';
       const res = await apiFetch(`/api/v1/users/me/sessions?currentToken=${encodeURIComponent(currentToken)}`);
-      const data = await res.json().catch(() => []);
+      const data = await res.json().catch(() => []); // non-JSON body: the status check below reports it
       if (!res.ok) { setErr(data.error || 'Could not load sessions'); return; }
       setSessions(Array.isArray(data) ? data : []);
     } catch (e) { setErr(e.message); }

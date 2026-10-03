@@ -402,7 +402,7 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
       });
       if (!res.ok) {
         let msg = `Upload failed (${res.status})`;
-        try { const j = await res.json(); if (j.error) msg = j.error; } catch {}
+        try { const j = await res.json(); if (j.error) msg = j.error; } catch { /* error body is not JSON; keep the status message */ }
         setCsvErr(msg);
       } else {
         const result = await res.json();
@@ -429,13 +429,13 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
       wFetch('/clusters')
         .then(r => r.ok && r.json())
         .then(d => { if (Array.isArray(d)) setClusters(d); })
-        .catch(() => {});
+        .catch((err) => console.warn('[CreateCampaign] Loading clusters failed:', err?.message || err));
     }
     if (audienceMethod === 'segment' && segments.length === 0) {
       wFetch('/segments')
         .then(r => r.ok && r.json())
         .then(d => { if (Array.isArray(d)) setSegments(d); })
-        .catch(() => {});
+        .catch((err) => console.warn('[CreateCampaign] Loading segments failed:', err?.message || err));
     }
   }, [audienceMethod]);
 
@@ -1135,7 +1135,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
   const canEnable = !retriesActive;
 
   useEffect(() => {
-    wFetch('/campaigns/fallback-capabilities').then(r => r.ok ? r.json() : null).then(d => { if (d) setCaps(d); }).catch(() => {});
+    wFetch('/campaigns/fallback-capabilities').then(r => r.ok ? r.json() : null).then(d => { if (d) setCaps(d); }).catch((err) => console.warn('[CreateCampaign] Loading fallback capabilities failed:', err?.message || err));
   }, []);
 
   const commit = () => {
@@ -1219,7 +1219,7 @@ const PhonePreview = ({ template, templateBody, ctaLabel = '' }) => {
     try {
       const u = JSON.parse(localStorage.getItem('user') || '{}');
       if (u.workspaceName) setBusinessName(u.workspaceName);
-    } catch {}
+    } catch { /* storage blocked or cached user unreadable: the preview name is cosmetic */ }
   }, []);
 
   useEffect(() => {
@@ -1481,15 +1481,15 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
   const [estimateError, setEstimateError] = useState('');
 
   const reloadContacts = () => {
-    wFetch('/contacts').then(r=>r.ok&&r.json()).then(d=>{ const list=Array.isArray(d)?d:d?.data; if(Array.isArray(list)) setContacts(list); }).catch(()=>{});
+    wFetch('/contacts').then(r=>r.ok&&r.json()).then(d=>{ const list=Array.isArray(d)?d:d?.data; if(Array.isArray(list)) setContacts(list); }).catch(err=>console.warn('[CreateCampaign] Loading contacts failed:', err?.message||err));
   };
 
   useEffect(() => {
-    wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setNumbers(d); }).catch(()=>{});
+    wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setNumbers(d); }).catch(err=>console.warn('[CreateCampaign] Loading WhatsApp numbers failed:', err?.message||err));
     // Authentication templates are sent only through the Authentication API/OTP
     // flow, not a normal campaign — excluded from this picker alongside the
     // existing approved-status filter.
-    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t=>(t.status==='APPROVED'||t.status==='Approved') && (String(t.category).toUpperCase() !== 'AUTHENTICATION' || isCopyCodeOtpTemplate(t)))); }).catch(()=>{});
+    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t=>(t.status==='APPROVED'||t.status==='Approved') && (String(t.category).toUpperCase() !== 'AUTHENTICATION' || isCopyCodeOtpTemplate(t)))); }).catch(err=>console.warn('[CreateCampaign] Loading templates failed:', err?.message||err));
     // Deployed agents the campaign can be pointed at. One deployed agent is
     // preselected so enabling the step is a single click.
     wFetch('/ai-agent/agents').then(r=>r.ok&&r.json()).then(d=>{
@@ -1497,7 +1497,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
       setAgents(d);
       const live = d.filter(a => a.deployed);
       if (live.length === 1) setAiAgentId(live[0].id);
-    }).catch(()=>{});
+    }).catch(err=>console.warn('[CreateCampaign] Loading AI agents failed:', err?.message||err));
     reloadContacts();
   }, []);
 
@@ -1712,7 +1712,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
         method: 'POST', body: JSON.stringify({ scheduledAt: effectiveScheduledAt, retryConfig }),
       });
       if (!launchRes.ok) throw new Error(await parseError(launchRes, `Could not launch campaign (${launchRes.status})`));
-      const launched = await launchRes.json().catch(() => null);
+      const launched = await launchRes.json().catch(() => null); // launch already succeeded; the body only refines the toast
 
       // The launch charged the wallet — tell the sidebar, the dashboard and
       // the bell so none of them show a stale balance.

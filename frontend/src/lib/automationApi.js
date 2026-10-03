@@ -15,7 +15,7 @@ export async function wJson(path, opts) {
 
   if (res.status === 204) return { ok: true, data: null, locked: false };
 
-  const data = await res.json().catch(() => null);
+  const data = await res.json().catch(() => null); // error bodies are not always JSON; the status still decides
   if (res.ok) return { ok: true, data, locked: false };
 
   return {

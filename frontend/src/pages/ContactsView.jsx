@@ -470,7 +470,7 @@ const CreateClusterModal = ({ cluster = null, onClose, onSaved }) => {
         const list = Array.isArray(d) ? d : (d?.data ?? []);
         setContacts(list);
       })
-      .catch(() => {})
+      .catch((err) => console.warn('[ContactsView] Loading contacts for the cluster picker failed:', err?.message || err))
       .finally(() => setLoading(false));
   }, []);
 
@@ -479,7 +479,7 @@ const CreateClusterModal = ({ cluster = null, onClose, onSaved }) => {
     wFetch(`/clusters/${cluster.id}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setSelectedIds(new Set((d.memberContacts ?? []).map((c) => c.id))); })
-      .catch(() => {});
+      .catch((err) => console.warn('[ContactsView] Loading cluster members failed:', err?.message || err));
   }, [isEdit, cluster?.id]);
 
   const toggle = (id) => {
@@ -695,7 +695,7 @@ export default function ContactsView() {
         // Selections refer to rows that are no longer on screen.
         setSelected(new Set());
       })
-      .catch(() => {})
+      .catch((err) => console.warn('[ContactsView] Loading contacts failed:', err?.message || err))
       .finally(() => { if (token === loadToken.current) setLoading(false); });
   }, [debouncedSearch, selectedCluster, filters, sort, page]);
 
@@ -703,7 +703,7 @@ export default function ContactsView() {
 
   const loadClusters = useCallback(() => {
     wFetch('/clusters').then(r => r.ok && r.json())
-      .then(d => { if (Array.isArray(d)) setClusters(d); }).catch(() => {});
+      .then(d => { if (Array.isArray(d)) setClusters(d); }).catch((err) => console.warn('[ContactsView] Loading clusters failed:', err?.message || err));
   }, []);
 
   const deleteCluster = async (c) => {
@@ -725,9 +725,9 @@ export default function ContactsView() {
   useEffect(() => {
     loadClusters();
     wFetch('/segments').then(r => r.ok && r.json())
-      .then(d => { if (Array.isArray(d)) setSegments(d); else if (Array.isArray(d?.data)) setSegments(d.data); }).catch(() => {});
+      .then(d => { if (Array.isArray(d)) setSegments(d); else if (Array.isArray(d?.data)) setSegments(d.data); }).catch((err) => console.warn('[ContactsView] Loading segments failed:', err?.message || err));
     wFetch('/contacts/tags').then(r => r.ok && r.json())
-      .then(d => { if (Array.isArray(d)) setAvailableTags(d); }).catch(() => {});
+      .then(d => { if (Array.isArray(d)) setAvailableTags(d); }).catch((err) => console.warn('[ContactsView] Loading tags failed:', err?.message || err));
   }, []);
 
   // Global header search ("app:search") lands here with the query prefilled.

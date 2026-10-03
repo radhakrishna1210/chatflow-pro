@@ -23,7 +23,7 @@ export const SavedViews = ({ entity, current, onApply }) => {
     wFetch(`/saved-views?entity=${encodeURIComponent(entity)}`)
       .then(r => (r.ok ? r.json() : { data: [] }))
       .then(d => setViews(d.data ?? []))
-      .catch(() => {});
+      .catch((e) => setErr(e?.message || 'Could not load saved views'));
   }, [entity]);
 
   useEffect(() => { load(); }, [load]);

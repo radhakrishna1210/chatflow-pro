@@ -219,8 +219,8 @@ export const QuotesView = () => {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    wFetch('/products').then(r => r.ok && r.json()).then(d => setProducts(d?.data ?? [])).catch(() => {});
-    wFetch('/deals').then(r => r.ok && r.json()).then(d => setDeals(d?.data ?? [])).catch(() => {});
+    wFetch('/products').then(r => r.ok && r.json()).then(d => setProducts(d?.data ?? [])).catch((err) => console.warn('[QuotesView] Loading products failed:', err?.message || err));
+    wFetch('/deals').then(r => r.ok && r.json()).then(d => setDeals(d?.data ?? [])).catch((err) => console.warn('[QuotesView] Loading deals failed:', err?.message || err));
   }, []);
 
   const create = async () => {

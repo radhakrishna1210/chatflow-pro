@@ -126,7 +126,7 @@ export default function AgentTab({ targetType, targetId }) {
     wFetch('/agent/settings')
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => { if (s) setAgentOn(s.enabled === true); })
-      .catch(() => {});
+      .catch((err) => console.warn('[AgentTab] Loading agent settings failed:', err?.message || err));
   }, []);
 
   const toggleAgent = async () => {

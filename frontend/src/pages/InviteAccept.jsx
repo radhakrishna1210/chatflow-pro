@@ -60,7 +60,7 @@ export default function InviteAccept() {
     apiFetch('/api/v1/workspaces/mine')
       .then((r) => (r.ok ? r.json() : []))
       .then((list) => setOtherWorkspaces(Array.isArray(list) ? list : []))
-      .catch(() => {});
+      .catch((err) => console.warn('[InviteAccept] Loading current workspaces failed:', err?.message || err));
   }, [state]);
 
   const accept = async () => {

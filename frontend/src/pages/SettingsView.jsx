@@ -165,9 +165,9 @@ export default function SettingsView() {
         timezone: d.timezone || 'Asia/Kolkata',
         brandColor: d.brandColor || '#35e8f2',
         brandLogoUrl: d.brandLogoUrl || '',
-      }); }}).catch(()=>{});
-    wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
-    if (canInvite) wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(()=>{});
+      }); }}).catch(err=>console.warn('[SettingsView] Loading settings failed:', err?.message||err));
+    wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(err=>console.warn('[SettingsView] Loading members failed:', err?.message||err));
+    if (canInvite) wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(err=>console.warn('[SettingsView] Loading invitations failed:', err?.message||err));
     // A failed load must not look like "no invoices yet".
     wFetch('/settings/invoices')
       .then(r => { if (!r.ok) throw new Error(`Could not load invoices (${r.status})`); return r.json(); })
@@ -179,7 +179,7 @@ export default function SettingsView() {
         const todayData = d.dailyVolume.find(v => v.date === todayIso) || d.dailyVolume[d.dailyVolume.length - 1];
         setSentToday(todayData?.sent || 0);
       }
-    }).catch(()=>{});
+    }).catch(err=>console.warn('[SettingsView] Loading daily volume failed:', err?.message||err));
   }, []);
 
   const saveWebhook = async () => {
@@ -191,7 +191,7 @@ export default function SettingsView() {
     setWebhookError(null);
     const r = await wFetch('/settings', { method:'PATCH', body:JSON.stringify({ webhookUrl: trimmed }) }).catch(()=>null);
     if (!r || !r.ok) {
-      const data = await r.json().catch(()=>({}));
+      const data = r ? await r.json().catch(()=>({})) : {};
       setWebhookError(data.error || 'Could not save webhook URL');
     }
   };
@@ -215,7 +215,7 @@ export default function SettingsView() {
   };
 
   const reloadMembers = () =>
-    wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
+    wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(err=>console.warn('[SettingsView] Reloading members failed:', err?.message||err));
 
   const delMember = async (m) => {
     const label = m.userId === currentUserId ? 'Leave this workspace?' : `Remove ${m.user.name} from this workspace?`;
@@ -597,7 +597,7 @@ export default function SettingsView() {
                 <input readOnly value={lastInvite.url || ''} onFocus={e=>e.target.select()}
                   style={{ flex:1, minWidth:0, padding:'8px 10px', borderRadius:7, background:'rgba(0,0,0,0.25)', border:'1px solid var(--bd)', color:'var(--t2)', fontSize:11.5, fontFamily:'ui-monospace, monospace', outline:'none' }} />
                 <Btn size="sm" variant="outline" onClick={async ()=>{
-                  try { await navigator.clipboard.writeText(lastInvite.url); setCopiedInvite(true); setTimeout(()=>setCopiedInvite(false), 2000); } catch {}
+                  try { await navigator.clipboard.writeText(lastInvite.url); setCopiedInvite(true); setTimeout(()=>setCopiedInvite(false), 2000); } catch { /* clipboard blocked: the link is selectable above */ }
                 }}>{copiedInvite ? 'Copied ✓' : 'Copy link'}</Btn>
               </div>
             </div>

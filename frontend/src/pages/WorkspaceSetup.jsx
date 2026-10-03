@@ -94,13 +94,13 @@ export default function WorkspaceSetup({ onNav }) {
     const chosenGoal = GOALS.find(g => g.id === goal);
 
     if (chosenIndustry) {
-      await wFetch('/settings', { method: 'PATCH', body: JSON.stringify({ industry: chosenIndustry }) }).catch(() => {});
+      await wFetch('/settings', { method: 'PATCH', body: JSON.stringify({ industry: chosenIndustry }) }).catch((err) => console.warn('[WorkspaceSetup] Saving industry failed:', err?.message || err));
     }
     if (wantsAI && chosenGoal) {
       await wFetch('/ai-agent/config', {
         method: 'PATCH',
         body: JSON.stringify({ purpose: chosenGoal.purpose }),
-      }).catch(() => {});
+      }).catch((err) => console.warn('[WorkspaceSetup] Saving AI agent purpose failed:', err?.message || err));
     }
   };
 

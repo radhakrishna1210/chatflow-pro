@@ -215,8 +215,8 @@ const KnowledgePanel = () => {
   const [uploading, setUploading] = useState(false);
 
   const load = useCallback(() => {
-    wFetch('/widgets/knowledge').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setSources(d); }).catch(() => {});
-    wFetch('/widgets/knowledge/status').then(r => r.ok && r.json()).then(d => d && setStatus(d)).catch(() => {});
+    wFetch('/widgets/knowledge').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setSources(d); }).catch((err) => console.warn('[WidgetsView] Loading knowledge sources failed:', err?.message || err));
+    wFetch('/widgets/knowledge/status').then(r => r.ok && r.json()).then(d => d && setStatus(d)).catch((err) => console.warn('[WidgetsView] Loading knowledge status failed:', err?.message || err));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -447,7 +447,7 @@ const WidgetEditor = ({ widget, numbers, onClose, onSaved }) => {
     navigator.clipboard?.writeText(widget.installSnippet).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-    }).catch(() => {});
+    }).catch(() => {}); // clipboard can be blocked; the snippet stays on screen
   };
 
   return (
@@ -710,10 +710,10 @@ export default function WidgetsView() {
   const load = useCallback(() => {
     setLoading(true);
     wFetch('/widgets').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setWidgets(d); })
-      .catch(() => {}).finally(() => setLoading(false));
-    wFetch('/widgets/analytics').then(r => r.ok && r.json()).then(d => d && setAnalytics(d)).catch(() => {});
-    wFetch('/widgets/sessions?limit=8').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setSessions(d); }).catch(() => {});
-    wFetch('/whatsapp/numbers').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setNumbers(d); }).catch(() => {});
+      .catch((err) => console.warn('[WidgetsView] Loading widgets failed:', err?.message || err)).finally(() => setLoading(false));
+    wFetch('/widgets/analytics').then(r => r.ok && r.json()).then(d => d && setAnalytics(d)).catch((err) => console.warn('[WidgetsView] Loading widget analytics failed:', err?.message || err));
+    wFetch('/widgets/sessions?limit=8').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setSessions(d); }).catch((err) => console.warn('[WidgetsView] Loading widget sessions failed:', err?.message || err));
+    wFetch('/whatsapp/numbers').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setNumbers(d); }).catch((err) => console.warn('[WidgetsView] Loading WhatsApp numbers failed:', err?.message || err));
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -731,7 +731,7 @@ export default function WidgetsView() {
     load();
   };
 
-  const copy = (w) => navigator.clipboard?.writeText(w.installSnippet).catch(() => {});
+  const copy = (w) => navigator.clipboard?.writeText(w.installSnippet).catch(() => {}); // clipboard can be blocked; the snippet stays on screen
 
   if (editing) {
     return (

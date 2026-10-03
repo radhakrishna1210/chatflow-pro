@@ -45,10 +45,10 @@ export default function AnalyticsView() {
 
   const loadData = (days = range) => {
     Promise.all([
-      wFetch(`/analytics/overview?days=${days}`).then(r=>r.ok&&r.json()).catch(()=>null),
-      wFetch(`/analytics/delivery?days=${days}`).then(r=>r.ok&&r.json()).catch(()=>null),
-      wFetch(`/analytics/campaigns?days=${days}`).then(r=>r.ok&&r.json()).catch(()=>null),
-      wFetch(`/analytics/agents?days=${days}`).then(r=>r.ok&&r.json()).catch(()=>null),
+      wFetch(`/analytics/overview?days=${days}`).then(r=>r.ok&&r.json()).catch(err=>{ console.warn('[AnalyticsView] Loading overview failed:', err?.message||err); return null; }),
+      wFetch(`/analytics/delivery?days=${days}`).then(r=>r.ok&&r.json()).catch(err=>{ console.warn('[AnalyticsView] Loading delivery stats failed:', err?.message||err); return null; }),
+      wFetch(`/analytics/campaigns?days=${days}`).then(r=>r.ok&&r.json()).catch(err=>{ console.warn('[AnalyticsView] Loading campaign stats failed:', err?.message||err); return null; }),
+      wFetch(`/analytics/agents?days=${days}`).then(r=>r.ok&&r.json()).catch(err=>{ console.warn('[AnalyticsView] Loading agent stats failed:', err?.message||err); return null; }),
     ]).then(([ov, del, camp, ag]) => {
       if (ov)  setKpi(ov);
       if (Array.isArray(del))  setDelivery(del);
@@ -118,13 +118,13 @@ export default function AnalyticsView() {
     wFetch(`/analytics/performance?days=${range}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (perfAlive && d) setPerf(d); })
-      .catch(() => {});
+      .catch((err) => console.warn('[AnalyticsView] Loading performance failed:', err?.message || err));
 
     let insightsAlive = true;
     wFetch(`/analytics/insights?days=${range}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (insightsAlive && d) setTopics(d.topics || []); })
-      .catch(() => {});
+      .catch((err) => console.warn('[AnalyticsView] Loading insights failed:', err?.message || err));
 
     return () => {
       perfAlive = false;

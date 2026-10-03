@@ -12,7 +12,7 @@ export const WalletSummaryCards = () => {
     const load = () => wFetch('/wallet/summary')
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (alive && d) setSummary(d); })
-      .catch(() => {});
+      .catch((err) => console.warn('[WalletSummaryCards] Loading wallet summary failed:', err?.message || err));
     load();
     const onUpdated = () => load();
     window.addEventListener('wallet:balance-updated', onUpdated);

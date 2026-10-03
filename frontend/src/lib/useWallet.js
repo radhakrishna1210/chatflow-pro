@@ -41,7 +41,7 @@ function load() {
   inFlight = wFetch('/wallet')
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => { if (d) emit({ wallet: d }); return d; })
-    .catch(() => null)
+    .catch((err) => { console.warn('[useWallet] Loading wallet failed:', err?.message || err); return null; })
     .finally(() => { inFlight = null; if (snapshot.loading) emit({ loading: false }); });
   return inFlight;
 }

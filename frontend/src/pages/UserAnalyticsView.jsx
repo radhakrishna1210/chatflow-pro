@@ -127,8 +127,8 @@ export default function UserAnalyticsView() {
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
-      wFetch(`/analytics/audience?weeks=${weeks}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
-      wFetch('/analytics/agents').then(r => (r.ok ? r.json() : [])).catch(() => []),
+      wFetch(`/analytics/audience?weeks=${weeks}`).then(r => (r.ok ? r.json() : null)).catch((err) => { console.warn('[UserAnalyticsView] Loading audience failed:', err?.message || err); return null; }),
+      wFetch('/analytics/agents').then(r => (r.ok ? r.json() : [])).catch((err) => { console.warn('[UserAnalyticsView] Loading agent stats failed:', err?.message || err); return []; }),
     ]).then(([aud, ag]) => {
       if (aud) setAudience(aud);
       if (Array.isArray(ag)) setAgents(ag);

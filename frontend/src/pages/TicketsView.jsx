@@ -98,7 +98,7 @@ const NewTicket = ({ contacts, members, onClose, onCreated }) => {
           if (def) setDefaultStageLabel(def.label || def.key);
         }
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[TicketsView] Loading ticket customization failed:', err?.message || err));
   }, []);
 
   const save = async () => {

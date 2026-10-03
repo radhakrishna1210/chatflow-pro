@@ -191,7 +191,7 @@ export default function EngagementsView({ user, initialTab }) {
           setSelectedLeadId(list[0].id);
         }
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[EngagementsView] Loading leads failed:', err?.message || err));
   }, [selectedLeadId]);
 
   // Select all checkbox handler

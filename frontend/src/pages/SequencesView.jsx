@@ -242,7 +242,7 @@ const EnrollModal = ({ sequenceId, onClose, onEnrolled }) => {
       wFetch(`/contacts?search=${encodeURIComponent(search)}&limit=25`)
         .then(r => (r.ok ? r.json() : { data: [] }))
         .then(d => setContacts(d.data ?? []))
-        .catch(() => {});
+        .catch((err) => console.warn('[SequencesView] Searching contacts failed:', err?.message || err));
     }, 200);
     return () => clearTimeout(t);
   }, [search]);

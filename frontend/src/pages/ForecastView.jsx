@@ -140,7 +140,7 @@ export const ForecastView = ({ user }) => {
     wFetch('/pipeline-stages')
       .then(r => (r.ok ? r.json() : { data: [] }))
       .then(d => setStages(d.data ?? []))
-      .catch(() => {});
+      .catch((err) => console.warn('[ForecastView] Loading pipeline stages failed:', err?.message || err));
   }, []);
 
   useEffect(() => { load(); }, [load]);

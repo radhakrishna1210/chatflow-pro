@@ -360,7 +360,7 @@ export default function InboxView() {
     const loadMsgs = () =>
       wFetch(`/conversations/${activeId}/messages`)
         .then(async (r) => {
-          const d = await r.json().catch(() => null);
+          const d = await r.json().catch(() => null); // error bodies are not always JSON
           if (!r.ok) throw new Error(d?.error || `Could not load messages (${r.status})`);
           return d;
         })
@@ -417,7 +417,7 @@ export default function InboxView() {
     wFetch('/members')
       .then(r => (r.ok ? r.json() : []))
       .then(d => setMembers(Array.isArray(d) ? d : (d?.data || [])))
-      .catch(() => {});
+      .catch((err) => console.warn('[InboxView] Loading members failed:', err?.message || err));
   }, []);
 
   const askForSuggestion = async () => {
@@ -444,11 +444,13 @@ export default function InboxView() {
     }).catch(() => null);
     setBusyAction(false);
     if (res?.ok) {
-      const updated = await res.json().catch(() => null);
+      const updated = await res.json().catch(() => null); // the change was saved; the body only refines the row
       setConvs(list => list.map(c => (c.id === activeId
         ? { ...c, assignedToUserId: updated?.assignedToUserId ?? null, assignedTo: updated?.assignedTo ?? null }
         : c)));
       loadContext(activeId);
+    } else {
+      notify((await res?.json().catch(() => null))?.error || 'Could not assign the conversation');
     }
   };
 
@@ -462,6 +464,8 @@ export default function InboxView() {
     if (res?.ok) {
       setConvs(list => list.map(c => (c.id === activeId ? { ...c, status } : c)));
       loadContext(activeId);
+    } else {
+      notify((await res?.json().catch(() => null))?.error || 'Could not change the conversation status');
     }
   };
 
@@ -502,6 +506,7 @@ export default function InboxView() {
     }).catch(() => null);
     setSavingNote(false);
     if (res?.ok) { setNoteDraft(''); loadNotes(activeId); }
+    else notify((await res?.json().catch(() => null))?.error || 'Could not save the note');
   };
 
   const send = async () => {
@@ -535,7 +540,7 @@ export default function InboxView() {
     wFetch('/templates?status=APPROVED')
       .then(r => (r.ok ? r.json() : []))
       .then(d => { if (Array.isArray(d)) setTemplates(d.filter(t => t.status === 'APPROVED')); })
-      .catch(() => {});
+      .catch((err) => console.warn('[InboxView] Loading templates failed:', err?.message || err));
   }, []);
 
   const sendTemplate = async (template) => {
