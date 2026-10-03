@@ -118,7 +118,28 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
 
+      # --- File storage (strongly recommended on Render) ---
+      # Render's disk is wiped on every deploy, so without a bucket archived
+      # WhatsApp/Instagram media is lost (boot logs a loud warning). Any
+      # S3-compatible bucket works — see backend/.env.example for AWS S3,
+      # Cloudflare R2 (S3_ENDPOINT + S3_REGION=auto) and Supabase Storage.
+      # Template header images stay in Postgres until a bucket is set.
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_PREFIX
+        sync: false
+
       # --- Optional integrations (leave unset to disable) ---
+      # GEMINI_API_KEY also transcribes voice notes into the automation
+      # (VOICE_TRANSCRIPTION=false turns that off).
       - key: GEMINI_API_KEY
         sync: false
       - key: OPENAI_API_KEY

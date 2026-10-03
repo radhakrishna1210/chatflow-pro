@@ -115,7 +115,8 @@ uses the database.
 | `META_TWO_STEP_PIN` | Optional 6-digit PIN for numbers that already have two-step verification |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Cloud Console → Credentials |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Needed for plan checkout, add-ons and wallet top-ups |
-| Optional | `GEMINI_API_KEY`, `OPENAI_API_KEY`, `CLOUDFLARE_*`, `TWILIO_*`, `INSTAGRAM_*`, `SMTP_*`, `EMAIL_FROM` |
+| `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PREFIX` | File storage bucket — needed on Render, whose disk is wiped on every deploy (§4 step 10) |
+| Optional | `GEMINI_API_KEY` (also voice-note transcription), `OPENAI_API_KEY`, `CLOUDFLARE_*`, `TWILIO_*`, `INSTAGRAM_*`, `SMTP_*`, `EMAIL_FROM` |
 
    `render.yaml` already sets `NODE_VERSION=22`, `NODE_ENV=production`,
    `PORT=10000`, `TRUST_PROXY_HOPS=1`, `RUN_WORKERS=true` and `REDIS_URL` from
@@ -165,8 +166,10 @@ deploy logs, not the build logs); one after `[Redis]` means Redis is unreachable
   restart. Do not move the queues to a per-request-billed Redis (Upstash): idle
   BullMQ polling exhausted its quota once. Polling is tuned by
   `WORKER_DRAIN_DELAY_SEC` (60) and `WORKER_STALLED_INTERVAL_MS` (5 min).
-- **Uploads are ephemeral**: files written to local disk are lost on every
-  deploy/restart.
+- **Use a bucket for files**: Render's disk is wiped on every deploy and
+  restart. Without `S3_BUCKET` the app keeps archived WhatsApp/Instagram media
+  on that disk (and logs a loud `[Storage] WARNING` at boot); template header
+  images stay in Postgres. Set the `S3_*` variables (§4 step 10).
 - **Region**: `singapore`; keep the database and service in the same region.
 
 ---
@@ -240,6 +243,8 @@ release. Do them in this order.
    | `20261002150000_workflow_run_resume_and_cancel` | `WorkflowRunStatus.CANCELLED`, `WorkflowRun.resumeAt`, `version`, index |
    | `20261002180000_workspace_autonomous_agent_enabled` | `Workspace.autonomousAgentEnabled` (default true) |
    | `20261002190000_fk_actions_and_hot_indexes` | Foreign-key delete/update actions and hot-path indexes |
+   | `20261003140000_object_storage_keys` | `TemplateAsset.bytes` nullable + `storageKey`; `Message.mediaStorageKey`, `mediaSize` |
+   | `20261003141000_instagram_inbox_and_voice_transcripts` | `Message.transcript`; `Conversation.channel` (enum, default WHATSAPP) + one-Instagram-thread-per-contact partial unique index; `Contact.instagramUserId`/`instagramUsername` (unique per workspace) |
 
    Both stacks share the database, so migrations run once; the second stack's
    `migrate deploy` is a no-op.
@@ -271,6 +276,56 @@ release. Do them in this order.
    `ENCRYPTION_KEYS_PREVIOUS`, `EXPOSE_ERROR_DETAIL` (leave unset on servers).
 9. **Render health check path** is now `/api/v1/health/ready` (in
    `render.yaml`; update it by hand on a dashboard-created service).
+10. **File storage (CF-165).** Media and template images go through
+    `src/lib/storage`: an S3-compatible bucket when `S3_BUCKET` is set, local
+    disk (`STORAGE_DISK_ROOT`, default `backend/uploads`) otherwise.
+    - **Render: configure a bucket.** Create a *private* bucket on AWS S3,
+      Cloudflare R2 (`S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com`,
+      `S3_REGION=auto`), Supabase Storage (`S3_ENDPOINT=https://<project-ref>.supabase.co/storage/v1/s3`,
+      `S3_REGION=<project region>`, keys from Project Settings → Storage → S3
+      access keys) or MinIO, with an access key limited to that bucket
+      (GetObject, PutObject, DeleteObject; HeadObject is GetObject). Set
+      `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and the endpoint /
+      region on **every** stack (they share one database, so a key written by one
+      must be readable by the other). `S3_PREFIX` (e.g. `prod`) lets stacks or
+      environments share a bucket. No CORS is needed: the app streams files.
+    - **Boot log** says `[Storage] Files are stored in s3 bucket "…"`. A bucket
+      with missing credentials stops a production boot; the disk driver on
+      Render boots with a `[Storage] WARNING … WIPED on every deploy` banner.
+    - **Move existing files** (idempotent; re-run any time):
+      ```bash
+      cd backend
+      node scripts/migrate-uploads-to-object-storage.js                  # dry run
+      node scripts/migrate-uploads-to-object-storage.js --apply          # copy disk files + TemplateAsset bytes
+      node scripts/migrate-uploads-to-object-storage.js --apply --purge-db-bytes   # later: drop the Postgres copies
+      ```
+      Run it where the old files are (the VPS `backend/` directory; Render's
+      disk has nothing worth copying) with the `S3_*` variables set. To switch
+      with no gap: set the `S3_*` variables plus `STORAGE_DRIVER=disk`, run
+      `--apply`, remove `STORAGE_DRIVER` and redeploy both stacks, then run
+      `--apply` once more for files written in between. Template images
+      already in Postgres keep working without the script; it only moves them.
+    - **VPS without a bucket** keeps `backend/uploads/` (git-ignored, survives
+      `deploy-vps.sh`); back it up with the server, or point
+      `STORAGE_DISK_ROOT` outside the checkout.
+11. **Voice notes and Instagram DMs (CF-224).**
+    - With `GEMINI_API_KEY` set, inbound voice notes are transcribed and run
+      through opt-out, workflows, keyword triggers, intents and the AI agent
+      like text; the transcript is the message body (`Message.transcript`
+      marks it). `VOICE_TRANSCRIPTION=false` turns it off. Without a
+      transcript a voice note is an audio message: only a workflow with the new
+      **Media Received** trigger answers it. Note a transcribed "stop" opts the
+      number out, as typed text does.
+    - Instagram DMs now land in the inbox (Instagram badge) and run Quickflows,
+      workflows, triggers, welcome/out-of-office and the AI agent. Replies are
+      metered like automated WhatsApp replies and refused outside Instagram's
+      24-hour window; templates and attachments are WhatsApp-only. Sends now go
+      to `graph.instagram.com`; **reconnect Instagram** on each workspace
+      (Automation → Instagram) so the stored account id is the one webhooks
+      use (`/me` `user_id`) — a workspace whose DMs log `No workspace connected
+      for IG user …` needs this. The Meta app must have the
+      `instagram_business_manage_messages` permission and the Instagram
+      webhook subscribed to `messages` (and `comments` for comment flows).
 
 ### User-visible permission changes
 
