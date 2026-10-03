@@ -204,6 +204,13 @@ export default function ContactDetailsPanel({ contactId, onClose, onContactUpdat
               }}>
                 {contact.optedOut ? 'Opted Out' : 'Active'}
               </span>
+              {/* Opt-in evidence (e.g. consent on a lead form). An opt-out wins over it. */}
+              {contact.optInAt && !contact.optedOut && (
+                <span title={contact.optInText || undefined} style={{ fontSize: 10.5, color: 'var(--t3)', textAlign: 'center' }}>
+                  Opted in {new Date(contact.optInAt).toLocaleDateString()}
+                  {contact.optInSource ? ` via ${String(contact.optInSource).replace(/^lead_form:/, 'form ')}` : ''}
+                </span>
+              )}
             </div>
 
             {/* profile */}

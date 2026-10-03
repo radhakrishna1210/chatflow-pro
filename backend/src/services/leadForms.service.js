@@ -270,6 +270,15 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   if (form.consentText && body?.consent !== true) {
     const e = new Error('Please agree before submitting'); e.status = 400; throw e;
   }
+  // The consent is copied onto the contact as opt-in evidence, not just kept
+  // on the submission row, so messaging can show where the opt-in came from.
+  const consentAt = form.consentText ? new Date() : null;
+  const optIn = consentAt ? {
+    optInAt: consentAt,
+    optInSource: `lead_form:${form.slug}`,
+    optInText: form.consentText,
+    optInIpHash: hashIp(ip),
+  } : null;
 
   const record = async (outcome, reason, extra = {}) => {
     if (outcome !== 'CREATED' && !(await underUnproductiveCap())) return null;
@@ -278,7 +287,7 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
         workspaceId, formId: form.id, answers, outcome, reason,
         attribution: attribution ?? undefined,
         consentText: form.consentText ?? null,
-        consentAt: form.consentText ? new Date() : null,
+        consentAt,
         ipHash: hashIp(ip),
         ...extra,
       },
@@ -317,6 +326,7 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   // Two submissions of the same number can race here (double-submit, a
   // retrying embed). The loser of the unique constraint re-reads the winner's
   // row instead of failing with a 500.
+  let createdHere = false;
   if (!contact) {
     if (!(await hasContactCapacity(workspaceId))) {
       await record('REJECTED', 'Plan contact limit reached');
@@ -324,12 +334,24 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
     }
     try {
       contact = await prisma.contact.create({
-        data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [] },
+        data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [], ...(optIn || {}) },
       });
+      createdHere = true;
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       contact = await findContactByPhone(workspaceId, phoneNumber, { country });
       if (!contact) throw err;
+    }
+  }
+
+  // An existing contact (or the winner of a create race) gets the new consent
+  // too. Conditional on optedOut=false, so a contact who opted out — even
+  // between the read above and this write — is never opted back in.
+  if (optIn && !createdHere) {
+    const { count } = await prisma.contact.updateMany({ where: { id: contact.id, workspaceId, optedOut: false }, data: optIn });
+    if (count === 0) {
+      await record('OPTED_OUT', 'Contact has opted out', { contactId: contact.id });
+      return { ok: true, message: form.successMessage };
     }
   }
 

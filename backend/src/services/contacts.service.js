@@ -315,6 +315,8 @@ const CSV_COLUMNS = [
   ['tags', (c) => (c.tags || []).join('; ')],
   ['segments', (c) => (c.segments || []).map((s) => s.name).join('; ')],
   ['optedOut', (c) => (c.optedOut ? 'yes' : 'no')],
+  ['optInAt', (c) => c.optInAt?.toISOString() ?? ''],
+  ['optInSource', (c) => c.optInSource ?? ''],
   ['createdAt', (c) => c.createdAt?.toISOString() ?? ''],
   ['updatedAt', (c) => c.updatedAt?.toISOString() ?? ''],
 ];

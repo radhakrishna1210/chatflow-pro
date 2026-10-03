@@ -406,6 +406,13 @@ model Contact {
   tags                String[]
   optedOut            Boolean              @default(false)
   optedOutAt          DateTime?
+  // WhatsApp opt-in evidence copied from the consent the contact gave (public
+  // lead form): when, where, the exact wording, and the hashed IP. An opt-out
+  // always wins over it; giving consent never clears `optedOut`.
+  optInAt             DateTime?
+  optInSource         String?
+  optInText           String?
+  optInIpHash         String?
   // { fieldKey: value } against WorkspaceCustomField definitions. Null until
   // the workspace defines a field and sets one.
   customFields        Json?
