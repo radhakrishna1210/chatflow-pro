@@ -218,6 +218,12 @@ release. Do them in this order.
 1. **Dependencies.** `multer` moved to `^2.0.2`. Deploys run `npm ci`, which
    installs it; any long-lived checkout that runs the backend (a dev box, or a
    VPS run without `deploy-vps.sh`) needs `cd backend && npm install`.
+   The frontend build moved to **Vite 7** (`vite ^7.3.6`,
+   `@vitejs/plugin-react ^5.2.0`), which needs **Node >= 22.12** (or 20.19+;
+   `frontend/package.json` engines now say `>=22.12 <23`). Render's
+   `NODE_VERSION=22` and the VPS Node 22.23 both qualify; a box on an older
+   22.x must upgrade Node before `npm ci && npm run build` in `frontend/`.
+   No config changes are needed beyond reinstalling `frontend/node_modules`.
 2. **Prisma client.** The schema changed. `npm ci`/`npm install` regenerate the
    client via `postinstall`; otherwise run `cd backend && npx prisma generate`.
    Code from this release fails on new columns until the client is regenerated.
