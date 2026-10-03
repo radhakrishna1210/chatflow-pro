@@ -77,6 +77,7 @@ test.before(async () => {
   });
   mock.module('../services/recordScope.service.js', { namedExports: unscopedRecordScope });
   mock.module('../services/workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
+  mock.module('../services/crmEvents.service.js', { namedExports: { emitCrmEvent: () => {}, emitCrmEvents: () => {}, applyLeadStatus: async () => ({ changed: false }), currentChainDepth: () => undefined } });
   mock.module('../services/leadScoring.service.js', {
     namedExports: { computeLeadScore: async () => ({ score: 10, factors: [], computedAt: new Date() }) },
   });

@@ -16,6 +16,7 @@ test.before(async () => {
   mockIdentity(mock);
   mock.module('../services/recordScope.service.js', { namedExports: unscopedRecordScope });
   mock.module('../services/workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
+  mock.module('../services/crmEvents.service.js', { namedExports: { emitCrmEvent: () => {}, emitCrmEvents: () => {}, applyLeadStatus: async () => ({ changed: false }), currentChainDepth: () => undefined } });
   mock.module('../services/gamification.service.js', {
     namedExports: { awardXp: async () => {}, unlockAchievement: async () => {}, earnsQualifiedLead: () => false },
   });

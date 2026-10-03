@@ -273,25 +273,22 @@ export async function advanceEnrollment(enrollmentId, { now = new Date(), send }
 
       case 'UPDATE_FIELD': {
         if (enrollment.leadId) {
-          // Held to the workspace's lead lifecycle like any other status write;
-          // a stage removed since the sequence was built is skipped, not forced.
-          const { loadLeadIntakeRules, leadStatusWrite } = await import('./leadIntake.service.js');
-          const lead = await prisma.lead.findFirst({ where: { id: enrollment.leadId, workspaceId: enrollment.workspaceId }, select: { customFields: true } });
-          let write = null;
-          let refusal = lead ? null : 'Lead no longer exists';
-          if (lead) {
-            try {
-              write = leadStatusWrite(await loadLeadIntakeRules(enrollment.workspaceId), step.status, lead.customFields, { strict: true });
-            } catch (err) {
-              if (err.status !== 400) throw err;
-              refusal = err.message;
-            }
+          // Held to the workspace's lead lifecycle like any other status write
+          // (a stage removed since the sequence was built is skipped, not
+          // forced), and raises lead_status_changed so "lead status changed"
+          // workflows see it like a change made by hand.
+          const { applyLeadStatus } = await import('./crmEvents.service.js');
+          let outcome;
+          try {
+            outcome = await applyLeadStatus(enrollment.workspaceId, enrollment.leadId, step.status);
+          } catch (err) {
+            if (err.status !== 400) throw err;
+            outcome = { changed: false, reason: err.message };
           }
-          if (write) {
-            await prisma.lead.update({ where: { id: enrollment.leadId }, data: write.data });
+          if (outcome.changed || outcome.already) {
             await recordStep(enrollment, enrollment.cursor, 'UPDATE_FIELD', 'SENT', `status = ${step.status}`);
           } else {
-            await recordStep(enrollment, enrollment.cursor, 'UPDATE_FIELD', 'SKIPPED', refusal);
+            await recordStep(enrollment, enrollment.cursor, 'UPDATE_FIELD', 'SKIPPED', outcome.reason);
           }
         } else {
           await recordStep(enrollment, enrollment.cursor, 'UPDATE_FIELD', 'SKIPPED', 'No lead attached');

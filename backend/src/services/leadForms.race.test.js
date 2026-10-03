@@ -59,6 +59,7 @@ test.before(async () => {
   });
   mock.module('./leadSegmentation.service.js', { namedExports: { computeLeadCategory: async () => ({}) } });
   mock.module('./workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
+  mock.module('./crmEvents.service.js', { namedExports: { emitCrmEvent: () => {}, emitCrmEvents: () => {}, applyLeadStatus: async () => ({ changed: false }), currentChainDepth: () => undefined } });
   mock.module('./leadDistribution.service.js', {
     namedExports: { evaluateAndAssignLead: async (_ws, leadId) => { distributed.push(leadId); return { assigned: false }; } },
   });

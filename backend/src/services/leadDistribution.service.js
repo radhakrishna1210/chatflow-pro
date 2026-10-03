@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { emitCrmEvent } from './workflowCrm.service.js';
+import { emitCrmEvent } from './crmEvents.service.js';
 
 const RULES_VIEW_NAME = '__SYSTEM_LEAD_DISTRIBUTION_RULES__';
 const ENTITY_TYPE = 'lead_distribution_rules';

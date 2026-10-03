@@ -5,7 +5,7 @@ import { resolveContactPhone, findContactByPhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { validateCrmCustomFields } from './customFields.service.js';
-import { emitCrmEvent } from './workflowCrm.service.js';
+import { emitCrmEvent, emitCrmEvents } from './crmEvents.service.js';
 import { scopeFilter, withScope } from './recordScope.service.js';
 import { assertRecordReferences } from './crmReferences.js';
 import { awardXp, unlockAchievement, earnsQualifiedLead } from './gamification.service.js';
@@ -504,6 +504,15 @@ export async function convertLead(workspaceId, id, body, userId, user = null) {
     status: 'CONVERTED',
     previousStatus: original.customFields?.statusKey || original.status,
   });
+  // The deal starts life in a stage, which is a stage change as far as a
+  // "deal enters stage" workflow is concerned.
+  emitCrmEvent(workspaceId, 'deal_stage_changed', {
+    dealId: converted.id,
+    leadId: original.id,
+    contactId: original.contactId,
+    stage: converted.stage,
+    previousStage: null,
+  });
   return converted;
 }
 
@@ -542,11 +551,12 @@ export async function bulkUpdateStatus(workspaceId, ids = [], status, user = nul
     if (previousStatus !== resolved.key) changed.push({ lead, previousStatus, status: resolved.key });
   }
   if (writes.length) await prisma.$transaction(writes);
-  for (const { lead, previousStatus, status: next } of changed) {
-    emitCrmEvent(workspaceId, 'lead_status_changed', {
-      leadId: lead.id, contactId: lead.contactId, status: next, previousStatus,
-    });
-  }
+  // One event batch: the workspace's CRM workflows are looked up once and only
+  // leads a workflow listens for go on, a few at a time. One fire-and-forget
+  // look-up per lead exhausted the connection pool on a large selection.
+  emitCrmEvents(workspaceId, 'lead_status_changed', changed.map(({ lead, previousStatus, status: next }) => ({
+    leadId: lead.id, contactId: lead.contactId, status: next, previousStatus,
+  })));
   return { count: leads.length };
 }
 

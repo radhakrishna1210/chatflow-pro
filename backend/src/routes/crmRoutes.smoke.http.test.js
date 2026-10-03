@@ -34,6 +34,7 @@ test.before(async () => {
   mock.module('../lib/prisma.js', { namedExports: { prisma: store.prisma } });
   mockIdentity(mock);
   mock.module('../services/workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
+  mock.module('../services/crmEvents.service.js', { namedExports: { emitCrmEvent: () => {}, emitCrmEvents: () => {}, applyLeadStatus: async () => ({ changed: false }), currentChainDepth: () => undefined } });
   const mounts = {};
   for (const [path, file] of Object.entries(ROUTERS)) mounts[path] = (await import(file)).default;
   app = await startApp(mounts);

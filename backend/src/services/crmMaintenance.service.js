@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
-import { emitCrmEvent } from './workflowCrm.service.js';
+import { emitCrmEvent } from './crmEvents.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 
 // Background upkeep for CRM values that depend on the passage of time.

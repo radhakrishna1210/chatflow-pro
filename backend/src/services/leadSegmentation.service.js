@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { forEachChunk } from '../lib/paging.js';
 import { computeLeadScore } from './leadScoring.service.js';
-import { emitCrmEvent } from './workflowCrm.service.js';
+import { emitCrmEvent } from './crmEvents.service.js';
 
 const DAY_MS = 86_400_000;
 

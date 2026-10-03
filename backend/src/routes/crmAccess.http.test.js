@@ -15,6 +15,7 @@ test.before(async () => {
   mock.module('../lib/prisma.js', { namedExports: { prisma: store.prisma } });
   mockIdentity(mock, { defaultRole: 'CLIENT' });
   mock.module('../services/workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
+  mock.module('../services/crmEvents.service.js', { namedExports: { emitCrmEvent: () => {}, emitCrmEvents: () => {}, applyLeadStatus: async () => ({ changed: false }), currentChainDepth: () => undefined } });
   mock.module('../services/audit.service.js', { namedExports: { record: async () => {} } });
   const routes = {};
   for (const [path, file] of [
