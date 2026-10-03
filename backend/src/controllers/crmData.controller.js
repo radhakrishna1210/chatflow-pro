@@ -26,9 +26,11 @@ export async function exportCsv(req, res) {
 
 export async function previewImport(req, res) {
   if (!req.file) { const e = new Error('No file uploaded'); e.status = 400; throw e; }
-  const customStatuses = await importService.loadCustomStatuses(req.params.workspaceId);
-  const country = await workspacePhoneCountry(req.params.workspaceId);
-  res.json(importService.previewLeadImport(req.file.buffer, { customStatuses, country }));
+  const [rules, country] = await Promise.all([
+    importService.loadImportRules(req.params.workspaceId),
+    workspacePhoneCountry(req.params.workspaceId),
+  ]);
+  res.json(importService.previewLeadImport(req.file.buffer, { rules, country }));
 }
 
 export async function runImport(req, res) {

@@ -6,6 +6,7 @@ import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { hasContactCapacity } from './subscription.service.js';
+import { loadLeadIntakeRules, prepareLeadIntake, resolveLeadSource } from './leadIntake.service.js';
 
 
 // Public lead-capture forms.
@@ -46,6 +47,23 @@ async function assertOwnerIsMember(workspaceId, ownerUserId) {
   const member = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: ownerUserId }, select: { userId: true } });
   if (!member) { const e = new Error('The form owner must be a member of this workspace'); e.status = 400; throw e; }
 }
+
+// A form's source must be one of the workspace's configured lead sources
+// (Customize Your Business), stored by its key.
+async function formSource(workspaceId, source) {
+  if (source === undefined || source === null || String(source).trim() === '') return null;
+  return resolveLeadSource(await loadLeadIntakeRules(workspaceId), source, { strict: true }).source;
+}
+
+// Answer keys a form may use for the prospecting details.
+const PROSPECTING_KEYS = {
+  company: ['company', 'company_name', 'organisation', 'organization', 'business'],
+  industry: ['industry', 'sector'],
+  budget: ['budget'],
+  companySize: ['company_size', 'employees', 'team_size'],
+};
+
+const answerFor = (answers, keys) => keys.map((k) => answers[k]).find((v) => v !== undefined && v !== '') ?? null;
 
 export function validateFields(fields) {
   if (!Array.isArray(fields) || fields.length === 0) {
@@ -131,7 +149,7 @@ export async function createForm(workspaceId, body) {
       fields,
       successMessage: body.successMessage || undefined,
       consentText: body.consentText ?? null,
-      source: body.source ?? null,
+      source: await formSource(workspaceId, body.source),
       ownerUserId: body.ownerUserId ?? null,
       isActive: body.isActive ?? false,
     },
@@ -145,6 +163,7 @@ export async function updateForm(workspaceId, id, updates) {
   await assertOwnerIsMember(workspaceId, updates.ownerUserId);
 
   const data = { ...updates };
+  if (updates.source !== undefined) data.source = await formSource(workspaceId, updates.source);
   if (updates.fields !== undefined) {
     data.fields = validateFields(updates.fields);
     assertContactable(data.fields);
@@ -361,6 +380,21 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
     return { ok: true, message: form.successMessage };
   }
 
+  // The workspace's lead rules, leniently: a visitor cannot fix a lifecycle
+  // or source configuration, so the lead takes the default stage, a
+  // configured source (the form's, the UTM source's, else Website/Other) and
+  // is marked not qualified when a required prospecting detail is missing.
+  const intake = prepareLeadIntake(await loadLeadIntakeRules(workspaceId), {
+    source: form.source || attribution?.utm_source || null,
+    phone: phoneNumber,
+    email: email || contact.email,
+    company: answerFor(answers, PROSPECTING_KEYS.company),
+    industry: answerFor(answers, PROSPECTING_KEYS.industry),
+    budget: answerFor(answers, PROSPECTING_KEYS.budget),
+    companySize: answerFor(answers, PROSPECTING_KEYS.companySize),
+  }, { strict: false, sourceFallbacks: ['WEBSITE'] });
+  if (!intake.customFields.sourceDetail) intake.customFields.sourceDetail = `Form: ${form.name}`;
+
   const { score, factors, computedAt } = await computeLeadScore(workspaceId, contact.id);
 
   let lead;
@@ -369,9 +403,10 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
       data: {
         workspaceId,
         contactId: contact.id,
-        status: 'NEW',
-        source: form.source || `Form: ${form.name}`,
+        status: intake.status,
+        source: intake.source,
         ownerUserId: form.ownerUserId ?? null,
+        customFields: intake.customFields,
         score,
         scoreFactors: factors,
         scoreComputedAt: computedAt,

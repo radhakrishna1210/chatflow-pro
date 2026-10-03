@@ -47,10 +47,13 @@ test('a reply to a recent campaign creates an attributed, scored lead', async (t
   const result = await createLeadFromReply(workspaceId, contact.id);
 
   assert.equal(result.created, true);
-  assert.equal(result.source, 'Campaign: Diwali Offer');
+  // The default lead sources have no campaign source, so it is recorded as
+  // OTHER with the campaign name kept as the detail (CF-154).
+  assert.equal(result.source, 'OTHER');
   assert.equal(result.campaignId, campaign.id);
 
   const lead = await prisma.lead.findUnique({ where: { id: result.leadId } });
+  assert.equal(lead.customFields.sourceDetail, 'Campaign: Diwali Offer');
   // CONTACTED, not NEW — they have engaged, and NEW would understate it.
   assert.equal(lead.status, 'CONTACTED');
   assert.ok(lead.scoreComputedAt instanceof Date, 'a new lead should arrive already scored');

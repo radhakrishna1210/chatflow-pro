@@ -132,3 +132,32 @@ test('a form with consent wording refuses a submission without consent', async (
   assert.equal(res.status, 400);
   assert.equal(state.contacts.length, 0);
 });
+
+// ─── CF-154: form leads are held to Customize Your Business ─────────────────
+
+test('a form lead takes the default lifecycle stage and a configured source', async () => {
+  state.form.consentText = null;
+  state.sections.lead_lifecycle = { stages: [{ key: 'INBOUND', label: 'Inbound', isDefault: true }, { key: 'NEW', label: 'New' }] };
+  state.sections.lead_sources = { sources: [{ key: 'WEBSITE', name: 'Website Form', isActive: true }, { key: 'LINKEDIN', name: 'LinkedIn', utmSource: 'linkedin', isActive: true }] };
+  await submit({ answers: { phone: '9876543210' } });
+  let lead = state.leads.at(-1);
+  assert.equal(lead.status, 'NEW');
+  assert.equal(lead.customFields.statusKey, 'INBOUND');
+  assert.equal(lead.source, 'WEBSITE', 'no form source and no UTM: the Website source');
+  assert.equal(lead.customFields.sourceDetail, 'Form: Demo');
+
+  // A UTM source that matches a configured source's utmSource is used.
+  await submit({ answers: { phone: '9811111111' }, attribution: { utm_source: 'LinkedIn' } });
+  lead = state.leads.at(-1);
+  assert.equal(lead.source, 'LINKEDIN');
+});
+
+test('a form lead missing a required prospecting detail is created but not qualified', async () => {
+  state.form.consentText = null;
+  state.sections.prospecting_criteria = { requireEmail: true };
+  await submit({ answers: { phone: '9876543210' } });
+  const lead = state.leads.at(-1);
+  assert.ok(lead, 'an inbound lead is never lost over a configuration rule');
+  assert.equal(lead.customFields.qualification.isQualified, false);
+  assert.deepEqual(lead.customFields.qualification.missingRequired, ['email']);
+});

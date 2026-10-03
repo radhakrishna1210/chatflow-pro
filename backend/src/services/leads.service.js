@@ -9,118 +9,16 @@ import { scopeFilter, withScope } from './recordScope.service.js';
 import { assertRecordReferences } from './crmReferences.js';
 import { awardXp, unlockAchievement, earnsQualifiedLead } from './gamification.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
-import { getSection } from './crmCustomization.service.js';
+import {
+  PRISMA_LEAD_STATUSES, evaluateProspectingCriteria, loadLeadIntakeRules, prepareLeadIntake,
+  leadStatusWrite, resolveLeadSource, resolveLeadTags, assertRequiredFields,
+} from './leadIntake.service.js';
 import { assertKnownStage } from './pipelineStages.service.js';
 import { assertContactCapacity } from './subscription.service.js';
 
-export const PRISMA_LEAD_STATUSES = new Set(['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST']);
-
-/**
- * Pure evaluator for prospecting qualification criteria against lead attributes.
- */
-export function evaluateProspectingCriteria(criteriaConfig, info = {}) {
-  const {
-    budget = null,
-    companySize = null,
-    industry = '',
-    answers = {},
-  } = info;
-
-  const checks = [];
-  let score = 0;
-  let maxScore = 0;
-  let allRequiredPassed = true;
-
-  // 1. Budget check
-  if (criteriaConfig?.minBudget != null && Number(criteriaConfig.minBudget) > 0) {
-    maxScore += 25;
-    const min = Number(criteriaConfig.minBudget);
-    const leadBudget = budget != null && budget !== '' ? Number(budget) : null;
-    const passed = leadBudget !== null && leadBudget >= min;
-    if (!passed) allRequiredPassed = false;
-    else score += 25;
-    checks.push({
-      key: 'minBudget',
-      label: `Minimum Budget (${criteriaConfig.currency || 'USD'} ${min})`,
-      required: true,
-      passed,
-      value: leadBudget != null ? `${criteriaConfig.currency || 'USD'} ${leadBudget}` : 'Not provided',
-    });
-  }
-
-  // 2. Company size check
-  if (criteriaConfig?.companySizeMin != null && Number(criteriaConfig.companySizeMin) > 0) {
-    maxScore += 20;
-    const min = Number(criteriaConfig.companySizeMin);
-    const leadSize = companySize != null && companySize !== '' ? Number(companySize) : null;
-    const passed = leadSize !== null && leadSize >= min;
-    if (!passed) allRequiredPassed = false;
-    else score += 20;
-    checks.push({
-      key: 'companySizeMin',
-      label: `Minimum Company Size (${min} employees)`,
-      required: true,
-      passed,
-      value: leadSize != null ? `${leadSize} employees` : 'Not provided',
-    });
-  }
-
-  // 3. Target industries check
-  if (Array.isArray(criteriaConfig?.targetIndustries) && criteriaConfig.targetIndustries.length > 0) {
-    maxScore += 15;
-    const leadInd = String(industry || '').trim().toLowerCase();
-    const passed = Boolean(leadInd) && criteriaConfig.targetIndustries.some(
-      (ti) => ti.toLowerCase() === leadInd || leadInd.includes(ti.toLowerCase()) || ti.toLowerCase().includes(leadInd)
-    );
-    if (passed) score += 15;
-    checks.push({
-      key: 'targetIndustries',
-      label: 'Target Industry Match',
-      required: false,
-      passed,
-      value: industry || 'Not specified',
-    });
-  }
-
-  // 4. Checklist questions
-  if (Array.isArray(criteriaConfig?.checklist) && criteriaConfig.checklist.length > 0) {
-    for (const item of criteriaConfig.checklist) {
-      const weight = Number(item.weight) || 10;
-      maxScore += weight;
-      const ans = Boolean(answers[item.id] ?? answers[item.question]);
-      if (ans) {
-        score += weight;
-      } else if (item.required) {
-        allRequiredPassed = false;
-      }
-      checks.push({
-        key: item.id,
-        label: item.question,
-        required: Boolean(item.required),
-        passed: ans,
-        weight,
-      });
-    }
-  }
-
-  const finalScore = maxScore > 0 ? Math.round((score / maxScore) * 100) : 100;
-  const isQualified = allRequiredPassed && (maxScore === 0 || finalScore >= 50);
-
-  const criteriaChecks = {
-    budget: checks.find((c) => c.key === 'minBudget')?.passed ?? true,
-    companySize: checks.find((c) => c.key === 'companySizeMin')?.passed ?? true,
-    industry: checks.find((c) => c.key === 'targetIndustries')?.passed ?? true,
-  };
-
-  return {
-    score: finalScore,
-    isQualified,
-    status: isQualified ? 'QUALIFIED' : 'DISQUALIFIED',
-    checks,
-    criteriaChecks,
-    evaluatedAt: new Date(),
-  };
-}
+// Lifecycle, sources, tags and prospecting rules live in leadIntake.service.js
+// so every intake path applies the same ones; re-exported for existing callers.
+export { PRISMA_LEAD_STATUSES, evaluateProspectingCriteria };
 
 const LEAD_INCLUDE = {
   contact: { select: { id: true, name: true, phoneNumber: true, email: true, tags: true, optedOut: true } },
@@ -257,110 +155,57 @@ export async function getLead(workspaceId, id, user = null) {
 // Accepts either an existing contactId, or name+phoneNumber to create the
 // contact first. The contact is the single source of truth for identity — a
 // lead never carries its own copy of name/phone.
+//
+// Lifecycle, source, tags and prospecting rules are applied by
+// prepareLeadIntake in strict mode: someone is filling in the form, so a value
+// outside the workspace configuration is a 400 they can correct.
 export async function createLead(workspaceId, body, actorUserId = null) {
   let contactId = body.contactId;
   await assertRecordReferences(workspaceId, { ownerUserId: body.ownerUserId });
+  const rules = await loadLeadIntakeRules(workspaceId);
 
-  // 1. Prospecting criteria validation
-  const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch(() => null);
-  if (criteriaConfig?.requirePhone && !body.phoneNumber && !contactId) {
-    const e = new Error('Phone number is required based on workspace prospecting criteria.');
-    e.status = 400;
-    throw e;
-  }
-  if (criteriaConfig?.requireEmail && !body.email && !contactId) {
-    const e = new Error('Email is required based on workspace prospecting criteria.');
-    e.status = 400;
-    throw e;
-  }
-  if (criteriaConfig?.requireCompany && !body.company && !body.prospecting?.company) {
-    const e = new Error('Company is required based on workspace prospecting criteria.');
-    e.status = 400;
-    throw e;
+  let contact = null;
+  if (contactId) {
+    contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { id: true, email: true, phoneNumber: true, tags: true } });
+    if (!contact) { const e = new Error('Contact not found'); e.status = 404; throw e; }
   }
 
-  const initialTags = Array.isArray(body.tags) ? body.tags : [];
+  const prospecting = body.prospecting || {};
+  const intake = prepareLeadIntake(rules, {
+    status: body.status,
+    source: body.source,
+    tags: body.tags,
+    existingTags: contact?.tags,
+    phone: contact?.phoneNumber || body.phoneNumber,
+    email: body.email || contact?.email,
+    company: body.company ?? prospecting.company ?? null,
+    budget: body.budget ?? prospecting.budget ?? null,
+    companySize: body.companySize ?? prospecting.companySize ?? null,
+    industry: body.industry ?? prospecting.industry ?? null,
+    answers: body.checklistAnswers ?? body.qualificationAnswers ?? prospecting.answers ?? {},
+    customFields: body.customFields,
+  }, { strict: true });
 
-  if (!contactId) {
+  let tags;
+  if (!contact) {
     const { phoneNumber, country } = await resolveContactPhone(workspaceId, body.phoneNumber);
     const existing = await findContactByPhone(workspaceId, phoneNumber, { country });
-    if (!existing) await assertContactCapacity(workspaceId);
-    contactId = existing
-      ? existing.id
-      : (await prisma.contact.create({
-          data: {
-            workspaceId,
-            name: body.name || phoneNumber,
-            phoneNumber,
-            email: body.email || null,
-            tags: initialTags,
-          },
-        })).id;
+    if (existing) {
+      contactId = existing.id;
+      tags = await mergeContactTags(existing, intake.tags);
+    } else {
+      await assertContactCapacity(workspaceId);
+      tags = intake.tags;
+      contactId = (await prisma.contact.create({
+        data: { workspaceId, name: body.name || phoneNumber, phoneNumber, email: body.email || null, tags },
+      })).id;
+    }
   } else {
-    const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { id: true, email: true, phoneNumber: true } });
-    if (!contact) { const e = new Error('Contact not found'); e.status = 404; throw e; }
-    if (criteriaConfig?.requireEmail && !contact.email && !body.email) {
-      const e = new Error('Email is required based on workspace prospecting criteria.');
-      e.status = 400;
-      throw e;
-    }
-    if (initialTags.length > 0) {
-      await prisma.contact.update({
-        where: { id: contactId },
-        data: { tags: initialTags },
-      });
-    }
+    tags = await mergeContactTags(contact, intake.tags);
   }
 
   const duplicate = await prisma.lead.findUnique({ where: { contactId }, select: { id: true } });
   if (duplicate) { const e = new Error('This contact is already a lead'); e.status = 409; throw e; }
-
-  // 2. Lead Source validation
-  let canonicalSource = body.source ?? null;
-  if (canonicalSource) {
-    const sourceConfig = await getSection(workspaceId, 'lead_sources').catch(() => null);
-    const configuredSources = sourceConfig?.sources || [];
-    if (configuredSources.length > 0) {
-      const matched = configuredSources.find(
-        (s) => s.key === canonicalSource || s.name?.toLowerCase() === canonicalSource.toLowerCase() || s.key?.toLowerCase() === canonicalSource.toLowerCase()
-      );
-      if (matched) {
-        if (matched.isActive === false) {
-          const e = new Error(`Lead source "${matched.name || canonicalSource}" is disabled and cannot be selected.`);
-          e.status = 400;
-          throw e;
-        }
-        canonicalSource = matched.key;
-      } else {
-        const e = new Error(`Invalid lead source "${canonicalSource}". Please select from configured lead sources.`);
-        e.status = 400;
-        throw e;
-      }
-    }
-  }
-
-  // 3. Status & Custom Lifecycle resolution
-  const lifecycleConfig = await getSection(workspaceId, 'lead_lifecycle').catch(() => null);
-  const defaultStageKey = lifecycleConfig?.stages?.find((s) => s.isDefault)?.key || 'NEW';
-  const requestedStatus = body.status || defaultStageKey;
-  const isPrismaStatus = PRISMA_LEAD_STATUSES.has(requestedStatus);
-  const dbStatus = isPrismaStatus ? requestedStatus : 'NEW';
-
-  // 4. Prospecting Criteria evaluation
-  let customFields = typeof body.customFields === 'object' && body.customFields !== null ? { ...body.customFields } : {};
-  if (!isPrismaStatus) {
-    customFields.statusKey = requestedStatus;
-  }
-
-  const prospectingInfo = {
-    budget: body.budget ?? body.prospecting?.budget ?? null,
-    companySize: body.companySize ?? body.prospecting?.companySize ?? null,
-    industry: body.industry ?? body.prospecting?.industry ?? null,
-    answers: body.checklistAnswers ?? body.qualificationAnswers ?? body.prospecting?.answers ?? {},
-  };
-  const qualResult = evaluateProspectingCriteria(criteriaConfig, prospectingInfo);
-  customFields.prospecting = prospectingInfo;
-  customFields.qualification = qualResult;
 
   const { score, factors, computedAt } = await computeLeadScore(workspaceId, contactId);
 
@@ -368,11 +213,11 @@ export async function createLead(workspaceId, body, actorUserId = null) {
     data: {
       workspaceId,
       contactId,
-      status: dbStatus,
-      source: canonicalSource,
+      status: intake.status,
+      source: intake.source,
       ownerUserId: body.ownerUserId ?? null,
       notes: body.notes ?? null,
-      customFields: Object.keys(customFields).length > 0 ? customFields : null,
+      customFields: Object.keys(intake.customFields).length > 0 ? intake.customFields : null,
       score,
       scoreFactors: factors,
       scoreComputedAt: computedAt,
@@ -401,14 +246,26 @@ export async function createLead(workspaceId, body, actorUserId = null) {
   }
   return {
     ...categorizedLead,
-    contact: { ...lead.contact, ...categorizedLead.contact, tags: initialTags ?? lead.contact?.tags ?? [] },
+    contact: { ...lead.contact, ...categorizedLead.contact, tags },
     customFields: lead.customFields,
     status: lead.customFields?.statusKey || categorizedLead.status,
   };
 }
 
+// New lead tags are added to the contact's own; replacing them would wipe tags
+// set from Contacts, segments or automations.
+async function mergeContactTags(contact, tags) {
+  const current = contact.tags || [];
+  const merged = [...new Set([...current, ...tags])];
+  if (merged.length !== current.length) {
+    await prisma.contact.update({ where: { id: contact.id }, data: { tags: merged } });
+  }
+  return merged;
+}
+
 // `updates` arrives pre-whitelisted by the strict update validator, so
-// workspaceId/score/convertedDealId cannot be mass-assigned.
+// workspaceId/score/convertedDealId cannot be mass-assigned. Status, source,
+// tags and company go through the same workspace rules as createLead.
 export async function updateLead(workspaceId, id, updates, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const lead = await prisma.lead.findFirst({
@@ -418,11 +275,19 @@ export async function updateLead(workspaceId, id, updates, user = null) {
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
   await assertRecordReferences(workspaceId, { ownerUserId: updates.ownerUserId });
 
-  // Update tags on Contact if provided
+  const touchesProspecting = updates.prospecting || updates.budget !== undefined || updates.companySize !== undefined
+    || updates.industry !== undefined || updates.company !== undefined || updates.qualificationAnswers || updates.checklistAnswers;
+  const touchesRules = touchesProspecting || updates.status || updates.source !== undefined || Array.isArray(updates.tags);
+  const rules = touchesRules ? await loadLeadIntakeRules(workspaceId) : null;
+
+  // Tags live on the Contact. The edit sends the full list; only tags the
+  // contact does not already carry are checked against Lead Tags.
   if (Array.isArray(updates.tags)) {
+    const contact = await prisma.contact.findFirst({ where: { id: lead.contactId, workspaceId }, select: { tags: true } });
+    const { tags } = resolveLeadTags(rules, updates.tags, { strict: true, existing: contact?.tags });
     await prisma.contact.update({
       where: { id: lead.contactId },
-      data: { tags: updates.tags },
+      data: { tags },
     });
   }
 
@@ -432,8 +297,14 @@ export async function updateLead(workspaceId, id, updates, user = null) {
   delete data.budget;
   delete data.companySize;
   delete data.industry;
+  // Lead has no company column; it is kept with the prospecting details.
+  delete data.company;
   delete data.qualificationAnswers;
   delete data.checklistAnswers;
+
+  if (updates.source !== undefined) {
+    data.source = resolveLeadSource(rules, updates.source, { strict: true }).source;
+  }
 
   // Custom fields handling
   let customFields = await validateCrmCustomFields(workspaceId, 'lead', updates.customFields, lead.customFields);
@@ -443,31 +314,31 @@ export async function updateLead(workspaceId, id, updates, user = null) {
     customFields = typeof customFields === 'object' && customFields !== null ? { ...customFields } : {};
   }
 
-  // Handle custom lifecycle status
+  // Lifecycle status: a configured stage, stored in the enum or as statusKey.
   if (updates.status) {
-    const isPrismaStatus = PRISMA_LEAD_STATUSES.has(updates.status);
-    if (isPrismaStatus) {
-      data.status = updates.status;
-      delete customFields.statusKey;
-    } else {
-      data.status = 'NEW';
-      customFields.statusKey = updates.status;
-    }
+    const { data: statusData } = leadStatusWrite(rules, updates.status, customFields, { strict: true });
+    data.status = statusData.status;
+    customFields = statusData.customFields || {};
   }
 
   // Handle Prospecting evaluation on update
-  if (updates.prospecting || updates.budget !== undefined || updates.companySize !== undefined || updates.industry !== undefined || updates.qualificationAnswers) {
-    const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch(() => null);
+  if (touchesProspecting) {
     const existingProspecting = customFields.prospecting || {};
+    const pick = (key) => (updates[key] !== undefined ? updates[key]
+      : (updates.prospecting?.[key] !== undefined ? updates.prospecting[key] : existingProspecting[key]));
     const prospectingInfo = {
-      budget: updates.budget !== undefined ? updates.budget : (updates.prospecting?.budget !== undefined ? updates.prospecting.budget : existingProspecting.budget),
-      companySize: updates.companySize !== undefined ? updates.companySize : (updates.prospecting?.companySize !== undefined ? updates.prospecting.companySize : existingProspecting.companySize),
-      industry: updates.industry !== undefined ? updates.industry : (updates.prospecting?.industry !== undefined ? updates.prospecting.industry : existingProspecting.industry),
+      budget: pick('budget'),
+      companySize: pick('companySize'),
+      industry: pick('industry'),
+      company: pick('company') ?? null,
       answers: updates.checklistAnswers || updates.qualificationAnswers || updates.prospecting?.answers || existingProspecting.answers || {},
     };
-    const qualResult = evaluateProspectingCriteria(criteriaConfig, prospectingInfo);
+    // A company the prospecting criteria require cannot be cleared by an edit.
+    if (updates.company !== undefined || updates.prospecting?.company !== undefined) {
+      assertRequiredFields({ criteria: { requireCompany: rules?.criteria?.requireCompany } }, { company: prospectingInfo.company });
+    }
     customFields.prospecting = prospectingInfo;
-    customFields.qualification = qualResult;
+    customFields.qualification = evaluateProspectingCriteria(rules?.criteria, prospectingInfo);
   }
 
   data.customFields = Object.keys(customFields).length > 0 ? customFields : null;
@@ -477,7 +348,7 @@ export async function updateLead(workspaceId, id, updates, user = null) {
   const effectiveStatus = updated.customFields?.statusKey || updated.status;
   const previousEffectiveStatus = lead.customFields?.statusKey || lead.status;
 
-  if (updates.status === 'QUALIFIED' && previousEffectiveStatus !== 'QUALIFIED' && updated.ownerUserId && earnsQualifiedLead(lead)) {
+  if (effectiveStatus === 'QUALIFIED' && previousEffectiveStatus !== 'QUALIFIED' && updated.ownerUserId && earnsQualifiedLead(lead)) {
     awardXp(workspaceId, updated.ownerUserId, 'qualified_lead', { recordType: 'lead', recordId: id })
       .then(() => unlockAchievement(workspaceId, updated.ownerUserId, 'first_qualified'))
       .catch((e) => console.error('[Gamification] award failed:', e.message));
@@ -642,37 +513,29 @@ export async function bulkAssignLeads(workspaceId, ids = [], ownerUserId = null,
 
 // Custom lifecycle keys live in customFields.statusKey (the DB enum only knows
 // the built-ins), so each lead is written individually the same way updateLead
-// does it rather than with one updateMany.
+// does it rather than with one updateMany. The status must be a lifecycle stage.
 export async function bulkUpdateStatus(workspaceId, ids = [], status, user = null) {
   if (!Array.isArray(ids) || ids.length === 0 || !status) {
     const e = new Error('Lead IDs and status are required'); e.status = 400; throw e;
   }
+  const rules = await loadLeadIntakeRules(workspaceId);
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const leads = await prisma.lead.findMany({
     where: { id: { in: ids }, workspaceId, ...scope },
     select: { id: true, status: true, customFields: true, contactId: true },
   });
-  const isPrismaStatus = PRISMA_LEAD_STATUSES.has(status);
   const changed = [];
   const writes = [];
   for (const lead of leads) {
-    const customFields = typeof lead.customFields === 'object' && lead.customFields !== null ? { ...lead.customFields } : {};
-    const previousStatus = customFields.statusKey || lead.status;
-    if (isPrismaStatus) delete customFields.statusKey;
-    else customFields.statusKey = status;
-    writes.push(prisma.lead.update({
-      where: { id: lead.id },
-      data: {
-        status: isPrismaStatus ? status : 'NEW',
-        customFields: Object.keys(customFields).length > 0 ? customFields : null,
-      },
-    }));
-    if (previousStatus !== status) changed.push({ lead, previousStatus });
+    const previousStatus = lead.customFields?.statusKey || lead.status;
+    const { resolved, data } = leadStatusWrite(rules, status, lead.customFields, { strict: true });
+    writes.push(prisma.lead.update({ where: { id: lead.id }, data }));
+    if (previousStatus !== resolved.key) changed.push({ lead, previousStatus, status: resolved.key });
   }
   if (writes.length) await prisma.$transaction(writes);
-  for (const { lead, previousStatus } of changed) {
+  for (const { lead, previousStatus, status: next } of changed) {
     emitCrmEvent(workspaceId, 'lead_status_changed', {
-      leadId: lead.id, contactId: lead.contactId, status, previousStatus,
+      leadId: lead.id, contactId: lead.contactId, status: next, previousStatus,
     });
   }
   return { count: leads.length };

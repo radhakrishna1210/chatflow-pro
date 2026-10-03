@@ -9,6 +9,7 @@ let leads;
 let members;
 let followUps;
 let contactCreateManyCalls;
+let extraSections = {};
 
 const fakePrisma = {
   workspaceMember: {
@@ -43,7 +44,9 @@ test.before(async () => {
   });
   mock.module('./crmCustomization.service.js', {
     namedExports: {
-      getSection: async () => ({ stages: [{ key: 'NEW' }, { key: 'SITE_VISIT', label: 'Site Visit' }] }),
+      getSection: async (_ws, key) => (key === 'lead_lifecycle'
+        ? { stages: [{ key: 'NEW', isDefault: true }, { key: 'QUALIFIED' }, { key: 'SITE_VISIT', label: 'Site Visit' }] }
+        : extraSections[key] ?? null),
     },
   });
   mock.module('../queues/crmMaintenance.queue.js', {
@@ -62,6 +65,7 @@ test.beforeEach(() => {
   members = ['u1'];
   followUps = [];
   contactCreateManyCalls = 0;
+  extraSections = {};
 });
 
 const csv = (rows) => Buffer.from(['name,phone,status', ...rows].join('\n'));
@@ -84,7 +88,7 @@ test('valid rows are imported in batches and bad rows are reported per line', as
   assert.equal(asha.status, 'QUALIFIED');
   const visit = leads.find((l) => l.contactId === 'c-+913333333333');
   assert.equal(visit.status, 'NEW');
-  assert.deepEqual(visit.customFields, { statusKey: 'SITE_VISIT' });
+  assert.equal(visit.customFields.statusKey, 'SITE_VISIT');
 
   assert.equal(res.followUp, 'queued');
   assert.equal(followUps.length, 1);
@@ -110,4 +114,29 @@ test('files over the row cap are refused before anything is written', async () =
   assert.throws(() => svc.previewLeadImport(csv(rows)), (e) => e.status === 400 && /at most/.test(e.message));
   await assert.rejects(() => svc.importLeads('ws1', csv(rows)), (e) => e.status === 400);
   assert.equal(contactCreateManyCalls, 0);
+});
+
+test('rows are held to the workspace lead rules and every adjustment is reported (CF-154)', async () => {
+  extraSections = {
+    lead_sources: { sources: [{ key: 'REFERRAL', name: 'Referral', isActive: true }, { key: 'OTHER', name: 'Other', isActive: true }] },
+    lead_tags: { tags: [{ name: 'VIP' }] },
+    prospecting_criteria: { requireEmail: true },
+  };
+  const res = await svc.importLeads('ws1', Buffer.from([
+    'name,phone,status,source,tags,email',
+    'A,+915555555555,Hot,referral,vip;whale,a@x.test',
+    'B,+915555555556,NEW,Billboard,,',
+  ].join('\n')));
+  assert.equal(res.imported, 2);
+  const [a, b] = leads.slice(-2);
+  assert.equal(a.status, 'NEW', 'an unknown status takes the default stage');
+  assert.equal(a.source, 'REFERRAL');
+  assert.deepEqual(contacts.find((c) => c.phoneNumber === '+915555555555').tags, ['VIP']);
+  assert.equal(b.source, 'OTHER');
+  assert.equal(b.customFields.qualification.isQualified, false);
+  const reasons = res.warnings.map((w) => `${w.line}:${w.reason}`).join('|');
+  assert.match(reasons, /2:Status "Hot"/);
+  assert.match(reasons, /2:Tag\(s\) not configured.*whale/);
+  assert.match(reasons, /3:Prospecting criteria require email/);
+  assert.match(reasons, /3:Source "Billboard"/);
 });

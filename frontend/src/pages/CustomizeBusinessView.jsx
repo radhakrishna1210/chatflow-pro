@@ -12,14 +12,14 @@ const COLOR_PALETTE = [
 ];
 
 const TABS = [
-  // Lifecycle, prospecting rules and sources are checked when a lead is created
-  // or edited in the CRM; form, import and campaign-reply leads are not held to
-  // them yet. Tags are suggestions for the picker, not an allow-list.
-  { id: 'lead_lifecycle', label: 'Lead Lifecycle', icon: 'target', desc: 'Define status progression for leads (applied to leads edited in the CRM)' },
-  { id: 'prospecting_criteria', label: 'Prospecting Criteria', icon: 'filter', desc: 'Qualification checklist & required fields for leads created in the CRM' },
+  // Lifecycle, prospecting, lead tags and sources are enforced by the server
+  // on every way a lead arrives or changes (CRM, web forms, CSV import,
+  // campaign replies, workflows, sequences) — see leadIntake.service.js.
+  { id: 'lead_lifecycle', label: 'Lead Lifecycle', icon: 'target', desc: 'Define status progression for leads' },
+  { id: 'prospecting_criteria', label: 'Prospecting Criteria', icon: 'filter', desc: 'B2B/B2C lead qualification checklist & rules' },
   { id: 'deal_mode', label: 'Deal Mode', icon: 'zap', desc: 'Flexible vs. Automatic task-driven execution' },
-  { id: 'lead_tags', label: 'Lead Tags', icon: 'spark', desc: 'Suggested tags shown in the lead tag picker' },
-  { id: 'lead_sources', label: 'Lead Sources', icon: 'globe', desc: 'Sources allowed for leads created in the CRM' },
+  { id: 'lead_tags', label: 'Lead Tags', icon: 'spark', desc: 'The tags leads may carry' },
+  { id: 'lead_sources', label: 'Lead Sources', icon: 'globe', desc: 'Channels and attribution sources' },
   { id: 'call_outcomes', label: 'Call Outcomes', icon: 'phone', desc: 'Call dispositions & sentiment scoring' },
   { id: 'visit_outcomes', label: 'Visit Outcomes', icon: 'users', desc: 'Field meeting dispositions & follow-ups' },
   { id: 'deal_setup', label: 'Deal Setup', icon: 'briefcase', desc: 'Stages, win probabilities & SLA days' },
@@ -806,6 +806,9 @@ function ProspectingCriteriaTab({ config = {}, onChange }) {
             <span>Require Registered Company Name</span>
           </label>
         </div>
+        <p style={{ fontSize: 12, color: 'var(--t3)', margin: '10px 0 0 0' }}>
+          A lead created or edited in the CRM must have these. Leads that arrive on their own (web forms, CSV import, campaign replies) are still created when one is missing, but are marked not qualified.
+        </p>
       </div>
 
       {/* Target Industries */}
