@@ -9,8 +9,8 @@ steps for this release are in [`DEPLOY.md`](../DEPLOY.md#4-upgrading-to-the-audi
 
 | Status | Issues |
 |---|---|
-| FIXED | 198 |
-| PARTIAL | 27 |
+| FIXED | 200 |
+| PARTIAL | 25 |
 | ALREADY-FIXED | 0 |
 | NOT-A-BUG | 1 |
 | NO CHANGE | 1 |
@@ -209,7 +209,7 @@ Notes for FIXED rows are the fixing commit's subject.
 | CF-186 | Low | Frontend-Shell / Components | Ten Avatar implementations; the nine local copies crash on a `null` name | **FIXED** | fix(ui): one null-safe Avatar replaces nine local copies | f9bcf31 |
 | CF-187 | Low | Frontend-Shell / Components / Accessibility | `Btn` drops `title`, `aria-*`, `className`, `id` and every other pass-through prop | **FIXED** | fix(ui): Btn supports sec/danger/xs/outline and forwards rest props, defaults type=button | 639f148 |
 | CF-188 | Low | Frontend-Shell / CRM | Sidebar CRM badge is fetched once, runs for super admin, counts a page length, and flips between workspace-wide and "mine" | **FIXED** | fix(shell): role-aware nav, honest home cards, visibility-aware polling, lazy views | 6348160 |
-| CF-189 | Low | Frontend-Shell / Inbox / Campaigns / Templates / Billing | Polling never pauses in hidden tabs, has no overlap guard, and the wallet is polled twice | **PARTIAL** | Visibility-aware polling with overlap guard and one wallet poll; inbox/campaign/template polls still interval-based | 6348160 |
+| CF-189 | Low | Frontend-Shell / Inbox / Campaigns / Templates / Billing | Polling never pauses in hidden tabs, has no overlap guard, and the wallet is polled twice | **FIXED** | Visibility-aware polling with overlap guard and one wallet poll (6348160); inbox, sales-inbox thread, campaign list/detail and templates now update over SSE and poll only while the stream is down, visibility-aware, campaign detail stopping once finished | 6348160 300e3d1 3d62c2a b8ba696 |
 | CF-190 | Low | Frontend-Shell / Mobile | CRM views ignore mobile, and the bottom tab bar has no "More" entry — from a CRM page on a phone the nav drawer cannot be opened | **FIXED** | fix(shell): role-aware nav, honest home cards, visibility-aware polling, lazy views | 6348160 |
 | CF-191 | Low | Frontend-Shell / Notifications | NotificationsBell `toggle` checks a stale `unread` after `await load()`, so newly arrived notifications are never marked read | **FIXED** | fix(shell): role-aware nav, honest home cards, visibility-aware polling, lazy views | 6348160 |
 | CF-192 | Low | Frontend-Shell / Router | `navigate()` (history push + synthetic popstate + setState) is called during render in `renderPage`; `isAuthed()` mutates localStorage during render | **FIXED** | fix(shell): lazy top-level routes under a root error boundary, redirect out of render, drop dead router copy | 90a2627 |
@@ -217,7 +217,7 @@ Notes for FIXED rows are the fixing commit's subject.
 | CF-194 | Low | Home | Home "Upgrade to Growth plan" banner is hard-coded and shown to every plan | **FIXED** | fix(shell): role-aware nav, honest home cards, visibility-aware polling, lazy views | 6348160 |
 | CF-195 | Low | Home | Home Instagram card is a permanent "Coming Soon" placeholder while Instagram routes exist | **FIXED** | fix(shell): role-aware nav, honest home cards, visibility-aware polling, lazy views | 6348160 |
 | CF-196 | Low | Home | Home stats come from three unpaginated list calls, not a stats endpoint | **PARTIAL** | Home cards made honest; stats still come from list calls (no stats endpoint) | 6348160 |
-| CF-197 | Low | Inbox | Inbox "realtime" is 5 s / 4 s polling of full lists | **PARTIAL** | Server-side paging and filters; still polling, no push/SSE | 3eabf76 |
+| CF-197 | Low | Inbox | Inbox "realtime" is 5 s / 4 s polling of full lists | **FIXED** | Server-side paging and filters (3eabf76); workspace-scoped SSE stream fed by Redis pub/sub (in-process fallback), events at every message/conversation/campaign/template write point, shared reconnecting client; polling only while the stream is down | 3eabf76 300e3d1 3d62c2a b8ba696 44148d8 |
 | CF-198 | Low | Inbox | Inbox note deletion and bot toggle exist on the backend but have no UI | **FIXED** | fix(inbox): server-side paging and filters, loading/error states, bot toggle and note deletion | 3eabf76 |
 | CF-199 | Low | Inbox | InboxView has no loading or error state — it shows "No conversations yet" during the first fetch and forever on error | **FIXED** | fix(inbox): server-side paging and filters, loading/error states, bot toggle and note deletion | 3eabf76 |
 | CF-200 | Low | Inbox / Contacts | Phone matching — fuzzy path is safe; national-format contacts silently duplicate | **PARTIAL** | Inbound matches national-format contacts instead of duplicating; numbers are not normalised on write | 2f8296a |
