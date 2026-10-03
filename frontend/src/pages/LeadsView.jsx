@@ -906,7 +906,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
                       <input
                         type="checkbox"
                         checked={Boolean(prospectingAnswers[item.id])}
-                        onChange={e => setChecklistAnswers(prev => ({ ...prev, [item.id]: e.target.checked }))}
+                        onChange={e => setProspectingAnswers(prev => ({ ...prev, [item.id]: e.target.checked }))}
                         style={{ accentColor: 'var(--accent)' }}
                       />
                       <span>{item.question} {item.required && <span style={{ color: '#f87171' }}>*</span>}</span>
