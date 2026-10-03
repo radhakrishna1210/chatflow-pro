@@ -133,7 +133,9 @@ const buildTemplatePayload = async (template, contact, { phoneNumberId, accessTo
     workspaceId: campaign?.workspaceId ?? template.workspaceId,
     phoneNumberId,
     accessToken,
-    resolve: contactVariableResolver(contact),
+    // A campaign's template is the message: its approval samples are the
+    // intended values for {{2}}+ (templateParams.js#contactVariableResolver).
+    resolve: contactVariableResolver(contact, { samples: true }),
     extraComponents: ctaComponent ? [ctaComponent] : [],
     campaignId: campaign?.id ?? null,
   });

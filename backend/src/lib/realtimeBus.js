@@ -248,4 +248,10 @@ export const realtime = {
   templateUpdated(workspaceId, templateId = null, { status = null } = {}) {
     publishRealtime(workspaceId, 'template.updated', { templateId, status }, { coalesce: templateId ?? 'all' });
   },
+  // A workflow run started, changed status or finished. Coalesced per workflow
+  // like campaign progress: a busy keyword workflow can start runs faster than
+  // the Workflows tab needs to refetch.
+  workflowRun(workspaceId, workflowId, { runId = null, status = null } = {}) {
+    publishRealtime(workspaceId, 'workflow.run', { workflowId: workflowId ?? null, runId, status }, { coalesce: workflowId ?? 'all' });
+  },
 };

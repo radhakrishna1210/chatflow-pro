@@ -1,11 +1,24 @@
 import * as workflowService from '../services/workflow.service.js';
-import { listRuns } from '../services/workflowEngine.service.js';
+import { listRuns, countRuns } from '../services/workflowEngine.service.js';
 
 // Execution history for a workflow — "did this actually fire?" answered from
 // the UI instead of from server logs.
+//
+// GET /workflows/runs?workflowId=&limit=&offset= — newest first, `limit`
+// defaults to 20 (max 100). The body stays an array, as it always was; the
+// total the filter can page through is in the X-Total-Count header.
 export async function runs(req, res) {
   try {
-    res.json(await listRuns(req.params.workspaceId, { workflowId: req.query.workflowId }));
+    const workflowId = typeof req.query.workflowId === 'string' && req.query.workflowId.trim()
+      ? req.query.workflowId.trim()
+      : undefined;
+    const { limit, offset } = req.query;
+    const [page, total] = await Promise.all([
+      listRuns(req.params.workspaceId, { workflowId, limit, offset }),
+      countRuns(req.params.workspaceId, { workflowId }),
+    ]);
+    res.set('X-Total-Count', String(total));
+    res.json(page);
   } catch (err) {
     console.error('[Workflow] runs error:', err);
     res.status(err.status || 500).json({ error: err.message || 'Failed to list runs' });

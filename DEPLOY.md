@@ -260,6 +260,7 @@ release. Do them in this order.
    | `20261003150000_conversation_handoff_reason` | `Conversation.handoffReason`: why automation is paused on a thread (see "Workflow automation fixes") |
    | `20261003151000_message_automation_processed_at` | `Message.automationProcessedAt`; inbound messages of the last 2 h backfilled as processed |
    | `20261003152000_form_submission_abandoned_at` | `WhatsappFormSubmission.abandonedAt`; closes open submissions idle > 24 h or of a non-Active form |
+   | `20261003160000_workflow_run_resume_backfill` | Data only: workflow runs still RUNNING/WAITING with a NULL `resumeAt` (parked before `20261002150000`) get one — a reply wait its 24-hour deadline, anything else "due now" — so the recovery sweep resumes or closes them |
    | `20261003180000_workflow_run_chain_depth` | `WorkflowRun.chainDepth` (int, default 0; `IF NOT EXISTS`): how deep a run sits in a chain of CRM-triggered workflows, so a run resumed after a delay is still held to the chain limit |
 
    Both stacks share the database, so migrations run once; the second stack's
@@ -651,6 +652,62 @@ environment variables, cron jobs or services.
   recipient count and returns the unused part once when it completes, fails
   or is cancelled. A campaign larger than the remaining quota still uses it
   all until it settles, so automated replies in that time draw on the wallet.
+
+### Workflow engine fixes
+
+- **Migration** `20261003160000_workflow_run_resume_backfill` (data only, see
+  the table above). Runs parked before `resumeAt` existed start resuming or
+  timing out on the first sweep after the deploy; expect a burst of resumed
+  delays and closed reply waits in the worker log once.
+- **New env var `META_HTTP_TIMEOUT_MS`** (optional, default `30000`, 1000–300000):
+  the timeout of every Graph API call made through the Meta client (sends,
+  template edits). There was none, so a hung send outlived the 10-minute
+  workflow run lease and was sent again. Phone media uploads use
+  `max(META_HTTP_TIMEOUT_MS, 120000)`.
+- **Skipped steps now fail runs.** A message, buttons, template or "assign to
+  agent" step that cannot reach the customer is recorded as *failed* with the
+  reason (quota/wallet empty, opted out, 24-hour window closed, no number,
+  subscription inactive, or Meta's own error text), and the run ends FAILED.
+  These runs used to report COMPLETED. A reply wait that times out (or is
+  superseded) now ends CANCELLED with the reason instead of COMPLETED. Run
+  history will show more FAILED runs than before: that is the old silent
+  failures becoming visible.
+- **CRM-triggered workflows message the contact.** A lead/deal/score workflow
+  with a customer-facing step now runs on the contact's latest WhatsApp
+  conversation, or starts one on the workspace's first active number. Template
+  steps are delivered; free-form steps only inside the 24-hour window. Saving
+  such a workflow warns about its free-form steps.
+- **Approval sample values are no longer sent.** A workflow template step
+  fills `{{n}}` from its own values (`params`, e.g. `{{name}}`,
+  `{{order_id}}`); a missing value fails the step instead of falling back to
+  the template's approval example. `{{1}}` alone still defaults to the
+  contact's name when the step has no values. Existing template steps on a
+  template with `{{2}}` or more **fail until values are added** in the
+  builder; the save response warns about them. Campaigns and the inbox
+  template picker keep their behaviour.
+- **The message → template heuristic is removed.** A "Send message" step whose
+  text equalled an approved template's name used to be sent as that (paid)
+  template; it is now sent as text, and saving warns and suggests a template
+  step.
+- **One run per workflow per conversation.** Re-sending a trigger keyword while
+  that workflow is still running on the conversation no longer starts a second
+  run. Precedence between workflows is the longest *matched* keyword, then the
+  most recently updated workflow (it was the length of the whole keyword list,
+  then the oldest workflow). Keyword lists now also split on `;` and `|`.
+- **Automated replies refused for credit notify the workspace** (once per 24
+  hours): "Automated replies are paused: message quota and wallet are empty —
+  top up".
+- **Video and document header templates send.** Sends used to build only an
+  image header, so Meta rejected every video/PDF-header send. New uploads keep
+  the file (in the object store, or in the database up to 16 MB); templates
+  created earlier recover it from Meta's approved sample on first send, or fail
+  with `TEMPLATE_MEDIA_UNAVAILABLE` until the header is re-uploaded.
+- **API additions** for the builder: `GET /workflows` items carry `runCount`,
+  `lastRunAt`, `lastRunStatus`; `GET /workflows/runs` takes
+  `?workflowId=&limit=&offset=` (limit 20, max 100) and sends `X-Total-Count`;
+  create/update responses carry `warnings: string[]`; the `workflow.run`
+  realtime event; `POST /ai/workflow/execute` accepts `nodes` (test a draft)
+  and `contactId`.
 
 ---
 

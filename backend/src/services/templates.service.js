@@ -4,6 +4,11 @@ import { decrypt } from '../lib/encryption.js';
 import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.js';
 import { normalizeTemplateComponents, detectTemplateType, toMetaComponents, preserveInternalFields } from '../lib/templateStructure.js';
 import { storeAsset, assertCardAssetsOwned } from './templateImage.service.js';
+import { storage } from '../lib/storage/index.js';
+
+// The largest video/PDF header kept as bytes in the database when no object
+// store is configured.
+const MAX_DB_HEADER_BYTES = 16 * 1024 * 1024;
 import { notifyWorkspace } from './notification.service.js';
 import { realtime } from '../lib/realtimeBus.js';
 
@@ -253,12 +258,16 @@ export async function uploadHeaderMedia(workspaceId, { buffer, mimeType, fileNam
   const accessToken = decrypt(waNumber.encryptedAccessToken);
   const { handle, format } = await uploadTemplateMedia({ buffer, mimeType, fileName, accessToken });
 
-  // The handle Meta just returned is review-only and cannot be sent, so an
-  // IMAGE header also keeps its bytes — that copy is what every later campaign
-  // send re-uploads as real media. Videos and PDFs are review-only headers in
-  // this product and aren't re-sent, so they aren't stored.
+  // The handle Meta just returned is review-only and cannot be sent, so the
+  // header keeps its bytes — that copy is what every later send re-uploads as
+  // real media. Videos and PDFs used to be treated as review-only and were not
+  // kept, so a template with one could be approved and then never sent. A
+  // file too large to keep in the database (no object store configured) is
+  // recovered from Meta's approved sample at its first send instead
+  // (templateImage.service.js#headerMediaComponent).
   let assetId = existingAssetId;
-  if (format === 'IMAGE' && !assetId) {
+  const keepable = format === 'IMAGE' || storage.objectStore || buffer.length <= MAX_DB_HEADER_BYTES;
+  if (!assetId && keepable) {
     const asset = await storeAsset(workspaceId, { buffer, mimeType, prompt, source });
     assetId = asset.id;
   }

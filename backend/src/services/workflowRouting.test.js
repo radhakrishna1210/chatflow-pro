@@ -263,7 +263,13 @@ test('Test F: Workflow action execution trace (template -> delay -> personalized
 
 test('simulateWorkflow handles template action subtype properly', async () => {
   const originalFindFirst = prisma.workflow.findFirst;
+  const originalTemplate = prisma.template.findFirst;
+  const originalFindMany = prisma.workflow.findMany;
   try {
+    // The simulation now checks the template exists and is approved, as a
+    // real send would, and which workflow would win the message.
+    prisma.template.findFirst = async () => ({ id: 'tpl_1', name: 'tendy_wear_new_collection', status: 'APPROVED', components: [] });
+    prisma.workflow.findMany = async () => [];
     prisma.workflow.findFirst = async () => ({
       id: 'wf_test_sim',
       name: 'Tendy Wear New Collection Promo',
@@ -279,9 +285,40 @@ test('simulateWorkflow handles template action subtype properly', async () => {
     assert.equal(result.trace.length, 2);
     assert.equal(result.trace[1].subtype, 'template');
     assert.equal(result.trace[1].detail, 'Would send template: "tendy_wear_new_collection"');
+    assert.equal(result.trace[1].result, 'ok');
   } finally {
     prisma.workflow.findFirst = originalFindFirst;
+    prisma.template.findFirst = originalTemplate;
+    prisma.workflow.findMany = originalFindMany;
   }
+});
+
+// ── Keyword lists (WF-EN-15) ────────────────────────────────────────────────
+
+test('keywordMatches: commas, semicolons, pipes and newlines all separate keywords', () => {
+  assert.equal(keywordMatches('HI; HELLO', 'hello there'), true);
+  assert.equal(keywordMatches('HI | HELLO', 'hi'), true);
+  assert.equal(keywordMatches('HI' + String.fromCharCode(10) + 'HELLO', 'hello'), true);
+  assert.equal(keywordMatches('HI, HELLO', 'hello'), true);
+  // A space is part of a phrase, not a separator.
+  assert.equal(keywordMatches('HI HELLO HEY', 'hello'), false);
+  assert.equal(keywordMatches('HI HELLO HEY', 'hi  hello hey'), true);
+});
+
+test('keywordMatches: a phrase matches across any run of whitespace; whole words only', () => {
+  assert.equal(keywordMatches('BOOK  A   CALL', 'can I book a call?'), true);
+  assert.equal(keywordMatches('BOOK A CALL', 'book  a' + String.fromCharCode(9) + 'call'), true);
+  assert.equal(keywordMatches('ORDER', 'orders'), false);
+  assert.equal(keywordMatches('HI', 'this'), false);
+  assert.equal(keywordMatches(' ; | ', 'anything'), false);
+});
+
+test('matchedKeyword: reports the longest keyword that actually matched', async () => {
+  const { matchedKeyword, parseKeywords } = await import('./automation.service.js');
+  assert.deepEqual(parseKeywords(' price list ; HELP|  cost  ' + String.fromCharCode(10)), ['price list', 'HELP', 'cost']);
+  assert.equal(matchedKeyword('HELP, SUPPORT, PRICE, COST', 'send the price list'), 'PRICE');
+  assert.equal(matchedKeyword('PRICE, PRICE LIST', 'send the price list'), 'PRICE LIST');
+  assert.equal(matchedKeyword('ORDER', 'hello'), null);
 });
 
 // ── media trigger (CF-224) ──────────────────────────────────────────────────

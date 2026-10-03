@@ -20,18 +20,25 @@ delete process.env.HANDOFF_TTL_HOURS;
 
 const sent = [];
 let sendFails = false;
+// Both send entry points record the same way: the workflow engine sends
+// through deliverAutomatedReply (it needs the refusal code), the rest of the
+// pipeline through sendAutomatedReply.
+async function recordSend(args) {
+  if (sendFails) return null;
+  sent.push(args);
+  // eslint-disable-next-line no-use-before-define
+  const row = { id: `out_${sent.length}`, conversationId: args.conversationId, direction: 'OUTBOUND', body: args.body, senderUserId: null, createdAt: new Date(), sentAt: new Date() };
+  // eslint-disable-next-line no-use-before-define
+  db.messages.push(row);
+  return row;
+}
 mock.module('./outbound.service.js', {
   namedExports: {
-    sendAutomatedReply: async (args) => {
-      if (sendFails) return null;
-      sent.push(args);
-      // eslint-disable-next-line no-use-before-define
-      const row = { id: `out_${sent.length}`, conversationId: args.conversationId, direction: 'OUTBOUND', body: args.body, senderUserId: null, createdAt: new Date(), sentAt: new Date() };
-      // eslint-disable-next-line no-use-before-define
-      db.messages.push(row);
-      return row;
+    sendAutomatedReply: recordSend,
+    deliverAutomatedReply: async (args) => {
+      const message = await recordSend(args);
+      return message ? { ok: true, message } : { ok: false, code: 'META_REJECTED', detail: 'refused' };
     },
-    deliverAutomatedReply: async () => ({ ok: true, message: { id: 'x' } }),
     markNumberUnreachable: async () => {},
   },
 });

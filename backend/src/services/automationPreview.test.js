@@ -110,3 +110,22 @@ test('what the generator produces passes the save-time workflow validation', asy
     assert.equal(parsed.success, true, `${prompt}: ${parsed.error?.issues?.[0]?.message}`);
   }
 });
+
+// WF-EN-17: inserting the wait after buttons shifted every later step by one,
+// so an earlier condition guarding the buttons let its last step escape.
+test('an inserted wait widens the skip window of an earlier condition that covers the buttons', () => {
+  const out = cleanWorkflowPreview({
+    name: 'New vs returning',
+    nodes: [
+      { type: 'trigger', subtype: 'keyword', value: 'HELP' },
+      { type: 'condition', subtype: 'is_new_contact', value: '', skipIfFalse: 3 }, // guards the 3 steps below
+      { type: 'action', subtype: 'buttons', value: 'Welcome! | Browse | Talk to us' },
+      { type: 'condition', subtype: 'equals', value: 'Browse', skipIfFalse: 1 },
+      { type: 'action', subtype: 'message', value: 'Here is our catalogue' },
+    ],
+  }, 'help');
+  const steps = out.nodes.filter((n) => n.type !== 'trigger');
+  assert.deepEqual(steps.map((s) => s.subtype), ['is_new_contact', 'buttons', 'wait_reply', 'equals', 'message']);
+  assert.equal(steps[0].skipIfFalse, 4, 'still guards buttons, the wait, the branch and the catalogue');
+  assert.equal(steps[2 + 1].skipIfFalse, 1, 'the condition after the insertion is unchanged');
+});

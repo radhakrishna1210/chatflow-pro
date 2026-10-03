@@ -134,7 +134,9 @@ test('a reply wait past 24 hours is closed by the sweep; an owed reminder is enq
 
   const expired = await engine.sweepDueRuns({ now: new Date(Date.now() + 25 * 3_600_000) });
   assert.equal(expired.expired, 1);
-  assert.equal(row(run.id).status, 'COMPLETED');
+  // A timed-out wait is CANCELLED with the reason (WF-EN-2), not COMPLETED.
+  assert.equal(row(run.id).status, 'CANCELLED');
+  assert.equal(row(run.id).error, 'No reply within 24 hours');
   assert.equal(row(run.id).resumeAt, null);
 });
 
@@ -185,13 +187,17 @@ test('a pass that dies part-way is recovered from its last checkpoint, not from 
   assert.deepEqual(sent, []);
 
   // Once the lease lapses the sweep resumes it from the checkpoint: step one is
-  // not sent again; only the step in flight when it died is repeated.
+  // not sent again, and neither is step two — it was in flight when the pass
+  // died and may well have reached the customer (WF-EN-9; this used to repeat
+  // it, which is how a hung send became a duplicate OTP).
   row(runId).resumeAt = new Date(Date.now() - 1000);
   const summary = await engine.sweepDueRuns({ now: new Date() });
   assert.equal(summary.resumed, 1);
   const done = await engine.advanceRun(runId);
   assert.equal(done.status, 'COMPLETED');
-  assert.deepEqual(sent, ['two', 'three']);
+  assert.deepEqual(sent, ['three']);
+  const interrupted = done.trace.find((t) => t.step === 1 && t.result === 'skipped');
+  assert.match(interrupted.detail, /interrupted mid-send/);
 });
 
 test('a RUNNING run under a live lease cannot be claimed; once the lease expires it can', async () => {

@@ -5,6 +5,7 @@ import { isOptedOut } from './optout.service.js';
 import { getWindowState, WINDOW_MS } from './messagingWindow.js';
 import { consumeMessageCredit, releaseMessageCredit } from './subscription.service.js';
 import { realtime } from '../lib/realtimeBus.js';
+import { notifyWorkspace } from './notification.service.js';
 
 // Records that Meta has stopped accepting this number, so the fault is visible
 // on the Number Setup screen rather than only in the log. Two numbers in the
@@ -22,6 +23,48 @@ export async function markNumberUnreachable(waNumberId, metaError) {
   });
 }
 
+// Automated sends refused for credit used to be visible only in a server log:
+// every workflow, keyword reply and sequence step simply stopped, and nobody in
+// the workspace was told why. The first refusal per workspace in a 24-hour
+// window raises one workspace notification; later ones are quiet.
+const CREDIT_NOTICE_TYPE = 'AUTOMATION_PAUSED';
+const CREDIT_NOTICE_WINDOW_MS = 24 * 3_600_000;
+const creditNoticeAt = new Map(); // workspaceId -> ms, so a burst does not hit the database per send
+
+export async function noteAutomatedCreditRefusal(workspaceId, code = 'QUOTA_AND_WALLET_EXHAUSTED', { now = Date.now() } = {}) {
+  if (!workspaceId) return false;
+  const last = creditNoticeAt.get(workspaceId);
+  if (last && now - last < CREDIT_NOTICE_WINDOW_MS) return false;
+  creditNoticeAt.set(workspaceId, now);
+  try {
+    // Another process (web vs worker) may already have raised it.
+    const recent = await prisma.notification.findFirst({
+      where: { workspaceId, userId: null, type: CREDIT_NOTICE_TYPE, createdAt: { gte: new Date(now - CREDIT_NOTICE_WINDOW_MS) } },
+      select: { id: true },
+    });
+    if (recent) return false;
+    const inactive = code === 'SUBSCRIPTION_INACTIVE';
+    await notifyWorkspace(workspaceId, {
+      type: CREDIT_NOTICE_TYPE,
+      title: inactive
+        ? 'Automated replies are paused: the subscription is not active'
+        : 'Automated replies are paused: message quota and wallet are empty — top up',
+      body: inactive
+        ? 'Workflows, keyword replies and sequences cannot send until the subscription is renewed.'
+        : 'Workflows, keyword replies and sequences cannot send until the wallet is topped up or the plan is upgraded.',
+      link: 'payments',
+      meta: { code },
+    });
+    return true;
+  } catch (err) {
+    console.warn(`[Outbound] Could not raise the paused-automation notice for ${workspaceId}:`, err.message);
+    return false;
+  }
+}
+
+// Test seam: forget which workspaces were already told.
+export const __resetCreditNotices = () => creditNoticeAt.clear();
+
 // Every automated reply path (keyword triggers, welcome/OOO, the delayed
 // worker, workflow "send message" steps, forms, sequences) needs the same
 // things: decrypt the number's token, meter the send against the workspace's
@@ -30,7 +73,9 @@ export async function markNumberUnreachable(waNumberId, metaError) {
 // is what lets the workers reply from outside the webhook request.
 //
 // Returns { ok: true, message } or { ok: false, code, detail }, where `code` is
-// one of EMPTY, NO_NUMBER, OPTED_OUT, WINDOW_CLOSED, NO_CREDIT, META_REJECTED.
+// one of EMPTY, NO_NUMBER, OPTED_OUT, WINDOW_CLOSED, NO_CREDIT,
+// SUBSCRIPTION_INACTIVE, META_REJECTED. A NO_CREDIT refusal also carries
+// `creditCode`, the billing reason.
 /**
  * @param {string[]} [options] tappable choices to offer with the text. One to
  *   three are sent as reply buttons; four to ten as a list. More than ten is
@@ -105,7 +150,13 @@ export async function deliverAutomatedReply({
   }
   if (!credit?.ok) {
     console.warn(`[Outbound] Reply to ${toPhone} not sent — ${credit?.code ?? 'billing unavailable'}.`);
-    return { ok: false, code: 'NO_CREDIT', detail: 'Message quota and wallet balance exhausted' };
+    // A billing error (no result at all) is not the customer's empty wallet, so
+    // it does not raise the notice.
+    if (credit?.code) await noteAutomatedCreditRefusal(workspaceId, credit.code);
+    if (credit?.code === 'SUBSCRIPTION_INACTIVE') {
+      return { ok: false, code: 'SUBSCRIPTION_INACTIVE', detail: 'The workspace subscription is not active' };
+    }
+    return { ok: false, code: 'NO_CREDIT', detail: 'Message quota and wallet balance exhausted', creditCode: credit?.code ?? null };
   }
   const refund = () => releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null })
     .catch((err) => console.error('[Outbound] Credit refund failed:', err.message));

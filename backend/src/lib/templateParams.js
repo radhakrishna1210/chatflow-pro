@@ -49,17 +49,27 @@ export const buildTextComponents = (components, resolve) =>
 
 // Contacts only carry name/phone/email, so {{1}} is filled with the contact's
 // name (the convention used everywhere else templates are authored, e.g.
-// data/templateLibrary.js). There is no per-recipient data behind {{2}} and up,
-// so those fall back to the sample the template was approved with: repeating
-// the name there turned "Hi Priya, {{2}}% off" into "Priya% off" on delivery.
+// data/templateLibrary.js). There is no per-recipient data behind {{2}} and up.
+//
+// By default {{2}}+ resolve to an empty string — "no value" — so a caller that
+// must not invent data can detect the gap: a workflow template step once sent
+// every customer "your order ORD-12345 ships on 12 Jan" because the slots fell
+// back to the sample the template was approved with.
+//
+// `samples: true` keeps that fallback, for the senders whose template IS the
+// message and was authored with its samples as the intended content: a
+// campaign blast (and the campaign AI agent, which must reproduce exactly what
+// the campaign sent), and an inbox send where the agent supplied no values.
+// Repeating the name there turned "Hi Priya, {{2}}% off" into "Priya% off".
 //
 // Lives here rather than in the campaign worker because the campaign AI agent
 // has to reproduce the exact text a contact was sent — two copies of these
 // rules would eventually disagree about what the customer actually read.
-export const contactVariableResolver = (contact) => {
+export const contactVariableResolver = (contact, { samples = false } = {}) => {
   const name = (contact?.name || '').trim() || 'there';
   return (index, component) => {
     if (index === 0) return name;
+    if (!samples) return '';
     // A parameter Meta receives as an empty string fails the send, so an absent
     // example falls back to the name rather than to nothing.
     return String(bodyExamples(component)[index] ?? '').trim() || name;

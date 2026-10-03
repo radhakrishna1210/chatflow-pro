@@ -147,7 +147,10 @@ test('a reply after 24 hours does not resume the stale flow', async () => {
   stored.variables.__awaitingReply.since = new Date(Date.now() - engine.REPLY_TIMEOUT_MS - 1000).toISOString();
 
   assert.equal(await engine.resumeAwaitingRun(WS, CONV, 'Track my order'), null);
-  assert.equal(runs.get(run.id).status, 'COMPLETED');
+  // CANCELLED with the reason, not COMPLETED: the flow never finished
+  // (WF-EN-2; the old expectation recorded a timed-out run as a success).
+  assert.equal(runs.get(run.id).status, 'CANCELLED');
+  assert.equal(runs.get(run.id).error, 'No reply within 24 hours');
   assert.equal(engine.isAwaitingReply(runs.get(run.id)), false);
 });
 

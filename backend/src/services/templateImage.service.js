@@ -538,41 +538,80 @@ export async function assertCardAssetsOwned(workspaceId, components) {
 
 export const toDataUri = (mimeType, buffer) => `data:${mimeType};base64,${Buffer.from(buffer).toString('base64')}`;
 
-// The `header` entry a send must carry when the template has an image header,
-// or null when it doesn't. Meta requires this on EVERY send of such a template
-// — omitting it fails the message with error 132000 (parameter count mismatch),
-// which is what made image headers look like they simply didn't arrive.
+// What each media header format needs on a send: the parameter type Meta
+// expects, the bytes it accepts and how large they may be. Templates could be
+// created with a VIDEO or DOCUMENT header, but sends only ever built an IMAGE
+// header, so Meta rejected every send of them (132012/132000).
+const HEADER_MEDIA = {
+  IMAGE: { type: 'image', noun: 'image', maxBytes: MAX_IMAGE_BYTES, sendable: (mime) => SENDABLE_IMAGE_TYPES.has(mime) },
+  VIDEO: { type: 'video', noun: 'video', maxBytes: 16 * 1024 * 1024, sendable: (mime) => mime === 'video/mp4' },
+  DOCUMENT: { type: 'document', noun: 'document', maxBytes: 100 * 1024 * 1024, sendable: (mime) => mime === 'application/pdf' },
+};
+export const HEADER_MEDIA_FORMATS = Object.keys(HEADER_MEDIA);
+
+// The type of a fetched media sample, read from its bytes (the CDN's
+// content-type is not trusted).
+function sniffMediaType(buffer) {
+  const image = sniffImageType(buffer);
+  if (image) return image;
+  if (buffer.length > 12 && buffer.subarray(4, 8).toString('latin1') === 'ftyp') return 'video/mp4';
+  if (buffer.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf';
+  return null;
+}
+
+// The `header` entry a send must carry when the template has a media header
+// (image, video or document), or null when it doesn't. Meta requires this on
+// EVERY send of such a template — omitting it fails the message with error
+// 132000 (parameter count mismatch), which is what made image headers look
+// like they simply didn't arrive.
+//
+// The media comes from the stored asset (Template.headerAssetId) or, failing
+// that, is recovered once from the approved sample Meta holds. When neither
+// exists the send fails with TEMPLATE_MEDIA_UNAVAILABLE, naming the template.
 //
 // `workspaceId` is the workspace doing the send; the asset must belong to it.
-export async function headerImageComponent(template, { phoneNumberId, accessToken, workspaceId = template?.workspaceId }) {
+export async function headerMediaComponent(template, { phoneNumberId, accessToken, workspaceId = template?.workspaceId }) {
   const header = (Array.isArray(template?.components) ? template.components : [])
     .find((c) => String(c?.type || '').toUpperCase() === 'HEADER');
-  if (!header || String(header.format || '').toUpperCase() !== 'IMAGE') return null;
+  const format = String(header?.format || '').toUpperCase();
+  const spec = HEADER_MEDIA[format];
+  if (!header || !spec) return null;
 
-  // An image-header template synced from Meta, or created before assets
+  // A media-header template synced from Meta, or created before assets
   // existed, has no bytes on our side to re-send — but Meta is still holding
   // the approved sample, and those are the same bytes.
   let assetId = template.headerAssetId;
   if (!assetId) {
     assetId = await adoptMediaFromHandle(template.workspaceId, header, {
       label: `the header of template "${template.name}"`,
+      format,
     });
     if (assetId) {
       await prisma.template.update({ where: { id: template.id }, data: { headerAssetId: assetId } })
-        .catch((err) => console.warn(`[TemplateImage] Could not record the recovered header image: ${err.message}`));
+        .catch((err) => console.warn(`[TemplateImage] Could not record the recovered header ${spec.noun}: ${err.message}`));
     }
   }
   if (!assetId) {
-    const e = new Error(`Template "${template.name}" has an image header but no stored image to send, and its approved sample could not be re-fetched from Meta. Re-upload its header image.`);
+    const e = new Error(`Template "${template.name}" has a ${spec.noun} header but no stored ${spec.noun} to send, and its approved sample could not be re-fetched from Meta. Re-upload its header ${spec.noun} in the template editor.`);
     e.status = 422;
+    e.code = 'TEMPLATE_MEDIA_UNAVAILABLE';
+    e.expose = true;
     throw e;
   }
 
-  const asset = await resolveTemplateAsset(workspaceId, assetId, { label: `the header image of template "${template.name}"` });
+  const asset = await resolveTemplateAsset(workspaceId, assetId, { label: `the header ${spec.noun} of template "${template.name}"` });
 
   const mediaId = await resolveSendableMediaId(asset, { phoneNumberId, accessToken });
-  return { type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] };
+  const media = { id: mediaId };
+  // A document header shows a file name in the chat; without one WhatsApp
+  // shows "Untitled".
+  if (spec.type === 'document') media.filename = `${String(template.name || 'document').slice(0, 200)}.pdf`;
+  return { type: 'header', parameters: [{ type: spec.type, [spec.type]: media }] };
 }
+
+// The original name, kept for callers and tests written against it; it builds
+// every media header now, not only images.
+export const headerImageComponent = headerMediaComponent;
 
 // Returns a media id valid for sending from `phoneNumberId`, uploading the
 // stored bytes only when the cached id is missing, stale, or was minted for a
@@ -628,9 +667,10 @@ const handleUrl = (header) => {
 // at Meta's own media CDN.
 const META_MEDIA_HOST = /(^|\.)(whatsapp\.net|fbcdn\.net|fbsbx\.com|facebook\.com)$/i;
 
-async function adoptMediaFromHandle(workspaceId, header, { label }) {
+async function adoptMediaFromHandle(workspaceId, header, { label, format = 'IMAGE' }) {
   const url = handleUrl(header);
   if (!url) return null;
+  const spec = HEADER_MEDIA[format] ?? HEADER_MEDIA.IMAGE;
 
   let res;
   try {
@@ -639,7 +679,7 @@ async function adoptMediaFromHandle(workspaceId, header, { label }) {
       console.warn(`[TemplateImage] The approved sample for ${label} is not on Meta's media CDN — not fetching it.`);
       return null;
     }
-    res = await safeRequest(target.toString(), { timeout: HANDLE_FETCH_TIMEOUT_MS, maxBytes: MAX_IMAGE_BYTES });
+    res = await safeRequest(target.toString(), { timeout: HANDLE_FETCH_TIMEOUT_MS, maxBytes: spec.maxBytes });
   } catch (err) {
     console.warn(`[TemplateImage] Could not re-fetch ${label} from its approved sample: ${err.message}`);
     return null;
@@ -650,11 +690,11 @@ async function adoptMediaFromHandle(workspaceId, header, { label }) {
   }
 
   const buffer = res.data;
-  const mimeType = sniffImageType(buffer);
-  // Only a real, sendable image is adopted — never whatever an expired signed
-  // URL happens to answer with.
-  if (!mimeType || !SENDABLE_IMAGE_TYPES.has(mimeType) || buffer.length > MAX_IMAGE_BYTES) {
-    console.warn(`[TemplateImage] The approved sample for ${label} is not a sendable image — not adopting it.`);
+  const mimeType = sniffMediaType(buffer);
+  // Only real, sendable media of the header's own kind is adopted — never
+  // whatever an expired signed URL happens to answer with.
+  if (!mimeType || !spec.sendable(mimeType) || buffer.length > spec.maxBytes) {
+    console.warn(`[TemplateImage] The approved sample for ${label} is not a sendable ${spec.noun} — not adopting it.`);
     return null;
   }
 
