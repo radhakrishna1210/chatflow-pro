@@ -21,7 +21,8 @@ export async function remove(req, res) {
   res.status(204).send();
 }
 export async function enroll(req, res) {
-  const result = await sequencesService.enrollContacts(req.params.workspaceId, req.params.id, req.body);
+  // req.user applies record visibility to the leads being enrolled.
+  const result = await sequencesService.enrollContacts(req.params.workspaceId, req.params.id, req.body, req.user);
   // Kick each new enrollment immediately; the sweep would otherwise take up to
   // a minute to notice, which feels broken when a rep just pressed Enrol.
   //

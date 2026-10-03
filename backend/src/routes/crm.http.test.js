@@ -149,7 +149,14 @@ test('bulk task requires a title', async () => {
   assert.equal(res.status, 400);
 });
 
+// Customize Your Business sections are SavedView rows.
+const lifecycle = (...keys) => state.savedViews.push({
+  id: 'lc', workspaceId: 'ws1', entity: 'crm_customization', name: '__CRM_CUSTOMIZATION_LEAD_LIFECYCLE__',
+  filters: { stages: keys.map((key, i) => ({ key, label: key, isDefault: i === 0 })) },
+});
+
 test('bulk status stores a custom lifecycle key in customFields', async () => {
+  lifecycle('NEW', 'QUALIFIED', 'SITE_VISIT');
   state.leads = [{ id: 'l1', workspaceId: 'ws1', contactId: 'c1', status: 'NEW', customFields: { region: 'EU' } }];
   const res = await post('/leads/bulk-status', { ids: ['l1'], status: 'SITE_VISIT' });
   assert.equal(res.status, 200);
@@ -163,6 +170,15 @@ test('bulk status to a built-in status clears a custom key', async () => {
   const res = await post('/leads/bulk-status', { ids: ['l1'], status: 'QUALIFIED' });
   assert.equal(res.status, 200);
   assert.deepEqual(state.leadUpdates[0].data, { status: 'QUALIFIED', customFields: null });
+});
+
+test('bulk status refuses a stage that is not in the lead lifecycle (CF-154)', async () => {
+  lifecycle('NEW', 'QUALIFIED');
+  state.leads = [{ id: 'l1', workspaceId: 'ws1', contactId: 'c1', status: 'NEW', customFields: null }];
+  const res = await post('/leads/bulk-status', { ids: ['l1'], status: 'SITE_VISIT' });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /lead lifecycle/);
+  assert.equal(state.leadUpdates.length, 0);
 });
 
 test('bulk assign refuses an owner from outside the workspace', async () => {

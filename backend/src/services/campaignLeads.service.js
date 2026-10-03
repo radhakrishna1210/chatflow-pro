@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
+import { loadLeadIntakeRules, prepareLeadIntake } from './leadIntake.service.js';
 
 
 // Turning a campaign reply into a lead.
@@ -59,7 +60,7 @@ export async function createLeadFromReply(workspaceId, contactId, { at = new Dat
 
   const contact = await prisma.contact.findFirst({
     where: { id: contactId, workspaceId },
-    select: { id: true, optedOut: true },
+    select: { id: true, optedOut: true, phoneNumber: true, email: true, tags: true },
   });
   if (!contact) return { created: false, reason: 'Contact not found' };
 
@@ -78,14 +79,29 @@ export async function createLeadFromReply(workspaceId, contactId, { at = new Dat
   // Scored on creation so the new lead sorts correctly straight away rather
   // than sitting at zero until someone recalculates. The reply itself is
   // already in the message history, so it counts toward the score.
+  // The workspace's lead rules, leniently (nobody is there to correct them):
+  // CONTACTED if the lifecycle has it, a configured source (a "Campaign" or
+  // "WhatsApp" source if the workspace defines one, else Other) with the
+  // campaign name kept as the source detail, and missing required prospecting
+  // details mark the lead not qualified.
+  const intake = prepareLeadIntake(await loadLeadIntakeRules(workspaceId), {
+    status: 'CONTACTED', // they have engaged — NEW would understate it
+    source: `Campaign: ${attribution.campaignName}`,
+    existingTags: contact.tags,
+    phone: contact.phoneNumber,
+    email: contact.email,
+    customFields: { campaignId: attribution.campaignId },
+  }, { strict: false, sourceFallbacks: ['CAMPAIGN', 'WHATSAPP'] });
+
   const { score, factors, computedAt } = await computeLeadScore(workspaceId, contactId);
 
   const lead = await prisma.lead.create({
     data: {
       workspaceId,
       contactId,
-      status: 'CONTACTED', // they have engaged — NEW would understate it
-      source: `Campaign: ${attribution.campaignName}`,
+      status: intake.status,
+      source: intake.source,
+      customFields: intake.customFields,
       score,
       scoreFactors: factors,
       scoreComputedAt: computedAt,

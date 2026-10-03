@@ -625,7 +625,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
             )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--t3)' }}>
-            {c.phoneNumber}{c.email ? ` · ${c.email}` : ''}{lead.source ? ` · Source: ${leadSourcesConfig.find(s => s.key === lead.source)?.name || lead.source}` : ''}
+            {c.phoneNumber}{c.email ? ` · ${c.email}` : ''}{lead.source ? ` · Source: ${leadSourcesConfig.find(s => s.key === lead.source)?.name || lead.source}${lead.customFields?.sourceDetail ? ` (${lead.customFields.sourceDetail})` : ''}` : ''}
           </div>
         </div>
 

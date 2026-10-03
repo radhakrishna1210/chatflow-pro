@@ -94,11 +94,22 @@ async function actionLeadStatus(run, node) {
     return { result: 'skipped', detail: `"${node.value}" is not a settable lead status` };
   }
 
-  const lead = await prisma.lead.findFirst({ where: { id: run.leadId, workspaceId: run.workspaceId }, select: { status: true } });
+  const lead = await prisma.lead.findFirst({ where: { id: run.leadId, workspaceId: run.workspaceId }, select: { status: true, customFields: true } });
   if (!lead) return { result: 'skipped', detail: 'Lead no longer exists' };
-  if (lead.status === status) return { result: 'ok', detail: `Already ${status}` };
+  if ((lead.customFields?.statusKey || lead.status) === status) return { result: 'ok', detail: `Already ${status}` };
 
-  await prisma.lead.update({ where: { id: run.leadId }, data: { status } });
+  // Same lifecycle rules as a status set in the CRM: a stage the workspace
+  // has removed from its lead lifecycle is not written, and a built-in status
+  // clears a custom stage key that would otherwise keep overriding it.
+  const { loadLeadIntakeRules, leadStatusWrite } = await import('./leadIntake.service.js');
+  let write;
+  try {
+    write = leadStatusWrite(await loadLeadIntakeRules(run.workspaceId), status, lead.customFields, { strict: true });
+  } catch (err) {
+    if (err.status !== 400) throw err;
+    return { result: 'skipped', detail: err.message };
+  }
+  await prisma.lead.update({ where: { id: run.leadId }, data: write.data });
   return { result: 'ok', detail: `Lead status set to ${status}` };
 }
 

@@ -129,10 +129,13 @@ model Workspace {
 
   // Workspace profile, surfaced in Settings -> Workspace. `timezone` is the
   // display default only; businessHours carries its own tz for scheduling.
-  industry     String?
-  timezone     String  @default("Asia/Kolkata")
-  brandColor   String  @default("#35e8f2")
-  brandLogoUrl String?
+  industry            String?
+  timezone            String  @default("Asia/Kolkata")
+  // ISO 3166 country whose calling code is added to contact numbers typed
+  // without one ("9876543210" -> "+919876543210"). See lib/phone.js.
+  defaultPhoneCountry String  @default("IN")
+  brandColor          String  @default("#35e8f2")
+  brandLogoUrl        String?
 
   suspended       Boolean @default(false)
   suspendedReason String?
@@ -151,72 +154,72 @@ model Workspace {
 
   createdAt DateTime @default(now())
 
-  apiKeys                      ApiKey[]
-  oauthAuthorizationCodes      OAuthAuthorizationCode[]
-  oauthConsents                OAuthConsent[]
-  triggers                     AutomationTrigger[]
-  campaigns                    Campaign[]
-  contacts                     Contact[]
-  conversations                Conversation[]
-  invoices                     Invoice[]
-  templates                    Template[]
-  authenticationConfig         AuthenticationConfig?
-  waNumbers                    WaNumber[]
-  members                      WorkspaceMember[]
-  workflows                    Workflow[]
-  segments                     Segment[]
-  whatsappForms                WhatsappForm[]
-  walletTransactions           WalletTransaction[]
-  integrations                WorkspaceIntegration[]
-  supportTickets               SupportTicket[]
-  subscription                 Subscription?
-  billingProfile               WorkspaceBillingProfile?
-  usageCounters                UsageCounter[]
-  invitations                  Invitation[]
-  clusters                     Cluster[]
-  workflowRuns                 WorkflowRun[]
-  formSubmissions              WhatsappFormSubmission[]
-  instagramFlows               InstagramFlow[]
-  voiceCalls                   VoiceCall[]
-  optOuts                      OptOut[]
-  notifications                Notification[]
-  templateAssets               TemplateAsset[]
-  campaignAiSessions           CampaignAiSession[]
-  widgets                      Widget[]
-  widgetSessions               WidgetSession[]
-  widgetEvents                 WidgetEvent[]
-  knowledgeSources             KnowledgeSource[]
-  intentRules                  IntentRule[]
-  intentMatchEvents            IntentMatchEvent[]
-  addons                       WorkspaceAddon[]
-  customFields                 WorkspaceCustomField[]
-  customEvents                 WorkspaceCustomEvent[]
-  recordVisibility             String                   @default("ALL")
-  autoLeadFromReply            Boolean                  @default(false)
-  leads                        Lead[]
-  deals                        Deal[]
-  dealStageHistories           DealStageHistory[]
-  savedViews                   SavedView[]
-  pipelineStages               PipelineStage[]
-  customFieldDefinitions       CustomFieldDefinition[]
-  sequences                    Sequence[]
-  sequenceEnrollments          SequenceEnrollment[]
-  sequenceStepRuns             SequenceStepRun[]
-  teams                        Team[]
-  leadForms                    LeadForm[]
-  leadFormSubmissions          LeadFormSubmission[]
-  crmTickets                   CrmTicket[]
-  xpEvents                     XpEvent[]
-  achievements                 Achievement[]
-  products                     Product[]
-  dealLineItems                DealLineItem[]
-  quotes                       Quote[]
-  quoteLineItems               QuoteLineItem[]
-  tasks                        Task[]
-  crmActivities                CrmActivity[]
-  agentTasks                   AgentTask[]
-  agentRuns                    AgentRun[]
-  agentFacts                   AgentFact[]
+  apiKeys                 ApiKey[]
+  oauthAuthorizationCodes OAuthAuthorizationCode[]
+  oauthConsents           OAuthConsent[]
+  triggers                AutomationTrigger[]
+  campaigns               Campaign[]
+  contacts                Contact[]
+  conversations           Conversation[]
+  invoices                Invoice[]
+  templates               Template[]
+  authenticationConfig    AuthenticationConfig?
+  waNumbers               WaNumber[]
+  members                 WorkspaceMember[]
+  workflows               Workflow[]
+  segments                Segment[]
+  whatsappForms           WhatsappForm[]
+  walletTransactions      WalletTransaction[]
+  integrations            WorkspaceIntegration[]
+  supportTickets          SupportTicket[]
+  subscription            Subscription?
+  billingProfile          WorkspaceBillingProfile?
+  usageCounters           UsageCounter[]
+  invitations             Invitation[]
+  clusters                Cluster[]
+  workflowRuns            WorkflowRun[]
+  formSubmissions         WhatsappFormSubmission[]
+  instagramFlows          InstagramFlow[]
+  voiceCalls              VoiceCall[]
+  optOuts                 OptOut[]
+  notifications           Notification[]
+  templateAssets          TemplateAsset[]
+  campaignAiSessions      CampaignAiSession[]
+  widgets                 Widget[]
+  widgetSessions          WidgetSession[]
+  widgetEvents            WidgetEvent[]
+  knowledgeSources        KnowledgeSource[]
+  intentRules             IntentRule[]
+  intentMatchEvents       IntentMatchEvent[]
+  addons                  WorkspaceAddon[]
+  customFields            WorkspaceCustomField[]
+  customEvents            WorkspaceCustomEvent[]
+  recordVisibility        String                   @default("ALL")
+  autoLeadFromReply       Boolean                  @default(false)
+  leads                   Lead[]
+  deals                   Deal[]
+  dealStageHistories      DealStageHistory[]
+  savedViews              SavedView[]
+  pipelineStages          PipelineStage[]
+  customFieldDefinitions  CustomFieldDefinition[]
+  sequences               Sequence[]
+  sequenceEnrollments     SequenceEnrollment[]
+  sequenceStepRuns        SequenceStepRun[]
+  teams                   Team[]
+  leadForms               LeadForm[]
+  leadFormSubmissions     LeadFormSubmission[]
+  crmTickets              CrmTicket[]
+  xpEvents                XpEvent[]
+  achievements            Achievement[]
+  products                Product[]
+  dealLineItems           DealLineItem[]
+  quotes                  Quote[]
+  quoteLineItems          QuoteLineItem[]
+  tasks                   Task[]
+  crmActivities           CrmActivity[]
+  agentTasks              AgentTask[]
+  agentRuns               AgentRun[]
+  agentFacts              AgentFact[]
 
   // Authentication transaction records for WhatsApp OTP authentication.
   authenticationTransactions AuthenticationTransaction[]
@@ -415,10 +418,17 @@ model Contact {
   tags               String[]
   optedOut           Boolean             @default(false)
   optedOutAt         DateTime?
+  // WhatsApp opt-in evidence copied from the consent the contact gave (public
+  // lead form): when, where, the exact wording, and the hashed IP. An opt-out
+  // always wins over it; giving consent never clears `optedOut`.
+  optInAt             DateTime?
+  optInSource         String?
+  optInText           String?
+  optInIpHash         String?
   // { fieldKey: value } against WorkspaceCustomField definitions. Null until
   // the workspace defines a field and sets one.
-  customFields       Json?
-  createdAt          DateTime            @default(now())
+  customFields        Json?
+  createdAt           DateTime             @default(now())
   // Backfilled from createdAt for rows that predate the column, so "Recently
   // Updated" means something the first time it is used.
   updatedAt          DateTime            @default(now()) @updatedAt
@@ -429,10 +439,6 @@ model Contact {
   segments           Segment[]           @relation("ContactSegments")
   clusterContacts    ClusterContact[]
   widgetSessions     WidgetSession[]
-
-  @@unique([workspaceId, phoneNumber])
-  @@unique([workspaceId, instagramUserId])
-  @@index([workspaceId, updatedAt])
   lead                Lead?
   quotes              Quote[]
   sequenceEnrollments SequenceEnrollment[]
@@ -440,79 +446,83 @@ model Contact {
   tasks               Task[]
   crmActivities       CrmActivity[]
   CrmTicket           CrmTicket[]
+
+  @@unique([workspaceId, phoneNumber])
+  @@unique([workspaceId, instagramUserId])
+  @@index([workspaceId, updatedAt])
 }
 
 model Campaign {
-  id              String              @id @default(cuid())
-  workspaceId     String
-  name            String
-  templateId      String
-  waNumberId      String?
-  status          CampaignStatus      @default(DRAFT)
-  totalContacts   Int                 @default(0)
-  sent            Int                 @default(0)
-  delivered       Int                 @default(0)
-  read            Int                 @default(0)
-  failed          Int                 @default(0)
+  id                         String                      @id @default(cuid())
+  workspaceId                String
+  name                       String
+  templateId                 String
+  waNumberId                 String?
+  status                     CampaignStatus              @default(DRAFT)
+  totalContacts              Int                         @default(0)
+  sent                       Int                         @default(0)
+  delivered                  Int                         @default(0)
+  read                       Int                         @default(0)
+  failed                     Int                         @default(0)
   // Recipients never sent to because the number opted out. Counted separately
   // from `failed` ΓÇö a blocked number is a skip, not a delivery error, and it
   // must never stop the rest of the campaign.
-  skipped         Int                 @default(0)
+  skipped                    Int                         @default(0)
   // Wallet accounting, written once when the launch charge succeeds.
   // `chargedAt` is the idempotency guard: a campaign with it set is already
   // paid for and can never be charged again (retry, resume, worker restart).
-  costPerMessage  Decimal?            @db.Decimal(10, 4)
-  totalCost       Decimal?            @db.Decimal(12, 2)
-  walletBefore    Decimal?            @db.Decimal(12, 2)
-  walletAfter     Decimal?            @db.Decimal(12, 2)
-  chargedAt       DateTime?
-  refundAmount    Decimal?            @db.Decimal(12, 2)
-  refundedAt      DateTime?
+  costPerMessage             Decimal?                    @db.Decimal(10, 4)
+  totalCost                  Decimal?                    @db.Decimal(12, 2)
+  walletBefore               Decimal?                    @db.Decimal(12, 2)
+  walletAfter                Decimal?                    @db.Decimal(12, 2)
+  chargedAt                  DateTime?
+  refundAmount               Decimal?                    @db.Decimal(12, 2)
+  refundedAt                 DateTime?
   // Messages covered by the plan's included quota at launch (charged to the
   // usage counter of the cycle starting quotaPeriodStart, not the wallet).
   // Unsent ones go back to that counter once, at settlement.
-  quotaUnits       Int                @default(0)
-  quotaPeriodStart DateTime?
-  quotaReleasedAt  DateTime?
-  createdByUserId String?
-  scheduledAt     DateTime?
-  launchedAt      DateTime?
-  completedAt     DateTime?
-  aiGenerated     Boolean             @default(false)
+  quotaUnits                 Int                         @default(0)
+  quotaPeriodStart           DateTime?
+  quotaReleasedAt            DateTime?
+  createdByUserId            String?
+  scheduledAt                DateTime?
+  launchedAt                 DateTime?
+  completedAt                DateTime?
+  aiGenerated                Boolean                     @default(false)
   // ΓöÇΓöÇΓöÇ Campaign AI Agent ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   // When on, the campaign's template CTA ("Ask Anything") hands the customer
   // to the workspace's deployed WhatsApp AI Agent, primed with what this
   // campaign actually said. `aiAgentId` names the agent (the workspace's own,
   // see services/aiAgent.service.js listAgents) so the link survives even if
   // more agents are added later.
-  aiAgentEnabled  Boolean             @default(false)
-  aiAgentId       String?
-  aiAgentCtaLabel String?
+  aiAgentEnabled             Boolean                     @default(false)
+  aiAgentId                  String?
+  aiAgentCtaLabel            String?
   // Snapshot of the campaign's content taken at launch. Editing the template
   // afterwards must not change the answers a customer who received the old
   // wording gets, so the agent reads this, never the live template.
-  aiAgentContext  Json?
-  queueJobId      String?
-  replyRules      Json?
-  retryConfig     Json?
-  trackingConfig  Json?
-  fallbackConfig  Json?
+  aiAgentContext             Json?
+  queueJobId                 String?
+  replyRules                 Json?
+  retryConfig                Json?
+  trackingConfig             Json?
+  fallbackConfig             Json?
   // What the campaign is for: sales | launch | reengage | nurture. Set in the
   // first step of the builder and used to tune the suggested template and the
   // context the agent is given. Nullable because every campaign created before
   // the step existed has no answer, and inventing one would be a lie about
   // what the sender chose.
-  goal            String?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @default(now()) @updatedAt
+  goal                       String?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @default(now()) @updatedAt
   // NoAction, not the implicit Restrict: a template still used by a campaign
   // cannot be deleted on its own, but a workspace delete that cascades to both
   // is checked at the end of the statement and succeeds.
-  template        Template            @relation(fields: [templateId], references: [id], onDelete: NoAction)
-  waNumber        WaNumber?           @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
-  workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  recipients      CampaignRecipient[]
-  aiSessions      CampaignAiSession[]
+  template                   Template                    @relation(fields: [templateId], references: [id], onDelete: NoAction)
+  waNumber                   WaNumber?                   @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
+  workspace                  Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipients                 CampaignRecipient[]
+  aiSessions                 CampaignAiSession[]
   authenticationTransactions AuthenticationTransaction[]
 
   @@index([workspaceId, createdAt])
@@ -620,6 +630,7 @@ model Conversation {
   workflowRuns     WorkflowRun[]
   aiSessions       CampaignAiSession[]
   notes            ConversationNote[]
+  tickets          CrmTicket[]
 
   // Enforced as a partial unique index in the migration (waNumberId IS NOT
   // NULL), which Prisma cannot express here. Declared as an index so the
@@ -631,7 +642,6 @@ model Conversation {
   // One Instagram thread per contact: enforced as a partial unique index
   // (channel = 'INSTAGRAM') in the migration.
   @@index([workspaceId, channel])
-  tickets CrmTicket[]
 }
 
 enum ConversationChannel {
@@ -817,16 +827,16 @@ model WorkflowRun {
   workspace      Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversation   Conversation?     @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
+  leadId   String?
+  dealId   String?
+  ticketId String?
+  lead     Lead?      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  deal     Deal?      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  ticket   CrmTicket? @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, startedAt])
   @@index([workflowId, startedAt])
   @@index([status, resumeAt])
-
-  leadId       String?
-  dealId       String?
-  ticketId     String?
-  lead         Lead?         @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  deal         Deal?         @relation(fields: [dealId], references: [id], onDelete: Cascade)
-  ticket       CrmTicket?    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 }
 
 enum WorkflowRunStatus {
@@ -840,29 +850,29 @@ enum WorkflowRunStatus {
 }
 
 model ApiKey {
-  id          String    @id @default(cuid())
-  workspaceId String
-  name        String
-  keyHash     String    @unique
-  keyPrefix   String
-  environment String    @default("production")
+  id              String    @id @default(cuid())
+  workspaceId     String
+  name            String
+  keyHash         String    @unique
+  keyPrefix       String
+  environment     String    @default("production")
   // What this key is allowed to do, e.g. ["messages:send", "contacts:read"].
   // There were no scopes at all: every key could do everything the dashboard
   // could, and authenticateApiKey handed each caller role ADMIN outright ΓÇö so
   // a key minted for a read-only reporting script could launch campaigns and
   // spend the wallet. Null means the legacy full-access behaviour, preserved
   // for keys issued before scopes existed.
-  scopes      Json?
-  lastUsedAt  DateTime?
-  createdAt   DateTime  @default(now())
-  revokedAt   DateTime?
+  scopes          Json?
+  lastUsedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
   // Who created (or, for a connected app, approved) the key. Null for keys
   // issued before this was recorded.
   createdByUserId String?
   // The OAuth client a connected-app key was issued to, so /oauth/revoke only
   // touches that client's own keys.
   oauthClientId   String?
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   authenticationConfig AuthenticationConfig?
 }
@@ -1821,7 +1831,6 @@ model ConversationNote {
   @@index([conversationId, createdAt])
 }
 
-
 enum LeadStatus {
   NEW
   CONTACTED
@@ -2299,11 +2308,11 @@ model CrmTicket {
   owner        User?         @relation("TicketOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   team         Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
   conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  workflowRuns WorkflowRun[]
 
   @@unique([workspaceId, ticketNumber])
   @@index([workspaceId, status, dueAt])
   @@index([workspaceId, ownerUserId])
-  workflowRuns WorkflowRun[]
 }
 
 model XpEvent {
@@ -2341,26 +2350,26 @@ model Achievement {
 }
 
 model Lead {
-  id              String     @id @default(cuid())
-  workspaceId     String
-  contactId       String     @unique
-  status          LeadStatus @default(NEW)
-  source          String?
-  ownerUserId     String?
+  id                 String        @id @default(cuid())
+  workspaceId        String
+  contactId          String        @unique
+  status             LeadStatus    @default(NEW)
+  source             String?
+  ownerUserId        String?
   // Deterministic, explainable score ΓÇö see leadScoring.service.js. Only
   // recalculateScore()/createLead()/convertLead() ever write this.
-  score           Int        @default(0)
-  scoreFactors    Json?
-  scoreComputedAt DateTime?
-  category            LeadCategory?
-  categoryReasons     Json?
-  categoryComputedAt  DateTime?
-  customFields    Json?
-  notes           String?
-  convertedAt     DateTime?
-  convertedDealId String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @default(now()) @updatedAt
+  score              Int           @default(0)
+  scoreFactors       Json?
+  scoreComputedAt    DateTime?
+  category           LeadCategory?
+  categoryReasons    Json?
+  categoryComputedAt DateTime?
+  customFields       Json?
+  notes              String?
+  convertedAt        DateTime?
+  convertedDealId    String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @default(now()) @updatedAt
 
   workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contact            Contact              @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -2370,13 +2379,12 @@ model Lead {
   crmActivities      CrmActivity[]
   SequenceEnrollment SequenceEnrollment[]
   LeadFormSubmission LeadFormSubmission[]
+  workflowRuns       WorkflowRun[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, category])
   @@index([workspaceId, score])
-
   @@index([workspaceId, ownerUserId])
-  workflowRuns WorkflowRun[]
 }
 
 model Deal {
@@ -2405,12 +2413,12 @@ model Deal {
   quotes        Quote[]
   tasks         Task[]
   crmActivities CrmActivity[]
+  workflowRuns  WorkflowRun[]
 
   @@index([workspaceId, stage])
   @@index([workspaceId, ownerUserId])
   @@index([workspaceId, leadId])
   @@index([workspaceId, contactId])
-  workflowRuns WorkflowRun[]
 }
 
 model DealStageHistory {
@@ -2508,7 +2516,7 @@ model AgentTask {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @default(now()) @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   runs      AgentRun[]
 
   @@unique([workspaceId, activeKey])
@@ -2538,7 +2546,7 @@ model AgentRun {
 }
 
 model AgentFact {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   targetType  String
   targetId    String
@@ -2548,14 +2556,14 @@ model AgentFact {
   evidence    Json
   score       Float
   band        FactBand
-  applied     Boolean  @default(false)
+  applied     Boolean   @default(false)
   // Why it was or was not applied, in one line.
   rationale   String
   // Set when a human accepts or rejects a withheld suggestion.
   settledAt   DateTime?
   settledBy   String?
   accepted    Boolean?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -2592,9 +2600,10 @@ model AuthenticationTransaction {
   // The Authentication dashboard's date-ranged KPIs and transaction list.
   @@index([workspaceId, createdAt])
 }
+
 model AuthenticationConfig {
-  id          String @id @default(cuid())
-  workspaceId String @unique
+  id          String  @id @default(cuid())
+  workspaceId String  @unique
   apiKeyId    String? @unique
 
   enabled    Boolean @default(false)
@@ -2605,5 +2614,5 @@ model AuthenticationConfig {
   updatedAt DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  apiKey    ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  apiKey    ApiKey?   @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 }

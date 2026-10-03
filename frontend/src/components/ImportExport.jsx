@@ -205,6 +205,18 @@ export const ImportExport = ({ entity, canImport = false, canExport = true, onIm
                   ))}
                 </div>
               )}
+              {result.warnings?.length > 0 && (
+                <div style={{ ...card, marginTop: 12, padding: '10px 13px', maxHeight: 160, overflowY: 'auto' }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--t2)', fontWeight: 600, marginBottom: 5 }}>
+                    Adjusted to your Customize Your Business rules:
+                  </div>
+                  {result.warnings.map((w, i) => (
+                    <div key={i} style={{ fontSize: 11.5, color: 'var(--t3)', marginBottom: 3 }}>
+                      Line {w.line}: {w.reason}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </Modal>

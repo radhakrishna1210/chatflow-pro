@@ -1,44 +1,45 @@
 import { parse } from 'csv-parse/sync';
 import { prisma } from '../lib/prisma.js';
 import { normalizePhone, isValidPhone } from './contacts.service.js';
-import { getSection } from './crmCustomization.service.js';
+import { phoneVariants, workspacePhoneCountry } from '../lib/phone.js';
+import { loadLeadIntakeRules, prepareLeadIntake } from './leadIntake.service.js';
 import { assertContactCapacity } from './subscription.service.js';
-
-// CONVERTED is left out on purpose: a converted lead points at the deal it
-// became, and an import cannot create that deal.
-const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'];
 
 // The import runs inside the request, so the file is capped at a size that
 // finishes well within proxy timeouts. Writes are batched per chunk.
 export const MAX_IMPORT_ROWS = 5000;
 const CHUNK = 500;
 
-const normaliseStatus = (v) => String(v || '').trim().toUpperCase().replace(/\s+/g, '_');
+// Customize Your Business rules for an import (lifecycle, sources, lead tags,
+// prospecting), read once and applied to every row.
+export const loadImportRules = loadLeadIntakeRules;
 
-// Custom lifecycle stages configured under Customize, so an exported file
-// re-imports into the same stages instead of collapsing to NEW.
-export async function loadCustomStatuses(workspaceId) {
-  const config = await getSection(workspaceId, 'lead_lifecycle').catch((err) => { console.warn(`[CrmImport] Lead lifecycle config unavailable for ${workspaceId}; using defaults:`, err.message); return null; });
-  const stages = Array.isArray(config?.stages) ? config.stages : [];
-  const map = new Map();
-  for (const stage of stages) {
-    if (!stage?.key || LEAD_STATUSES.includes(stage.key) || stage.key === 'CONVERTED') continue;
-    map.set(normaliseStatus(stage.key), stage.key);
-    if (stage.label) map.set(normaliseStatus(stage.label), stage.key);
-  }
-  return map;
-}
+const splitTags = (v) => String(v || '').split(/[;,|]/).map((t) => t.trim()).filter(Boolean);
 
-// -> { status, statusKey, warning }
-function resolveStatus(raw, customStatuses) {
-  const normalised = normaliseStatus(raw);
-  if (!normalised) return { status: 'NEW', statusKey: null, warning: null };
-  if (LEAD_STATUSES.includes(normalised)) return { status: normalised, statusKey: null, warning: null };
-  if (customStatuses?.has(normalised)) return { status: 'NEW', statusKey: customStatuses.get(normalised), warning: null };
-  if (normalised === 'CONVERTED') {
-    return { status: 'NEW', statusKey: null, warning: 'Converted leads cannot be imported without their deal — it will be imported as NEW' };
-  }
-  return { status: 'NEW', statusKey: null, warning: `Unknown status "${raw}" — it will be imported as NEW` };
+/**
+ * One row through the shared lead intake, leniently: nobody can correct a
+ * row mid-import, so an unknown status takes the lifecycle default, an
+ * unknown source falls back to a configured one, unconfigured tags are
+ * dropped and a missing required detail marks the lead not qualified. Every
+ * adjustment comes back as a warning for the preview and the result.
+ *
+ * CONVERTED is not importable: a converted lead points at the deal it became,
+ * and an import cannot create that deal.
+ */
+function rowIntake(rules, record, mapping, phoneNumber) {
+  const cell = (field) => (mapping[field] ? String(record[mapping[field]] ?? '').trim() : '');
+  const rawStatus = cell('status');
+  const converted = rawStatus.toUpperCase() === 'CONVERTED';
+  const intake = prepareLeadIntake(rules, {
+    status: converted ? null : rawStatus,
+    source: cell('source') || null,
+    tags: splitTags(cell('tags')),
+    phone: phoneNumber,
+    email: cell('email') || null,
+    company: cell('company') || null,
+  }, { strict: false });
+  if (converted) intake.warnings.unshift(`Converted leads cannot be imported without their deal — imported as ${intake.statusKey || intake.status}`);
+  return intake;
 }
 
 // Header aliases, so a file exported from a spreadsheet or another CRM imports
@@ -50,6 +51,8 @@ const FIELD_ALIASES = {
   status: ['status', 'lead status', 'stage'],
   source: ['source', 'lead source', 'channel'],
   notes: ['notes', 'note', 'comments', 'remarks'],
+  tags: ['tags', 'tag', 'labels'],
+  company: ['company', 'company name', 'organisation', 'organization', 'business'],
 };
 
 const normaliseHeader = (h) => String(h || '').trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
@@ -90,7 +93,7 @@ function parseCsv(buffer) {
  * will happen before committing. Returns per-row problems rather than failing
  * on the first bad line.
  */
-export function previewLeadImport(buffer, { limit = 20, customStatuses = null } = {}) {
+export function previewLeadImport(buffer, { limit = 20, rules = null, country } = {}) {
   const records = parseCsv(buffer);
   if (records.length === 0) {
     const e = new Error('That file has no rows'); e.status = 400; throw e;
@@ -120,21 +123,23 @@ export function previewLeadImport(buffer, { limit = 20, customStatuses = null } 
     const rawPhone = record[mapping.phoneNumber];
     const issues = [];
 
-    if (!isValidPhone(rawPhone)) {
+    const phoneNumber = isValidPhone(rawPhone, { country }) ? normalizePhone(rawPhone, { country }) : null;
+    if (!phoneNumber) {
       issues.push(String(rawPhone || '').trim() ? 'Phone number must contain 7–15 digits' : 'Missing phone number');
     }
 
-    const phoneNumber = isValidPhone(rawPhone) ? normalizePhone(rawPhone) : null;
     if (phoneNumber && seen.has(phoneNumber)) {
       issues.push('Duplicate of an earlier row in this file');
       duplicateInFile += 1;
     }
     if (phoneNumber) seen.add(phoneNumber);
 
-    const resolved = resolveStatus(mapping.status ? record[mapping.status] : '', customStatuses);
-    if (resolved.warning) issues.push(resolved.warning);
 
-    if (issues.some((m) => m.startsWith('Phone') || m.startsWith('Missing') || m.startsWith('Duplicate'))) invalid += 1;
+    // Only phone problems skip a row; the rest are adjustments it imports with.
+    const skipped = issues.length > 0;
+    const intake = rowIntake(rules, record, mapping, phoneNumber);
+    issues.push(...intake.warnings);
+    if (skipped) invalid += 1;
     else valid += 1;
 
     if (rows.length < limit) {
@@ -143,7 +148,9 @@ export function previewLeadImport(buffer, { limit = 20, customStatuses = null } 
         name: mapping.name ? record[mapping.name] : phoneNumber,
         phoneNumber: phoneNumber ?? rawPhone,
         email: mapping.email ? record[mapping.email] : null,
-        status: resolved.statusKey || resolved.status,
+        status: intake.statusKey || intake.status,
+        source: intake.source,
+        tags: intake.tags,
         issues,
       });
     }
@@ -178,37 +185,41 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     if (!member) { const e = new Error('Owner must be a member of this workspace'); e.status = 400; throw e; }
   }
 
-  const customStatuses = await loadCustomStatuses(workspaceId);
-  const { mapping } = previewLeadImport(buffer, { limit: 0, customStatuses });
+  const rules = await loadImportRules(workspaceId);
+  const country = await workspacePhoneCountry(workspaceId);
+  const { mapping } = previewLeadImport(buffer, { limit: 0, rules, country });
   const records = parseCsv(buffer);
 
   const seen = new Set();
   const candidates = [];
   const errors = [];
+  const warnings = [];
 
   for (const [i, record] of records.entries()) {
     const line = i + 2;
     const rawPhone = record[mapping.phoneNumber];
 
-    if (!isValidPhone(rawPhone)) {
+    const phoneNumber = isValidPhone(rawPhone, { country }) ? normalizePhone(rawPhone, { country }) : '';
+    if (!phoneNumber) {
       errors.push({ line, reason: 'Invalid or missing phone number', value: String(rawPhone || '') });
       continue;
     }
-    const phoneNumber = normalizePhone(rawPhone);
     if (seen.has(phoneNumber)) {
       errors.push({ line, reason: 'Duplicate row in file', value: phoneNumber });
       continue;
     }
     seen.add(phoneNumber);
 
-    const { status, statusKey } = resolveStatus(mapping.status ? record[mapping.status] : '', customStatuses);
+    const intake = rowIntake(rules, record, mapping, phoneNumber);
+    for (const reason of intake.warnings) warnings.push({ line, reason });
     candidates.push({
       phoneNumber,
       name: (mapping.name ? String(record[mapping.name] || '').trim() : '') || phoneNumber,
       email: mapping.email ? String(record[mapping.email] || '').trim() || null : null,
-      status,
-      statusKey,
-      source: mapping.source ? String(record[mapping.source] || '').trim() || null : null,
+      status: intake.status,
+      source: intake.source,
+      tags: intake.tags,
+      customFields: intake.customFields,
       notes: mapping.notes ? String(record[mapping.notes] || '').trim() || null : null,
     });
   }
@@ -224,18 +235,33 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     const chunk = candidates.slice(start, start + CHUNK);
     const phones = chunk.map((r) => r.phoneNumber);
 
+    // Matched under every stored spelling, so a contact saved before numbers
+    // were normalised ("09876543210") is reused rather than duplicated.
+    const canonicalOf = new Map();
+    for (const phone of phones) {
+      for (const v of phoneVariants(phone, { country })) canonicalOf.set(v, phone);
+    }
     const existing = await prisma.contact.findMany({
-      where: { workspaceId, phoneNumber: { in: phones } },
-      select: { id: true, phoneNumber: true },
+      where: { workspaceId, phoneNumber: { in: [...canonicalOf.keys()] } },
+      select: { id: true, phoneNumber: true, tags: true },
     });
-    const contactIdByPhone = new Map(existing.map((c) => [c.phoneNumber, c.id]));
+    const contactIdByPhone = new Map();
+    const existingTags = new Map();
+    for (const c of existing) {
+      const phone = canonicalOf.get(c.phoneNumber);
+      // The canonical row wins when a legacy duplicate also exists.
+      if (!contactIdByPhone.has(phone) || c.phoneNumber === phone) {
+        contactIdByPhone.set(phone, c.id);
+        existingTags.set(c.id, c.tags || []);
+      }
+    }
 
     const missing = chunk.filter((r) => !contactIdByPhone.has(r.phoneNumber));
     if (missing.length) {
       // skipDuplicates: a contact created concurrently (inbound message, form)
       // is simply picked up by the re-read below.
       const created = await prisma.contact.createMany({
-        data: missing.map((r) => ({ workspaceId, name: r.name, phoneNumber: r.phoneNumber, email: r.email })),
+        data: missing.map((r) => ({ workspaceId, name: r.name, phoneNumber: r.phoneNumber, email: r.email, tags: r.tags })),
         skipDuplicates: true,
       });
       contactsCreated += created.count;
@@ -256,6 +282,16 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     alreadyLeads += chunk.length - toCreate.length;
     if (toCreate.length === 0) continue;
 
+    // An existing contact that becomes a lead gets the row's lead tags added
+    // to its own (new contacts were created with them above).
+    for (const r of toCreate) {
+      const contactId = contactIdByPhone.get(r.phoneNumber);
+      const had = existingTags.get(contactId);
+      if (!had || r.tags.length === 0) continue;
+      const merged = [...new Set([...had, ...r.tags])];
+      if (merged.length !== had.length) await prisma.contact.update({ where: { id: contactId }, data: { tags: merged } });
+    }
+
     const leads = await prisma.lead.createManyAndReturn({
       data: toCreate.map((r) => ({
         workspaceId,
@@ -264,7 +300,7 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
         source: r.source,
         notes: r.notes,
         ownerUserId,
-        ...(r.statusKey ? { customFields: { statusKey: r.statusKey } } : {}),
+        customFields: r.customFields,
       })),
       skipDuplicates: true,
       select: { id: true },
@@ -306,6 +342,8 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     alreadyLeads,
     skipped: errors.length,
     errors: errors.slice(0, 100),
+    // Rows imported with a value adjusted to the workspace's lead rules.
+    warnings: warnings.slice(0, 100),
     followUp,
   };
 }

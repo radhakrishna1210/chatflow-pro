@@ -12,6 +12,7 @@ import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import { isWithinBusinessHours, describeBusinessHours } from './businessHours.service.js';
 import { matchOptOutKeyword, recordOptOut, isFlowControlKeyword } from './optout.service.js';
 import { captureReplyAsLead } from './campaignLeads.service.js';
+import { toE164 } from '../lib/phone.js';
 import { notifyWorkspace } from './notification.service.js';
 import { parseInboundMessage, carriesCustomerText, mediaTypeOf } from './inboundMessage.js';
 import { processInboundMedia } from './inboundMedia.service.js';
@@ -334,8 +335,10 @@ async function handleInboundMessage(value, msg) {
     // which has the same race inside it. Catching the constraint violation is
     // the only form that cannot lose.
     try {
+      // Stored as E.164 like every other contact number; Meta's `from` is
+      // always international digits without the "+".
       contact = await prisma.contact.create({
-        data: { workspaceId: waNumber.workspaceId, name: displayName, phoneNumber: fromPhone },
+        data: { workspaceId: waNumber.workspaceId, name: displayName, phoneNumber: toE164(fromPhone, { international: true }) || fromPhone },
       });
     } catch (err) {
       if (err.code !== 'P2002') throw err;

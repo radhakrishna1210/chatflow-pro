@@ -75,6 +75,20 @@ const COMMON_TIMEZONES = [
   'Australia/Sydney', 'UTC',
 ];
 
+// Mirrors PHONE_COUNTRIES in backend/src/lib/phone.js: the countries whose
+// calling code is added to a contact number typed without one.
+const PHONE_COUNTRIES = [
+  ['IN', 'India (+91)'], ['US', 'United States (+1)'], ['CA', 'Canada (+1)'], ['GB', 'United Kingdom (+44)'],
+  ['AE', 'United Arab Emirates (+971)'], ['SA', 'Saudi Arabia (+966)'], ['QA', 'Qatar (+974)'], ['KW', 'Kuwait (+965)'],
+  ['OM', 'Oman (+968)'], ['BH', 'Bahrain (+973)'], ['SG', 'Singapore (+65)'], ['MY', 'Malaysia (+60)'],
+  ['ID', 'Indonesia (+62)'], ['PH', 'Philippines (+63)'], ['TH', 'Thailand (+66)'], ['HK', 'Hong Kong (+852)'],
+  ['JP', 'Japan (+81)'], ['CN', 'China (+86)'], ['PK', 'Pakistan (+92)'], ['BD', 'Bangladesh (+880)'],
+  ['LK', 'Sri Lanka (+94)'], ['NP', 'Nepal (+977)'], ['AU', 'Australia (+61)'], ['NZ', 'New Zealand (+64)'],
+  ['DE', 'Germany (+49)'], ['FR', 'France (+33)'], ['ES', 'Spain (+34)'], ['IT', 'Italy (+39)'],
+  ['NL', 'Netherlands (+31)'], ['ZA', 'South Africa (+27)'], ['NG', 'Nigeria (+234)'], ['KE', 'Kenya (+254)'],
+  ['EG', 'Egypt (+20)'], ['BR', 'Brazil (+55)'], ['MX', 'Mexico (+52)'],
+];
+
 const INDUSTRIES = [
   'D2C / Retail', 'E-commerce', 'Education', 'Healthcare', 'Food & hospitality',
   'Real estate', 'Travel', 'Professional services', 'Agency', 'Other',
@@ -102,7 +116,7 @@ export default function SettingsView() {
   // ── workspace profile & branding ──
   // Seeded from the settings payload once it loads; `profileSaved` is the
   // transient confirmation the other sections already use.
-  const [profile, setProfile] = useState({ name: '', industry: '', timezone: 'Asia/Kolkata', brandColor: '#35e8f2', brandLogoUrl: '' });
+  const [profile, setProfile] = useState({ name: '', industry: '', timezone: 'Asia/Kolkata', defaultPhoneCountry: 'IN', brandColor: '#35e8f2', brandLogoUrl: '' });
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState(null);
 
@@ -163,6 +177,7 @@ export default function SettingsView() {
         name: d.name || '',
         industry: d.industry || '',
         timezone: d.timezone || 'Asia/Kolkata',
+        defaultPhoneCountry: d.defaultPhoneCountry || 'IN',
         brandColor: d.brandColor || '#35e8f2',
         brandLogoUrl: d.brandLogoUrl || '',
       }); }}).catch(err=>console.warn('[SettingsView] Loading settings failed:', err?.message||err));
@@ -385,6 +400,14 @@ export default function SettingsView() {
                   </select>
                   <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Used when a scheduled campaign says “9am”.</p>
                 </div>
+                <div>
+                  <label style={labelStyle}>Default phone country</label>
+                  <select value={profile.defaultPhoneCountry} onChange={e => setProfile(p => ({ ...p, defaultPhoneCountry: e.target.value }))}
+                    style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box', colorScheme:'dark' }}>
+                    {PHONE_COUNTRIES.map(([code, label]) => <option key={code} value={code} style={{ background:'#0a0b0e' }}>{label}</option>)}
+                  </select>
+                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Added to contact numbers entered without a country code.</p>
+                </div>
               </div>
               {profileMsg && (
                 <p style={{ fontSize:12, color: profileMsg.error ? '#f87171' : 'var(--green)', margin:0 }}>
@@ -392,7 +415,7 @@ export default function SettingsView() {
                 </p>
               )}
               <div style={{ display:'flex', gap:8 }}>
-                <Btn onClick={() => saveProfile({ name: profile.name, industry: profile.industry, timezone: profile.timezone })} disabled={savingProfile}>
+                <Btn onClick={() => saveProfile({ name: profile.name, industry: profile.industry, timezone: profile.timezone, defaultPhoneCountry: profile.defaultPhoneCountry })} disabled={savingProfile}>
                   {savingProfile ? 'Saving…' : 'Save changes'}
                 </Btn>
               </div>

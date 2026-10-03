@@ -251,6 +251,8 @@ release. Do them in this order.
    | `20261002190000_fk_actions_and_hot_indexes` | Foreign-key delete/update actions and hot-path indexes |
    | `20261003100000_workspace_addon_stacking_auto_renew` | Drops the one-row-per-add-on unique index (packs stack, one row per pack); `WorkspaceAddon.autoRenew`, `renewedAt`, `expiredAt`; indexes |
    | `20261003101000_plan_feature_fallback_voice` | Data: adds `fallback: true` and `voice: true` to every plan's `features` (values already set are kept) |
+   | `20261003110000_workspace_default_phone_country` | `Workspace.defaultPhoneCountry` (default `IN`): the code added to contact numbers typed without one |
+   | `20261003111000_contact_opt_in` | `Contact.optInAt` / `optInSource` / `optInText` / `optInIpHash`; backfilled from past consented lead-form submissions (opted-out contacts untouched) |
    | `20261003120000_oauth_pkce` | OAuth provider PKCE: `OAuthClient.publicClient`, nullable `clientSecretHash` (CHECK: public or has a secret), `OAuthAuthorizationCode.codeChallenge`/`codeChallengeMethod`. Existing clients stay confidential; no action needed |
    | `20261003130000_plan_feature_autonomous_agent` | Data: adds `autonomousAgent: true` to paid plans' `features`. Free-plan workspaces are no longer swept by the autonomous CRM agent |
    | `20261003140000_object_storage_keys` | `TemplateAsset.bytes` nullable + `storageKey`; `Message.mediaStorageKey`, `mediaSize` |
@@ -387,6 +389,22 @@ release. Do them in this order.
       for IG user …` needs this. The Meta app must have the
       `instagram_business_manage_messages` permission and the Instagram
       webhook subscribed to `messages` (and `comments` for comment flows).
+13. **Normalise existing contact numbers** (CF-200) once the new code is live.
+    New writes are E.164 (`+919876543210`); older rows keep whatever spelling
+    they were saved with until this runs. Set each non-Indian workspace's
+    *Default phone country* (Settings -> Workspace) first, since numbers
+    without a country code take it.
+    ```bash
+    cd backend
+    node scripts/backfill-contact-phones.js                          # dry run: report only
+    node scripts/backfill-contact-phones.js --report phones.json     # same, plus a JSON report
+    node scripts/backfill-contact-phones.js --apply                  # rewrite (one workspace: --workspace <id>)
+    ```
+    Contacts that collapse onto the same number (one person saved as
+    `9876543210` and `+91 98765 43210`) are listed as `DUPLICATE` and left
+    untouched, as are numbers that cannot be a phone number (`INVALID`):
+    merge or fix those by hand, then re-run (it is idempotent). Until then
+    lookups still match the legacy spellings, so no new duplicates appear.
 
 ### User-visible permission changes
 
@@ -416,6 +434,18 @@ Tell workspace owners before the release:
   working.
 - Impersonation by a super admin now requires a reason, lasts 30 minutes, is
   tab-scoped and cannot create lasting credentials.
+- **Customize Your Business lead rules are enforced** (CF-154). Creating or
+  editing a lead (CRM, bulk status, AI/copilot actions) with a stage outside
+  the Lead Lifecycle, an unknown or disabled Lead Source, a tag not listed
+  under Lead Tags, or without a field Prospecting Criteria requires is now a
+  400. Web forms, CSV import and campaign-reply leads are adjusted instead
+  (default stage, a configured fallback source with the original kept as
+  detail, unlisted tags dropped, "not qualified" when a required detail is
+  missing) and the import lists every adjustment. A lead form's source must
+  be a configured source. Workspaces relying on free-form tags or sources
+  should add them under Customize Your Business first.
+- **Sequence enrolment honours record visibility** (CF-162): under OWN/TEAM
+  a member cannot enrol leads they cannot see; they come back as skipped.
 
 ### Billing and campaign changes (CF-030, CF-051, CF-056, CF-206, CF-099)
 

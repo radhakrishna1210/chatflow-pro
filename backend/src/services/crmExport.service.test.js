@@ -116,7 +116,7 @@ test('a preview reports per-row problems without writing anything', () => {
   assert.match(byLine[5].issues[0], /Missing phone/);
   // An unknown status downgrades to NEW instead of failing the row.
   assert.equal(byLine[6].status, 'NEW');
-  assert.match(byLine[6].issues[0], /Unknown status/);
+  assert.match(byLine[6].issues[0], /"BANANA" is not in the lead lifecycle/);
 });
 
 test('a file with no phone column is refused with an explanation', () => {

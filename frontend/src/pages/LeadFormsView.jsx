@@ -214,7 +214,7 @@ const EMPTY = {
   successMessage: '', consentText: '', source: '', ownerUserId: '', isActive: false,
 };
 
-const FormEditor = ({ form, members, onClose, onSaved }) => {
+const FormEditor = ({ form, members, sources = [], onClose, onSaved }) => {
   const isNew = !form;
   const [draft, setDraft] = useState(() => (form ? {
     name: form.name ?? '',
@@ -389,8 +389,20 @@ const FormEditor = ({ form, members, onClose, onSaved }) => {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <FLabel>Lead source</FLabel>
-            <FInput value={draft.source} onChange={(e) => set({ source: e.target.value })}
-              placeholder={`Form: ${draft.name || 'form name'}`} disabled={saving} />
+            {/* Only configured sources (Customize Your Business -> Lead Sources)
+                are accepted by the server. Unset: Website, or the visitor's
+                UTM source when it matches one. */}
+            <FSelect
+              value={draft.source}
+              onChange={(e) => set({ source: e.target.value })}
+              placeholder="Automatic (Website / UTM source)"
+              options={[
+                ...sources.filter((src) => src.isActive !== false).map((src) => ({ value: src.key, label: src.name || src.key })),
+                ...(draft.source && !sources.some((src) => src.key === draft.source && src.isActive !== false)
+                  ? [{ value: draft.source, label: `${draft.source} (not a configured source)` }] : []),
+              ]}
+              disabled={saving}
+            />
           </div>
           <div>
             <FLabel>Assign leads to</FLabel>
@@ -592,6 +604,14 @@ export default function LeadFormsView() {
 
   useEffect(() => { load(); }, [load]);
 
+  const [sources, setSources] = useState([]);
+  useEffect(() => {
+    wFetch('/crm-customization/lead_sources')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => setSources(b?.data?.sources ?? b?.sources ?? []))
+      .catch(() => setSources([]));
+  }, []);
+
   useEffect(() => {
     wFetch('/members')
       .then((r) => (r.ok ? r.json() : { data: [] }))
@@ -708,6 +728,7 @@ export default function LeadFormsView() {
         <FormEditor
           form={editing === 'new' ? null : editing}
           members={members}
+          sources={sources}
           onClose={() => setEditing(null)}
           onSaved={async () => { setEditing(null); await refreshDetail(); }}
         />

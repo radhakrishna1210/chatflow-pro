@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
-import { isValidPhone, normalizePhone } from './contacts.service.js';
+import { isValidPhone, resolveContactPhone, findContactByPhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 import { hasContactCapacity } from './subscription.service.js';
+import { loadLeadIntakeRules, prepareLeadIntake, resolveLeadSource } from './leadIntake.service.js';
 
 
 // Public lead-capture forms.
@@ -46,6 +47,23 @@ async function assertOwnerIsMember(workspaceId, ownerUserId) {
   const member = await prisma.workspaceMember.findFirst({ where: { workspaceId, userId: ownerUserId }, select: { userId: true } });
   if (!member) { const e = new Error('The form owner must be a member of this workspace'); e.status = 400; throw e; }
 }
+
+// A form's source must be one of the workspace's configured lead sources
+// (Customize Your Business), stored by its key.
+async function formSource(workspaceId, source) {
+  if (source === undefined || source === null || String(source).trim() === '') return null;
+  return resolveLeadSource(await loadLeadIntakeRules(workspaceId), source, { strict: true }).source;
+}
+
+// Answer keys a form may use for the prospecting details.
+const PROSPECTING_KEYS = {
+  company: ['company', 'company_name', 'organisation', 'organization', 'business'],
+  industry: ['industry', 'sector'],
+  budget: ['budget'],
+  companySize: ['company_size', 'employees', 'team_size'],
+};
+
+const answerFor = (answers, keys) => keys.map((k) => answers[k]).find((v) => v !== undefined && v !== '') ?? null;
 
 export function validateFields(fields) {
   if (!Array.isArray(fields) || fields.length === 0) {
@@ -131,7 +149,7 @@ export async function createForm(workspaceId, body) {
       fields,
       successMessage: body.successMessage || undefined,
       consentText: body.consentText ?? null,
-      source: body.source ?? null,
+      source: await formSource(workspaceId, body.source),
       ownerUserId: body.ownerUserId ?? null,
       isActive: body.isActive ?? false,
     },
@@ -145,6 +163,7 @@ export async function updateForm(workspaceId, id, updates) {
   await assertOwnerIsMember(workspaceId, updates.ownerUserId);
 
   const data = { ...updates };
+  if (updates.source !== undefined) data.source = await formSource(workspaceId, updates.source);
   if (updates.fields !== undefined) {
     data.fields = validateFields(updates.fields);
     assertContactable(data.fields);
@@ -270,6 +289,15 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   if (form.consentText && body?.consent !== true) {
     const e = new Error('Please agree before submitting'); e.status = 400; throw e;
   }
+  // The consent is copied onto the contact as opt-in evidence, not just kept
+  // on the submission row, so messaging can show where the opt-in came from.
+  const consentAt = form.consentText ? new Date() : null;
+  const optIn = consentAt ? {
+    optInAt: consentAt,
+    optInSource: `lead_form:${form.slug}`,
+    optInText: form.consentText,
+    optInIpHash: hashIp(ip),
+  } : null;
 
   const record = async (outcome, reason, extra = {}) => {
     if (outcome !== 'CREATED' && !(await underUnproductiveCap())) return null;
@@ -278,7 +306,7 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
         workspaceId, formId: form.id, answers, outcome, reason,
         attribution: attribution ?? undefined,
         consentText: form.consentText ?? null,
-        consentAt: form.consentText ? new Date() : null,
+        consentAt,
         ipHash: hashIp(ip),
         ...extra,
       },
@@ -306,9 +334,9 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
     return { ok: true, message: form.successMessage };
   }
 
-  const phoneNumber = normalizePhone(rawPhone);
+  const { phoneNumber, country } = await resolveContactPhone(workspaceId, rawPhone);
 
-  let contact = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
+  let contact = await findContactByPhone(workspaceId, phoneNumber, { country });
   if (contact?.optedOut) {
     await record('OPTED_OUT', 'Contact has opted out', { contactId: contact.id });
     return { ok: true, message: form.successMessage };
@@ -317,6 +345,7 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   // Two submissions of the same number can race here (double-submit, a
   // retrying embed). The loser of the unique constraint re-reads the winner's
   // row instead of failing with a 500.
+  let createdHere = false;
   if (!contact) {
     if (!(await hasContactCapacity(workspaceId))) {
       await record('REJECTED', 'Plan contact limit reached');
@@ -324,12 +353,24 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
     }
     try {
       contact = await prisma.contact.create({
-        data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [] },
+        data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [], ...(optIn || {}) },
       });
+      createdHere = true;
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
-      contact = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
+      contact = await findContactByPhone(workspaceId, phoneNumber, { country });
       if (!contact) throw err;
+    }
+  }
+
+  // An existing contact (or the winner of a create race) gets the new consent
+  // too. Conditional on optedOut=false, so a contact who opted out — even
+  // between the read above and this write — is never opted back in.
+  if (optIn && !createdHere) {
+    const { count } = await prisma.contact.updateMany({ where: { id: contact.id, workspaceId, optedOut: false }, data: optIn });
+    if (count === 0) {
+      await record('OPTED_OUT', 'Contact has opted out', { contactId: contact.id });
+      return { ok: true, message: form.successMessage };
     }
   }
 
@@ -339,6 +380,21 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
     return { ok: true, message: form.successMessage };
   }
 
+  // The workspace's lead rules, leniently: a visitor cannot fix a lifecycle
+  // or source configuration, so the lead takes the default stage, a
+  // configured source (the form's, the UTM source's, else Website/Other) and
+  // is marked not qualified when a required prospecting detail is missing.
+  const intake = prepareLeadIntake(await loadLeadIntakeRules(workspaceId), {
+    source: form.source || attribution?.utm_source || null,
+    phone: phoneNumber,
+    email: email || contact.email,
+    company: answerFor(answers, PROSPECTING_KEYS.company),
+    industry: answerFor(answers, PROSPECTING_KEYS.industry),
+    budget: answerFor(answers, PROSPECTING_KEYS.budget),
+    companySize: answerFor(answers, PROSPECTING_KEYS.companySize),
+  }, { strict: false, sourceFallbacks: ['WEBSITE'] });
+  if (!intake.customFields.sourceDetail) intake.customFields.sourceDetail = `Form: ${form.name}`;
+
   const { score, factors, computedAt } = await computeLeadScore(workspaceId, contact.id);
 
   let lead;
@@ -347,9 +403,10 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
       data: {
         workspaceId,
         contactId: contact.id,
-        status: 'NEW',
-        source: form.source || `Form: ${form.name}`,
+        status: intake.status,
+        source: intake.source,
         ownerUserId: form.ownerUserId ?? null,
+        customFields: intake.customFields,
         score,
         scoreFactors: factors,
         scoreComputedAt: computedAt,

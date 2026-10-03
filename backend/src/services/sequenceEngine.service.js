@@ -273,8 +273,26 @@ export async function advanceEnrollment(enrollmentId, { now = new Date(), send }
 
       case 'UPDATE_FIELD': {
         if (enrollment.leadId) {
-          await prisma.lead.update({ where: { id: enrollment.leadId }, data: { status: step.status } });
-          await recordStep(enrollment, enrollment.cursor, 'UPDATE_FIELD', 'SENT', `status = ${step.status}`);
+          // Held to the workspace's lead lifecycle like any other status write;
+          // a stage removed since the sequence was built is skipped, not forced.
+          const { loadLeadIntakeRules, leadStatusWrite } = await import('./leadIntake.service.js');
+          const lead = await prisma.lead.findFirst({ where: { id: enrollment.leadId, workspaceId: enrollment.workspaceId }, select: { customFields: true } });
+          let write = null;
+          let refusal = lead ? null : 'Lead no longer exists';
+          if (lead) {
+            try {
+              write = leadStatusWrite(await loadLeadIntakeRules(enrollment.workspaceId), step.status, lead.customFields, { strict: true });
+            } catch (err) {
+              if (err.status !== 400) throw err;
+              refusal = err.message;
+            }
+          }
+          if (write) {
+            await prisma.lead.update({ where: { id: enrollment.leadId }, data: write.data });
+            await recordStep(enrollment, enrollment.cursor, 'UPDATE_FIELD', 'SENT', `status = ${step.status}`);
+          } else {
+            await recordStep(enrollment, enrollment.cursor, 'UPDATE_FIELD', 'SKIPPED', refusal);
+          }
         } else {
           await recordStep(enrollment, enrollment.cursor, 'UPDATE_FIELD', 'SKIPPED', 'No lead attached');
         }
