@@ -1,5 +1,6 @@
 import * as agent from '../services/agent.service.js';
 import { enqueueRunNow } from '../queues/agent.queue.js';
+import { hasFeature } from '../services/subscription.service.js';
 
 export async function history(req, res) {
   const { targetType, targetId } = req.params;
@@ -24,8 +25,16 @@ export async function runNow(req, res) {
   res.status(202).json({ queued: true });
 }
 
+// `planAllows` tells the screen whether to offer the switch or an upgrade.
+// A workspace without a subscription row is on the free default, which does
+// not include the agent.
 export async function getSettings(req, res) {
-  res.json(await agent.getAgentSettings(req.params.workspaceId));
+  const { workspaceId } = req.params;
+  const [settings, planAllows] = await Promise.all([
+    agent.getAgentSettings(workspaceId),
+    hasFeature(workspaceId, agent.AUTONOMOUS_AGENT_FEATURE).catch(() => false),
+  ]);
+  res.json({ ...settings, planAllows });
 }
 
 export async function updateSettings(req, res) {
@@ -34,4 +43,16 @@ export async function updateSettings(req, res) {
 
 export async function pending(req, res) {
   res.json(await agent.pendingWork(req.params.workspaceId));
+}
+
+export async function cancelTask(req, res) {
+  res.json(await agent.cancelTask(req.params.workspaceId, req.params.taskId));
+}
+
+export async function retryTask(req, res) {
+  res.json(await agent.retryTask(req.params.workspaceId, req.params.taskId));
+}
+
+export async function expediteTask(req, res) {
+  res.json(await agent.expediteTask(req.params.workspaceId, req.params.taskId));
 }

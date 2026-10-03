@@ -5,6 +5,8 @@ import { workspaceContext } from '../middleware/workspaceContext.js';
 import { requireFeature } from '../middleware/requireFeature.js';
 import { uploader, verifyFileContents, ACCEPTS } from '../lib/uploadGuard.js';
 
+// The live WhatsApp AI agent. Mounted at /ai-agents/whatsapp (the AI Agents
+// area's one route family) and, for older clients and API docs, at /ai-agent.
 const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 

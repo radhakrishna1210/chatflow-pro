@@ -22,16 +22,28 @@ const LEASE_MS = 5 * 60_000;
 
 const MAX_ATTEMPTS = 3;
 
-// Workspaces the agent may write to: switched on, not suspended, and without a
-// cancelled or expired subscription — the same states workspaceContext blocks
-// for people. A workspace with no subscription row is on the free default.
+// The plan feature flag that unlocks the autonomous agent. Paid plans carry it
+// (migration 20261003130000_plan_feature_autonomous_agent); Free does not. The
+// HTTP routes check it with requireFeature like every other plan feature; the
+// worker checks it in AGENT_ELIGIBLE_WHERE below, since it has no request.
+export const AUTONOMOUS_AGENT_FEATURE = 'autonomousAgent';
+
+// Workspaces the agent may write to: switched on, not suspended, on a plan
+// that includes the agent, and without a cancelled or expired subscription —
+// the same states workspaceContext blocks for people. A workspace with no
+// subscription row is on the free default, which does not include it.
+//
+// The plan check is part of the query rather than a per-workspace lookup so
+// the sweep's id cursor pages over eligible workspaces only.
 export const AGENT_ELIGIBLE_WHERE = {
   autonomousAgentEnabled: true,
   suspended: false,
-  OR: [
-    { subscription: { is: null } },
-    { subscription: { is: { status: { notIn: ['CANCELLED', 'EXPIRED'] } } } },
-  ],
+  subscription: {
+    is: {
+      status: { notIn: ['CANCELLED', 'EXPIRED'] },
+      plan: { is: { features: { path: [AUTONOMOUS_AGENT_FEATURE], equals: true } } },
+    },
+  },
 };
 
 export async function agentAllowed(workspaceId) {
@@ -343,19 +355,157 @@ export async function historyFor(workspaceId, targetType, targetId) {
   return { runs, facts, pending };
 }
 
-/** Queue depth and unsettled suggestions, for the admin view. */
+const TASK_LIST_SELECT = {
+  id: true, kind: true, targetType: true, targetId: true, status: true, runAfter: true,
+  attempts: true, lastError: true, reason: true, lockedAt: true, createdAt: true, updatedAt: true,
+};
+
+// Names for the records a list of tasks, suggestions or runs points at, so the
+// admin view can say "Deal: Acme renewal" instead of a cuid. One query per
+// record type, scoped to the workspace.
+async function labelTargets(workspaceId, rows) {
+  const ids = (type) => [...new Set(rows.filter((r) => r.targetType === type).map((r) => r.targetId))];
+  const dealIds = ids('deal');
+  const leadIds = ids('lead');
+  const [deals, leads] = await Promise.all([
+    dealIds.length
+      ? prisma.deal.findMany({ where: { workspaceId, id: { in: dealIds } }, select: { id: true, title: true } })
+      : [],
+    leadIds.length
+      ? prisma.lead.findMany({
+        where: { workspaceId, id: { in: leadIds } },
+        select: { id: true, contact: { select: { name: true, phoneNumber: true } } },
+      })
+      : [],
+  ]);
+  const names = new Map([
+    ...deals.map((d) => [`deal:${d.id}`, d.title]),
+    ...leads.map((l) => [`lead:${l.id}`, l.contact?.name || l.contact?.phoneNumber || null]),
+  ]);
+  return rows.map((r) => ({ ...r, targetLabel: names.get(`${r.targetType}:${r.targetId}`) ?? null }));
+}
+
+/**
+ * The admin view of the agent's work for one workspace: queue depth and
+ * unsettled suggestion count (the original summary), plus the rows behind
+ * them — queued and running tasks, recent failures, suggestions waiting for a
+ * human, and the latest runs.
+ */
 export async function pendingWork(workspaceId) {
-  const [queued, suggestions, recent] = await Promise.all([
+  const suggestionWhere = { workspaceId, band: 'WEAK', applied: false, settledAt: null };
+  const [queued, suggestions, recent, tasks, failed, suggestionItems] = await Promise.all([
     prisma.agentTask.count({ where: { workspaceId, status: { in: ['PENDING', 'RUNNING'] } } }),
-    prisma.agentFact.count({ where: { workspaceId, band: 'WEAK', applied: false, settledAt: null } }),
+    prisma.agentFact.count({ where: suggestionWhere }),
     prisma.agentRun.findMany({
       where: { workspaceId },
       orderBy: { createdAt: 'desc' },
       take: 10,
       select: { id: true, targetType: true, targetId: true, summary: true, applied: true, withheld: true, createdAt: true },
     }),
+    prisma.agentTask.findMany({
+      where: { workspaceId, status: { in: ['PENDING', 'RUNNING'] } },
+      orderBy: { runAfter: 'asc' },
+      take: 50,
+      select: TASK_LIST_SELECT,
+    }),
+    prisma.agentTask.findMany({
+      where: { workspaceId, status: 'FAILED' },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+      select: TASK_LIST_SELECT,
+    }),
+    prisma.agentFact.findMany({
+      where: suggestionWhere,
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true, targetType: true, targetId: true, field: true, value: true, score: true, rationale: true, createdAt: true },
+    }),
   ]);
-  return { queued, suggestions, recent };
+  // One lookup for every row shown, so a deal in both lists is fetched once.
+  const labelled = await labelTargets(workspaceId, [...tasks, ...failed, ...suggestionItems, ...recent]);
+  const take = (from, n) => labelled.slice(from, from + n);
+  let at = 0;
+  const taskRows = take(at, tasks.length); at += tasks.length;
+  const failedRows = take(at, failed.length); at += failed.length;
+  const suggestionRows = take(at, suggestionItems.length); at += suggestionItems.length;
+  const recentRows = take(at, recent.length);
+  return {
+    queued, suggestions, recent: recentRows,
+    tasks: taskRows, failed: failedRows, suggestionItems: suggestionRows,
+  };
+}
+
+const httpError = (status, message) => Object.assign(new Error(message), { status });
+
+async function taskStatusConflict(workspaceId, taskId, verb) {
+  const exists = await prisma.agentTask.findFirst({ where: { id: taskId, workspaceId }, select: { status: true } });
+  if (!exists) return httpError(404, 'Task not found');
+  return httpError(409, `Only queued tasks can be ${verb}; this one is ${String(exists.status).toLowerCase()}.`);
+}
+
+/**
+ * Withdraws a task that has not started. Only PENDING work can be cancelled:
+ * a RUNNING task is mid-write, and stopping it halfway would leave the record
+ * in a state nobody chose. The status is part of the update's filter so a
+ * dispatcher claiming the row at the same moment wins cleanly.
+ */
+export async function cancelTask(workspaceId, taskId) {
+  const { count } = await prisma.agentTask.updateMany({
+    where: { id: taskId, workspaceId, status: 'PENDING' },
+    data: {
+      status: 'SKIPPED',
+      activeKey: null,
+      lockedAt: null,
+      lockedBy: null,
+      lastError: 'Cancelled by a workspace admin',
+    },
+  });
+  if (count === 0) throw await taskStatusConflict(workspaceId, taskId, 'cancelled');
+  return prisma.agentTask.findFirst({ where: { id: taskId, workspaceId }, select: TASK_LIST_SELECT });
+}
+
+/** Approves a queued task to run on the next tick instead of at its booked time. */
+export async function expediteTask(workspaceId, taskId) {
+  const { count } = await prisma.agentTask.updateMany({
+    where: { id: taskId, workspaceId, status: 'PENDING' },
+    data: { runAfter: new Date() },
+  });
+  if (count === 0) throw await taskStatusConflict(workspaceId, taskId, 'run early');
+  return prisma.agentTask.findFirst({ where: { id: taskId, workspaceId }, select: TASK_LIST_SELECT });
+}
+
+/**
+ * Puts a FAILED (or SKIPPED) task back in the queue with a fresh attempt
+ * budget, due now. It takes the record's live key again, so if the sweep has
+ * already queued the same work the retry is refused rather than duplicated.
+ */
+export async function retryTask(workspaceId, taskId) {
+  const task = await prisma.agentTask.findFirst({ where: { id: taskId, workspaceId } });
+  if (!task) throw httpError(404, 'Task not found');
+  if (task.status !== 'FAILED' && task.status !== 'SKIPPED') {
+    throw httpError(409, `Only failed or skipped tasks can be retried; this one is ${String(task.status).toLowerCase()}.`);
+  }
+  if (!(await agentAllowed(workspaceId))) {
+    throw httpError(409, 'The autonomous agent is switched off for this workspace, or the workspace is inactive.');
+  }
+  try {
+    await prisma.agentTask.update({
+      where: { id: task.id },
+      data: {
+        status: 'PENDING',
+        attempts: 0,
+        runAfter: new Date(),
+        lastError: null,
+        lockedAt: null,
+        lockedBy: null,
+        activeKey: activeKeyFor(task.kind, task.targetType, task.targetId),
+      },
+    });
+  } catch (err) {
+    if (err.code === 'P2002') throw httpError(409, 'The same work is already queued for this record.');
+    throw err;
+  }
+  return prisma.agentTask.findFirst({ where: { id: taskId, workspaceId }, select: TASK_LIST_SELECT });
 }
 
 /** Accepts or rejects a suggestion the agent held back. */

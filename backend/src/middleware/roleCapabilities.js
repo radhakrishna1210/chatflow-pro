@@ -51,8 +51,9 @@ const AGENT_WRITES = [
   ['PATCH', /^\/contacts\/[^/]+$/],
   ['POST', /^\/(opt-outs|blocked-numbers)$/],
   ['POST', /^\/activities$/],
-  // The inbox's own AI reply preview; changes nothing.
+  // The inbox's own AI reply preview; changes nothing. Old and canonical path.
   ['POST', /^\/ai-agent\/test$/],
+  ['POST', /^\/ai-agents\/whatsapp\/test$/],
 ];
 
 // Writes that change the caller's own session, not the workspace: every

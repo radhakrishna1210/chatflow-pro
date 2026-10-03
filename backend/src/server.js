@@ -99,7 +99,7 @@ async function initializeSubscriptions() {
       overageRatePerMsg: 0.01,
       // null = charge cost: the shared per-category rates.
       overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true },
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, autonomousAgent: true },
     },
     {
       key: 'GROWTH',
@@ -114,7 +114,7 @@ async function initializeSubscriptions() {
       apiKeyLimit: null,
       overageRatePerMsg: 0.008,
       overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true },
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, autonomousAgent: true },
     },
   ];
 
