@@ -406,27 +406,12 @@ export async function deleteLeads(workspaceId, ids = [], user = null) {
 
 export async function recalculateScore(workspaceId, id, user = null) {
   const scope = user ? await scopeFilter(workspaceId, user) : {};
-  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true, contactId: true, score: true } });
+  const lead = await prisma.lead.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true } });
   if (!lead) { const e = new Error('Lead not found'); e.status = 404; throw e; }
-  const { score, factors, computedAt } = await computeLeadScore(workspaceId, lead.contactId);
-
-  const updated = await prisma.lead.update({
-    where: { id },
-    data: { score, scoreFactors: factors, scoreComputedAt: computedAt },
-    include: LEAD_INCLUDE,
-  });
-
-  // Re-compute category after score recalculation
-  const categorized = await computeLeadCategory(workspaceId, id).catch(() => updated);
-
-  // The previous score travels with the event so a threshold trigger fires on
-  // the crossing rather than on every rescore above the line.
-  if (score !== lead.score) {
-    emitCrmEvent(workspaceId, 'lead_score_changed', {
-      leadId: id, contactId: lead.contactId, score, previousScore: lead.score,
-    });
-  }
-  return categorized;
+  // Rescores, recategorises and — when the score moved — raises
+  // lead_score_changed with the previous score, so a threshold trigger fires
+  // on the crossing rather than on every rescore above the line.
+  return computeLeadCategory(workspaceId, id);
 }
 
 // Transactional by design: a conversion that created a Deal but failed to mark
