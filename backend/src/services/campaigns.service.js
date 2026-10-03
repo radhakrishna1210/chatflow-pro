@@ -5,8 +5,7 @@ import { normalizeRetryConfig, retryPolicySummary } from '../lib/retry.js';
 import { credit, debit } from './wallet.service.js';
 import { getOptedOutPhoneSet, normalizePhone } from './optout.service.js';
 import { notifyWorkspace } from './notification.service.js';
-import { rateForCategory } from '../lib/messagePricing.js';
-import { billedCount, getRemainingQuota, reserveCampaignQuota, releaseCampaignQuota } from './campaignBilling.service.js';
+import { billedCount, campaignMessageRate, getRemainingQuota, reserveCampaignQuota, releaseCampaignQuota } from './campaignBilling.service.js';
 import { splitCampaignCharge, settleCampaignUnits } from '../lib/campaignCharge.js';
 import { getAgent } from './aiAgent.service.js';
 import { normalizeCtaLabel, buildCampaignContext, findCtaButton } from './campaignAi.service.js';
@@ -495,8 +494,7 @@ async function analyseAudience(workspaceId, contacts) {
   return { valid, duplicates, blocked, invalid };
 }
 
-// Resolves the per-message rate for a campaign's template category, falling
-// back to the workspace rate when the category is missing/unrecognised.
+// The template's category, which prices the campaign (campaignMessageRate).
 async function resolveTemplateCategory(workspaceId, templateId) {
   if (!templateId) return null;
   const template = await prisma.template.findFirst({
@@ -509,12 +507,12 @@ async function resolveTemplateCategory(workspaceId, templateId) {
 async function priceAudience(workspaceId, contacts, templateCategory = null) {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: { walletBalance: true, costPerMessage: true },
+    select: { walletBalance: true },
   });
   if (!workspace) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
 
   const { valid, duplicates, blocked, invalid } = await analyseAudience(workspaceId, contacts);
-  const costPerMessage = rateForCategory(templateCategory, workspace.costPerMessage);
+  const costPerMessage = await campaignMessageRate(workspaceId, templateCategory);
   const { remaining } = await getRemainingQuota(workspaceId);
   const { quotaUnits, walletUnits, totalCost } = splitCampaignCharge({
     units: valid.length, remainingQuota: remaining, rate: costPerMessage,
@@ -695,12 +693,12 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
 
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
-    select: { walletBalance: true, costPerMessage: true },
+    select: { walletBalance: true },
   });
-  // Priced by the template's category (marketing/utility/authentication), with
-  // the workspace rate as the fallback. Persisted onto the campaign below, so
+  // Priced by the template's category on this workspace's plan — the same
+  // messageRate() inbox overage uses. Persisted onto the campaign below, so
   // refunds and the campaign detail view keep using the rate actually charged.
-  const costPerMessage = rateForCategory(campaign.template?.category, workspace.costPerMessage);
+  const costPerMessage = await campaignMessageRate(workspaceId, campaign.template?.category);
   const walletBefore = Number(workspace.walletBalance);
 
   // The plan's remaining included messages are spent first; the wallet only
