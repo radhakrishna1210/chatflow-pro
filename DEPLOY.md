@@ -257,6 +257,9 @@ release. Do them in this order.
    | `20261003130000_plan_feature_autonomous_agent` | Data: adds `autonomousAgent: true` to paid plans' `features`. Free-plan workspaces are no longer swept by the autonomous CRM agent |
    | `20261003140000_object_storage_keys` | `TemplateAsset.bytes` nullable + `storageKey`; `Message.mediaStorageKey`, `mediaSize` |
    | `20261003141000_instagram_inbox_and_voice_transcripts` | `Message.transcript`; `Conversation.channel` (enum, default WHATSAPP) + one-Instagram-thread-per-contact partial unique index; `Contact.instagramUserId`/`instagramUsername` (unique per workspace) |
+   | `20261003150000_conversation_handoff_reason` | `Conversation.handoffReason`: why automation is paused on a thread (see "Workflow automation fixes") |
+   | `20261003151000_message_automation_processed_at` | `Message.automationProcessedAt`; inbound messages of the last 2 h backfilled as processed |
+   | `20261003152000_form_submission_abandoned_at` | `WhatsappFormSubmission.abandonedAt`; closes open submissions idle > 24 h or of a non-Active form |
 
    Both stacks share the database, so migrations run once; the second stack's
    `migrate deploy` is a no-op.
@@ -499,6 +502,101 @@ Tell workspace owners before the release:
 - **OAuth provider PKCE.** Nothing changes for the existing (confidential)
   Spandan client. A public client registered with `publicClient: true` in
   `seedOAuthClients.js` must use PKCE (S256); see `backend/docs/PUBLIC_API.md`.
+
+### Workflow automation fixes
+
+"Workflows are not triggering" turned out to be the layers in front of the
+workflow engine swallowing messages, often permanently for one contact. They
+now behave as follows; the owner should know each of these.
+
+**Deploy notes**
+
+- **Migrations** (run at boot): `20261003150000_conversation_handoff_reason`
+  (`Conversation.handoffReason`), `20261003151000_message_automation_processed_at`
+  (`Message.automationProcessedAt`, backfilled for inbound messages of the last
+  two hours only), `20261003152000_form_submission_abandoned_at`
+  (`WhatsappFormSubmission.abandonedAt`; also closes open submissions idle for
+  over a day or whose form is not Active).
+- **New env var `HANDOFF_TTL_HOURS`** (default `24`): how long automation stays
+  out of a conversation after a person took it over, counted from the later of
+  the handoff and the last message a person sent there.
+- **New env var `WEBHOOK_CONSUMER_REQUIRED`** (default: required). In
+  production, `/health/ready` now also checks that some process consumes the
+  `webhooks` queue (a worker in this process, or `getWorkers()` on the queue,
+  cached 30 s). With none it reports `webhookConsumers: "no consumer…"` and
+  503 — which fails a deploy health check. Set
+  `WEBHOOK_CONSUMER_REQUIRED=false` only if you deliberately run a web
+  process with no worker and accept inline processing.
+- **No consumer → inline processing.** A production web process that runs no
+  worker (`RUN_WORKERS=false`) and finds no consumer on the queue processes
+  each webhook inline (under the same per-customer lock) and answers Meta
+  only after it — instead of acknowledging and queueing into a queue nothing
+  reads, which silently lost every inbound message and every workflow it
+  would have started. Boot logs a boxed `NO WEBHOOK CONSUMER` warning ~10 s
+  after start in that state. Fix the deployment: run `npm run start:worker`
+  (or `RUN_WORKERS=true`) against the **same `REDIS_URL`** as the web process.
+- New endpoint `GET /api/v1/workspaces/:id/conversations/:cid/automation`
+  (inbox banner): `{ paused, expired, reason, reasonText, pausedAt, resumesAt, ttlHours }`.
+
+**Behaviour changes**
+
+- **Human handoff expires.** A handed-off conversation used to stay out of
+  every form, workflow, trigger, welcome and AI reply until someone resolved
+  it. It now resumes by itself once no person has replied for
+  `HANDOFF_TTL_HOURS`, and when the customer writes to a CLOSED or RESOLVED
+  thread. The inbox shows a banner on a paused thread: "Automation paused for
+  this chat — <reason> — resumes <time> or turn the bot back on".
+- **Opt-out words narrowed.** Only **STOP / UNSUBSCRIBE** (and "stop all",
+  "please stop", "unsubscribe me", "stop messages", "stop messaging me",
+  "stop promotions") typed as the whole message opt a contact out. "end",
+  "quit", "cancel", "remove" and "no thanks" are ordinary replies now. A tap
+  on one of our own buttons never opts out, whatever its title. STOP while a
+  form or workflow is open ends that flow first ("reply STOP again…"); the
+  next STOP opts out.
+- **START / SUBSCRIBE opt back in.** From an opted-out contact these clear the
+  opt-out (OptOut row and `Contact.optedOut`), stamp `optInAt` /
+  `optInSource='whatsapp_start'`, and send a confirmation. From anyone else
+  "start" is an ordinary message.
+- **Control words are exact.** No typo tolerance ("None" was read as "done",
+  "operate" as "operator"). While a workflow waits for an answer only explicit
+  phrases ("stop this", "cancel this", "start over", "talk to a human") act as
+  commands, and never one equal to an offered option. A bare "agent"/"human"
+  hands off only while a form or a parked run is open; with nothing running it
+  goes on to workflows and keyword triggers.
+- **Escalation rules** (AI Agent → Escalation) apply only while the AI agent
+  is **deployed**, and only after workflows, keyword triggers and intent rules
+  had their chance. The AI Agent page no longer saves its default rules unless
+  someone toggled them.
+- **AI agent with nothing to say** (no API key, provider error, plan without
+  `campaignAi`) leaves the message for the inbox and logs the real cause; it no
+  longer hands the conversation to a person.
+- **Intent rules work on every plan.** Rule-based intents, including
+  intent → "run workflow", no longer need `campaignAi`; only the LLM
+  classifier and AI-agent answers do.
+- **Forms let go.** An open WhatsApp form submission is abandoned after 24 h
+  without an answer or when its form is no longer Active; one idle for over
+  10 minutes steps aside for a message an active workflow or keyword trigger
+  answers. Abandoned submissions are `completed` with `abandonedAt` set.
+- **Captions count.** A caption on a photo/video/document is customer text
+  (keywords, opt-out, intents, AI); the media trigger still fires when no
+  keyword claims it. Placeholders ("[photo]", "[location]", "[unsupported
+  message: order]") never match a keyword, and a photo or untranscribed voice
+  note no longer answers a "Wait for reply" step as the literal "[photo]" —
+  the run keeps waiting (a caption or transcript does answer it).
+- **New Contact Welcome** fires on a contact's **first inbound message** in
+  the workspace, so imported, campaign and lead-form contacts are welcomed too.
+- **Contact lookup** matches phone numbers digits-only within the workspace,
+  so a legacy "+91 98000 00001" is no longer duplicated.
+- **Retries keep the automation.** A queue retry of a message that was stored
+  but whose automation did not finish (under an hour old) now runs it; it is
+  skipped if the first attempt already replied or started a workflow.
+- **Instagram:** a waiting workflow run gets the reply first, then workflow
+  triggers, then keyword Quickflows; a catch-all ("every DM") Quickflow comes
+  after keyword triggers and welcome/away, just before the AI agent.
+- **"Not run" history.** When a handoff, an open form, an opt-out or a control
+  word keeps a message from a workflow that would have matched it, the
+  workflow's run history gets a CANCELLED run with `error: "Not run: <reason>"`
+  (at most one per conversation and workflow per hour).
 
 ---
 
