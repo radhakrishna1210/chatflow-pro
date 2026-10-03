@@ -8,14 +8,18 @@ import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { pretty } from '../lib/format.js';
 import { can } from '../lib/permissions.js';
+import { blankStep, describeStep, stepWarnings, templateParamCount, isApproved } from '../lib/sequenceSteps.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
 const STATUS_TONE = { DRAFT: 'gray', PUBLISHED: 'green', PAUSED: 'amber' };
 const ENROLMENT_TONE = { ACTIVE: 'green', WAITING: 'blue', COMPLETED: 'gray', EXITED: 'amber', FAILED: 'red' };
+// A step run's outcome. DEFERRED is a send paused for want of message credit.
+const RUN_COLOR = { FAILED: '#f87171', SKIPPED: 'var(--t3)', DEFERRED: '#f59e0b' };
 
 const STEP_META = {
   MESSAGE: { icon: 'msg', label: 'Send message', tone: '#22c55e' },
+  TEMPLATE: { icon: 'file', label: 'Send template', tone: '#14b8a6' },
   WAIT: { icon: 'clock', label: 'Wait', tone: '#3b82f6' },
   TASK: { icon: 'check-square', label: 'Create task', tone: '#a78bfa' },
   UPDATE_FIELD: { icon: 'pencil', label: 'Update lead status', tone: '#f59e0b' },
@@ -31,24 +35,70 @@ const ErrorBanner = ({ children, onDismiss }) => (
   </div>
 );
 
-const describeStep = (step) => {
-  switch (step.kind) {
-    case 'MESSAGE': return step.body?.slice(0, 90) || 'No message text';
-    case 'WAIT': {
-      const m = Number(step.minutes) || 0;
-      if (m % 1440 === 0) return `${m / 1440} day${m / 1440 === 1 ? '' : 's'}`;
-      if (m % 60 === 0) return `${m / 60} hour${m / 60 === 1 ? '' : 's'}`;
-      return `${m} minute${m === 1 ? '' : 's'}`;
-    }
-    case 'TASK': return `${step.title}${step.dueInDays ? ` · due in ${step.dueInDays}d` : ''}`;
-    case 'UPDATE_FIELD': return `Set status to ${pretty(step.status || '')}`;
-    default: return step.reason || 'Ends the sequence';
-  }
+// A delivery problem with one step (lib/sequenceSteps.js#stepWarnings).
+const WarningLine = ({ level, children }) => (
+  <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 8, fontSize: 11.5, lineHeight: 1.45,
+    color: level === 'error' ? '#f87171' : '#f59e0b' }}>
+    <I n="alertt" s={12} c={level === 'error' ? '#f87171' : '#f59e0b'} />
+    <span>{children}</span>
+  </div>
+);
+
+const templateStatus = (t) => (isApproved(t) ? 'Approved' : pretty(String(t?.status || 'unknown')));
+
+// Template picker for a TEMPLATE step: every template of the workspace, with
+// its approval status, and one input per {{n}} parameter.
+const TemplateStepEditor = ({ step, templates, onChange, disabled }) => {
+  const chosen = templates?.find((t) => t.id === step.templateId) ?? null;
+  const paramCount = chosen ? templateParamCount(chosen) : (step.params?.length ?? 0);
+  const params = Array.from({ length: paramCount }, (_, n) => step.params?.[n] ?? '');
+  const choose = (id) => {
+    const t = templates?.find((x) => x.id === id);
+    const count = t ? templateParamCount(t) : 0;
+    onChange({
+      templateId: id,
+      templateName: t?.name ?? undefined,
+      params: Array.from({ length: count }, (_, n) => step.params?.[n] ?? ''),
+    });
+  };
+  const body = chosen?.components?.find((c) => String(c?.type).toUpperCase() === 'BODY')?.text;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {templates === null ? (
+        <div style={{ fontSize: 12, color: 'var(--t3)' }}>Loading templates…</div>
+      ) : templates.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--t3)' }}>No templates yet. Create one under Templates and wait for Meta to approve it.</div>
+      ) : (
+        <FSelect disabled={disabled} value={step.templateId ?? ''} placeholder="Choose an approved template"
+          onChange={(e) => choose(e.target.value)}
+          options={templates.map((t) => ({ value: t.id, label: `${t.name}${t.language ? ` (${t.language})` : ''} · ${templateStatus(t)}` }))} />
+      )}
+      {chosen && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <StatusBadge label={templateStatus(chosen)} tone={isApproved(chosen) ? 'green' : String(chosen.status).toUpperCase() === 'REJECTED' ? 'red' : 'amber'} />
+          {body && <span style={{ fontSize: 11.5, color: 'var(--t3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{body}</span>}
+        </div>
+      )}
+      {params.map((value, n) => (
+        <div key={n} style={{ display: 'grid', gridTemplateColumns: '56px 1fr', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 11.5, color: 'var(--t3)', fontFamily: 'monospace' }}>{`{{${n + 1}}}`}</span>
+          <FInput disabled={disabled} value={value} placeholder="Text, or {{name}} / {{custom.field}}"
+            onChange={(e) => onChange({ params: params.map((v, i) => (i === n ? e.target.value : v)) })} />
+        </div>
+      ))}
+      {paramCount > 0 && (
+        <span style={{ fontSize: 11, color: 'var(--t3)' }}>
+          Parameters can use the contact's details, like {'{{name}}'} or {'{{custom.city}}'}. Left empty, the contact's name is used.
+        </span>
+      )}
+    </div>
+  );
 };
 
 // The vertical connected builder from the spec's sequence screen: each step is
 // a card, joined by a line, so the cadence reads top to bottom.
-const StepEditor = ({ steps, onChange, disabled }) => {
+const StepEditor = ({ steps, onChange, disabled, templates = null }) => {
   const update = (i, patch) => onChange(steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   const remove = (i) => onChange(steps.filter((_, idx) => idx !== i));
   const move = (i, dir) => {
@@ -58,16 +108,8 @@ const StepEditor = ({ steps, onChange, disabled }) => {
     [next[i], next[to]] = [next[to], next[i]];
     onChange(next);
   };
-  const add = (kind) => {
-    const blank = {
-      MESSAGE: { kind: 'MESSAGE', body: '' },
-      WAIT: { kind: 'WAIT', minutes: 1440 },
-      TASK: { kind: 'TASK', title: '', dueInDays: 1 },
-      UPDATE_FIELD: { kind: 'UPDATE_FIELD', status: 'CONTACTED' },
-      EXIT: { kind: 'EXIT', reason: 'Sequence complete' },
-    }[kind];
-    onChange([...steps, blank]);
-  };
+  const add = (kind) => onChange([...steps, blankStep(kind)]);
+  const warnings = new Map(stepWarnings(steps, { templates }).map((w) => [w.index, w]));
 
   return (
     <div style={{ padding: '32px 40px', flex: 1, overflowY: 'auto' }}>
@@ -102,8 +144,12 @@ const StepEditor = ({ steps, onChange, disabled }) => {
 
                   {step.kind === 'MESSAGE' && (
                     <FTextarea rows={2} disabled={disabled} value={step.body ?? ''}
-                      placeholder="What should this message say?"
+                      placeholder="What should this message say? {{name}} fills in the contact's name."
                       onChange={e => update(i, { body: e.target.value })} />
+                  )}
+                  {step.kind === 'TEMPLATE' && (
+                    <TemplateStepEditor step={step} templates={templates} disabled={disabled}
+                      onChange={patch => update(i, patch)} />
                   )}
                   {step.kind === 'WAIT' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -130,6 +176,9 @@ const StepEditor = ({ steps, onChange, disabled }) => {
                   {step.kind === 'EXIT' && (
                     <FInput disabled={disabled} value={step.reason ?? ''} placeholder="Why it ends here"
                       onChange={e => update(i, { reason: e.target.value })} />
+                  )}
+                  {warnings.has(i) && (
+                    <WarningLine level={warnings.get(i).level}>{warnings.get(i).message}</WarningLine>
                   )}
                 </div>
               </div>
@@ -163,6 +212,17 @@ const SequenceModal = ({ sequence, onClose, onSaved }) => {
   const [exitOnReply, setExitOnReply] = useState(sequence?.exitOnReply ?? true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
+  // The workspace's templates, for TEMPLATE steps. null while loading.
+  const [templates, setTemplates] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    wFetch('/templates')
+      .then(r => (r.ok ? r.json() : []))
+      .then(d => { if (live) setTemplates(Array.isArray(d) ? d : (d?.data ?? [])); })
+      .catch((e) => { console.warn('[SequencesView] Loading templates failed:', e?.message || e); if (live) setTemplates([]); });
+    return () => { live = false; };
+  }, []);
 
   const save = async () => {
     setSaving(true);
@@ -206,7 +266,9 @@ const SequenceModal = ({ sequence, onClose, onSaved }) => {
           <span>
             Stop when the contact replies
             <span style={{ display: 'block', fontSize: 11, color: 'var(--t3)' }}>
-              Recommended. Leave this on so a human takes over the moment someone answers.
+              Recommended. Leave this on so a human takes over the moment someone answers. A reply is also what
+              reopens WhatsApp's 24-hour window for free-form messages, so with this on, any message sent after a
+              long wait has to be a template step.
             </span>
           </span>
         </label>
@@ -225,7 +287,7 @@ const SequenceModal = ({ sequence, onClose, onSaved }) => {
       <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--t1)', marginBottom: 10 }}>
         Steps
       </div>
-      <StepEditor steps={steps} onChange={setSteps} />
+      <StepEditor steps={steps} onChange={setSteps} templates={templates} />
     </Modal>
   );
 };
@@ -392,12 +454,15 @@ const SequenceDetail = ({ sequenceId, onClose, onChanged }) => {
                 {e.exitReason && (
                   <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4, marginLeft: 32 }}>{e.exitReason}</div>
                 )}
+                {e.lastError && (
+                  <div style={{ fontSize: 11, color: e.status === 'FAILED' ? '#f87171' : '#f59e0b', marginTop: 4, marginLeft: 32 }}>{e.lastError}</div>
+                )}
                 {e.stepRuns?.length > 0 && (
                   <div style={{ marginTop: 6, marginLeft: 32, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                     {e.stepRuns.map(r => (
                       <span key={r.id} title={r.detail || ''}
                         style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, border: '1px solid var(--bd)',
-                          color: r.outcome === 'FAILED' ? '#f87171' : r.outcome === 'SKIPPED' ? 'var(--t3)' : 'var(--green)' }}>
+                          color: RUN_COLOR[r.outcome] ?? 'var(--green)' }}>
                         {STEP_META[r.kind]?.label ?? r.kind}
                       </span>
                     ))}
