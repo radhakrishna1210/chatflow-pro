@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 // Sequence sends go through the shared, metered automated-reply path, and a
 // send that does not happen is recorded as a FAILED step — never as a
-// DELIVERED message — and stops the enrollment. Also covers the per-step claim
+// DELIVERED message. Also covers the per-step claim
 // that keeps two jobs from running the same step.
 process.env.DATABASE_URL = 'postgresql://offline:offline@127.0.0.1:1/offline';
 
@@ -16,6 +16,7 @@ mock.module('./outbound.service.js', {
 });
 let blocked = false;
 mock.module('./optout.service.js', { namedExports: { isOptedOut: async () => blocked } });
+mock.module('./sequenceAlerts.service.js', { namedExports: { notifySequenceProblem: async () => true } });
 
 const { prisma } = await import('../lib/prisma.js');
 const { sendSequenceMessage } = await import('./sequenceSender.js');
@@ -30,6 +31,7 @@ prisma.message.findFirst = async () => null;
 
 const stepRuns = [];
 prisma.sequenceStepRun.create = async ({ data }) => { stepRuns.push(data); return data; };
+prisma.sequenceStepRun.findFirst = async () => null;
 
 let row;
 const matches = (where) => {
@@ -82,12 +84,25 @@ test('a failed send fails the step and the enrollment — never SENT/DELIVERED',
   assert.equal(row.status, 'FAILED');
 });
 
-test('a closed window or exhausted credit fails the step with the reason', async () => {
+test('exhausted credit pauses the enrollment on that step instead of failing it', async () => {
   reset();
   outcome = { ok: false, code: 'NO_CREDIT', detail: 'Message quota and wallet balance exhausted' };
   const r = await advanceEnrollment('enr_1', { send: sendSequenceMessage });
-  assert.equal(r.status, 'FAILED');
+  assert.equal(r.status, 'WAITING');
+  assert.equal(row.status, 'WAITING');
+  assert.equal(row.cursor, 0);
+  assert.equal(stepRuns.at(-1).outcome, 'DEFERRED');
   assert.match(stepRuns.at(-1).detail, /NO_CREDIT/);
+});
+
+test('a closed window fails the step with the reason and moves on', async () => {
+  reset();
+  outcome = { ok: false, code: 'WINDOW_CLOSED', detail: 'The 24-hour customer service window is closed' };
+  const r = await advanceEnrollment('enr_1', { send: sendSequenceMessage });
+  assert.equal(r.status, 'ACTIVE');
+  assert.equal(row.cursor, 1);
+  assert.equal(stepRuns.at(-1).outcome, 'FAILED');
+  assert.match(stepRuns.at(-1).detail, /WINDOW_CLOSED/);
 });
 
 test('a successful send records SENT and moves the cursor', async () => {
