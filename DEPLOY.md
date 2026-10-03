@@ -478,10 +478,19 @@ Tell workspace owners before the release:
   `?offset=`); `{data, total}` responses also report `limit`/`offset`, so a
   client can tell it got a page. Super-admin workspace lists default to 1000
   (max 5000). An inbox thread returns its newest 500 messages (`?limit=` up
-  to 2000) with `hasMore`. Workspaces above these sizes see the first page
-  until the screens page through the rest. The contacts export is no longer
+  to 2000) with `hasMore`, and `?before=<message id>` reads the page older
+  than that message. The contacts export is no longer
   capped at 50,000 rows (it streams; `X-Export-Truncated` is never sent), and
   the blocked-numbers export includes every row, not just the first 200.
+- **The screens now page.** Leads, tickets, quotes and products show 100 rows
+  a page with Previous/Next and the real total; invoices, support requests
+  and the super-admin workspace table have "Load more"; the inbox and the CRM
+  Sales Inbox thread have "Load earlier messages"; the Sales Inbox lead list
+  has "Load more leads". Lead, product and workspace pickers search on the
+  server (`/admin/workspaces` takes `?search=`), the super-admin analytics
+  totals and workspace dropdowns read every page, and a leads "select all"
+  covers the page on screen and says so. No workspace silently stops at the
+  first page any more.
 - **Template media** is resolved only inside the sending workspace. A
   template whose carousel card or header names an image another workspace
   owns, or one since deleted, now fails to send with
