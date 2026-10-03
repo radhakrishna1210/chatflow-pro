@@ -64,11 +64,15 @@ export default function AiAgentsView({ initialTab }) {
   const section = sectionFor(tab);
   const isMobile = useIsMobile();
 
-  // Keeps the address bar on the section shown, without a remount.
+  // Keeps the address bar on the section shown. The popstate tells the router
+  // to re-read the URL (as AutomationView does); it re-renders this instance
+  // rather than remounting it.
   const select = (next) => {
     setTab(next);
     const target = `${AI_AGENTS_PATH}?tab=${encodeURIComponent(next)}`;
-    if (window.location.pathname + window.location.search !== target) window.history.replaceState({}, '', target);
+    if (window.location.pathname + window.location.search === target) return;
+    window.history.replaceState({}, '', target);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
   return (
