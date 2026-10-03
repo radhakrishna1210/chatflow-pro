@@ -240,6 +240,7 @@ release. Do them in this order.
    | `20261002150000_workflow_run_resume_and_cancel` | `WorkflowRunStatus.CANCELLED`, `WorkflowRun.resumeAt`, `version`, index |
    | `20261002180000_workspace_autonomous_agent_enabled` | `Workspace.autonomousAgentEnabled` (default true) |
    | `20261002190000_fk_actions_and_hot_indexes` | Foreign-key delete/update actions and hot-path indexes |
+   | `20261003120000_oauth_pkce` | OAuth provider PKCE: `OAuthClient.publicClient`, nullable `clientSecretHash` (CHECK: public or has a secret), `OAuthAuthorizationCode.codeChallenge`/`codeChallengeMethod`. Existing clients stay confidential; no action needed |
 
    Both stacks share the database, so migrations run once; the second stack's
    `migrate deploy` is a no-op.
@@ -292,6 +293,26 @@ Tell workspace owners before the release:
   (opt-out), and log CRM activities. Unblocking numbers needs CLIENT.
 - Impersonation by a super admin now requires a reason, lasts 30 minutes, is
   tab-scoped and cannot create lasting credentials.
+
+### List limits and template media
+
+- **Bounded lists.** The leads, tickets, quotes, products, invoices and support
+  ticket lists return at most 500 rows by default (`?limit=` up to 1000,
+  `?offset=`); `{data, total}` responses also report `limit`/`offset`, so a
+  client can tell it got a page. Super-admin workspace lists default to 1000
+  (max 5000). An inbox thread returns its newest 500 messages (`?limit=` up
+  to 2000) with `hasMore`. Workspaces above these sizes see the first page
+  until the screens page through the rest. The contacts export is no longer
+  capped at 50,000 rows (it streams; `X-Export-Truncated` is never sent), and
+  the blocked-numbers export includes every row, not just the first 200.
+- **Template media** is resolved only inside the sending workspace. A
+  template whose carousel card or header names an image another workspace
+  owns, or one since deleted, now fails to send with
+  `TEMPLATE_MEDIA_UNAVAILABLE`. Re-uploading the image in the template editor
+  fixes it.
+- **OAuth provider PKCE.** Nothing changes for the existing (confidential)
+  Spandan client. A public client registered with `publicClient: true` in
+  `seedOAuthClients.js` must use PKCE (S256); see `backend/docs/PUBLIC_API.md`.
 
 ---
 
