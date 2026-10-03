@@ -8,6 +8,7 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.get('/overview', analyticsController.overview);
+router.get('/home', analyticsController.home);
 router.get('/delivery', analyticsController.delivery);
 router.get('/campaigns', analyticsController.campaigns);
 router.get('/agents', analyticsController.agents);

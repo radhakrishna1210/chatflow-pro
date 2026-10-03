@@ -40,6 +40,60 @@ const averageLatencyMs = (items, field) => {
   return Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length);
 };
 
+// Everything the Home screen's cards show, as counts and single-row lookups.
+// Home used to derive these from full list calls: the numbers list (twice),
+// and the first page of /campaigns — so a draft older than the 20 newest
+// campaigns was never suggested, and every visit paid for whole lists to read
+// a handful of figures.
+export async function getHomeStats(workspaceId) {
+  const [
+    numbersTotal, numbersActive, primaryNumber,
+    campaignGroups, latestDraft, nextScheduled,
+    openConversations, unread, totalContacts,
+  ] = await Promise.all([
+    prisma.waNumber.count({ where: { workspaceId } }),
+    prisma.waNumber.count({ where: { workspaceId, status: 'ACTIVE' } }),
+    // Same ordering as the numbers list, so the card shows the number the
+    // Number Setup page lists first.
+    prisma.waNumber.findFirst({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, phoneNumber: true, displayName: true, status: true, quality: true },
+    }),
+    prisma.campaign.groupBy({ by: ['status'], where: { workspaceId }, _count: { _all: true } }),
+    prisma.campaign.findFirst({
+      where: { workspaceId, status: 'DRAFT' },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, name: true, updatedAt: true },
+    }),
+    prisma.campaign.findFirst({
+      where: { workspaceId, status: 'SCHEDULED' },
+      orderBy: { scheduledAt: 'asc' },
+      select: { id: true, name: true, scheduledAt: true },
+    }),
+    prisma.conversation.count({ where: { workspaceId, status: 'OPEN' } }),
+    prisma.conversation.aggregate({ where: { workspaceId }, _sum: { unreadCount: true } }),
+    prisma.contact.count({ where: { workspaceId } }),
+  ]);
+
+  const byStatus = Object.fromEntries(campaignGroups.map((row) => [row.status, row._count._all]));
+  const campaignsTotal = Object.values(byStatus).reduce((sum, n) => sum + n, 0);
+
+  return {
+    numbers: { total: numbersTotal, active: numbersActive, primary: primaryNumber ?? null },
+    campaigns: {
+      total: campaignsTotal,
+      byStatus,
+      // Sending now, or about to: what "active" means on the card.
+      active: (byStatus.RUNNING ?? 0) + (byStatus.SCHEDULED ?? 0) + (byStatus.PAUSED ?? 0),
+      latestDraft: latestDraft ?? null,
+      nextScheduled: nextScheduled ?? null,
+    },
+    conversations: { open: openConversations, unread: unread?._sum?.unreadCount ?? 0 },
+    contacts: { total: totalContacts },
+  };
+}
+
 export async function getOverview(workspaceId, daysParam) {
   const days = clampRangeDays(daysParam);
   // Local midnight `days - 1` days ago in the workspace's zone, so "7 days"

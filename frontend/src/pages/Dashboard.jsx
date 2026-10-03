@@ -564,61 +564,52 @@ const inr = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimu
 // nobody ever sees twice.
 const NEXT_ACTION_DISMISS_KEY = 'cfp:nextAction:dismissed';
 
-// `numbers` comes from HomeView, which already loads them for its own card.
-const NextBestAction = ({ onGo, numbers }) => {
-  const [action, setAction] = useState(null);
+// `stats` is HomeView's one /analytics/home response: counts and the single
+// draft / scheduled campaign worth naming, found by query rather than by
+// scanning the first page of the campaign list (which missed any draft older
+// than the 20 newest campaigns).
+function nextActionFrom(stats) {
+  if (!stats) return null;
+  if (!stats.numbers?.total) {
+    return {
+      kind: 'Connect a number',
+      title: 'Connect your WhatsApp number to start sending.',
+      detail: 'Everything else is ready — campaigns need a verified number.',
+      cta: 'Connect', section: 'setup',
+    };
+  }
+  const draft = stats.campaigns?.latestDraft;
+  if (draft) {
+    return {
+      kind: 'Ready to launch',
+      title: `“${draft.name}” is still a draft.`,
+      detail: 'Finish the last steps and send it.',
+      cta: 'Open', section: 'campaigns', draftId: draft.id,
+    };
+  }
+  const scheduled = stats.campaigns?.nextScheduled;
+  if (scheduled) {
+    return {
+      kind: 'Scheduled',
+      title: `“${scheduled.name}” goes out ${fmtDate(scheduled.scheduledAt)}.`,
+      detail: 'Review the audience and message before it sends.',
+      cta: 'Review', section: 'campaigns',
+    };
+  }
+  if (!stats.campaigns?.total) {
+    return {
+      kind: 'Get started',
+      title: 'Send your first campaign.',
+      detail: 'Pick a template, choose an audience, and go.',
+      cta: 'Create', section: 'campaigns-create',
+    };
+  }
+  return null;
+}
+
+const NextBestAction = ({ onGo, stats }) => {
   const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(NEXT_ACTION_DISMISS_KEY) === '1');
-
-  useEffect(() => {
-    let alive = true;
-    const hasNumber = Array.isArray(numbers) && numbers.length > 0;
-    (hasNumber
-      ? wFetch('/campaigns').then(r => (r.ok ? r.json() : [])).catch(() => [])
-      : Promise.resolve([])
-    ).then((campaigns) => {
-      if (!alive) return;
-      const list = Array.isArray(campaigns) ? campaigns : (campaigns?.data || []);
-
-      if (!hasNumber) {
-        setAction({
-          kind: 'Connect a number',
-          title: 'Connect your WhatsApp number to start sending.',
-          detail: 'Everything else is ready — campaigns need a verified number.',
-          cta: 'Connect', section: 'setup',
-        });
-        return;
-      }
-      const draft = list.find(c => c.status === 'DRAFT');
-      if (draft) {
-        setAction({
-          kind: 'Ready to launch',
-          title: `“${draft.name}” is still a draft.`,
-          detail: 'Finish the last steps and send it.',
-          cta: 'Open', section: 'campaigns', draftId: draft.id,
-        });
-        return;
-      }
-      const scheduled = list.find(c => c.status === 'SCHEDULED');
-      if (scheduled) {
-        setAction({
-          kind: 'Scheduled',
-          title: `“${scheduled.name}” goes out ${fmtDate(scheduled.scheduledAt)}.`,
-          detail: 'Review the audience and message before it sends.',
-          cta: 'Review', section: 'campaigns',
-        });
-        return;
-      }
-      if (list.length === 0) {
-        setAction({
-          kind: 'Get started',
-          title: 'Send your first campaign.',
-          detail: 'Pick a template, choose an audience, and go.',
-          cta: 'Create', section: 'campaigns-create',
-        });
-      }
-    });
-    return () => { alive = false; };
-  }, [numbers]);
+  const action = nextActionFrom(stats);
 
   if (!action || dismissed) return null;
 
@@ -726,11 +717,37 @@ const LegalView = ({ initialTab }) => {
   );
 };
 
+// The workspace at a glance, from /analytics/home. Each tile opens the section
+// it counts.
+const HomeStatTiles = ({ stats }) => {
+  const tiles = [
+    { label: 'Contacts', value: stats.contacts?.total ?? 0, section: 'contacts' },
+    { label: 'Open conversations', value: stats.conversations?.open ?? 0, section: 'inbox' },
+    { label: 'Unread messages', value: stats.conversations?.unread ?? 0, section: 'inbox', accent: (stats.conversations?.unread ?? 0) > 0 ? 'var(--accent)' : undefined },
+    { label: 'Active campaigns', value: stats.campaigns?.active ?? 0, section: 'campaigns', sub: `${(stats.campaigns?.total ?? 0).toLocaleString()} in total` },
+    { label: 'WhatsApp numbers', value: stats.numbers?.total ?? 0, section: canManage() ? 'setup' : null, sub: `${stats.numbers?.active ?? 0} active` },
+  ];
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+      {tiles.map(t => (
+        <button key={t.label} type="button" disabled={!t.section}
+          onClick={() => t.section && window.dispatchEvent(new CustomEvent('app:nav', { detail: t.section }))}
+          style={{ ...card, padding: '14px 16px', textAlign: 'left', cursor: t.section ? 'pointer' : 'default', fontFamily: 'inherit' }}>
+          <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>{t.label}</p>
+          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 19, color: t.accent || 'var(--t1)', letterSpacing: '-.02em' }}>{Number(t.value).toLocaleString()}</p>
+          {t.sub && <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 3 }}>{t.sub}</p>}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const HomeView = () => {
   const [prompt, setPrompt] = useState('');
   const [guided, setGuided] = useState(true);
-  const [numbers, setNumbers] = useState(null);
-  const number = numbers?.[0] ?? null;
+  // One counts-only request for every figure on this screen (CF-196).
+  const [stats, setStats] = useState(null);
+  const number = stats?.numbers?.primary ?? null;
   const [loading, setLoading] = useState(true);
   const [plan, setPlan] = useState(null);
   const [instagram, setInstagram] = useState(undefined);
@@ -741,10 +758,10 @@ const HomeView = () => {
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
-    wFetch('/whatsapp/numbers')
-      .then(r => r.ok && r.json())
-      .then(nums => setNumbers(Array.isArray(nums) ? nums : []))
-      .catch(() => setNumbers([]))
+    wFetch('/analytics/home')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setStats(d && typeof d === 'object' ? d : null))
+      .catch(() => setStats(null))
       .finally(() => setLoading(false));
     // Only someone who can actually buy a plan is shown the upgrade prompt.
     if (canBill()) {
@@ -837,7 +854,10 @@ const HomeView = () => {
 
         {!loading && (
         <>
-        <NextBestAction numbers={numbers} onGo={(a) => {
+        {/* Every suggestion is a member-level action (connect a number,
+            launch or create a campaign), so roles that cannot take it are not
+            offered it. */}
+        {canManage() && <NextBestAction stats={stats} onGo={(a) => {
           // A draft opens straight into its own editor rather than the list —
           // the whole point of the card is to remove the next click.
           if (a.draftId) {
@@ -846,7 +866,9 @@ const HomeView = () => {
             return;
           }
           window.dispatchEvent(new CustomEvent('app:nav', { detail: a.section }));
-        }} />
+        }} />}
+
+        {stats && <HomeStatTiles stats={stats} />}
 
         {canUpgrade && <div style={{ borderRadius: 'var(--rl)', background: 'linear-gradient(135deg,rgba(53,232,242,0.1),rgba(14,165,233,0.06))', border: '1px solid var(--gbd)', padding: '16px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
