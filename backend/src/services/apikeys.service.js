@@ -328,7 +328,7 @@ export async function createApiKey(
       keyName: name,
       environment,
       keyPrefix: prefix,
-    }).catch(() => {});
+    }).catch((err) => console.warn('[ApiKeys] API key created email failed:', err.message));
   }
 
   return {

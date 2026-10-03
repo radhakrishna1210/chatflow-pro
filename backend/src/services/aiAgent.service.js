@@ -344,7 +344,7 @@ export async function listAgentCampaigns(workspaceId, agentId = null) {
     by: ['campaignId'],
     where: { workspaceId, status: 'ACTIVE', expiresAt: { gt: new Date() } },
     _count: { _all: true },
-  }).catch(() => []);
+  }).catch((err) => { console.warn(`[AIAgent] Live session count failed for ${workspaceId}:`, err.message); return []; });
   const liveByCampaign = Object.fromEntries(live.map((row) => [row.campaignId, row._count._all]));
 
   return {

@@ -94,7 +94,7 @@ async function deliverOnce(url, body, headers, timeoutMs = 10_000) {
 const loadTarget = (workspaceId) => prisma.workspace.findUnique({
   where: { id: workspaceId },
   select: { webhookUrl: true, webhookEvents: true, webhookVerifyToken: true },
-}).catch(() => null);
+}).catch((err) => { console.error(`[Webhook] Could not load the webhook target for ${workspaceId}:`, err.message); return null; });
 
 /**
  * Makes one delivery attempt of an already-built event. Returns
@@ -108,7 +108,7 @@ export async function attemptDelivery({ workspaceId, event, deliveryId, body }) 
   const workspace = await loadTarget(workspaceId);
   if (!wantsEvent(workspace, event)) return { delivered: false, retry: false, reason: 'not_subscribed' };
 
-  const secret = await ensureWebhookSecret(workspaceId, workspace.webhookVerifyToken).catch(() => null);
+  const secret = await ensureWebhookSecret(workspaceId, workspace.webhookVerifyToken).catch((err) => { console.error(`[Webhook] Could not load the signing secret for ${workspaceId}:`, err.message); return null; });
   if (!secret) return { delivered: false, retry: true, reason: 'no_secret' };
 
   const result = await deliverOnce(workspace.webhookUrl, body, {

@@ -105,7 +105,7 @@ export async function register({ name, email, password, role = 'CLIENT', inviteT
   const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
   await storeRefreshToken(user.id, refreshToken, { workspaceId: joined?.workspaceId });
 
-  queueWelcomeEmail({ email: user.email, name: user.name }).catch(() => {});
+  queueWelcomeEmail({ email: user.email, name: user.name }).catch((err) => console.warn(`[Auth] Welcome email could not be queued for ${user.id}:`, err.message));
 
   return {
     accessToken, refreshToken,
@@ -154,7 +154,7 @@ export async function login({ email, password }) {
   const role = member?.role ?? null;
   const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, role, superAdmin);
   await storeRefreshToken(user.id, refreshToken, { workspaceId: member?.workspaceId });
-  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
+  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch((err) => console.warn(`[Auth] lastLoginAt update failed for ${user.id}:`, err.message));
 
   return {
     accessToken,
@@ -197,7 +197,7 @@ export async function refresh(token) {
   }
 
   if (stored.expiresAt < new Date()) {
-    await refreshTokens.revokeFamily(stored).catch(() => {});
+    await refreshTokens.revokeFamily(stored).catch((err) => console.error(`[Auth] Could not revoke the expired refresh-token family for ${stored.userId}:`, err.message));
     throw refreshRejected('Refresh token expired or not found');
   }
 
@@ -208,7 +208,7 @@ export async function refresh(token) {
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
   if (!user) throw refreshRejected('User not found');
   if (user.disabledAt) {
-    await refreshTokens.revokeFamily(stored).catch(() => {});
+    await refreshTokens.revokeFamily(stored).catch((err) => console.error(`[Auth] Could not revoke refresh tokens of disabled user ${user.id}:`, err.message));
     throw refreshRejected('This account has been disabled.', 'ACCOUNT_DISABLED');
   }
 
@@ -313,7 +313,7 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
   const workspaceId = joined?.workspaceId ?? member?.workspaceId ?? null;
   const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
   await storeRefreshToken(user.id, refreshToken, { workspaceId });
-  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
+  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch((err) => console.warn(`[Auth] lastLoginAt update failed for ${user.id}:`, err.message));
 
   // Existing users are never auto-joined to an invited workspace here (that
   // still requires the explicit accept-invite step, same as the
@@ -409,7 +409,7 @@ function purgeDeadOtps(email, purpose) {
         { expiresAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
       ],
     },
-  }).catch(() => {});
+  }).catch((err) => console.warn('[Auth] Stale OTP cleanup failed:', err.message));
 }
 
 // Claims an OTP row atomically: the writer that flips `consumed` false→true is
@@ -608,7 +608,7 @@ export async function verifySignup({ email, code, inviteToken }) {
 
   const { accessToken, refreshToken } = generateTokens(user.id, joined?.workspaceId ?? null, joined?.role ?? null, superAdmin);
   await storeRefreshToken(user.id, refreshToken, { workspaceId: joined?.workspaceId });
-  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
+  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch((err) => console.warn(`[Auth] lastLoginAt update failed for ${user.id}:`, err.message));
   purgeDeadOtps(normalizedEmail, 'SIGNUP');
 
   return {

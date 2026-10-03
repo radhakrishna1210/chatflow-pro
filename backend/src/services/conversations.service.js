@@ -307,7 +307,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   } catch (err) {
     // The credit was consumed before the send. Nothing went out, so hand it
     // back rather than charging for a message that does not exist.
-    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }); // never throws; logs its own failures
     throw describeSendFailure(err);
   }
 
@@ -325,7 +325,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     },
     include: { senderUser: { select: { id: true, name: true } } },
   });
-  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
+  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch((err) => console.warn(`[Conversations] First-response mark failed for ${conversationId}:`, err.message));
 
   await prisma.conversation.update({
     where: { id: conversationId },
@@ -405,7 +405,7 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
       { mediaId, type: spec.type, caption, filename: fileName },
     );
   } catch (err) {
-    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }); // never throws; logs its own failures
     throw describeSendFailure(err);
   }
 
@@ -427,7 +427,7 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     },
     include: { senderUser: { select: { id: true, name: true } } },
   });
-  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
+  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch((err) => console.warn(`[Conversations] First-response mark failed for ${conversationId}:`, err.message));
 
   await prisma.conversation.update({
     where: { id: conversationId },
@@ -520,7 +520,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
       conversation.contact.phoneNumber, payload,
     );
   } catch (err) {
-    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }); // never throws; logs its own failures
     throw describeSendFailure(err);
   }
 
@@ -537,7 +537,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     },
     include: { senderUser: { select: { id: true, name: true } } },
   });
-  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
+  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch((err) => console.warn(`[Conversations] First-response mark failed for ${conversationId}:`, err.message));
 
   await prisma.conversation.update({
     where: { id: conversationId },

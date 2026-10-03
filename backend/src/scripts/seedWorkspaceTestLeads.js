@@ -77,7 +77,7 @@ async function main() {
   console.log('Recalculating categories for all existing leads...');
   const allLeads = await prisma.lead.findMany({ select: { id: true, workspaceId: true } });
   for (const l of allLeads) {
-    await computeLeadCategory(l.workspaceId, l.id).catch(() => {});
+    await computeLeadCategory(l.workspaceId, l.id).catch((err) => console.warn(`[Seed] Lead category for ${l.id} failed:`, err.message));
   }
 
   console.log('Done! All active workspaces seeded successfully.');

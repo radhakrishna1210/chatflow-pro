@@ -166,14 +166,14 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
           title: `Template "${payload.name}" was approved`,
           body: 'It can now be used in campaigns.',
           link: 'templates',
-        }).catch(() => {});
+        }).catch((err) => console.warn('[Templates] Approval notification failed:', err.message));
       } else if (existing.status !== 'REJECTED' && payload.status === 'REJECTED') {
         notifyWorkspace(workspaceId, {
           type: 'TEMPLATE_REJECTED',
           title: `Template "${payload.name}" was rejected by Meta`,
           body: rejectedReason || 'Check template guidelines and edit to resubmit.',
           link: 'templates',
-        }).catch(() => {});
+        }).catch((err) => console.warn('[Templates] Rejection notification failed:', err.message));
       }
     } else {
       await prisma.template.create({ data: { workspaceId, waNumberId: waNumber.id, ...payload } });
@@ -377,7 +377,7 @@ export async function deleteTemplate(workspaceId, id) {
       ? await prisma.waNumber.findFirst({ where: { id: template.waNumberId, workspaceId } })
       : await resolveWaNumber(workspaceId, null, { required: false });
     if (waNumber) {
-      await deleteMetaTemplate(waNumber.wabaId, template.metaTemplateId, decrypt(waNumber.encryptedAccessToken)).catch(() => null);
+      await deleteMetaTemplate(waNumber.wabaId, template.metaTemplateId, decrypt(waNumber.encryptedAccessToken)).catch((err) => { console.warn(`[Templates] Deleting template ${template.metaTemplateId} on Meta failed; deleted locally:`, err.message); return null; });
     }
   }
   // Always a tombstone, never a hard delete.

@@ -150,7 +150,7 @@ async function saveTemplate(workspaceId, { name, category, language, components 
   }
   try {
     const tpl = await createTemplate(workspaceId, { ...parsed.data, waNumberId: await firstNumberId(workspaceId) });
-    await prisma.template.update({ where: { id: tpl.id }, data: { aiGenerated: true } }).catch(() => {});
+    await prisma.template.update({ where: { id: tpl.id }, data: { aiGenerated: true } }).catch((err) => console.warn(`[Onboarding] Could not flag template ${tpl.id} as AI-generated:`, err.message));
     return { tpl };
   } catch (err) {
     if (err.status && err.status < 500) return { error: err.message };
@@ -163,7 +163,7 @@ async function saveCampaign(workspaceId, user, { name, template }) {
   try {
     const numberId = template.waNumberId || await firstNumberId(workspaceId);
     const campaign = await createCampaign(workspaceId, { name, templateId: template.id, numberId }, user);
-    await prisma.campaign.update({ where: { id: campaign.id }, data: { aiGenerated: true } }).catch(() => {});
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { aiGenerated: true } }).catch((err) => console.warn(`[Onboarding] Could not flag campaign ${campaign.id} as AI-generated:`, err.message));
     return { campaign };
   } catch (err) {
     if (err.status && err.status < 500) return { error: err.message };

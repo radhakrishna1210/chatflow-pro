@@ -48,7 +48,7 @@ export function categorySlaHours(customConfig, category) {
 
 async function ticketSlaHours(workspaceId, category) {
   if (!category) return null;
-  const config = await getSection(workspaceId, 'ticket_customization').catch(() => null);
+  const config = await getSection(workspaceId, 'ticket_customization').catch((err) => { console.warn(`[Tickets] Ticket customization unavailable for ${workspaceId}; using defaults:`, err.message); return null; });
   return categorySlaHours(config, category);
 }
 
@@ -125,7 +125,7 @@ export async function createTicket(workspaceId, body) {
 
   const priority = body.priority || 'NORMAL';
 
-  const customConfig = await getSection(workspaceId, 'ticket_customization').catch(() => null);
+  const customConfig = await getSection(workspaceId, 'ticket_customization').catch((err) => { console.warn(`[Tickets] Ticket customization unavailable for ${workspaceId}; using defaults:`, err.message); return null; });
   const defaultStage = customConfig?.stages?.find((s) => s.isDefault)?.key;
 
   const VALID_STATUSES = ['NEW', 'OPEN', 'WAITING', 'RESOLVED', 'CLOSED'];

@@ -52,7 +52,7 @@ export async function createLinkInvitation(workspaceId, { role, maxUses = null }
     body: `Anyone with the link joins as ${role === 'ADMIN' ? 'an admin' : 'a member'}. It expires in 7 days.`,
     link: 'settings',
     meta: { invitationId: invitation.id },
-  }).catch(() => {});
+  }).catch((err) => console.warn('[Invitation] Invite-link notification failed:', err.message));
 
   const { tokenHash: _omit, ...safe } = invitation;
   return { ...safe, inviteUrl: buildInviteUrl(rawToken) };
@@ -127,7 +127,7 @@ export async function createInvitation(workspaceId, { email, role }, inviterId) 
       body: `${inviter.name || 'A workspace admin'} invited you to join as ${invitation.role === 'ADMIN' ? 'an admin' : 'a member'}. Check your email for the invite link.`,
       link: 'settings',
       meta: { invitationId: invitation.id, workspaceId, role: invitation.role },
-    }).catch(() => {});
+    }).catch((err) => console.warn('[Invitation] Invitee notification failed:', err.message));
   }
 
   // The inviting admin sees confirmation in their own workspace feed.
@@ -138,7 +138,7 @@ export async function createInvitation(workspaceId, { email, role }, inviterId) 
     body: `They'll join as ${invitation.role === 'ADMIN' ? 'an admin' : 'a member'} once they accept. The invite expires in 7 days.`,
     link: 'settings',
     meta: { invitationId: invitation.id },
-  }).catch(() => {});
+  }).catch((err) => console.warn('[Invitation] Inviter notification failed:', err.message));
 
   const { tokenHash: _omit, ...safe } = invitation;
   // The raw token is returned once, to the admin who just created the invite

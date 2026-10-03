@@ -149,7 +149,7 @@ export async function verifyFileContents(req, res, next) {
   const onDisk = files.filter((f) => f.path && !f.buffer);
   // Temp files go when the response does, however the handler ends.
   if (onDisk.length) {
-    res.once('close', () => { for (const f of onDisk) fsp.unlink(f.path).catch(() => {}); });
+    res.once('close', () => { for (const f of onDisk) fsp.unlink(f.path).catch(() => {}); /* may already be gone; the OS temp dir is the backstop */ });
   }
 
   try {

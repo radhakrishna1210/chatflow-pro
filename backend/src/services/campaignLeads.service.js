@@ -68,7 +68,7 @@ export async function createLeadFromReply(workspaceId, contactId, { at = new Dat
 
   const existing = await prisma.lead.findUnique({ where: { contactId }, select: { id: true } });
   if (existing) {
-    computeLeadCategory(workspaceId, existing.id).catch(() => {});
+    computeLeadCategory(workspaceId, existing.id).catch((err) => console.warn(`[CampaignLeads] Lead category refresh failed for ${existing.id}:`, err.message));
     return { created: false, reason: 'Already a lead', leadId: existing.id };
   }
 
@@ -93,7 +93,7 @@ export async function createLeadFromReply(workspaceId, contactId, { at = new Dat
     select: { id: true, score: true, source: true },
   });
 
-  await computeLeadCategory(workspaceId, lead.id).catch(() => {});
+  await computeLeadCategory(workspaceId, lead.id).catch((err) => console.warn(`[CampaignLeads] Lead category failed for ${lead.id}:`, err.message));
 
   // Same event any other lead creation raises, so CRM workflows treat a
   // campaign-generated lead exactly like a hand-entered one.

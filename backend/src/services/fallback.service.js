@@ -135,7 +135,7 @@ export async function runFallbackForRecipient(campaign, recipient, contact) {
     await prisma.campaignRecipient.update({
       where: { id: recipient.id },
       data: { failReason: [existing?.failReason, summary].filter(Boolean).join(' | ').slice(0, 500) },
-    }).catch(() => {});
+    }).catch((err) => console.warn(`[Fallback] Could not record the fallback outcome on recipient ${recipient.id}:`, err.message));
   }
 
   return { attempts, succeeded, failed };

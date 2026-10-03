@@ -262,7 +262,7 @@ export async function createLead(workspaceId, body, actorUserId = null) {
   await assertRecordReferences(workspaceId, { ownerUserId: body.ownerUserId });
 
   // 1. Prospecting criteria validation
-  const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch(() => null);
+  const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch((err) => { console.warn(`[Leads] Prospecting criteria unavailable for ${workspaceId}; skipping the check:`, err.message); return null; });
   if (criteriaConfig?.requirePhone && !body.phoneNumber && !contactId) {
     const e = new Error('Phone number is required based on workspace prospecting criteria.');
     e.status = 400;
@@ -321,7 +321,7 @@ export async function createLead(workspaceId, body, actorUserId = null) {
   // 2. Lead Source validation
   let canonicalSource = body.source ?? null;
   if (canonicalSource) {
-    const sourceConfig = await getSection(workspaceId, 'lead_sources').catch(() => null);
+    const sourceConfig = await getSection(workspaceId, 'lead_sources').catch((err) => { console.warn(`[Leads] Lead source config unavailable for ${workspaceId}; using defaults:`, err.message); return null; });
     const configuredSources = sourceConfig?.sources || [];
     if (configuredSources.length > 0) {
       const matched = configuredSources.find(
@@ -343,7 +343,7 @@ export async function createLead(workspaceId, body, actorUserId = null) {
   }
 
   // 3. Status & Custom Lifecycle resolution
-  const lifecycleConfig = await getSection(workspaceId, 'lead_lifecycle').catch(() => null);
+  const lifecycleConfig = await getSection(workspaceId, 'lead_lifecycle').catch((err) => { console.warn(`[Leads] Lead lifecycle config unavailable for ${workspaceId}; using defaults:`, err.message); return null; });
   const defaultStageKey = lifecycleConfig?.stages?.find((s) => s.isDefault)?.key || 'NEW';
   const requestedStatus = body.status || defaultStageKey;
   const isPrismaStatus = PRISMA_LEAD_STATUSES.has(requestedStatus);
@@ -388,7 +388,7 @@ export async function createLead(workspaceId, body, actorUserId = null) {
 
   // If not assigned explicitly, run automatic lead distribution rules
   if (!lead.ownerUserId) {
-    const distResult = await evaluateAndAssignLead(workspaceId, lead.id).catch(() => null);
+    const distResult = await evaluateAndAssignLead(workspaceId, lead.id).catch((err) => { console.warn(`[Leads] Lead distribution failed for ${lead.id}:`, err.message); return null; });
     if (distResult?.assigned) {
       categorizedLead.ownerUserId = distResult.ownerUserId;
       categorizedLead.owner = { id: distResult.ownerUserId, name: distResult.ownerName, email: '' };
@@ -460,7 +460,7 @@ export async function updateLead(workspaceId, id, updates, user = null) {
 
   // Handle Prospecting evaluation on update
   if (updates.prospecting || updates.budget !== undefined || updates.companySize !== undefined || updates.industry !== undefined || updates.qualificationAnswers) {
-    const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch(() => null);
+    const criteriaConfig = await getSection(workspaceId, 'prospecting_criteria').catch((err) => { console.warn(`[Leads] Prospecting criteria unavailable for ${workspaceId}; skipping the check:`, err.message); return null; });
     const existingProspecting = customFields.prospecting || {};
     const prospectingInfo = {
       budget: updates.budget !== undefined ? updates.budget : (updates.prospecting?.budget !== undefined ? updates.prospecting.budget : existingProspecting.budget),

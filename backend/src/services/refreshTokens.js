@@ -35,7 +35,7 @@ export async function storeRefreshToken({ userId, token, expiresAt, workspaceId 
     },
   });
   // Opportunistic cleanup so expired tokens don't pile up forever.
-  prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => {});
+  prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch((err) => console.warn('[Auth] Expired refresh-token cleanup failed:', err.message));
 }
 
 export async function findRefreshToken(token) {

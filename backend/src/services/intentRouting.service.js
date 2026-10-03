@@ -48,7 +48,7 @@ export async function routeByIntent({ workspaceId, conversationId, contact, waNu
       recordMatch(workspaceId, {
         intentRuleId: best.rule.id, outcome: 'below_threshold',
         confidence: best.confidence, sample: messageBody,
-      }).catch(() => {});
+      }).catch((err) => console.warn('[Intent] Recording a below-threshold match failed:', err.message));
     }
     return null;
   }
@@ -57,7 +57,7 @@ export async function routeByIntent({ workspaceId, conversationId, contact, waNu
   console.log(`[Intent] Matched intent rule "${rule.name}" (${rule.id}) with confidence ${confidence.toFixed(2)} >= ${threshold}`);
   recordMatch(workspaceId, {
     intentRuleId: rule.id, outcome: 'matched', confidence, sample: messageBody,
-  }).catch(() => {});
+  }).catch((err) => console.warn('[Intent] Recording a match failed:', err.message));
 
   switch (rule.actionType) {
     // Hand the thread to a person and stop automating it.
@@ -140,7 +140,7 @@ export async function escalateToHuman({ workspaceId, conversationId, contact, re
     body: reason,
     link: 'inbox',
     meta: { conversationId, contactId: contact?.id, team },
-  }).catch(() => {});
+  }).catch((err) => console.warn(`[Escalation] Handoff notification failed for ${conversationId}:`, err.message));
 
   console.log(`[Escalation] Conversation ${conversationId} handed to a human — ${reason}`);
 }

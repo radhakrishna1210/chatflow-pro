@@ -119,7 +119,7 @@ export async function deliverAutomatedReply({
     // fault, not a one-off — mark the number so the UI can say so instead of
     // every reply failing invisibly from here on.
     if (meta && (Number(meta.code) === 190 || (Number(meta.code) === 100 && Number(meta.error_subcode) === 33))) {
-      await markNumberUnreachable(waNumber.id, meta).catch(() => {});
+      await markNumberUnreachable(waNumber.id, meta).catch((err) => console.warn(`[Outbound] Could not mark number ${waNumber.id} unreachable:`, err.message));
     }
     const detail = String(meta?.message || err.message || 'Meta rejected the send').slice(0, 500);
     if (recordFailure) {

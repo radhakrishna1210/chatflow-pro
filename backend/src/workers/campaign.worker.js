@@ -333,7 +333,7 @@ async function processRetryJob(job) {
     try {
       // Nothing went out, so the retry's credit goes back — otherwise every
       // retry attempt would burn quota for a message that never arrived.
-      await releaseMessageCredit(workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
+      await releaseMessageCredit(workspaceId, { source: creditSource, amount: creditAmount }); // never throws; logs its own failures
       await recordAttempt(recipient.id, { attempt, ok: false, reason, metaCode: metaErr?.code ?? null });
       await handleRecipientFailure(campaign, { ...recipient, retryCount: attempt }, reason, metaErr?.code);
     } catch (handlingErr) {
@@ -342,7 +342,7 @@ async function processRetryJob(job) {
       await prisma.campaignRecipient.updateMany({
         where: { id: recipient.id, retryStatus: 'IN_PROGRESS' },
         data: { retryStatus: 'SCHEDULED' },
-      }).catch(() => {});
+      }).catch((err) => console.error(`[CampaignRetry] Could not hand recipient ${recipient.id} back to the recovery sweep:`, err.message));
     }
     return;
   }
@@ -426,12 +426,12 @@ async function sendClaimedRecipient(campaign, recipient, { phoneNumberId, access
     try {
       // The credit was claimed before the send that just failed — give it
       // back so a message nobody received doesn't count against the quota.
-      await releaseMessageCredit(campaign.workspaceId, { source: creditSource, amount: creditAmount }).catch(() => {});
+      await releaseMessageCredit(campaign.workspaceId, { source: creditSource, amount: creditAmount }); // never throws; logs its own failures
       // No charge is claimed on a failed send — the recipient stays unbilled
       // until an attempt actually reaches Meta.
       await prisma.campaignRecipient.update({
         where: { id: recipient.id }, data: { initialStatus: 'FAILED' },
-      }).catch(() => {});
+      }).catch((err) => console.error(`[CampaignWorker] Could not mark recipient ${recipient.id} FAILED:`, err.message));
       await recordAttempt(recipient.id, { attempt: 0, ok: false, reason, metaCode: metaErr?.code ?? null });
       await handleRecipientFailure(campaign, recipient, reason, metaErr?.code);
     } catch (handlingErr) {
@@ -441,7 +441,7 @@ async function sendClaimedRecipient(campaign, recipient, { phoneNumberId, access
       await prisma.campaignRecipient.updateMany({
         where: { id: recipient.id, status: 'SENDING' },
         data: { status: 'PENDING' },
-      }).catch(() => {});
+      }).catch((err) => console.error(`[CampaignWorker] Could not hand recipient ${recipient.id} back to PENDING:`, err.message));
     }
     return true;
   }
@@ -476,19 +476,19 @@ async function failCampaign(campaignId, message) {
   if (res.count === 0) return;
   console.error(`[CampaignWorker] Campaign ${campaignId} failed: ${message}`);
 
-  const failed = await prisma.campaign.findUnique({ where: { id: campaignId } }).catch(() => null);
+  const failed = await prisma.campaign.findUnique({ where: { id: campaignId } }).catch((err) => { console.error(`[CampaignWorker] Could not reload failed campaign ${campaignId}; no refund or notice sent:`, err.message); return null; });
   if (!failed) return;
   await settleCampaignRefund(failed.id, 'Refund for failed campaign').catch((e) =>
     console.error(`[Campaign] Settlement failed for ${failed.id}:`, e.message));
 
-  queueCampaignFailedEmail(failed).catch(() => {});
+  queueCampaignFailedEmail(failed).catch((err) => console.warn(`[CampaignWorker] Failure email could not be queued for ${failed.id}:`, err.message));
   notifyWorkspace(failed.workspaceId, {
     type: 'CAMPAIGN_FAILED',
     title: `Campaign "${failed.name}" failed`,
     body: message,
     link: 'campaigns',
     meta: { campaignId: failed.id },
-  }).catch(() => {});
+  }).catch((err) => console.warn(`[CampaignWorker] Failure notification failed for ${failed.id}:`, err.message));
 }
 
 // Exported for tests; production runs it only through startCampaignWorker().
@@ -635,7 +635,7 @@ export async function processCampaign(job) {
     await prisma.campaignRecipient.updateMany({
       where: { campaignId, status: 'SENDING', sentAt: null },
       data: { status: 'PENDING' },
-    }).catch(() => {});
+    }).catch((err) => console.error(`[CampaignWorker] Could not release SENDING claims of paused campaign ${campaignId}:`, err.message));
     console.log(`[CampaignWorker] Campaign ${campaignId} paused mid-run — leaving status PAUSED`);
     return;
   }

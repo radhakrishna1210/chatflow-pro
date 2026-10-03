@@ -825,7 +825,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     // The campaign never made it into the queue, so it never starts — refund
     // in full rather than leaving the customer charged for nothing. A job
     // that was queued before the bookkeeping failed must not send unpaid.
-    if (queuedJob) await queuedJob.remove().catch(() => {});
+    if (queuedJob) await queuedJob.remove().catch((err) => console.error(`[Campaign] Could not remove queued job for campaign ${campaignId} after a failed launch — it may send unpaid:`, err.message));
     await refundCampaign(campaignId, totalCost, 'Campaign could not be queued');
     await undoReservation();
     await prisma.campaign.updateMany({
@@ -841,7 +841,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     body: `${valid.length} recipient${valid.length === 1 ? '' : 's'} · ${quotaUnits ? `${quotaUnits} from plan quota · ` : ''}₹${totalCost.toFixed(2)} deducted${blocked.length ? ` · ${blocked.length} skipped (opted out)` : ''}`,
     link: 'campaigns',
     meta: { campaignId },
-  }).catch(() => {});
+  }).catch((err) => console.warn(`[Campaign] Launch notification failed for ${campaignId}:`, err.message));
 
   const launched = await prisma.campaign.findUnique({ where: { id: campaignId } });
   return {
@@ -1072,8 +1072,8 @@ export async function pauseCampaign(workspaceId, campaignId) {
   // A scheduled campaign has a delayed job waiting; drop it so it cannot fire
   // while paused. Resuming re-queues.
   if (campaign.queueJobId) {
-    const job = await campaignQueue.getJob(campaign.queueJobId).catch(() => null);
-    if (job) await job.remove().catch(() => {});
+    const job = await campaignQueue.getJob(campaign.queueJobId).catch((err) => { console.error(`[Campaign] Could not look up the queued job for paused campaign ${campaign.id}:`, err.message); return null; });
+    if (job) await job.remove().catch((err) => console.error(`[Campaign] Could not remove the queued job for paused campaign ${campaign.id}:`, err.message));
   }
 
   const remaining = await prisma.campaignRecipient.count({ where: { campaignId, status: 'PENDING' } });
@@ -1175,12 +1175,12 @@ export async function cancelCampaign(workspaceId, campaignId) {
 
   // Remove the queued job by its stored ID (reliable) and by scan (fallback).
   if (campaign.queueJobId) {
-    const job = await campaignQueue.getJob(campaign.queueJobId).catch(() => null);
-    if (job) await job.remove().catch(() => {});
+    const job = await campaignQueue.getJob(campaign.queueJobId).catch((err) => { console.error(`[Campaign] Could not look up the queued job for campaign ${campaign.id}:`, err.message); return null; });
+    if (job) await job.remove().catch((err) => console.error(`[Campaign] Could not remove the queued job for campaign ${campaign.id}:`, err.message));
   }
-  const jobs = await campaignQueue.getJobs(['delayed', 'waiting', 'paused']).catch(() => []);
+  const jobs = await campaignQueue.getJobs(['delayed', 'waiting', 'paused']).catch((err) => { console.error(`[Campaign] Could not scan queued jobs for campaign ${campaignId}:`, err.message); return []; });
   for (const job of jobs) {
-    if (job.data?.campaignId === campaignId) await job.remove().catch(() => {});
+    if (job.data?.campaignId === campaignId) await job.remove().catch((err) => console.error(`[Campaign] Could not remove job ${job.id} for campaign ${campaignId}:`, err.message));
   }
 
   // A send already handed to Meta when the cancel landed finishes and claims
@@ -1337,7 +1337,7 @@ export async function recoverScheduledCampaigns() {
   let recovered = 0;
   for (const c of scheduled) {
     if (c.queueJobId) {
-      const existing = await campaignQueue.getJob(c.queueJobId).catch(() => null);
+      const existing = await campaignQueue.getJob(c.queueJobId).catch((err) => { console.warn(`[Campaign] Could not look up the queued job for scheduled campaign ${c.id}:`, err.message); return null; });
       if (existing) continue; // job survived — nothing to do
     }
     const delay = Math.max(0, (c.scheduledAt?.getTime() ?? 0) - Date.now());

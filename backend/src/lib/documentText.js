@@ -80,7 +80,7 @@ async function extractPdf(buffer, fileName) {
   } finally {
     clearTimeout(timer);
     // Frees the worker; without it a long-lived process leaks one per upload.
-    await parser.destroy().catch(() => {});
+    await parser.destroy().catch(() => {}); // cleanup only; the text has already been extracted or the error thrown
   }
 }
 

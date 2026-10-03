@@ -9,7 +9,7 @@ import { normalizeOverageRates } from '../lib/messagePricing.js';
 // ── Pool summary ──────────────────────────────────────────────
 export async function getPoolSummary() {
   const total = await prisma.numberPool.count();
-  if (total === 0) await syncPoolFromWaba().catch(() => {});
+  if (total === 0) await syncPoolFromWaba().catch((err) => console.warn('[Admin] Number pool sync from WABA failed:', err.message));
 
   const [finalTotal, available, assigned, banned] = await Promise.all([
     prisma.numberPool.count(),

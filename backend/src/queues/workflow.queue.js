@@ -27,7 +27,7 @@ workflowQueue.on('error', (err) => logRedisError('workflow-queue', err));
 // after finishing, so an id can be reused on the next wave.
 async function addReplacing(name, jobId, data, delayMs) {
   const existing = await workflowQueue.getJob(jobId);
-  if (existing) await existing.remove().catch(() => {});
+  if (existing) await existing.remove().catch(() => {}); // a job already running or gone cannot be removed; add() below still dedupes by id
   return workflowQueue.add(name, data, {
     delay: delayMs,
     jobId,

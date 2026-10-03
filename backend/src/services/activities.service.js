@@ -180,7 +180,7 @@ export async function listActivities(workspaceId, {
         parsedMeta = JSON.parse(cleanContent);
         cleanContent = parsedMeta.notes || parsedMeta.content || cleanContent;
       }
-    } catch {}
+    } catch { /* not JSON after all: keep the raw text as the content */ }
 
     const leadContact = act.lead?.contact || act.contact;
     const leadName = leadContact?.name || leadContact?.phoneNumber || 'Lead Contact';
