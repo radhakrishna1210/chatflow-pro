@@ -117,8 +117,13 @@ function cleanWorkflowPreview(raw, prompt) {
 
   // Buttons followed straight by a condition would test the *trigger* message,
   // not the customer's choice — the run must stop and wait for the tap first.
+  // An earlier condition whose skip window covers the buttons must cover the
+  // inserted wait too, or its last guarded step escapes the guard.
   for (let i = 0; i < steps.length - 1; i += 1) {
     if (steps[i].subtype === 'buttons' && steps[i + 1].type === 'condition') {
+      for (let j = 0; j < i; j += 1) {
+        if (steps[j].type === 'condition' && j + steps[j].skipIfFalse >= i) steps[j].skipIfFalse += 1;
+      }
       steps.splice(i + 1, 0, { type: 'action', subtype: 'wait_reply', value: '' });
     }
   }
@@ -296,17 +301,37 @@ const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // the first short keyword in the workspace. `\b` doesn't work for keywords
 // with leading/trailing non-word characters, so the boundaries are asserted
 // with lookarounds against the word-character class instead.
-export function keywordMatches(keyword, messageBody) {
-  const raw = String(keyword || '').trim();
-  if (!raw) return false;
-  const candidates = raw.split(/[\n,]+/).map((k) => k.trim()).filter(Boolean);
-  if (candidates.length === 0) return false;
+//
+// A trigger value is a list. Only commas and newlines used to separate it, so
+// "HI; HELLO" or "HI | HELLO" was one phrase no customer ever typed. Commas,
+// semicolons, pipes and newlines all separate now, and the words of a phrase
+// match across any run of whitespace ("book  a call").
+export function parseKeywords(value) {
+  return String(value ?? '')
+    .split(/[,;|\n]+/)
+    .map((k) => k.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
 
+const keywordPattern = (candidate) => new RegExp(
+  `(?<![\\p{L}\\p{N}_])${candidate.split(' ').map(escapeRegex).join('\\s+')}(?![\\p{L}\\p{N}_])`,
+  'iu',
+);
+
+// The longest keyword of the list found in the message, or null. Workflow
+// precedence ranks by this — the keyword that actually matched — rather than
+// by the length of the whole list.
+export function matchedKeyword(keyword, messageBody) {
   const msg = String(messageBody || '');
-  return candidates.some((candidate) => {
-    const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegex(candidate)}(?![\\p{L}\\p{N}_])`, 'iu');
-    return pattern.test(msg);
-  });
+  let best = null;
+  for (const candidate of parseKeywords(keyword)) {
+    if ((!best || candidate.length > best.length) && keywordPattern(candidate).test(msg)) best = candidate;
+  }
+  return best;
+}
+
+export function keywordMatches(keyword, messageBody) {
+  return matchedKeyword(keyword, messageBody) !== null;
 }
 
 export async function findMatchingTrigger(workspaceId, messageBody) {
