@@ -408,7 +408,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
       // reason: once an agent is in the thread, an automated reply arriving
       // between their messages reads as the company talking to itself.
       // Resolving the thread, or the Bot toggle, hands it back.
-      ...(userId ? { humanHandoffAt: new Date() } : {}),
+      ...(userId ? { humanHandoffAt: new Date(), handoffReason: 'manual_reply' } : {}),
     },
   });
   realtime.messageCreated(workspaceId, conversationId, { messageId: message.id, direction: 'OUTBOUND' });
@@ -513,7 +513,7 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     where: { id: conversationId },
     data: {
       lastMessageAt: new Date(),
-      ...(userId ? { humanHandoffAt: new Date() } : {}),
+      ...(userId ? { humanHandoffAt: new Date(), handoffReason: 'manual_reply' } : {}),
     },
   });
   realtime.messageCreated(workspaceId, conversationId, { messageId: message.id, direction: 'OUTBOUND' });
@@ -891,9 +891,10 @@ export async function setConversationStatus(workspaceId, conversationId, status)
     where: { id: conversationId },
     data: {
       status: next,
-      // Resolving ends the human's ownership: a customer who writes again
-      // starts a fresh exchange, and the automation should answer it.
-      ...(next === 'RESOLVED' ? { humanHandoffAt: null } : {}),
+      // Resolving or closing ends the human's ownership: a customer who
+      // writes again starts a fresh exchange, and the automation should
+      // answer it.
+      ...(next === 'RESOLVED' || next === 'CLOSED' ? { humanHandoffAt: null, handoffReason: null } : {}),
     },
   });
   realtime.conversationUpdated(workspaceId, conversationId, 'status');
@@ -913,7 +914,7 @@ export async function setBotEnabled(workspaceId, conversationId, enabled) {
 
   const updated = await prisma.conversation.update({
     where: { id: conversationId },
-    data: { humanHandoffAt: enabled ? null : new Date() },
+    data: enabled ? { humanHandoffAt: null, handoffReason: null } : { humanHandoffAt: new Date(), handoffReason: 'bot_switched_off' },
   });
   realtime.conversationUpdated(workspaceId, conversationId, 'bot');
   return {

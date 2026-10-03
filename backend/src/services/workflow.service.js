@@ -196,6 +196,15 @@ async function serviceWarnings(workspaceId, nodes, { workflowId = null, active =
 //
 // The response carries `warnings`: things that save fine but will not behave
 // the way they look (contract C2).
+// CRM events read active CRM-triggered workflows through a short per-workspace
+// cache (crmEvents.service); a save must not leave the old set in it. Lazy, so
+// this module does not pull in the CRM event chain (and its module mocks).
+function forgetCrmTriggers(workspaceId) {
+  import('./crmEvents.service.js')
+    .then((m) => m.invalidateCrmTriggers?.(workspaceId))
+    .catch((err) => console.warn(`[Workflow] Could not refresh cached CRM triggers for ${workspaceId}:`, err.message));
+}
+
 export async function createWorkflow(workspaceId, { name, isActive = true, nodes = [] }) {
   const graph = validateGraph(nodes);
   const extra = await serviceWarnings(workspaceId, graph.nodes, { active: isActive });
@@ -208,6 +217,7 @@ export async function createWorkflow(workspaceId, { name, isActive = true, nodes
       edges: [],
     },
   });
+  forgetCrmTriggers(workspaceId);
   return { ...workflow, warnings: [...graph.warnings, ...extra] };
 }
 
@@ -246,6 +256,7 @@ export async function updateWorkflow(workspaceId, id, updates) {
     await cancelRunsForWorkflow(workspaceId, id, 'The workflow was deactivated')
       .catch((err) => console.error(`[Workflow] Could not cancel the runs of workflow ${id}:`, err.message));
   }
+  forgetCrmTriggers(workspaceId);
   return { ...updated, warnings: [...graph.warnings, ...extra] };
 }
 
@@ -257,6 +268,7 @@ export async function deleteWorkflow(workspaceId, id) {
     throw e;
   }
   await prisma.workflow.delete({ where: { id } });
+  forgetCrmTriggers(workspaceId);
 }
 
 // ── "Test this workflow" ───────────────────────────────────────────────────

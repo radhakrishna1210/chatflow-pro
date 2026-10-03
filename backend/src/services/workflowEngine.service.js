@@ -497,6 +497,7 @@ async function actionAgent(run, node) {
       // Assigning to a person is a handoff. Without this the automation kept
       // answering the thread it had just put in someone's queue.
       humanHandoffAt: new Date(),
+      handoffReason: 'workflow_agent_step',
     },
   });
   realtime.conversationUpdated(run.workspaceId, run.conversationId, 'assigned');
@@ -673,6 +674,14 @@ export async function advanceRun(runId, { reply } = {}) {
     else if (data.status && data.status !== lastStatus) {
       lastStatus = data.status;
       emitRun(stored, data.status);
+      // A failed run is otherwise only visible in its history (one bell entry
+      // per workflow per day). Lazy: tests that mock the engine's neighbours
+      // need not mock notifications.
+      if (data.status === 'FAILED') {
+        import('./workflowAlerts.service.js')
+          .then((m) => m.notifyWorkflowFailed(stored, data.error))
+          .catch((err) => console.warn(`[Workflow] Failure alert for run ${runId} not sent:`, err.message));
+      }
     }
     return ok;
   };
