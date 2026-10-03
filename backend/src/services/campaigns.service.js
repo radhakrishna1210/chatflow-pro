@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { findManyChunked } from '../lib/paging.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
 import { assertWithinLimit } from './subscription.service.js';
 import { normalizeRetryConfig, retryPolicySummary } from '../lib/retry.js';
@@ -559,7 +560,7 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
     });
     if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
     category = campaign.template?.category ?? null;
-    const recipients = await prisma.campaignRecipient.findMany({
+    const recipients = await findManyChunked(prisma.campaignRecipient, {
       where: { campaignId, status: 'PENDING' },
       include: { contact: { select: AUDIENCE_CONTACT_FIELDS } },
     });
@@ -651,7 +652,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     }
   }
 
-  const recipients = await prisma.campaignRecipient.findMany({
+  const recipients = await findManyChunked(prisma.campaignRecipient, {
     where: { campaignId, status: 'PENDING' },
     include: { contact: { select: AUDIENCE_CONTACT_FIELDS } },
   });
