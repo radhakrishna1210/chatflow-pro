@@ -96,13 +96,21 @@ export const updateTemplate = async (req, res, next) => {
 
 export const executeWorkflow = async (req, res, next) => {
   try {
-    const { workflowId, sampleMessage, replies } = req.body;
-    if (!workflowId) return res.status(400).json({ error: 'workflowId is required' });
+    const {
+      workflowId, sampleMessage, replies, contactId, nodes, name, isNewContact,
+    } = req.body ?? {};
+    if (!workflowId && !(Array.isArray(nodes) && nodes.length)) {
+      return res.status(400).json({ error: 'workflowId (or the draft nodes to test) is required' });
+    }
 
     // Runs a real interpretation of the workflow's nodes and returns an honest
     // trace — no more canned "success" for empty/nonsensical workflows. The
     // lookup is scoped to this workspace, so another tenant's id is a 404.
-    const result = await simulateWorkflow(req.params.workspaceId, workflowId, sampleMessage || 'Hi', { replies });
+    // `nodes` tests the draft in the builder instead of the saved steps;
+    // `contactId` evaluates conditions against that contact.
+    const result = await simulateWorkflow(req.params.workspaceId, workflowId || null, sampleMessage || 'Hi', {
+      replies, contactId, nodes, name, isNewContact: isNewContact === true,
+    });
     res.json(result);
   } catch (error) {
     next(error);
