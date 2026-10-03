@@ -72,7 +72,9 @@ export function parseInboundMessage(msg) {
     out.type = type;
     // A caption is the customer's actual words; without one the placeholder
     // stands in so the thread does not render a blank bubble.
-    out.body = node.caption || PLACEHOLDER[type];
+    const caption = typeof node.caption === 'string' ? node.caption.trim() : '';
+    if (caption) out.caption = caption;
+    out.body = caption || PLACEHOLDER[type];
     out.media = {
       mediaId: node.id ?? null,
       mediaMimeType: node.mime_type ?? null,
@@ -115,10 +117,33 @@ export function parseInboundMessage(msg) {
 // triggers, intent matching or an AI reply. Matching "STOP" against the
 // placeholder text we invented for a photo would be our own words triggering
 // our own automation.
+//
+// A caption on a photo, video or document is the customer's own words, so it
+// counts (WF-IN-8): "ORDER 123 arrived damaged" under a photo fires the ORDER
+// workflow. The message keeps its media type, so a `media` trigger still sees
+// the photo when no keyword claims the caption.
 export function carriesCustomerText(parsed) {
+  if (!parsed) return false;
   if (parsed.type === 'AUDIO') return Boolean(parsed.transcript?.trim());
+  if (parsed.media) return Boolean(parsed.caption?.trim());
   return (parsed.type === 'TEXT' || parsed.type === 'BUTTON' || parsed.type === 'INTERACTIVE')
     && Boolean(parsed.body?.trim());
+}
+
+// A tap on a button or list row we sent. The words are ours, not the
+// customer's, so they never count as an opt-out (a "No thanks" button is an
+// answer, not an unsubscribe).
+export const isButtonReply = (parsed) => parsed?.type === 'BUTTON' || parsed?.type === 'INTERACTIVE';
+
+// What the workflow engine is told arrived. Text the customer wrote (typed, a
+// caption, a transcribed voice note, a button they tapped) is a `message`
+// event and can match keyword triggers. Anything else — an uncaptioned photo,
+// a location, a contact card, an order or an unsupported type — carries only a
+// placeholder we wrote ("[photo]", "[location]", "[unsupported message:
+// order]"), which must never match a keyword; it goes as a `media` event, so a
+// media trigger (when there is media) and the new-contact welcome still fire.
+export function inboundEvent(parsed) {
+  return carriesCustomerText(parsed) ? 'message' : 'media';
 }
 
 // 'image' | 'video' | 'audio' | 'document' | 'sticker' for a media message,
