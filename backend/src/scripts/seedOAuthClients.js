@@ -45,6 +45,9 @@ const CLIENTS = [
     // beyond this list is refused server-side however Spandan is configured.
     allowedScopes: ['templates:read', 'templates:write', 'messages:send', 'webhooks:write'],
   },
+  // A public client (SPA, mobile, desktop app) is listed with
+  // `publicClient: true`. It gets no secret, and ChatFlow refuses any of its
+  // authorizations that do not use PKCE (code_challenge_method=S256).
 ];
 
 async function main() {
@@ -53,8 +56,9 @@ async function main() {
 
   for (const c of CLIENTS) {
     const existing = await prisma.oAuthClient.findUnique({ where: { clientId: c.clientId } });
+    const publicClient = Boolean(c.publicClient);
 
-    if (existing && !rotate) {
+    if (existing && !rotate && existing.publicClient === publicClient) {
       await prisma.oAuthClient.update({
         where: { clientId: c.clientId },
         data: { name: c.name, redirectUris: c.redirectUris, allowedScopes: c.allowedScopes, disabledAt: null },
@@ -63,22 +67,24 @@ async function main() {
       continue;
     }
 
-    const secret = `cfs_${randomBytes(32).toString('hex')}`;
+    const secret = publicClient ? null : `cfs_${randomBytes(32).toString('hex')}`;
     const data = {
       clientId: c.clientId,
-      clientSecretHash: sha256(secret),
+      clientSecretHash: secret ? sha256(secret) : null,
+      publicClient,
       name: c.name,
       redirectUris: c.redirectUris,
       allowedScopes: c.allowedScopes,
       disabledAt: null,
     };
 
+    const kind = publicClient ? ' (public client: no secret, PKCE required)' : '';
     if (existing) {
       await prisma.oAuthClient.update({ where: { clientId: c.clientId }, data });
-      results.push({ clientId: c.clientId, action: 'ROTATED — the previous secret no longer works', secret });
+      results.push({ clientId: c.clientId, action: `${publicClient ? 'updated' : 'ROTATED — the previous secret no longer works'}${kind}`, secret, publicClient });
     } else {
       await prisma.oAuthClient.create({ data });
-      results.push({ clientId: c.clientId, action: 'created', secret });
+      results.push({ clientId: c.clientId, action: `created${kind}`, secret, publicClient });
     }
   }
 
@@ -91,7 +97,7 @@ async function main() {
       console.log('    ^ shown once and never again. Put it in Spandan\'s .env now.\n');
     }
   }
-  if (!results.some((r) => r.secret)) {
+  if (!results.some((r) => r.secret || r.publicClient)) {
     console.log('\n  No secret printed: the client already existed. Re-run with --rotate to issue a new one.\n');
   }
 }

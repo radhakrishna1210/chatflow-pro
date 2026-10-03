@@ -14,6 +14,22 @@
  * they control and redeem the code. And until a redirect_uri has been validated
  * we must not redirect to it at all — an invalid one gets an error page, never a
  * redirect, because redirecting is the thing being abused.
+ *
+ * ── PKCE (RFC 7636) ──────────────────────────────────────────────────────────
+ * An authorize request may carry `code_challenge` + `code_challenge_method=S256`;
+ * the challenge is stored with the code and the token request must then present
+ * the matching `code_verifier`. Only S256 is accepted — `plain` gives no
+ * protection against a code intercepted in transit, which is the whole point.
+ *
+ *   - Public clients (`publicClient`, no secret: SPA, mobile, desktop) MUST use
+ *     PKCE. For them the verifier is the only proof that whoever redeems the
+ *     code is whoever started the flow.
+ *   - Confidential clients MAY use it. Their secret already binds the code to
+ *     the client, and the existing Spandan integration sends none, so requiring
+ *     it would break every live connect. A confidential client that does send a
+ *     challenge is held to it exactly like a public one.
+ *   - A code issued WITHOUT a challenge is refused if a verifier shows up at the
+ *     token step, and vice versa — so an attacker cannot strip PKCE off a flow.
  */
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { prisma } from '../lib/prisma.js';
@@ -37,6 +53,14 @@ const CODE_TTL_MS = 2 * 60_000;
 
 const sha256 = (s) => createHash('sha256').update(String(s)).digest('hex');
 
+// RFC 7636 §4.1/§4.2: a verifier is 43-128 unreserved characters, and an S256
+// challenge is the unpadded base64url of its SHA-256 — always 43 characters.
+const CODE_VERIFIER = /^[A-Za-z0-9\-._~]{43,128}$/;
+const S256_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
+
+/** The S256 code_challenge for a code_verifier. */
+export const s256Challenge = (verifier) => createHash('sha256').update(String(verifier), 'ascii').digest('base64url');
+
 const connectedAppKeyName = (client) => `${client.name} (connected app)`;
 
 const SCOPE_LABELS = new Map(API_SCOPES.map((s) => [s.id, s.label]));
@@ -58,6 +82,45 @@ export class OAuthRedirectError extends Error {
   }
 }
 
+/**
+ * Validate the PKCE half of an authorize request.
+ * @returns {{ codeChallenge: string, codeChallengeMethod: 'S256' } | null}
+ */
+export function validatePkceParams(client, { codeChallenge, codeChallengeMethod }) {
+  if (!codeChallenge) {
+    if (codeChallengeMethod) {
+      throw new OAuthRedirectError('invalid_request', 'code_challenge_method was sent without a code_challenge.');
+    }
+    if (client.publicClient) {
+      throw new OAuthRedirectError('invalid_request', 'This application must use PKCE: send code_challenge with code_challenge_method=S256.');
+    }
+    return null;
+  }
+  // RFC 7636 defaults a missing method to "plain"; plain is not accepted here.
+  if (codeChallengeMethod !== 'S256') {
+    throw new OAuthRedirectError('invalid_request', 'Only code_challenge_method=S256 is supported.');
+  }
+  if (!S256_CHALLENGE.test(String(codeChallenge))) {
+    throw new OAuthRedirectError('invalid_request', 'code_challenge must be the 43-character base64url SHA-256 of the code_verifier.');
+  }
+  return { codeChallenge: String(codeChallenge), codeChallengeMethod: 'S256' };
+}
+
+/**
+ * Authenticate a client at the token or revoke endpoint. A confidential client
+ * proves itself with its secret, compared in constant time (a byte-at-a-time
+ * comparison of a secret is recoverable). A public client has no secret; at the
+ * token endpoint PKCE stands in for it.
+ */
+function authenticateClient(client, clientSecret) {
+  if (client.publicClient && !client.clientSecretHash) return;
+  const given = Buffer.from(sha256(clientSecret || ''));
+  const expected = Buffer.from(client.clientSecretHash || '');
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+    throw new OAuthRedirectError('invalid_client', 'Client authentication failed.');
+  }
+}
+
 const parseJsonArray = (value) => {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') { try { const v = JSON.parse(value); return Array.isArray(v) ? v : []; } catch { return []; } }
@@ -72,7 +135,7 @@ const parseJsonArray = (value) => {
  * reported by redirecting to the redirect URI — which is only safe once it has
  * been proven to belong to the client.
  */
-export async function validateAuthorizeRequest({ clientId, redirectUri, responseType, scope }) {
+export async function validateAuthorizeRequest({ clientId, redirectUri, responseType, scope, codeChallenge, codeChallengeMethod }) {
   if (!clientId) throw new OAuthRenderError('This link is missing the application it is for.');
 
   const client = await prisma.oAuthClient.findUnique({ where: { clientId: String(clientId) } });
@@ -101,7 +164,9 @@ export async function validateAuthorizeRequest({ clientId, redirectUri, response
     throw new OAuthRedirectError('invalid_scope', 'None of the requested permissions are available to this application.');
   }
 
-  return { client, scopes };
+  const pkce = validatePkceParams(client, { codeChallenge, codeChallengeMethod });
+
+  return { client, scopes, pkce };
 }
 
 /**
@@ -117,8 +182,15 @@ export async function validateAuthorizeRequest({ clientId, redirectUri, response
  * at approval time. Trusting an identity carried in a blob minted before the
  * user had even signed up would let one user's link approve another's workspace.
  */
-export function packPendingRequest({ clientId, redirectUri, scopes, state }) {
-  return signState({ clientId, redirectUri, scopes, state, ts: Date.now() });
+export function packPendingRequest({ clientId, redirectUri, scopes, state, pkce = null }) {
+  return signState({
+    clientId,
+    redirectUri,
+    scopes,
+    state,
+    ...(pkce ? { codeChallenge: pkce.codeChallenge, codeChallengeMethod: pkce.codeChallengeMethod } : {}),
+    ts: Date.now(),
+  });
 }
 
 /** @returns the payload, or null when missing, tampered with or expired. */
@@ -144,14 +216,16 @@ export async function describePendingRequest(reqToken) {
   const pending = readPendingRequest(reqToken);
   if (!pending) throw new OAuthRenderError('This authorisation link has expired. Start again from the application that sent you.');
 
-  const { client, scopes } = await validateAuthorizeRequest({
+  const { client, scopes, pkce } = await validateAuthorizeRequest({
     clientId: pending.clientId,
     redirectUri: pending.redirectUri,
     responseType: 'code',
     scope: pending.scopes.join(' '),
+    codeChallenge: pending.codeChallenge,
+    codeChallengeMethod: pending.codeChallengeMethod,
   });
 
-  return { client, scopes, state: pending.state ?? '', redirectUri: pending.redirectUri };
+  return { client, scopes, pkce, state: pending.state ?? '', redirectUri: pending.redirectUri };
 }
 
 /**
@@ -160,7 +234,7 @@ export async function describePendingRequest(reqToken) {
  * `userId` and `workspaceId` come from the caller's verified JWT, never from the
  * pending blob — see packPendingRequest.
  */
-export async function issueAuthorizationCode({ clientId, userId, workspaceId, scopes, redirectUri }) {
+export async function issueAuthorizationCode({ clientId, userId, workspaceId, scopes, redirectUri, pkce = null }) {
   const code = randomBytes(32).toString('hex');
   await prisma.oAuthAuthorizationCode.create({
     data: {
@@ -170,6 +244,8 @@ export async function issueAuthorizationCode({ clientId, userId, workspaceId, sc
       workspaceId,
       redirectUri,
       scopes,
+      codeChallenge: pkce?.codeChallenge ?? null,
+      codeChallengeMethod: pkce?.codeChallengeMethod ?? null,
       expiresAt: new Date(Date.now() + CODE_TTL_MS),
     },
   });
@@ -251,8 +327,13 @@ export function buildRedirect(redirectUri, params) {
  * The consume is ONE conditional write, not a read followed by an update. A
  * check-then-update pair races, and two simultaneous exchanges of the same code
  * would each pass the check and each mint a key.
+ *
+ * The PKCE check is part of that same write: the code is claimed only if its
+ * stored challenge equals S256(code_verifier), or is null when no verifier was
+ * sent. A wrong verifier therefore leaves the code unclaimed for its rightful
+ * holder instead of letting whoever intercepted it burn it.
  */
-export async function exchangeAuthorizationCode({ code, clientId, clientSecret, redirectUri }) {
+export async function exchangeAuthorizationCode({ code, clientId, clientSecret, redirectUri, codeVerifier }) {
   if (!code || !/^[0-9a-f]{64}$/.test(String(code))) {
     throw new OAuthRedirectError('invalid_grant', 'Malformed authorization code.');
   }
@@ -260,21 +341,35 @@ export async function exchangeAuthorizationCode({ code, clientId, clientSecret, 
   const client = await prisma.oAuthClient.findUnique({ where: { clientId: String(clientId || '') } });
   if (!client || client.disabledAt) throw new OAuthRedirectError('invalid_client', 'Unknown application.');
 
-  // Constant-time: a byte-at-a-time comparison of a secret is recoverable.
-  const given = Buffer.from(sha256(clientSecret || ''));
-  const expected = Buffer.from(client.clientSecretHash);
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
-    throw new OAuthRedirectError('invalid_client', 'Client authentication failed.');
+  authenticateClient(client, clientSecret);
+
+  const hasVerifier = codeVerifier !== undefined && codeVerifier !== null && codeVerifier !== '';
+  if (hasVerifier && !CODE_VERIFIER.test(String(codeVerifier))) {
+    throw new OAuthRedirectError('invalid_grant', 'code_verifier must be 43-128 characters of A-Z a-z 0-9 - . _ ~');
+  }
+  if (client.publicClient && !hasVerifier) {
+    throw new OAuthRedirectError('invalid_grant', 'code_verifier is required for this application.');
   }
 
   // Claim the code and check every condition in the same statement.
   const now = new Date();
   const claimed = await prisma.oAuthAuthorizationCode.updateMany({
-    where: { code: String(code), clientId: client.clientId, consumedAt: null, expiresAt: { gt: now } },
+    where: {
+      code: String(code),
+      clientId: client.clientId,
+      consumedAt: null,
+      expiresAt: { gt: now },
+      codeChallenge: hasVerifier ? s256Challenge(codeVerifier) : null,
+    },
     data: { consumedAt: now },
   });
   if (claimed.count !== 1) {
-    throw new OAuthRedirectError('invalid_grant', 'This authorization code has expired or has already been used.');
+    throw new OAuthRedirectError(
+      'invalid_grant',
+      hasVerifier
+        ? 'This authorization code has expired, has already been used, or does not match the code_verifier.'
+        : 'This authorization code has expired, has already been used, or requires a code_verifier.',
+    );
   }
 
   const row = await prisma.oAuthAuthorizationCode.findUnique({ where: { code: String(code) } });
@@ -330,11 +425,9 @@ export async function revokeIssuedKey({ clientId, clientSecret, token }) {
   const client = await prisma.oAuthClient.findUnique({ where: { clientId: String(clientId || '') } });
   if (!client || client.disabledAt) throw new OAuthRedirectError('invalid_client', 'Unknown application.');
 
-  const given = Buffer.from(sha256(clientSecret || ''));
-  const expected = Buffer.from(client.clientSecretHash);
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
-    throw new OAuthRedirectError('invalid_client', 'Client authentication failed.');
-  }
+  // A public client revokes by client_id alone (RFC 7009 §2.1): holding the
+  // raw key is already full use of it, so revoking needs no further proof.
+  authenticateClient(client, clientSecret);
 
   // Only keys this client was issued. Keys minted before oauthClientId was
   // recorded are recognised by the name the exchange gives them.

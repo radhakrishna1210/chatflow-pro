@@ -859,7 +859,12 @@ model ApiKey {
 model OAuthClient {
   id               String    @id @default(cuid())
   clientId         String    @unique
-  clientSecretHash String    @unique
+  /// Null only for a public client, which has no secret to keep.
+  clientSecretHash String?   @unique
+  /// A client that cannot keep a secret (SPA, mobile, desktop). It must use
+  /// PKCE (S256) on every authorization, and authenticates at the token
+  /// endpoint by the code_verifier alone. Confidential clients may use PKCE.
+  publicClient     Boolean   @default(false)
   /// Shown on the consent screen, so it must read as the product's real name.
   name             String
   /// string[] — candidate redirect URIs, compared exactly.
@@ -884,20 +889,25 @@ model OAuthClient {
 /// landing between authorize and exchange would silently break a connect. One row
 /// per connect attempt is nothing, and it leaves an audit trail.
 model OAuthAuthorizationCode {
-  id          String      @id @default(cuid())
-  code        String      @unique
-  clientId    String
-  userId      String
-  workspaceId String
+  id                  String      @id @default(cuid())
+  code                String      @unique
+  clientId            String
+  userId              String
+  workspaceId         String
   /// Re-checked at exchange: the redirect_uri presented at the token endpoint
   /// must equal the one the code was issued for.
-  redirectUri String
-  scopes      Json
-  expiresAt   DateTime
-  consumedAt  DateTime?
-  createdAt   DateTime    @default(now())
-  client      OAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
-  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  redirectUri         String
+  scopes              Json
+  /// RFC 7636 PKCE: the S256 code_challenge sent at authorize. When set, the
+  /// token request must carry the matching code_verifier; when null, it must
+  /// not carry one.
+  codeChallenge       String?
+  codeChallengeMethod String?
+  expiresAt           DateTime
+  consumedAt          DateTime?
+  createdAt           DateTime    @default(now())
+  client              OAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  workspace           Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([expiresAt])
 }
