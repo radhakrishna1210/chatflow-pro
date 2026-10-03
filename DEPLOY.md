@@ -246,6 +246,7 @@ release. Do them in this order.
    | `20261002150000_workflow_run_resume_and_cancel` | `WorkflowRunStatus.CANCELLED`, `WorkflowRun.resumeAt`, `version`, index |
    | `20261002180000_workspace_autonomous_agent_enabled` | `Workspace.autonomousAgentEnabled` (default true) |
    | `20261002190000_fk_actions_and_hot_indexes` | Foreign-key delete/update actions and hot-path indexes |
+   | `20261003130000_plan_feature_autonomous_agent` | Data: adds `autonomousAgent: true` to paid plans' `features`. Free-plan workspaces are no longer swept by the autonomous CRM agent |
 
    Both stacks share the database, so migrations run once; the second stack's
    `migrate deploy` is a no-op.
@@ -296,6 +297,14 @@ Tell workspace owners before the release:
   in conversations, AI reply suggestions/preview, add/delete notes, assign /
   change status / toggle the bot, create and edit contacts, block a number
   (opt-out), and log CRM activities. Unblocking numbers needs CLIENT.
+- **Autonomous CRM agent** is a paid-plan feature (`autonomousAgent`): on the
+  Free plan it books and changes nothing, and switching it on, running it or
+  retrying a task answers `PLAN_FEATURE_LOCKED`. Its queue view
+  (`/ai-agents/autonomous/pending`, alias `/agent/pending`) is ADMIN only.
+- **AI Agents** is one sidebar entry (WhatsApp agent, agent studio, autonomous
+  agent); the canonical API is `/ai-agents`, `/ai-agents/whatsapp`,
+  `/ai-agents/autonomous`. The old `/ai-agent/*` and `/agent/*` paths keep
+  working.
 - Impersonation by a super admin now requires a reason, lasts 30 minutes, is
   tab-scoped and cannot create lasting credentials.
 
