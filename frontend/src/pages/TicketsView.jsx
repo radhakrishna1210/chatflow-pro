@@ -6,6 +6,8 @@ import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { can } from '../lib/permissions.js';
+import { ListPager } from '../components/ListPager.jsx';
+import { PAGE_SIZE, pageParams, pageCount } from '../lib/paging.js';
 
 // Customer support queues.
 //
@@ -362,6 +364,9 @@ const TicketDetail = ({ ticket, members, onClose, onChanged }) => {
 export default function TicketsView() {
   const [view, setView] = useState('open');
   const [tickets, setTickets] = useState([]);
+  // A queue is read a page at a time (CF-048); `total` is the whole queue.
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [counts, setCounts] = useState({});
   const [members, setMembers] = useState([]);
   const [contacts, setContacts] = useState([]);
@@ -373,20 +378,26 @@ export default function TicketsView() {
   const load = useCallback(async (which = view) => {
     try {
       const [listRes, countRes] = await Promise.all([
-        wFetch(`/tickets?view=${which}`),
+        wFetch(`/tickets?${pageParams({ view: which }, page, PAGE_SIZE)}`),
         wFetch('/tickets/counts'),
       ]);
       if (!listRes.ok) throw new Error(`Could not load tickets (${listRes.status}).`);
       const body = await listRes.json();
-      setTickets(body.data ?? []);
+      const list = body.data ?? [];
+      const count = body.total ?? list.length;
+      // Closing or reassigning can empty the last page: step back.
+      if (list.length === 0 && page > 1 && count > 0) { setPage(pageCount(count, PAGE_SIZE)); return; }
+      setTickets(list);
+      setTotal(count);
       if (countRes.ok) setCounts(await countRes.json());
       setError(null);
     } catch (e) {
       setError(e.message);
     }
     setLoading(false);
-  }, [view]);
+  }, [view, page]);
 
+  useEffect(() => { setPage(1); }, [view]);
   useEffect(() => { setLoading(true); load(view); }, [view, load]);
 
   useEffect(() => {
@@ -412,7 +423,13 @@ export default function TicketsView() {
     }
   };
 
-  const overdueInView = useMemo(() => tickets.filter((t) => t.isOverdue).length, [tickets]);
+  // Overdue in this queue. Every overdue ticket is open, so for the open and
+  // all queues the server's overdue count is exact; for the others it is
+  // counted on the page shown, and the note says so when there are more pages.
+  const overdueOnPage = useMemo(() => tickets.filter((t) => t.isOverdue).length, [tickets]);
+  const wholeQueueShown = total <= tickets.length;
+  const overdueInView = (view === 'open' || view === 'all') && Number.isFinite(counts.overdue) ? counts.overdue : overdueOnPage;
+  const overdueScope = (view === 'open' || view === 'all') || wholeQueueShown ? 'in this queue' : 'on this page';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
@@ -421,7 +438,7 @@ export default function TicketsView() {
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
             <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Support Tickets</span>
-            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{tickets.length}</span>
+            <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{total.toLocaleString('en-IN')}</span>
           </div>
           <p style={{ fontSize: 11.5, color: 'var(--t3)', margin: '2px 0 0 0' }}>
             Customer issues with a response target by priority. Sorted by urgency and deadline.
@@ -473,7 +490,7 @@ export default function TicketsView() {
       ) : (
         <>
           {view !== 'overdue' && overdueInView > 0 && (
-            <Note>{overdueInView} ticket{overdueInView === 1 ? ' has' : 's have'} missed the response target in this queue.</Note>
+            <Note>{overdueInView} ticket{overdueInView === 1 ? ' has' : 's have'} missed the response target {overdueScope}.</Note>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {tickets.map((t) => {
@@ -496,6 +513,9 @@ export default function TicketsView() {
               );
             })}
           </div>
+          {total > PAGE_SIZE && (
+            <ListPager page={page} pageSize={PAGE_SIZE} total={total} loading={loading} onPage={(p) => { setLoading(true); setPage(p); }} noun="ticket" />
+          )}
         </>
       )}
 
