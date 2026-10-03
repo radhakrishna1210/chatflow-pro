@@ -1,10 +1,21 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, useContext, createContext, Fragment } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
-import { applyStepChange, TRIGGER_SUBTYPES, ACTION_SUBTYPES, CONDITION_SUBTYPES } from '../lib/automationSteps.js';
+import {
+  applyStepChange, TRIGGER_SUBTYPES, CONDITION_SUBTYPES, DEFAULT_STEP_VALUE, DELAY_CHOICES,
+  subtypeLabel, stepHint, actionSubtypesFor, isCrmTrigger, leadStatusChoices, dealStageChoices, prettyEnum,
+  KEYWORD_HINT, parseKeywords, templateBodyText, templateParamCount, unmappedParams, resizeParams,
+  isApprovedTemplate, variablesBefore, stepNumber, stepTitle, maxSkipFor, clampSkips, insertStep,
+  removeStep, moveStep, moveStepTo, newStepId, normaliseLoadedSteps, chatFlowIssue, chatFlowError,
+  readRunsPage, describeRun,
+} from '../lib/automationSteps.js';
+import { statusLabel } from '../lib/templateHelpers.js';
+import { appendUnique, hasMoreRows } from '../lib/paging.js';
+import { usePolling } from '../lib/usePolling.js';
+import { useRealtime, useThrottledCallback } from '../lib/realtime.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
 import { confirmDialog } from '../components/Feedback.jsx';
@@ -512,7 +523,71 @@ const IconBtn = ({ icon, onClick, danger = false, title }) => (
 // ─────────────────────────────────────────────
 // 3. WORKFLOWS
 // ─────────────────────────────────────────────
-const blankTrigger = () => ({ id: 'step_1', type: 'trigger', subtype: 'keyword', value: 'ORDER' });
+const blankTrigger = () => ({ id: newStepId(), type: 'trigger', subtype: 'keyword', value: 'ORDER' });
+
+// Shared by every step editor in the Workflows tab (the builder and the AI
+// preview): the workspace's templates and its CRM lifecycle configuration.
+const BuilderContext = createContext({ templates: null, templatesError: '', reloadTemplates: () => {}, crmConfig: null });
+
+const RUNS_PAGE = 20;
+
+const timeAgo = (d) => {
+  const t = new Date(d).getTime();
+  if (!Number.isFinite(t)) return '';
+  const s = Math.round((Date.now() - t) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const days = Math.round(h / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(d).toLocaleDateString();
+};
+
+const TONE_STYLE = {
+  ok:      { color:'var(--success)', background:'var(--sbg)' },
+  error:   { color:'#f87171', background:'rgba(239,68,68,.08)' },
+  muted:   { color:'var(--t3)', background:'var(--surf3)' },
+  pending: { color:'#fbbf24', background:'rgba(245,158,11,.08)' },
+};
+
+const StatusPill = ({ tone = 'pending', children }) => (
+  <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20, whiteSpace:'nowrap', ...(TONE_STYLE[tone] || TONE_STYLE.pending) }}>{children}</span>
+);
+
+// The colour of one trace result, engine or simulation.
+const traceTone = (result) => {
+  const r = String(result || '').toLowerCase();
+  if (r === 'failed' || r === 'error' || r === 'no match' || r === 'no trigger') return 'error';
+  if (r === 'skipped' || r === 'waiting' || r.startsWith('no')) return 'pending';
+  if (r === 'cancelled') return 'muted';
+  return 'ok';
+};
+
+// "Step N" for a trace entry: the engine records the index into the run's
+// action/condition list, which is exactly the builder's numbering minus one.
+const traceStepLabel = (t, nodes) => {
+  if (t?.step === 'trigger') return 'Trigger';
+  const special = { reply: 'Customer replied', reminder: 'Reminder', cancelled: 'Stopped' }[t?.subtype];
+  const n = Number.isInteger(t?.step) ? t.step + 1 : null;
+  const node = n && Array.isArray(nodes) ? nodes.filter(x => x?.type === 'action' || x?.type === 'condition')[n - 1] : null;
+  const kind = CONDITION_SUBTYPES.some(([id]) => id === t?.subtype) ? 'condition' : 'action';
+  const what = special || (node ? subtypeLabel(node.type, node.subtype) : t?.subtype ? subtypeLabel(kind, t.subtype) : '');
+  return [n ? `Step ${n}` : '', what].filter(Boolean).join(' · ');
+};
+
+const TraceList = ({ trace, nodes }) => (
+  <div style={{ display:'flex', flexDirection:'column', gap:4, padding:'8px 10px', borderRadius:7, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
+    {trace.map((t, i) => (
+      <div key={i} style={{ display:'flex', gap:10, fontSize:11.5, lineHeight:1.45, flexWrap:'wrap' }}>
+        <span style={{ color:'var(--t3)', minWidth:150 }}>{traceStepLabel(t, nodes)}</span>
+        <span style={{ flex:1, minWidth:160, color:'var(--t2)' }}>{t.detail || '—'}</span>
+        <span style={{ color: TONE_STYLE[traceTone(t.result)].color, fontWeight:600 }}>{t.result}</span>
+      </div>
+    ))}
+  </div>
+);
 
 // Renders the result of analysing a business website: what the AI understood
 // about the business, and the workflows it proposes for it.
@@ -532,7 +607,7 @@ const InsightList = ({ label, items }) => {
 
 const COMPLEXITY_TONE = { Low:'var(--green)', Medium:'#fbbf24', High:'#f87171' };
 
-const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit }) => {
+const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit, readOnly }) => {
   const [openId, setOpenId] = useState(null);
   const a = data.analysis || {};
   const wfs = data.recommendedWorkflows || [];
@@ -623,20 +698,22 @@ const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit
                   <div style={{ display:'flex', flexDirection:'column', gap:5, borderTop:'1px solid var(--bd)', paddingTop:8 }}>
                     {wf.nodes.map((n, i) => (
                       <div key={i} style={{ fontSize:11.5, color:'var(--t2)', lineHeight:1.45 }}>
-                        <span style={{ color: n.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:700 }}>{n.subtype}</span>
+                        <span style={{ color: n.type === 'trigger' ? '#f59e0b' : n.type === 'condition' ? '#9d6bff' : 'var(--green)', fontWeight:700 }}>{subtypeLabel(n.type, n.subtype)}</span>
                         {n.value ? ` — ${n.value}` : ''}
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div style={{ display:'flex', gap:6, marginTop:2, flexWrap:'wrap' }}>
-                  <Btn size="sm" onClick={() => onGenerate(wf)} disabled={busy || saved}
-                    style={saved ? {} : { boxShadow:'var(--glow)' }}>
-                    {busy ? 'Generating…' : saved ? 'Saved as draft ✓' : 'Generate Workflow'}
-                  </Btn>
-                  <Btn size="sm" variant="ghost" onClick={() => onEdit(wf)} disabled={busy}>Edit in builder</Btn>
-                </div>
+                {!readOnly && (
+                  <div style={{ display:'flex', gap:6, marginTop:2, flexWrap:'wrap' }}>
+                    <Btn size="sm" onClick={() => onGenerate(wf)} disabled={busy || saved}
+                      style={saved ? {} : { boxShadow:'var(--glow)' }}>
+                      {busy ? 'Generating…' : saved ? 'Saved as draft ✓' : 'Generate Workflow'}
+                    </Btn>
+                    <Btn size="sm" variant="ghost" onClick={() => onEdit(wf)} disabled={busy}>Edit in builder</Btn>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -646,9 +723,101 @@ const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit
   );
 };
 
+// Warnings the server attached to a save (contract C2): what it changed or
+// thinks will not work. Dismissible; the builder stays open on the saved
+// nodes so the person sees exactly what was stored.
+const SaveNotice = ({ notice, onDismiss }) => (
+  <div role="status" style={{ ...card, padding:'12px 15px', border:'1px solid rgba(245,158,11,.3)', background:'rgba(245,158,11,.06)', display:'flex', gap:10, alignItems:'flex-start' }}>
+    <I n="alertt" s={15} c="#fbbf24" />
+    <div style={{ flex:1, minWidth:0 }}>
+      <p style={{ fontSize:12.5, fontWeight:700, color:'#fbbf24', margin:'0 0 4px' }}>{notice.title}</p>
+      <ul style={{ margin:0, paddingLeft:16, display:'flex', flexDirection:'column', gap:3 }}>
+        {notice.warnings.map((w, i) => <li key={i} style={{ fontSize:12.5, color:'var(--t2)', lineHeight:1.5 }}>{String(w)}</li>)}
+      </ul>
+    </div>
+    <IconBtn icon="x" onClick={onDismiss} title="Dismiss" />
+  </div>
+);
+
+// Two graphs do the same thing when every step's kind, value and skip match.
+const graphKey = (nodes) => JSON.stringify((Array.isArray(nodes) ? nodes : []).map(n => [n?.type, n?.subtype, n?.value ?? '', n?.skipIfFalse ?? null, n?.templateId ?? null, n?.params ?? null, n?.remindAfter ?? null, n?.reminder ?? null]));
+
+const sampleFor = (nodes) => {
+  const trigger = (Array.isArray(nodes) ? nodes : []).find(n => n.type === 'trigger');
+  // A keyword trigger may list alternatives ("ORDER, TRACK"); the first one is a valid sample.
+  return trigger?.subtype === 'keyword' ? (parseKeywords(trigger.value)[0] || 'Hi') : 'Hi';
+};
+
+// The result of "Test". Fields beyond ran/reason/trace are feature-detected:
+// a server that reports them (inactive workflow, which workflow would win,
+// warnings) gets them shown; an older one renders exactly as before.
+const SimResult = ({ result, workflowId, staleNote }) => {
+  if (result?.error) return <Banner tone="error">{result.error}</Banner>;
+  const trace = Array.isArray(result?.trace) ? result.trace : [];
+  const inactive = result.isActive === false || result.inactive === true || result.active === false;
+  const winnerRaw = result.winner ?? result.winningWorkflow ?? result.wouldRunWorkflow ?? null;
+  const winnerName = typeof winnerRaw === 'string' ? winnerRaw : winnerRaw?.name;
+  const winnerId = winnerRaw && typeof winnerRaw === 'object' ? winnerRaw.id : null;
+  const loses = result.wouldWin === false || Boolean(winnerId && workflowId && winnerId !== workflowId);
+  const wins = result.wouldWin === true || Boolean(winnerId && workflowId && winnerId === workflowId);
+  const winnerReason = result.winnerReason || result.winReason || '';
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const skipped = trace.filter(t => t.result === 'skipped').length;
+  const failed = trace.filter(t => t.result === 'failed').length;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+      <span style={{ fontSize:12.5, fontWeight:700, color: result.ran ? 'var(--green)' : '#f87171' }}>
+        {result.ran ? 'Triggered' : `Would not run — ${result.reason || 'trigger did not match'}`}
+      </span>
+      {inactive && <Banner tone="warn">This workflow is paused, so a real message would not start it. Turn it on to go live.</Banner>}
+      {loses && (
+        <Banner tone="warn">
+          {winnerName ? <>Another workflow would answer this message first: <strong>{winnerName}</strong>{winnerReason ? ` — ${winnerReason}` : ''}.</> : 'Another workflow would answer this message first.'}
+          {' '}Only one workflow runs per message; the most specific keyword wins.
+        </Banner>
+      )}
+      {wins && !loses && <span style={{ fontSize:12, color:'var(--t2)' }}>Among your active workflows, this one would answer.</span>}
+      {warnings.map((w, i) => <Banner key={i} tone="warn">{String(w)}</Banner>)}
+      {(skipped > 0 || failed > 0) && (
+        <span style={{ fontSize:12, color:'#fbbf24' }}>
+          {[failed ? `${failed} step${failed === 1 ? '' : 's'} would fail` : '', skipped ? `${skipped} step${skipped === 1 ? '' : 's'} would be skipped` : ''].filter(Boolean).join(', ')} — see below.
+        </span>
+      )}
+      {trace.length > 0 && <TraceList trace={trace} />}
+      {staleNote && <span style={{ fontSize:11.5, color:'var(--t3)' }}>{staleNote}</span>}
+    </div>
+  );
+};
+
+const SimPanel = ({ title, sim, waitsForReply, onSample, onReplies, onRun, onClose, workflowId, staleNote }) => (
+  <div style={{ border:'1px solid var(--bd)', borderRadius:8, padding:14, display:'flex', flexDirection:'column', gap:10, background:'rgba(255,255,255,0.02)' }}>
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+      <span style={{ fontSize:12, fontWeight:700, color:'var(--t1)' }}>{title}</span>
+      <IconBtn icon="x" onClick={onClose} />
+    </div>
+    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+      <input value={sim.sample} onChange={e => onSample(e.target.value)}
+        placeholder="Type what a customer would send…" style={{ ...inputStyle, flex:1, minWidth:220 }} />
+      <Btn size="sm" onClick={onRun} disabled={sim.busy}>{sim.busy ? 'Running…' : 'Run test'}</Btn>
+    </div>
+    {waitsForReply && (
+      <input value={sim.replies || ''} onChange={e => onReplies(e.target.value)}
+        placeholder="Customer's replies, in order, separated by | — e.g. Track my order | 12345"
+        style={{ ...inputStyle, width:'100%' }} />
+    )}
+    <p style={{ fontSize:11, color:'var(--t3)', margin:0 }}>Simulation only — no messages are actually sent.</p>
+    {sim.result && <SimResult result={sim.result} workflowId={workflowId} staleNote={staleNote} />}
+  </div>
+);
+
 const WorkflowsTab = () => {
+  // Viewers and agents see workflows and their run history, but cannot build,
+  // change or test them (the simulate endpoint is member-only too).
+  const readOnly = !can('automation.manage');
   const [workflows, setWorkflows] = useState([]);
-  const [runs, setRuns] = useState([]);
+  // Only used against a server that does not send per-workflow run stats (C1).
+  const [recentRuns, setRecentRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [locked, setLocked] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -657,7 +826,10 @@ const WorkflowsTab = () => {
   const [steps, setSteps] = useState([blankTrigger()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [errorFix, setErrorFix] = useState(null);
+  const [saveNotice, setSaveNotice] = useState(null);
   const [simulating, setSimulating] = useState(null);
+  const [draftSim, setDraftSim] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiPreview, setAiPreview] = useState(null);
@@ -669,27 +841,76 @@ const WorkflowsTab = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSaving, setAiSaving] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [runsTick, setRunsTick] = useState(0);
+  const [templates, setTemplates] = useState(null);
+  const [templatesError, setTemplatesError] = useState('');
+  const [crmConfig, setCrmConfig] = useState(null);
 
-  const fetchWorkflows = useCallback(async () => {
+  const clearError = () => { setError(''); setErrorFix(null); };
+
+  const fetchWorkflows = useCallback(async ({ silent = false } = {}) => {
     const r = await wJson('/workflows');
     if (r.locked) { setLocked(r.feature || 'workflows'); setLoading(false); return; }
-    if (r.ok) setWorkflows(Array.isArray(r.data) ? r.data : []);
-    else setError(r.error);
-    const runsRes = await wJson('/workflows/runs');
-    if (runsRes.ok && Array.isArray(runsRes.data)) setRuns(runsRes.data);
+    if (r.ok) {
+      const list = Array.isArray(r.data) ? r.data : (Array.isArray(r.data?.data) ? r.data.data : []);
+      setWorkflows(list);
+      // C1: each workflow carries runCount/lastRunAt/lastRunStatus. Without
+      // them, the newest runs across the workspace still say when each one
+      // last ran — never how many times, which is what used to read "0 runs".
+      if (list.length && !list.some(w => 'runCount' in w || 'lastRunAt' in w)) {
+        const runsRes = await wJson('/workflows/runs?limit=100');
+        if (runsRes.ok) setRecentRuns(readRunsPage(runsRes.data).items);
+      }
+    } else if (!silent) setError(r.error);
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchWorkflows(); }, [fetchWorkflows]);
 
-  const openCreate = () => { setName(''); setSteps([blankTrigger()]); setEditing(null); setError(''); setCreating(true); setSelectedStepId(null); };
-  const openEdit = w => {
-    setName(w.name);
-    const wSteps = Array.isArray(w.nodes) ? w.nodes : [];
-    setSteps(wSteps.length ? wSteps : [blankTrigger()]);
-    setEditing(w); setError(''); setCreating(true); setSelectedStepId(null);
+  // Statuses and stages for the CRM steps: the workspace's own lifecycle and
+  // pipeline (Customize Your Business), on top of the built-ins.
+  useEffect(() => {
+    let cancelled = false;
+    wJson('/crm-customization').then(r => { if (!cancelled && r.ok && r.data?.data) setCrmConfig(r.data.data); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const loadTemplates = useCallback(async () => {
+    const r = await wJson('/templates');
+    if (!r.ok) { setTemplatesError(r.error || 'Could not load templates'); setTemplates(t => t ?? []); return; }
+    const list = Array.isArray(r.data) ? r.data : (Array.isArray(r.data?.data) ? r.data.data : []);
+    // Authentication (OTP) templates are sent by the verification flow, not a workflow.
+    setTemplates(list.filter(t => t.status !== 'DELETED' && String(t.category || '').toUpperCase() !== 'AUTHENTICATION'));
+    setTemplatesError('');
+  }, []);
+  const needsTemplates = creating || Boolean(aiPreview);
+  useEffect(() => { if (needsTemplates && templates === null) loadTemplates(); }, [needsTemplates, templates, loadTemplates]);
+
+  // Live run counts and history: a `workflow.run` event (C4) refetches,
+  // throttled; while the stream is down, a visibility-aware 30s poll does.
+  const refreshRuns = useCallback(() => { fetchWorkflows({ silent: true }); setRunsTick(t => t + 1); }, [fetchWorkflows]);
+  const refreshRunsSoon = useThrottledCallback(refreshRuns, 3000);
+  const { live } = useRealtime((evt) => {
+    if (evt.type === 'workflow.run' || evt.type === 'resync') refreshRunsSoon();
+    if (evt.type === 'template.updated' && templates !== null) loadTemplates();
+  });
+  usePolling(refreshRuns, 30000, { enabled: !live && !loading && !locked, immediate: false });
+
+  const triggerSubtype = steps.find(s => s.type === 'trigger')?.subtype;
+
+  const openCreate = () => {
+    if (readOnly) return;
+    setName(''); setSteps([blankTrigger()]); setEditing(null); clearError(); setCreating(true);
+    setSelectedStepId(null); setSaveNotice(null); setDraftSim(null);
   };
-  const cancel = () => { setCreating(false); setEditing(null); setError(''); };
+  const openEdit = w => {
+    if (readOnly) return;
+    setName(w.name);
+    const wSteps = normaliseLoadedSteps(w.nodes);
+    setSteps(wSteps.length ? wSteps : [blankTrigger()]);
+    setEditing(w); clearError(); setCreating(true); setSelectedStepId(null); setSaveNotice(null); setDraftSim(null);
+  };
+  const cancel = () => { setCreating(false); setEditing(null); clearError(); setDraftSim(null); };
 
   // The editor renders the same steps two ways. `list` is the original form —
   // fastest for typing — and `canvas` is the flow view, which is what makes the
@@ -697,52 +918,76 @@ const WorkflowsTab = () => {
   const [editorView, setEditorView] = useState('canvas');
   const [selectedStepId, setSelectedStepId] = useState(null);
 
-  const addActionStep = () => setSteps(p => [...p, { id:`step_${Date.now()}`, type:'action', subtype:'message', value:'Hello, how can I help you today?' }]);
-// Adding from the palette. A second trigger would be ignored by the engine,
-  // which runs the first one it finds, so it replaces the existing trigger
-  // rather than quietly doing nothing.
-  const addFromPalette = (item) => {
-    const node = {
-      id: `step_${Date.now()}`, type: item.type, subtype: item.subtype, value: item.value,
-      ...(item.type === 'condition' ? { skipIfFalse: item.skipIfFalse ?? 1 } : {}),
-    };
-    setSteps(p => (item.type === 'trigger'
-      ? [node, ...p.filter(x => x.type !== 'trigger')]
-      : [...p, node]));
+  // A new step, positioned among the non-trigger steps (0 = right after the
+  // trigger). Under a CRM trigger the default action is the template step.
+  const insertAt = (position, type = 'action') => {
+    const subtype = type === 'condition' ? 'contains' : (isCrmTrigger(triggerSubtype) ? 'template' : 'message');
+    const node = { id: newStepId(), type, subtype, value: DEFAULT_STEP_VALUE[subtype] ?? '', ...(type === 'condition' ? { skipIfFalse: 1 } : {}) };
+    setSteps(p => insertStep(p, position, node));
     setSelectedStepId(node.id);
   };
-  
-const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? applyStepChange(s, fields) : s)));
-  const removeStep = id => setSteps(p => p.filter(s => s.id !== id));
+  const appendStep = (type) => insertAt(steps.filter(s => s.type !== 'trigger').length, type);
+
+  // Adding from the palette. A second trigger would be ignored by the engine,
+  // which runs the first one it finds, so it replaces the existing trigger.
+  // Anything else goes right after the selected step, or at the end.
+  const addFromPalette = (item) => {
+    const node = {
+      id: newStepId(), type: item.type, subtype: item.subtype, value: item.value,
+      ...(item.type === 'condition' ? { skipIfFalse: 1 } : {}),
+    };
+    setSteps(p => {
+      if (item.type === 'trigger') return [node, ...p.filter(x => x.type !== 'trigger')];
+      const body = p.filter(s => s.type !== 'trigger');
+      const sel = body.findIndex(s => s.id === selectedStepId);
+      const selIsTrigger = p.find(s => s.id === selectedStepId)?.type === 'trigger';
+      return insertStep(p, sel >= 0 ? sel + 1 : selIsTrigger ? 0 : body.length, node);
+    });
+    setSelectedStepId(node.id);
+  };
+
+  const updateStep = (id, fields) => setSteps(p => clampSkips(p.map(s => (s.id === id ? applyStepChange(s, fields) : s))));
+  const removeStepById = id => { setSteps(p => removeStep(p, id)); if (selectedStepId === id) setSelectedStepId(null); };
+  const moveStepById = (id, dir) => setSteps(p => moveStep(p, id, dir));
+  const moveStepToPos = (id, pos) => setSteps(p => moveStepTo(p, id, pos));
+
+  const applyFix = (fix) => {
+    if (fix?.kind !== 'insert_wait_reply') return;
+    const node = { id: newStepId(), type: 'action', subtype: 'wait_reply', value: '' };
+    setSteps(p => insertStep(p, fix.position, node));
+    setSelectedStepId(node.id);
+    clearError();
+  };
 
   const save = async () => {
     const nameError = validateMeaningfulText(name, 'Workflow name');
-    if (nameError) { setError(nameError); return; }
+    if (nameError) { setError(nameError); setErrorFix(null); return; }
     const trigger = steps.find(s => s.type === 'trigger');
-    if (trigger?.subtype === 'keyword' && !String(trigger.value || '').trim()) {
-      setError('Give the keyword trigger a word to match, or this workflow can never fire.');
+    if (!trigger) { setError('Add a trigger from the palette — without one nothing starts this workflow.'); setErrorFix(null); return; }
+    if (trigger.subtype === 'keyword' && parseKeywords(trigger.value).length === 0) {
+      setError('Give the keyword trigger a word to match, or this workflow can never fire.'); setErrorFix(null);
       return;
     }
     // A score trigger with no number can never fire, and the server refuses a
     // non-numeric threshold outright rather than matching everything.
-    if (trigger?.subtype === 'score_above' && !Number.isFinite(Number(trigger.value))) {
-      setError('Give the score trigger a number, or this workflow can never fire.');
+    if (trigger.subtype === 'score_above' && !Number.isFinite(Number(trigger.value))) {
+      setError('Give the score trigger a number, or this workflow can never fire.'); setErrorFix(null);
       return;
     }
-    const needsValue = steps.find(s =>
-      s.type === 'action' && ['task', 'owner', 'sequence', 'lead_status'].includes(s.subtype)
+    const needsIdx = steps.findIndex(s =>
+      s.type === 'action' && ['message', 'tag', 'task', 'owner', 'sequence', 'lead_status'].includes(s.subtype)
       && !String(s.value || '').trim());
-    if (needsValue) {
-      setError(`The "${stepLabel(needsValue)}" action needs a value before this workflow can run.`);
+    if (needsIdx !== -1) {
+      setError(`${stepTitle(steps, needsIdx)} (${subtypeLabel('action', steps[needsIdx].subtype)}) needs a value before this workflow can run.`); setErrorFix(null);
       return;
     }
     if (!steps.some(s => s.type === 'action')) {
-      setError('Add at least one action — a workflow with only a trigger does nothing.');
+      setError('Add at least one action — a workflow with only a trigger does nothing.'); setErrorFix(null);
       return;
     }
-    const chatError = chatFlowError(steps);
-    if (chatError) { setError(chatError); return; }
-    setError('');
+    const issue = chatFlowIssue(steps, { templates });
+    if (issue) { setError(issue.message); setErrorFix(issue.fix || null); return; }
+    clearError();
     setSaving(true);
 
     const payload = { name, isActive: editing ? editing.isActive : true, nodes: steps };
@@ -752,11 +997,25 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
     setSaving(false);
 
     if (!r.ok) { setError(r.error); return; }
-    await fetchWorkflows();
+    // C2: the response may carry warnings, and the nodes as the server
+    // normalised them. Feature-detected: an older server sends neither.
+    const saved = r.data?.workflow && typeof r.data.workflow === 'object' ? r.data.workflow : r.data;
+    const warnings = [r.data?.warnings, saved?.warnings].find(Array.isArray) || [];
+    await fetchWorkflows({ silent: true });
+    if (warnings.length) {
+      // Stay in the builder, on what was actually stored, so the change the
+      // server describes is visible and a second save is an update.
+      if (Array.isArray(saved?.nodes) && saved.nodes.length) setSteps(normaliseLoadedSteps(saved.nodes));
+      if (saved?.id) setEditing({ ...(editing || {}), ...saved });
+      setSaveNotice({ title: `Saved "${saved?.name || name}". The server noted:`, warnings });
+      return;
+    }
+    setSaveNotice(null);
     cancel();
   };
 
   const toggleActive = async w => {
+    if (readOnly) return;
     const next = !w.isActive;
     setWorkflows(p => p.map(x => x.id === w.id ? { ...x, isActive: next } : x));
     const r = await wJson(`/workflows/${w.id}`, { method:'PATCH', body: JSON.stringify({ isActive: next }) });
@@ -764,6 +1023,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
   };
 
   const del = async id => {
+    if (readOnly) return;
     if (!await confirmDialog('Delete this workflow?', { danger: true })) return;
     const r = await wJson(`/workflows/${id}`, { method:'DELETE' });
     if (r.ok) await fetchWorkflows();
@@ -773,31 +1033,52 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
   // The old button hardcoded sampleMessage:'Hi' while a new workflow defaults to
   // the keyword ORDER — so the test always reported "would not run". It now
   // defaults to the workflow's own keyword and is editable.
-  const openSim = w => {
-    const trigger = (w.nodes || []).find(n => n.type === 'trigger');
-    // A keyword trigger may list alternatives ("ORDER, TRACK"); the first one is a valid sample.
-    const sample = trigger?.subtype === 'keyword' ? (String(trigger.value || '').split(',')[0].trim() || 'Hi') : 'Hi';
-    setSimulating({ id: w.id, sample, replies: '', result: null, busy: false });
-  };
+  const openSim = w => setSimulating({ id: w.id, sample: sampleFor(w.nodes), replies: '', result: null, busy: false });
 
-  const runSimulation = async () => {
-    setSimulating(s => ({ ...s, busy: true, result: null }));
+  const callSimulate = async (sim, extra) => {
     try {
       const res = await wFetch('/ai/workflow/execute', {
         method: 'POST',
         body: JSON.stringify({
-          workflowId: simulating.id,
-          sampleMessage: simulating.sample,
-          replies: String(simulating.replies || '').split('|').map(r => r.trim()).filter(Boolean),
+          sampleMessage: sim.sample,
+          replies: String(sim.replies || '').split('|').map(r => r.trim()).filter(Boolean),
+          ...extra,
         }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { setSimulating(s => ({ ...s, busy:false, result:{ error: d.error || 'Simulation failed' } })); return; }
-      setSimulating(s => ({ ...s, busy:false, result: d }));
+      if (!res.ok) return { error: d.error || 'Simulation failed', status: res.status };
+      return d;
     } catch (err) {
-      setSimulating(s => ({ ...s, busy:false, result:{ error: err.message } }));
+      return { error: err.message };
     }
   };
+
+  const runSimulation = async () => {
+    setSimulating(s => ({ ...s, busy: true, result: null }));
+    const result = await callSimulate(simulating, { workflowId: simulating.id });
+    setSimulating(s => s && ({ ...s, busy: false, result }));
+  };
+
+  // Tests what is in the builder. The unsaved steps ride along as `nodes`; a
+  // server that cannot test a draft ignores them and tests the saved version,
+  // which the result then says.
+  const openDraftSim = () => setDraftSim({ sample: sampleFor(steps), replies: '', result: null, busy: false });
+  const runDraftSimulation = async () => {
+    setDraftSim(s => ({ ...s, busy: true, result: null }));
+    const result = await callSimulate(draftSim, { ...(editing?.id ? { workflowId: editing.id } : {}), nodes: steps, name });
+    if (result.error && !editing?.id && result.status === 400) {
+      result.error = 'Save this workflow once to test it here — the server cannot test an unsaved workflow yet.';
+    }
+    setDraftSim(s => s && ({ ...s, busy: false, result, testedKey: graphKey(steps) }));
+  };
+  const draftStaleNote = (() => {
+    const result = draftSim?.result;
+    if (!result || result.error || !editing) return '';
+    const usedDraft = result.draft === true || result.usedDraft === true || result.nodesSource === 'draft';
+    if (usedDraft) return draftSim.testedKey !== graphKey(steps) ? 'You have changed steps since this test — run it again.' : '';
+    return graphKey(normaliseLoadedSteps(editing.nodes)) !== draftSim.testedKey
+      ? 'This tested the last saved version. Save to test your latest changes.' : '';
+  })();
 
   const generateAiPreview = async () => {
     // A bare URL is a valid input now, and would fail the prose check below.
@@ -812,7 +1093,12 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
     // The endpoint answers in one of two shapes: a single editable workflow
     // (a described automation) or a whole business analysis (a URL).
     if (r.data?.mode === 'website') setAiSite(r.data);
-    else setAiPreview(r.data);
+    else setAiPreview(r.data ? { ...r.data, nodes: normaliseLoadedSteps(r.data.nodes) } : r.data);
+  };
+
+  const noteWarnings = (r, title) => {
+    const warnings = [r.data?.warnings, r.data?.workflow?.warnings].find(Array.isArray) || [];
+    if (warnings.length) setSaveNotice({ title, warnings });
   };
 
   // One-click generate from a recommended workflow. The nodes already arrive
@@ -825,20 +1111,22 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
     });
     setSavingWfId(null);
     if (!r.ok) { setAiError(r.error); return; }
+    noteWarnings(r, `Saved "${wf.title}" as a draft. The server noted:`);
     setSavedWfIds(s => new Set([...s, wf.id]));
     await fetchWorkflows();
   };
 
   const editRecommendedInBuilder = (wf) => {
     setName(wf.title);
-    setSteps(wf.nodes?.length ? wf.nodes : [blankTrigger()]);
-    setEditing(null); setError(''); setCreating(true);
+    const ns = normaliseLoadedSteps(wf.nodes);
+    setSteps(ns.length ? ns : [blankTrigger()]);
+    setEditing(null); clearError(); setCreating(true); setSaveNotice(null); setDraftSim(null);
     setAiOpen(false); setAiSite(null); setAiPreview(null); setAiPrompt('');
   };
 
   const saveAiPreview = async () => {
     if (!aiPreview?.name || !Array.isArray(aiPreview.nodes)) { setAiError('Generate a workflow preview before saving.'); return; }
-    const chatError = chatFlowError(aiPreview.nodes);
+    const chatError = chatFlowError(aiPreview.nodes, { templates });
     if (chatError) { setAiError(chatError); return; }
     setAiSaving(true); setAiError('');
     const r = await wJson('/workflows', {
@@ -847,6 +1135,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
     });
     setAiSaving(false);
     if (!r.ok) { setAiError(r.error); return; }
+    noteWarnings(r, `Saved "${aiPreview.name}" as a draft. The server noted:`);
     await fetchWorkflows();
     setAiOpen(false); setAiPrompt(''); setAiPreview(null);
   };
@@ -854,29 +1143,47 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
   const useAiPreviewInBuilder = () => {
     if (!aiPreview) return;
     setName(aiPreview.name || 'AI Generated Workflow');
-    setSteps(aiPreview.nodes?.length ? aiPreview.nodes : [blankTrigger()]);
-    setEditing(null); setError(''); setCreating(true);
+    setSteps(aiPreview.nodes?.length ? normaliseLoadedSteps(aiPreview.nodes) : [blankTrigger()]);
+    setEditing(null); clearError(); setCreating(true); setSaveNotice(null); setDraftSim(null);
     setAiOpen(false); setAiPreview(null); setAiPrompt('');
   };
 
   const updateAiStep = (id, fields) => setAiPreview(p => {
     if (!p) return p;
-    return { ...p, nodes: (p.nodes || []).map(step => {
-      if (step.id !== id) return step;
-      return applyStepChange(step, fields);
-    }) };
+    return { ...p, nodes: clampSkips((p.nodes || []).map(step => (step.id === id ? applyStepChange(step, fields) : step))) };
   });
+
+  const builderCtx = useMemo(() => ({ templates, templatesError, reloadTemplates: loadTemplates, crmConfig }),
+    [templates, templatesError, loadTemplates, crmConfig]);
 
   if (loading) return <Loading />;
   if (locked) return <PlanLocked feature={locked} />;
 
-  const runsFor = id => runs.filter(r => r.workflowId === id);
+  // Run stats for a card: the server's own (C1), else the last run seen in
+  // the workspace's recent runs (no count — a count from a partial page is
+  // exactly the "0 runs" bug).
+  const runStatsFor = (w) => {
+    if ('runCount' in w || 'lastRunAt' in w) {
+      return {
+        count: Number.isFinite(Number(w.runCount)) && w.runCount !== null ? Number(w.runCount) : null,
+        lastAt: w.lastRunAt || null,
+        lastStatus: w.lastRunStatus || null,
+        lastError: w.lastRunError || null,
+      };
+    }
+    const last = recentRuns.find(r => r.workflowId === w.id);
+    return { count: null, lastAt: last?.startedAt || null, lastStatus: last?.status || null, lastError: last?.error || null, lastTrace: last?.trace };
+  };
+
+  const palette = paletteFor(triggerSubtype);
+  const bodyCount = steps.filter(s => s.type !== 'trigger').length;
 
   return (
+    <BuilderContext.Provider value={builderCtx}>
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <TabHeader icon="wflow" color="#f59e0b" bg="rgba(245,158,11,0.1)"
-        title="Workflows" subtitle="Multi-step automations that run on incoming messages">
-        {!creating && !aiOpen && (
+        title="Workflows" subtitle="Multi-step automations that run on incoming messages and CRM events">
+        {!creating && !aiOpen && !readOnly && (
           <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
             <Btn variant="outline" onClick={() => { setAiPrompt(''); setAiPreview(null); setAiSite(null); setSavedWfIds(new Set()); setAiError(''); setAiOpen(true); }}>
               <I n="spark" s={14} c="var(--green)" /> Create with AI
@@ -886,9 +1193,10 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
         )}
       </TabHeader>
 
-      {error && <Banner tone="error">{error}</Banner>}
+      {saveNotice && <SaveNotice notice={saveNotice} onDismiss={() => setSaveNotice(null)} />}
+      {error && !creating && <Banner tone="error">{error}</Banner>}
 
-      {aiOpen && !creating && (
+      {aiOpen && !creating && !readOnly && (
         <div style={{ ...card, padding:0, overflow:'hidden' }}>
           <div style={{ padding:'22px 24px 14px', display:'flex', justifyContent:'space-between', gap:16 }}>
             <div>
@@ -933,6 +1241,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
                 savedWfIds={savedWfIds}
                 onGenerate={saveRecommended}
                 onEdit={editRecommendedInBuilder}
+                readOnly={readOnly}
               />
             )}
 
@@ -945,12 +1254,14 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
                 </div>
                 <div style={{ padding:14, display:'flex', flexDirection:'column', gap:10 }}>
                   {(aiPreview.nodes || []).map((step, idx) => (
-                    <StepRow key={step.id || idx} step={step} index={idx}
+                    <StepRow key={step.id} step={step} index={idx} steps={aiPreview.nodes || []}
                       onChange={fields => updateAiStep(step.id, fields)}
-                      onRemove={() => setAiPreview(p => (p.nodes || []).length <= 1 ? p : { ...p, nodes: p.nodes.filter(s => s.id !== step.id) })}
-                      canRemove={(aiPreview.nodes || []).length > 1} allowTypeChange />
+                      onRemove={() => setAiPreview(p => (p.nodes || []).length <= 1 ? p : { ...p, nodes: removeStep(p.nodes, step.id) })}
+                      canRemove={(aiPreview.nodes || []).length > 1}
+                      typeChoices={['trigger', 'action', 'condition']}
+                      onMove={step.type === 'trigger' ? null : dir => setAiPreview(p => ({ ...p, nodes: moveStep(p.nodes || [], step.id, dir) }))} />
                   ))}
-                  <button onClick={() => setAiPreview(p => ({ ...p, nodes: [...(p.nodes || []), { id:`step_${Date.now()}`, type:'action', subtype:'message', value:'Thanks for reaching out.' }] }))}
+                  <button onClick={() => setAiPreview(p => ({ ...p, nodes: [...(p.nodes || []), { id: newStepId(), type:'action', subtype:'message', value:'Thanks for reaching out.' }] }))}
                     style={{ alignSelf:'flex-start', padding:'8px 12px', borderRadius:8, background:'transparent', border:'1px solid var(--bd)', color:'var(--green)', cursor:'pointer', fontSize:12, fontWeight:700 }}>
                     + Add action step
                   </button>
@@ -972,7 +1283,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
         </div>
       )}
 
-      {creating && (
+      {creating && !readOnly && (
         <div style={{ ...card, padding:'24px', display:'flex', flexDirection:'column', gap:'20px' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <h3 style={{ fontSize:15, fontWeight:700, color:'var(--t1)', fontFamily:"'Space Grotesk',sans-serif" }}>{editing ? 'Edit Workflow' : 'Create New Workflow'}</h3>
@@ -1001,13 +1312,24 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
 
             {editorView === 'list' && (
               <>
-                {steps.map((step, idx) => (
-                  <StepRow key={step.id} step={step} index={idx}
-                    onChange={fields => updateStep(step.id, fields)}
-                    onRemove={() => removeStep(step.id)}
-                    canRemove={step.type === 'action'} />
-                ))}
-                <div><Btn variant="outline" size="sm" onClick={addActionStep}><I n="plus" s={12} c="var(--t2)" /> Add Action Step</Btn></div>
+                {steps.map((step, idx) => {
+                  const pos = stepNumber(steps, idx) ?? 0;
+                  return (
+                    <Fragment key={step.id}>
+                      <StepRow step={step} index={idx} steps={steps}
+                        onChange={fields => updateStep(step.id, fields)}
+                        onRemove={() => removeStepById(step.id)}
+                        canRemove={step.type !== 'trigger'}
+                        typeChoices={step.type === 'trigger' ? null : ['action', 'condition']}
+                        onMove={step.type === 'trigger' ? null : dir => moveStepById(step.id, dir)} />
+                      {idx < steps.length - 1 && <InsertBar onInsert={type => insertAt(pos, type)} />}
+                    </Fragment>
+                  );
+                })}
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                  <Btn variant="outline" size="sm" onClick={() => appendStep('action')}><I n="plus" s={12} c="var(--t2)" /> Add Action Step</Btn>
+                  <Btn variant="outline" size="sm" onClick={() => appendStep('condition')}><I n="plus" s={12} c="var(--t2)" /> Add Condition</Btn>
+                </div>
               </>
             )}
 
@@ -1015,12 +1337,12 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
               <>
                 <WorkflowCanvas
                   steps={steps}
+                  palette={palette}
                   selectedId={selectedStepId}
                   onSelect={setSelectedStepId}
-                  onChange={updateStep}
                   onAdd={addFromPalette}
-                  onRemove={id => { removeStep(id); if (selectedStepId === id) setSelectedStepId(null); }}
-                  trace={null}
+                  onRemove={removeStepById}
+                  onMoveTo={moveStepToPos}
                 />
 
                 {/* Inspector. Below the canvas rather than beside it: the canvas
@@ -1035,28 +1357,44 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
                     }
                     const step = steps[idx];
                     return (
-                      <StepRow step={step} index={idx}
+                      <StepRow step={step} index={idx} steps={steps}
                         onChange={fields => updateStep(step.id, fields)}
-                        onRemove={() => { removeStep(step.id); setSelectedStepId(null); }}
-                        canRemove={step.type === 'action'}
-                        allowTypeChange />
+                        onRemove={() => removeStepById(step.id)}
+                        canRemove={step.type !== 'trigger'}
+                        typeChoices={step.type === 'trigger' ? null : ['action', 'condition']}
+                        onMove={step.type === 'trigger' ? null : dir => moveStepById(step.id, dir)} />
                     );
                   })()}
                 </div>
 
                 <p style={{ fontSize:11, color:'var(--t3)', margin:0, lineHeight:1.55 }}>
-                  Steps run top to bottom in the order shown. Drag a node to reposition it; the order is the list order, which
-                  the List view makes explicit.
+                  Steps run top to bottom. Drag a step up or down to reorder it, or use the ↑ ↓ buttons in the inspector.
+                  Palette items are added right after the selected step ({bodyCount} step{bodyCount === 1 ? '' : 's'} so far).
                 </p>
               </>
             )}
           </div>
 
-          {error && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {error}</p>}
+          {error && (
+            <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+              <p style={{ fontSize:12, color:'#f87171', margin:0, flex:1, minWidth:240 }}>⚠️ {error}</p>
+              {errorFix && <Btn size="sm" variant="outline" onClick={() => applyFix(errorFix)}>{errorFix.label}</Btn>}
+            </div>
+          )}
 
-          <div style={{ display:'flex', gap:8, borderTop:'1px solid var(--bd)', paddingTop:16 }}>
+          {draftSim && (
+            <SimPanel title="Test the steps above with a sample message" sim={draftSim}
+              waitsForReply={steps.some(n => n.subtype === 'wait_reply')}
+              onSample={sample => setDraftSim(s => ({ ...s, sample }))}
+              onReplies={replies => setDraftSim(s => ({ ...s, replies }))}
+              onRun={runDraftSimulation} onClose={() => setDraftSim(null)}
+              workflowId={editing?.id} staleNote={draftStaleNote} />
+          )}
+
+          <div style={{ display:'flex', gap:8, borderTop:'1px solid var(--bd)', paddingTop:16, flexWrap:'wrap' }}>
             <Btn onClick={save} disabled={saving} style={{ boxShadow:'var(--glow)' }}>{saving ? 'Saving…' : editing ? 'Update Workflow' : 'Save Workflow'}</Btn>
-            <Btn variant="ghost" onClick={cancel}>Cancel</Btn>
+            {!draftSim && <Btn variant="outline" onClick={openDraftSim}><I n="play" s={12} c="var(--t2)" /> Test</Btn>}
+            <Btn variant="ghost" onClick={cancel}>{saveNotice ? 'Done' : 'Cancel'}</Btn>
           </div>
         </div>
       )}
@@ -1070,15 +1408,21 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
               </div>
               <div>
                 <h3 style={{ fontSize:16, fontWeight:600, color:'var(--t1)', marginBottom:8 }}>No Workflows Yet</h3>
-                <p style={{ fontSize:13, color:'var(--t2)', maxWidth:380, margin:'0 auto' }}>Build multi-step automations that reply, wait, tag contacts and hand off to an agent — all triggered by an incoming message.</p>
+                <p style={{ fontSize:13, color:'var(--t2)', maxWidth:380, margin:'0 auto' }}>
+                  {readOnly
+                    ? 'No workflows have been built in this workspace yet. Workspace members can build them here.'
+                    : 'Build multi-step automations that reply, wait, tag contacts and hand off to an agent — triggered by an incoming message or a CRM event.'}
+                </p>
               </div>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-                <Btn onClick={() => setAiOpen(true)} style={{ boxShadow:'var(--glow)' }}><I n="spark" s={14} c="#08090c" /> Create with AI</Btn>
-                <Btn variant="outline" onClick={openCreate}>Create Your First Flow</Btn>
-              </div>
+              {!readOnly && (
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
+                  <Btn onClick={() => setAiOpen(true)} style={{ boxShadow:'var(--glow)' }}><I n="spark" s={14} c="#08090c" /> Create with AI</Btn>
+                  <Btn variant="outline" onClick={openCreate}>Create Your First Flow</Btn>
+                </div>
+              )}
             </div>
           ) : workflows.map(w => (
-            <WorkflowCard key={w.id} workflow={w} runs={runsFor(w.id)}
+            <WorkflowCard key={w.id} workflow={w} stats={runStatsFor(w)} readOnly={readOnly} runsTick={runsTick}
               onToggle={() => toggleActive(w)} onEdit={() => openEdit(w)} onDelete={() => del(w.id)}
               onSimulate={() => openSim(w)}
               sim={simulating?.id === w.id ? simulating : null}
@@ -1089,11 +1433,24 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
         </div>
       )}
     </div>
+    </BuilderContext.Provider>
   );
 };
 
-
-const CONDITION_NEEDS_VALUE = new Set(['contains', 'equals', 'has_tag', 'field_equals', 'field_set']);
+// A thin "insert here" control between two steps in the list view.
+const InsertBar = ({ onInsert }) => (
+  <div style={{ display:'flex', alignItems:'center', gap:8, margin:'-4px 0', paddingLeft:12 }}>
+    <span style={{ width:1, height:14, background:'var(--bd)' }} />
+    <span style={{ fontSize:10.5, color:'var(--t3)' }}>Insert</span>
+    {[['action', '+ Action'], ['condition', '+ Condition']].map(([type, label]) => (
+      <button key={type} onClick={() => onInsert(type)}
+        style={{ fontSize:10.5, fontWeight:600, padding:'2px 8px', borderRadius:6, cursor:'pointer', background:'transparent',
+                 border:'1px dashed var(--bd)', color: type === 'condition' ? '#9d6bff' : 'var(--green)', fontFamily:"'Manrope',sans-serif" }}>
+        {label}
+      </button>
+    ))}
+  </div>
+);
 
 // ─── Workflow canvas ─────────────────────────────────────────────────────────
 //
@@ -1106,123 +1463,94 @@ const CONDITION_NEEDS_VALUE = new Set(['contains', 'equals', 'has_tag', 'field_e
 // canvas are two renderings of one state — switch between them mid-edit and
 // nothing is lost.
 //
-// Positions are stored on the node as `pos` when a node is dragged. The schema
-// takes nodes as opaque JSON and the engine reads only type/subtype/value, so
-// the extra key rides along harmlessly and a workflow built before the canvas
-// existed simply falls back to auto-layout.
+// Layout is always the execution order. Dragging a node up or down reorders
+// the steps for real; it used to move the card freely while the order stayed
+// the same, which drew a flow the engine would not run.
 
-const NODE_W = 210;
+const NODE_W = 230;
 const NODE_H = 74;
 const NODE_GAP = 44;
 const CANVAS_PAD = 28;
+const ROW_H = NODE_H + NODE_GAP;
 
-// Choice-driven steps get a dropdown rather than a free-text box, so a status
-// or stage cannot be mistyped into a value the server will reject.
-const LEAD_STATUS_CHOICES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'];
-const DEAL_STAGE_CHOICES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
 // The `media` trigger's kinds; '' is any media (backend workflowGraph.js MEDIA_KINDS).
 const MEDIA_TRIGGER_CHOICES = [
   ['', 'Any media'], ['audio', 'Voice note / audio'], ['image', 'Photo'],
   ['video', 'Video'], ['document', 'Document'], ['sticker', 'Sticker'],
 ];
 
-const prettyEnum = (s) => String(s).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
-
 // Steps needing no configuration at all.
 const NO_CONFIG_SUBTYPES = ['welcome', 'lead_created'];
 
-const PLACEHOLDERS = {
-  keyword: 'e.g. HELP',
-  tag: 'e.g. VIP',
-  agent: 'Agent name or email',
-  task: 'Task title, e.g. Call the new lead',
-  owner: 'Member name or email',
-  sequence: 'Name of a published sequence',
-  score_above: 'Score threshold, e.g. 70',
+// Friendlier starting values than the reset defaults, for palette clicks.
+const PALETTE_VALUE = {
+  message: 'Thanks for reaching out — how can we help?', tag: 'VIP',
+  contains: 'yes', has_tag: 'VIP', field_equals: 'plan=premium', field_set: 'order_number',
 };
-const PALETTE = [
-  {
-    name: 'TRIGGERS', color: '#f59e0b',
-    items: TRIGGER_SUBTYPES.map(([subtype, label]) => ({
-      type: 'trigger', subtype, label,
-      value: subtype === 'keyword' ? 'HELP' : '',
-    })),
-  },
-  {
-    name: 'ACTIONS', color: 'var(--green)',
-    items: ACTION_SUBTYPES.map(([subtype, label]) => ({
-      type: 'action', subtype, label,
-      value: subtype === 'message' ? 'Thanks for reaching out — how can we help?'
-        : subtype === 'buttons' ? 'How can we help? | Track my order | Talk to support'
-        : subtype === 'delay' ? '1h'
-        : subtype === 'tag' ? 'VIP'
-        : '',
-    })),
-  },
-  {
-    name: 'CONDITIONS', color: '#9d6bff',
-    items: CONDITION_SUBTYPES.map(([subtype, label]) => ({
-      type: 'condition', subtype, label,
-      value: subtype === 'contains' ? 'yes'
-        : subtype === 'has_tag' ? 'VIP'
-        : subtype === 'field_equals' ? 'plan=premium'
-        : subtype === 'field_set' ? 'order_number'
-        : '',
-      skipIfFalse: 1,
-    })),
-  },
+const TYPE_COLOR = { trigger: '#f59e0b', action: 'var(--green)', condition: '#9d6bff' };
+
+// The palette follows the trigger: under a CRM trigger the template step is
+// listed first, since it is the only send that reaches every contact.
+const paletteFor = (triggerSubtype) => [
+  { name: 'TRIGGERS', color: TYPE_COLOR.trigger,
+    items: TRIGGER_SUBTYPES.map(([subtype, label]) => ({ type: 'trigger', subtype, label, value: DEFAULT_STEP_VALUE[subtype] ?? '' })) },
+  { name: 'ACTIONS', color: TYPE_COLOR.action,
+    items: actionSubtypesFor(triggerSubtype).map(([subtype, label]) => ({ type: 'action', subtype, label, value: PALETTE_VALUE[subtype] ?? DEFAULT_STEP_VALUE[subtype] ?? '' })) },
+  { name: 'CONDITIONS', color: TYPE_COLOR.condition,
+    items: CONDITION_SUBTYPES.map(([subtype, label]) => ({ type: 'condition', subtype, label, value: PALETTE_VALUE[subtype] ?? '' })) },
 ];
 
 const NODE_ICON = {
   keyword: 'key', welcome: 'user', media: 'file',
-  message: 'send', buttons: 'check', delay: 'clock', tag: 'file', agent: 'users',
-  wait_reply: 'msg', template: 'file',
+  message: 'send', buttons: 'check', delay: 'clock', tag: 'tag', agent: 'users',
+  wait_reply: 'msg', template: 'file', task: 'note', owner: 'user', sequence: 'layers',
+  lead_created: 'target', lead_status: 'target', deal_stage: 'briefcase', score_above: 'activity',
+  contains: 'filter', equals: 'filter', is_new_contact: 'user', has_tag: 'tag', field_equals: 'filter', field_set: 'filter',
 };
 
-// Auto-layout: a single column, in execution order. A node that has been
-// dragged keeps where it was put.
-const nodePosition = (step, index) => (
-  step.pos && Number.isFinite(step.pos.x) && Number.isFinite(step.pos.y)
-    ? step.pos
-    : { x: CANVAS_PAD, y: CANVAS_PAD + index * (NODE_H + NODE_GAP) }
-);
+const WorkflowCanvas = ({ steps, palette, selectedId, onSelect, onAdd, onRemove, onMoveTo }) => {
+  const [drag, setDrag] = useState(null);   // { id, startY, dy, moved }
+  const triggerSubtype = steps.find(s => s.type === 'trigger')?.subtype;
+  const hasTrigger = steps[0]?.type === 'trigger';
+  const height = Math.max(340, CANVAS_PAD * 2 + steps.length * ROW_H - NODE_GAP);
 
-const WorkflowCanvas = ({ steps, selectedId, onSelect, onChange, onAdd, onRemove, trace }) => {
-  const [dragging, setDragging] = useState(null);   // { id, dx, dy }
-  const canvasRef = useRef(null);
+  // Where a dragged step would land, as a 0-based position among the
+  // non-trigger steps.
+  const targetFor = (d) => {
+    if (!d) return null;
+    const from = steps.findIndex(s => s.id === d.id);
+    const centre = CANVAS_PAD + from * ROW_H + d.dy + NODE_H / 2;
+    const rowIdx = Math.round((centre - CANVAS_PAD - NODE_H / 2) / ROW_H);
+    const min = hasTrigger ? 1 : 0;
+    return Math.max(min, Math.min(steps.length - 1, rowIdx)) - min;
+  };
+  const target = drag?.moved ? targetFor(drag) : null;
+  const fromRow = drag ? steps.findIndex(s => s.id === drag.id) : -1;
+  const targetRow = target === null ? null : target + (hasTrigger ? 1 : 0);
 
-  const positioned = steps.map((step, i) => ({ step, index: i, pos: nodePosition(step, i) }));
-  const height = Math.max(
-    340,
-    ...positioned.map(n => n.pos.y + NODE_H + CANVAS_PAD),
-  );
-
-  const onPointerDown = (e, node) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    setDragging({ id: node.step.id, dx: e.clientX - rect.left - node.pos.x, dy: e.clientY - rect.top - node.pos.y });
-    onSelect(node.step.id);
+  const onPointerDown = (e, step) => {
+    onSelect(step.id);
+    if (step.type === 'trigger' || e.button > 0) return;
+    if (e.target.closest?.('button')) return;
+    setDrag({ id: step.id, startY: e.clientY, dy: 0, moved: false });
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
-
   const onPointerMove = (e) => {
-    if (!dragging) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    onChange(dragging.id, {
-      pos: {
-        x: Math.max(0, Math.round(e.clientX - rect.left - dragging.dx)),
-        y: Math.max(0, Math.round(e.clientY - rect.top - dragging.dy)),
-      },
-    });
+    if (!drag) return;
+    const dy = e.clientY - drag.startY;
+    setDrag(d => d && ({ ...d, dy, moved: d.moved || Math.abs(dy) > 5 }));
   };
-
-  const endDrag = () => setDragging(null);
+  const endDrag = () => {
+    if (drag?.moved) onMoveTo(drag.id, targetFor(drag));
+    setDrag(null);
+  };
 
   return (
     <div style={{ display:'grid', gridTemplateColumns:'170px minmax(0,1fr)', gap:12, alignItems:'start' }} className="agent-grid">
       {/* palette */}
       <div style={{ border:'1px solid var(--bd)', borderRadius:10, padding:10, background:'rgba(255,255,255,0.02)' }}>
         <div style={{ fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.14em', color:'var(--t3)', textTransform:'uppercase', marginBottom:9 }}>Click to add</div>
-        {PALETTE.map(group => (
+        {palette.map(group => (
           <div key={group.name} style={{ marginBottom:12 }}>
             <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
               <span style={{ width:6, height:6, borderRadius:'50%', background:group.color }} />
@@ -1245,63 +1573,67 @@ const WorkflowCanvas = ({ steps, selectedId, onSelect, onChange, onAdd, onRemove
 
       {/* canvas */}
       <div
-        ref={canvasRef}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerLeave={endDrag}
         style={{ position:'relative', minHeight:340, height, borderRadius:10, border:'1px solid var(--bd)', overflow:'hidden',
                  background:'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0) 0 0 / 22px 22px, rgba(5,8,20,0.4)',
-                 touchAction:'none' }}>
+                 touchAction: drag ? 'none' : 'pan-y' }}>
 
         {/* edges, behind the cards */}
         <svg width="100%" height={height} style={{ position:'absolute', inset:0, pointerEvents:'none' }} aria-hidden="true">
-          {positioned.slice(0, -1).map((node, i) => {
-            const next = positioned[i + 1];
-            const x1 = node.pos.x + NODE_W / 2;
-            const y1 = node.pos.y + NODE_H;
-            const x2 = next.pos.x + NODE_W / 2;
-            const y2 = next.pos.y;
-            const mid = (y1 + y2) / 2;
-            const lit = trace && trace.length > i + 1;
-            return (
-              <path key={node.step.id}
-                d={`M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`}
-                fill="none" strokeWidth="2" strokeDasharray="6 8"
-                stroke={lit ? 'var(--green)' : 'rgba(255,255,255,0.22)'} />
-            );
+          {steps.slice(0, -1).map((step, i) => {
+            const x = CANVAS_PAD + NODE_W / 2;
+            const y1 = CANVAS_PAD + i * ROW_H + NODE_H;
+            const y2 = CANVAS_PAD + (i + 1) * ROW_H;
+            return <path key={step.id} d={`M ${x} ${y1} L ${x} ${y2}`} fill="none" strokeWidth="2" strokeDasharray="6 8" stroke="rgba(255,255,255,0.22)" />;
           })}
         </svg>
 
-        {positioned.map((node) => {
-          const { step, index, pos } = node;
+        {/* where a dragged step will land */}
+        {targetRow !== null && targetRow !== fromRow && (
+          <div style={{ position:'absolute', left:CANVAS_PAD - 8, width:NODE_W + 16, height:2, background:'var(--green)', borderRadius:2,
+                        top: targetRow < fromRow
+                          ? CANVAS_PAD + targetRow * ROW_H - NODE_GAP / 2
+                          : CANVAS_PAD + targetRow * ROW_H + NODE_H + NODE_GAP / 2 }} />
+        )}
+
+        {steps.map((step, index) => {
           const isTrigger = step.type === 'trigger';
-          const accent = isTrigger ? '#f59e0b' : 'var(--green)';
+          const accent = TYPE_COLOR[step.type] || 'var(--green)';
           const on = selectedId === step.id;
-          const lit = trace && trace.length > index;
+          const dragging = drag?.id === step.id && drag.moved;
+          const hint = stepHint(triggerSubtype, step);
           return (
             <div key={step.id}
-              onPointerDown={e => onPointerDown(e, node)}
-              style={{ position:'absolute', left:pos.x, top:pos.y, width:NODE_W, minHeight:NODE_H,
-                       padding:'11px 13px', borderRadius:13, cursor:'grab',
+              onPointerDown={e => onPointerDown(e, step)}
+              onPointerMove={onPointerMove}
+              onPointerUp={endDrag}
+              onPointerCancel={() => setDrag(null)}
+              style={{ position:'absolute', left:CANVAS_PAD, top:CANVAS_PAD + index * ROW_H, width:NODE_W, minHeight:NODE_H,
+                       transform: dragging ? `translateY(${drag.dy}px)` : 'none', zIndex: dragging ? 5 : 1,
+                       padding:'11px 13px', borderRadius:13, cursor: isTrigger ? 'pointer' : dragging ? 'grabbing' : 'grab',
                        background: on ? 'rgba(255,255,255,0.07)' : 'rgba(18,20,26,0.96)',
-                       border:`1px solid ${on || lit ? accent : 'var(--bd)'}`,
-                       boxShadow: on || lit ? `0 0 22px ${isTrigger ? 'rgba(245,158,11,0.3)' : 'rgba(53,232,242,0.3)'}` : '0 8px 24px rgba(0,0,0,0.4)',
-                       transition:'box-shadow .2s, border-color .2s' }}>
+                       border:`1px solid ${on ? accent : 'var(--bd)'}`,
+                       boxShadow: dragging ? '0 14px 34px rgba(0,0,0,0.55)' : on ? `0 0 22px ${isTrigger ? 'rgba(245,158,11,0.3)' : 'rgba(53,232,242,0.3)'}` : '0 8px 24px rgba(0,0,0,0.4)',
+                       transition: dragging ? 'none' : 'box-shadow .2s, border-color .2s' }}>
               <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:6 }}>
                 <I n={NODE_ICON[step.subtype] || 'zap'} s={12} c={accent} />
                 <span style={{ fontFamily:'var(--mono)', fontSize:8.5, letterSpacing:'.12em', color:accent, textTransform:'uppercase' }}>
-                  {isTrigger ? 'Trigger' : `Step ${index}`}
+                  {stepTitle(steps, index)}{step.type === 'condition' ? ' · If' : ''}
                 </span>
-                <button onClick={e => { e.stopPropagation(); onRemove(step.id); }} aria-label="Remove step"
-                  style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', padding:0, display:'flex', color:'var(--t3)' }}>
-                  <I n="x" s={11} c="var(--t3)" />
-                </button>
+                {hint?.tone === 'warn' && <span title={hint.text} style={{ display:'flex' }}><I n="alertt" s={11} c="#fbbf24" /></span>}
+                {!isTrigger && (
+                  <button onClick={e => { e.stopPropagation(); onRemove(step.id); }} aria-label="Remove step"
+                    style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', padding:0, display:'flex', color:'var(--t3)' }}>
+                    <I n="x" s={11} c="var(--t3)" />
+                  </button>
+                )}
               </div>
               <div style={{ fontSize:12.5, fontWeight:600, color:'var(--t1)', marginBottom:2 }}>
-                {(isTrigger ? TRIGGER_SUBTYPES : ACTION_SUBTYPES).find(([id]) => id === step.subtype)?.[1] || step.subtype}
+                {subtypeLabel(step.type, step.subtype)}
               </div>
               <div style={{ fontSize:11, color:'var(--t3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                {step.value || '—'}
+                {step.type === 'condition'
+                  ? `${step.value || '—'} · otherwise skip ${step.skipIfFalse ?? 1}`
+                  : step.value || '—'}
               </div>
             </div>
           );
@@ -1317,72 +1649,269 @@ const WorkflowCanvas = ({ steps, selectedId, onSelect, onChange, onAdd, onRemove
   );
 };
 
-const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange = false }) => {
+const selectStyle = { padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' };
+const optBg = { background:'#0a0b0e' };
+
+const StepHint = ({ hint, onUseTemplate }) => (
+  <div style={{ flexBasis:'100%', display:'flex', gap:8, alignItems:'flex-start', padding:'7px 10px', borderRadius:7,
+                background: hint.tone === 'warn' ? 'rgba(245,158,11,.06)' : 'rgba(255,255,255,0.03)',
+                border:`1px solid ${hint.tone === 'warn' ? 'rgba(245,158,11,.25)' : 'var(--bd)'}` }}>
+    <I n={hint.tone === 'warn' ? 'alertt' : 'info'} s={13} c={hint.tone === 'warn' ? '#fbbf24' : 'var(--t2)'} />
+    <span style={{ flex:1, fontSize:11.5, lineHeight:1.5, color: hint.tone === 'warn' ? '#fbbf24' : 'var(--t2)' }}>{hint.text}</span>
+    {onUseTemplate && (
+      <button onClick={onUseTemplate}
+        style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:6, cursor:'pointer', whiteSpace:'nowrap', background:'transparent', border:'1px solid rgba(245,158,11,.4)', color:'#fbbf24' }}>
+        Use a template instead
+      </button>
+    )}
+  </div>
+);
+
+// Inserts a variable token into a text field's value.
+const VariablePicker = ({ variables, onPick }) => (
+  <select value="" onChange={e => { if (e.target.value) onPick(e.target.value); }}
+    style={{ ...selectStyle, padding:'6px 8px', minWidth:0, maxWidth:180, color:'var(--t2)' }} aria-label="Insert a variable">
+    <option value="" style={optBg}>Insert variable…</option>
+    {variables.map(v => <option key={v.token} value={v.token} style={optBg}>{v.token} — {v.label}</option>)}
+  </select>
+);
+
+const TemplateStepEditor = ({ step, steps, index, onChange }) => {
+  const { templates, templatesError, reloadTemplates } = useContext(BuilderContext);
+  const list = templates || [];
+  const current = list.find(t => step.templateId && t.id === step.templateId) || list.find(t => t.name === step.value) || null;
+  const body = current ? templateBodyText(current) : '';
+  const count = current ? templateParamCount(body) : 0;
+  const params = resizeParams(step.params, count);
+  const missing = current ? unmappedParams(count, step.params) : [];
+  const variables = variablesBefore(steps, index);
+  const sorted = [...list].sort((a, b) => Number(isApprovedTemplate(b)) - Number(isApprovedTemplate(a)) || String(a.name).localeCompare(String(b.name)));
+  const unapprovedCount = list.filter(t => !isApprovedTemplate(t)).length;
+
+  const pick = (id) => {
+    const t = list.find(x => x.id === id);
+    if (!t) return;
+    const n = templateParamCount(templateBodyText(t));
+    onChange({ templateId: t.id, value: t.name, params: resizeParams(step.templateId === t.id ? step.params : [], n) });
+  };
+  const setParam = (i, v) => { const next = [...params]; next[i] = v; onChange({ params: next }); };
+
+  return (
+    <div style={{ flexBasis:'100%', display:'flex', flexDirection:'column', gap:8, paddingLeft:62 }}>
+      {templates === null ? (
+        <span style={{ fontSize:12, color:'var(--t3)' }}>Loading templates…</span>
+      ) : (
+        <select value={current?.id || (step.value ? '__missing' : '')} onChange={e => pick(e.target.value)} style={{ ...selectStyle, maxWidth:520 }}>
+          <option value="" disabled style={optBg}>Choose an approved template…</option>
+          {step.value && !current && <option value="__missing" disabled style={optBg}>{step.value} (not found in this workspace)</option>}
+          {sorted.map(t => (
+            <option key={t.id} value={t.id} disabled={!isApprovedTemplate(t)} style={optBg}>
+              {t.name}{t.language ? ` · ${t.language}` : ''} — {statusLabel(t.status)}{isApprovedTemplate(t) ? '' : ' (not sendable)'}
+            </option>
+          ))}
+        </select>
+      )}
+      {templatesError && (
+        <span style={{ fontSize:11.5, color:'#f87171' }}>
+          {templatesError} <button onClick={reloadTemplates} style={{ background:'none', border:'none', color:'var(--green)', cursor:'pointer', fontSize:11.5, padding:0 }}>Retry</button>
+        </span>
+      )}
+      {templates !== null && !templatesError && !list.some(isApprovedTemplate) && (
+        <span style={{ fontSize:11.5, color:'#fbbf24' }}>No approved templates yet. Create one under Templates and wait for Meta to approve it.</span>
+      )}
+      {unapprovedCount > 0 && (
+        <span style={{ fontSize:11, color:'var(--t3)' }}>Pending and rejected templates are listed but cannot be chosen until Meta approves them.</span>
+      )}
+      {step.value && !current && templates !== null && (
+        <span style={{ fontSize:11.5, color:'#fbbf24' }}>"{step.value}" is not one of this workspace's templates — choose one from the list.</span>
+      )}
+      {current && !isApprovedTemplate(current) && (
+        <span style={{ fontSize:11.5, color:'#fbbf24' }}>This template is {statusLabel(current.status).toLowerCase()} — it cannot be sent until Meta approves it.</span>
+      )}
+      {current && body && (
+        <div style={{ fontSize:11.5, color:'var(--t2)', lineHeight:1.5, padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', whiteSpace:'pre-wrap' }}>{body}</div>
+      )}
+      {count > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          <span style={{ fontSize:11, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.05em' }}>Fill the template's variables</span>
+          {params.map((p, i) => (
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+              <code style={{ fontSize:11.5, color:'var(--green)', minWidth:40 }}>{`{{${i + 1}}}`}</code>
+              <input value={p} onChange={e => setParam(i, e.target.value)}
+                placeholder="Text, or a variable such as {{name}}"
+                style={{ ...selectStyle, flex:1, minWidth:180, borderColor: missing.includes(i + 1) ? 'rgba(245,158,11,.5)' : 'var(--bd)' }} />
+              <VariablePicker variables={variables} onPick={tok => setParam(i, `${p}${tok}`)} />
+            </div>
+          ))}
+          {missing.length > 0 && (
+            <span style={{ fontSize:11.5, color:'#fbbf24' }}>
+              {missing.map(m => `{{${m}}}`).join(', ')} {missing.length === 1 ? 'is' : 'are'} not filled — Meta refuses a template send with an empty variable.
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const KeywordEditor = ({ value, onChange }) => {
+  const chips = parseKeywords(value);
+  return (
+    <>
+      <input value={value || ''} onChange={e => onChange(e.target.value.toUpperCase())}
+        placeholder="e.g. ORDER, TRACK"
+        style={{ ...selectStyle, flex:1, minWidth:200, color:'var(--green)', fontFamily:'monospace' }} />
+      <div style={{ flexBasis:'100%', paddingLeft:62, display:'flex', flexDirection:'column', gap:6 }}>
+        {chips.length > 0 && (
+          <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+            {chips.map(k => (
+              <span key={k} style={{ fontSize:11, fontFamily:'monospace', padding:'2px 8px', borderRadius:10, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.25)', color:'#f59e0b' }}>{k}</span>
+            ))}
+          </div>
+        )}
+        <span style={{ fontSize:11, color:'var(--t3)', lineHeight:1.5 }}>{KEYWORD_HINT}</span>
+      </div>
+    </>
+  );
+};
+
+const StepRow = ({ step, index, steps = [], onChange, onRemove, canRemove, typeChoices = null, onMove = null }) => {
+  const { crmConfig } = useContext(BuilderContext);
   const isTrigger = step.type === 'trigger';
   const isCondition = step.type === 'condition';
-  const options = isTrigger ? TRIGGER_SUBTYPES : isCondition ? CONDITION_SUBTYPES : ACTION_SUBTYPES;
-  const selectStyle = { padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' };
+  const triggerSubtype = steps.find(s => s.type === 'trigger')?.subtype;
+  const options = isTrigger ? TRIGGER_SUBTYPES : isCondition ? CONDITION_SUBTYPES : actionSubtypesFor(triggerSubtype);
+  const accent = TYPE_COLOR[step.type] || 'var(--green)';
+  const accentBg = isTrigger ? 'rgba(245,158,11,0.1)' : isCondition ? 'rgba(157,107,255,0.12)' : 'rgba(53,232,242,0.1)';
+  const hint = stepHint(triggerSubtype, step);
+  const maxSkip = maxSkipFor(steps, index);
+  const bodyIdx = stepNumber(steps, index);
+  const bodyCount = steps.filter(s => s.type !== 'trigger').length;
+  const moveBtn = { padding:'5px 8px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)', fontSize:11, lineHeight:1 };
+
+  const valueEditor = (() => {
+    if (step.subtype === 'template') return null; // full-width editor below
+    if (step.subtype === 'delay') {
+      return (
+        <select value={step.value} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, minWidth:130 }}>
+          {[...new Set([...DELAY_CHOICES, step.value].filter(Boolean))].map(v => <option key={v} value={v} style={optBg}>{v}</option>)}
+        </select>
+      );
+    }
+    if (NO_CONFIG_SUBTYPES.includes(step.subtype)) return <span style={{ fontSize:12, color:'var(--t3)', flex:1 }}>No configuration needed</span>;
+    if (step.subtype === 'lead_status') {
+      const choices = leadStatusChoices(crmConfig, { forAction: !isTrigger, current: step.value });
+      return (
+        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
+          {/* A trigger with no value means "any status change"; an action must name one. */}
+          {isTrigger
+            ? <option value="" style={optBg}>Any status</option>
+            : <option value="" disabled style={optBg}>Choose a status…</option>}
+          {choices.map(c => <option key={c.key} value={c.key} style={optBg}>{c.label}</option>)}
+        </select>
+      );
+    }
+    if (step.subtype === 'deal_stage') {
+      return (
+        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
+          <option value="" style={optBg}>Any stage</option>
+          {dealStageChoices(crmConfig, { current: step.value }).map(c => <option key={c.key} value={c.key} style={optBg}>{c.label}</option>)}
+        </select>
+      );
+    }
+    if (step.subtype === 'media') {
+      return (
+        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
+          {MEDIA_TRIGGER_CHOICES.map(([v, label]) => <option key={v} value={v} style={optBg}>{label}</option>)}
+        </select>
+      );
+    }
+    if (isTrigger && step.subtype === 'keyword') return <KeywordEditor value={step.value} onChange={value => onChange({ value })} />;
+    return (
+      <input value={step.value || ''}
+        type={step.subtype === 'score_above' ? 'number' : 'text'}
+        onChange={e => onChange({ value: e.target.value })}
+        placeholder={
+          step.subtype === 'score_above' ? 'Score threshold, e.g. 70'
+          : step.subtype === 'field_equals' ? 'field=value, e.g. plan=premium'
+          : step.subtype === 'field_set' ? 'field name, e.g. order_number'
+          : isCondition ? 'text to look for'
+          : step.subtype === 'tag' ? 'e.g. VIP'
+          : step.subtype === 'buttons' ? 'Question | Option A | Option B (max 20 chars each)'
+          : step.subtype === 'wait_reply' ? 'Save reply as (optional), e.g. order_id'
+          : step.subtype === 'agent' ? 'Agent name or email (blank: round-robin)'
+          : step.subtype === 'task' ? 'Task title, e.g. Call the new lead'
+          : step.subtype === 'owner' ? 'Member name or email'
+          : step.subtype === 'sequence' ? 'Name of a published sequence'
+          : 'Message text — use {{name}} or {{custom.order_number}}'
+        }
+        style={{ ...selectStyle, flex:1, minWidth:200 }} />
+    );
+  })();
 
   return (
     <div style={{ display:'flex', gap:10, alignItems:'center', padding:'10px 12px', borderRadius:8, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)', flexWrap:'wrap' }}>
-      <span style={{ width:52, fontSize:11, fontWeight:700, color:'var(--t3)' }}>Step {index + 1}</span>
+      <span style={{ width:52, fontSize:11, fontWeight:700, color:'var(--t3)' }}>{stepTitle(steps, index)}</span>
 
-      {allowTypeChange ? (
+      {typeChoices ? (
         <select value={step.type} onChange={e => onChange({ type: e.target.value })}
-          style={{ ...selectStyle, background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(53,232,242,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', fontWeight:700, textTransform:'uppercase', fontSize:11 }}>
-          <option value="trigger" style={{ background:'#0a0b0e' }}>Trigger</option>
-          <option value="action" style={{ background:'#0a0b0e' }}>Action</option>
-          <option value="condition" style={{ background:'#0a0b0e' }}>Condition</option>
+          style={{ ...selectStyle, background: accentBg, color: accent, fontWeight:700, textTransform:'uppercase', fontSize:11 }}>
+          {typeChoices.map(t => <option key={t} value={t} style={optBg}>{t === 'condition' ? 'Condition' : t === 'trigger' ? 'Trigger' : 'Action'}</option>)}
         </select>
       ) : (
-        <span style={{ background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(53,232,242,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', border:`1px solid ${isTrigger ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, padding:'3px 9px', borderRadius:6, fontSize:11, fontWeight:700 }}>
+        <span style={{ background: accentBg, color: accent, border:`1px solid ${accent}44`, padding:'3px 9px', borderRadius:6, fontSize:11, fontWeight:700 }}>
           {isTrigger ? 'TRIGGER' : isCondition ? 'IF' : 'ACTION'}
         </span>
       )}
 
       <select value={step.subtype} onChange={e => onChange({ subtype: e.target.value })} style={{ ...selectStyle, minWidth:150 }}>
-        {options.map(([v, label]) => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{label}</option>)}
+        {options.map(([v, label]) => <option key={v} value={v} style={optBg}>{label}</option>)}
       </select>
 
-      {step.subtype === 'delay' ? (
-        <select value={step.value} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, minWidth:130 }}>
-          {[...new Set(['Immediate', '5 min', '1 hour', '1 day', step.value].filter(Boolean))].map(v => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{v}</option>)}
-        </select>
-) : NO_CONFIG_SUBTYPES.includes(step.subtype) ? (
-        <span style={{ fontSize:12, color:'var(--t3)', flex:1 }}>No configuration needed</span>
-      ) : step.subtype === 'lead_status' ? (
-        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
-          {/* A trigger with no value means "any status change"; an action must name one. */}
-          {isTrigger && <option value="" style={{ background:'#07090F' }}>Any status</option>}
-          {LEAD_STATUS_CHOICES.map(v => <option key={v} value={v} style={{ background:'#07090F' }}>{prettyEnum(v)}</option>)}
-        </select>
-      ) : step.subtype === 'media' ? (
-        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
-          {MEDIA_TRIGGER_CHOICES.map(([v, label]) => <option key={v} value={v} style={{ background:'#07090F' }}>{label}</option>)}
-        </select>
-      ) : step.subtype === 'deal_stage' ? (
-        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
-          {isTrigger && <option value="" style={{ background:'#07090F' }}>Any stage</option>}
-          {DEAL_STAGE_CHOICES.map(v => <option key={v} value={v} style={{ background:'#07090F' }}>{prettyEnum(v)}</option>)}
-        </select>
-      ) : (
-        <input value={step.value || ''}
-          type={step.subtype === 'score_above' ? 'number' : 'text'}
-          onChange={e => onChange({ value: isTrigger && step.subtype === 'keyword' ? e.target.value.toUpperCase() : e.target.value })}
-placeholder={
-            isTrigger ? 'e.g. HELP'
-            : step.subtype === 'field_equals' ? 'field=value, e.g. plan=premium'
-            : step.subtype === 'field_set' ? 'field name, e.g. order_number'
-            : isCondition ? 'text to look for'
-            : step.subtype === 'tag' ? 'e.g. VIP'
-            : step.subtype === 'buttons' ? 'Question | Option A | Option B (max 20 chars each)'
-            : step.subtype === 'wait_reply' ? 'Save reply as (optional), e.g. order_id'
-            : step.subtype === 'template' ? 'Approved template name'
-            : step.subtype === 'agent' ? 'Agent name or email'
-            : 'Message text — use {{name}} or {{custom.order_number}}'
-          }
+      {valueEditor}
 
-          style={{ ...selectStyle, flex:1, minWidth:200, color: isTrigger && step.subtype === 'keyword' ? 'var(--green)' : 'var(--t1)', fontFamily: isTrigger && step.subtype === 'keyword' ? 'monospace' : 'inherit' }} />
+      {/* What a condition guards. Steps below it are skipped when the answer is
+          no, which is how a branch is expressed without a graph editor. Only
+          as many steps as actually follow it can be skipped. */}
+      {isCondition && (maxSkip > 0 ? (
+        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:11.5, color:'var(--t2)', whiteSpace:'nowrap' }}>
+          otherwise skip
+          <select value={Math.min(step.skipIfFalse ?? 1, maxSkip)} onChange={e => onChange({ skipIfFalse: Number(e.target.value) })}
+            style={{ ...selectStyle, padding:'5px 8px', minWidth:0 }}>
+            {Array.from({ length: maxSkip }, (_, i) => i + 1).map(n => <option key={n} value={n} style={optBg}>{n}</option>)}
+          </select>
+          step{Math.min(step.skipIfFalse ?? 1, maxSkip) === 1 ? '' : 's'}
+          {bodyIdx !== null && <span style={{ color:'var(--t3)' }}>
+            (step{Math.min(step.skipIfFalse ?? 1, maxSkip) === 1 ? ` ${bodyIdx + 1}` : `s ${bodyIdx + 1}–${bodyIdx + Math.min(step.skipIfFalse ?? 1, maxSkip)}`})
+          </span>}
+        </label>
+      ) : (
+        <span style={{ fontSize:11.5, color:'#fbbf24' }}>Add the steps this condition should guard below it.</span>
+      ))}
+
+      <div style={{ display:'flex', gap:6, marginLeft:'auto' }}>
+        {onMove && (
+          <>
+            <button onClick={() => onMove(-1)} disabled={bodyIdx === null || bodyIdx <= 1} title="Move up" aria-label="Move step up"
+              style={{ ...moveBtn, cursor: bodyIdx > 1 ? 'pointer' : 'not-allowed', opacity: bodyIdx > 1 ? 1 : 0.4 }}>↑</button>
+            <button onClick={() => onMove(1)} disabled={bodyIdx === null || bodyIdx >= bodyCount} title="Move down" aria-label="Move step down"
+              style={{ ...moveBtn, cursor: bodyIdx < bodyCount ? 'pointer' : 'not-allowed', opacity: bodyIdx < bodyCount ? 1 : 0.4 }}>↓</button>
+          </>
+        )}
+        {canRemove && (
+          <button onClick={onRemove} style={{ padding:'7px 10px', borderRadius:7, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Remove</button>
+        )}
+      </div>
+
+      {step.subtype === 'template' && step.type === 'action' && (
+        <TemplateStepEditor step={step} steps={steps} index={index} onChange={onChange} />
+      )}
+
+      {/* Free-text sends can use the same variables as a template parameter. */}
+      {step.type === 'action' && step.subtype === 'message' && (
+        <div style={{ flexBasis:'100%', paddingLeft:62, display:'flex' }}>
+          <VariablePicker variables={variablesBefore(steps, index)} onPick={tok => onChange({ value: `${step.value || ''}${tok}` })} />
+        </div>
       )}
 
       {/* A nudge for a customer who goes quiet mid-question. Both fields are
@@ -1393,7 +1922,7 @@ placeholder={
           <select value={step.remindAfter || ''} onChange={e => onChange({ remindAfter: e.target.value })}
             style={{ ...selectStyle, padding:'5px 8px', minWidth:0 }}>
             {[...new Set(['', '5 min', '15 min', '1 hour', '4 hours', step.remindAfter].filter(v => v !== undefined))].map(v => (
-              <option key={v || 'none'} value={v} style={{ background:'#0a0b0e' }}>{v || 'Never'}</option>
+              <option key={v || 'none'} value={v} style={optBg}>{v || 'Never'}</option>
             ))}
           </select>
           {step.remindAfter && (
@@ -1404,53 +1933,14 @@ placeholder={
         </div>
       )}
 
-      {/* What a condition guards. Steps below it are skipped when the answer is
-          no, which is how a branch is expressed without a graph editor. */}
-      {isCondition && (
-        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:11.5, color:'var(--t2)', whiteSpace:'nowrap' }}>
-          otherwise skip
-          <select value={step.skipIfFalse ?? 1} onChange={e => onChange({ skipIfFalse: Number(e.target.value) })}
-            style={{ ...selectStyle, padding:'5px 8px', minWidth:0 }}>
-            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n} style={{ background:'#0a0b0e' }}>{n}</option>)}
-          </select>
-          step{(step.skipIfFalse ?? 1) === 1 ? '' : 's'}
-        </label>
-      )}
-
-      {canRemove && (
-        <button onClick={onRemove} style={{ padding:'7px 10px', borderRadius:7, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Remove</button>
-      )}
+      {hint && <StepHint hint={hint} onUseTemplate={hint.key === 'crmChatStep' ? () => onChange({ subtype: 'template' }) : null} />}
     </div>
   );
 };
 
-// Mistakes that save fine and then do nothing on WhatsApp. Buttons followed
-// straight by a condition test the message that *started* the workflow, not
-// the option the customer taps, so every branch but the first silently skips.
-export function chatFlowError(steps) {
-  const list = (steps || []).filter(s => s.type !== 'trigger');
-  for (let i = 0; i < list.length; i += 1) {
-    const s = list[i];
-    if (s.subtype === 'buttons') {
-      const opts = String(s.value || '').split('|').map(x => x.trim()).filter(Boolean).slice(1);
-      if (opts.length === 0) return `Step "${stepLabel(s)}" needs options — write it as "Question | Option A | Option B".`;
-      if (list[i + 1]?.type === 'condition') {
-        return 'Add a "Wait for reply" step right after the buttons, so the conditions below check which option the customer tapped.';
-      }
-    }
-    if (s.type === 'condition') {
-      if (CONDITION_NEEDS_VALUE.has(s.subtype) && !String(s.value || '').trim()) return `The condition "${stepLabel(s)}" needs a value.`;
-      if (i + 1 >= list.length) return 'A condition is the last step, so it guards nothing — add the steps it should control after it.';
-    }
-    if (s.subtype === 'template' && !String(s.value || '').trim()) return 'The template step needs the name of an approved template.';
-    if (s.subtype === 'wait_reply' && s.remindAfter && !String(s.reminder || '').trim()) return 'Write the reminder text for the "Wait for reply" step, or set its reminder to Never.';
-  }
-  return '';
-}
-
 const stepLabel = (step) => {
   switch (step.subtype) {
-    case 'keyword': return `Keyword: ${step.value}`;
+    case 'keyword': return `Keyword: ${parseKeywords(step.value).join(', ')}`;
     case 'welcome': return 'New contact';
     case 'media': return `Media received${step.value ? `: ${(MEDIA_TRIGGER_CHOICES.find(([v]) => v === step.value) || [, step.value])[1]}` : ''}`;
     case 'missed':  return 'Missed call (no longer supported — choose another trigger)';
@@ -1472,7 +1962,7 @@ const stepLabel = (step) => {
     case 'field_set': return `If ${step.value} is set`;
     case 'delay':   return `Wait: ${step.value}`;
     case 'tag':     return `Tag: ${step.value}`;
-    case 'agent':   return `Assign: ${step.value}`;
+    case 'agent':   return `Hand to ${step.value || 'an agent'} (automation pauses)`;
     case 'lead_created': return 'Lead created';
     case 'lead_status':  return step.value ? `Lead status: ${prettyEnum(step.value)}` : 'Lead status changes';
     case 'deal_stage':   return step.value ? `Deal stage: ${prettyEnum(step.value)}` : 'Deal stage changes';
@@ -1480,115 +1970,187 @@ const stepLabel = (step) => {
     case 'task':     return `Create task: "${step.value}"`;
     case 'owner':    return `Assign owner: ${step.value}`;
     case 'sequence': return `Enrol in: ${step.value}`;
-    default:        return step.subtype;
+    default:        return subtypeLabel(step.type, step.subtype);
   }
 };
 
-const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulate, sim, onSimChange, onSimRepliesChange, onSimRun, onSimClose }) => {
-  const waitsForReply = (Array.isArray(w.nodes) ? w.nodes : []).some(n => n.subtype === 'wait_reply');
+// One run in a workflow's history: its outcome, what started it, the error,
+// and — on demand — the step-by-step trace.
+const RunRow = ({ run }) => {
+  const [open, setOpen] = useState(false);
+  const d = describeRun(run);
+  const trace = Array.isArray(run.trace) ? run.trace : [];
+  return (
+    <div style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
+      <StatusPill tone={d.tone}>{d.label}</StatusPill>
+      <span style={{ fontSize:12, color:'var(--t2)', flex:1, minWidth:160 }}>
+        {run.triggerMessage ? `“${run.triggerMessage}”` : run.conversationId ? '—' : 'Started by a CRM event'}
+      </span>
+      <span style={{ fontSize:11, color:'var(--t3)' }} title={new Date(run.startedAt).toLocaleString()}>{timeAgo(run.startedAt)}</span>
+      {trace.length > 0 && (
+        <button onClick={() => setOpen(v => !v)}
+          style={{ background:'none', border:'none', cursor:'pointer', fontSize:11.5, color:'var(--green)', fontWeight:600, padding:0 }}>
+          {open ? 'Hide steps' : `Steps (${trace.length})`}
+        </button>
+      )}
+      {d.suppressed
+        ? <span style={{ flexBasis:'100%', fontSize:11.5, color:'var(--t2)' }}>Didn't run — {d.reason}</span>
+        : d.reason && <span style={{ flexBasis:'100%', fontSize:11.5, color: d.tone === 'error' ? '#f87171' : 'var(--t2)' }}>{d.reason}</span>}
+      {open && <div style={{ flexBasis:'100%' }}><TraceList trace={trace} nodes={run.nodes} /></div>}
+    </div>
+  );
+};
+
+// A workflow's own run history, paged ("Load more"), refreshed whenever
+// `tick` changes (a live `workflow.run` event or the fallback poll).
+const RunHistory = ({ workflowId, tick }) => {
+  const [runs, setRuns] = useState([]);
+  const [total, setTotal] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [err, setErr] = useState('');
+  const runsRef = useRef([]);
+
+  const fetchPage = useCallback(async (offset, limit) => {
+    const res = await wFetch(`/workflows/runs?workflowId=${encodeURIComponent(workflowId)}&limit=${limit}&offset=${offset}`);
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
+    const page = readRunsPage(body, res.headers?.get?.('X-Total-Count'));
+    // Defensive: never show another workflow's runs.
+    return { ...page, items: page.items.filter(r => !r.workflowId || r.workflowId === workflowId) };
+  }, [workflowId]);
+
+  // First load and every refresh re-read the newest rows — as many as are on
+  // screen, up to 100 — and keep any older pages beyond that.
+  useEffect(() => {
+    let cancelled = false;
+    const limit = Math.min(100, Math.max(RUNS_PAGE, runsRef.current.length));
+    fetchPage(0, limit).then(({ items, total: t }) => {
+      if (cancelled) return;
+      const older = runsRef.current.length > limit ? runsRef.current.slice(limit) : [];
+      const next = appendUnique(items, older);
+      runsRef.current = next;
+      setRuns(next);
+      setTotal(t);
+      setHasMore(prev => (t !== null ? next.length < t : older.length ? prev : items.length >= limit));
+      setErr('');
+    }).catch(e => { if (!cancelled) setErr(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [fetchPage, tick]);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const before = runsRef.current.length;
+      const { items, total: t } = await fetchPage(before, RUNS_PAGE);
+      const next = appendUnique(runsRef.current, items);
+      runsRef.current = next;
+      setRuns(next);
+      setTotal(t);
+      // A server that ignores `offset` sends the first page again: nothing new
+      // means there is nothing more to load.
+      const added = next.length - before;
+      setHasMore(hasMoreRows({ loaded: next.length, total: t, lastPageSize: added === 0 ? 0 : items.length, size: RUNS_PAGE }) && added > 0);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  return (
+    <div style={{ border:'1px solid var(--bd)', borderRadius:8, overflow:'hidden' }}>
+      {err && <div style={{ padding:'10px 14px', fontSize:12, color:'#f87171' }}>{err}</div>}
+      {loading ? (
+        <div style={{ padding:16, fontSize:12.5, color:'var(--t2)', textAlign:'center' }}>Loading runs…</div>
+      ) : runs.length === 0 ? (
+        <div style={{ padding:16, fontSize:12.5, color:'var(--t2)', textAlign:'center' }}>
+          No runs yet. This workflow runs when its trigger fires — see "Why didn't my workflow run?" in Resources if you expected one.
+        </div>
+      ) : (
+        <>
+          {runs.map(run => <RunRow key={run.id} run={run} />)}
+          <div style={{ padding:'9px 14px', display:'flex', alignItems:'center', gap:12 }}>
+            <span style={{ fontSize:11, color:'var(--t3)', flex:1 }}>
+              Showing {runs.length}{total !== null ? ` of ${total}` : ''} run{(total ?? runs.length) === 1 ? '' : 's'}
+            </span>
+            {hasMore && <Btn size="xs" variant="ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</Btn>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const WorkflowCard = ({ workflow: w, stats, readOnly, runsTick, onToggle, onEdit, onDelete, onSimulate, sim, onSimChange, onSimRepliesChange, onSimRun, onSimClose }) => {
+  const nodes = Array.isArray(w.nodes) ? w.nodes : [];
+  const waitsForReply = nodes.some(n => n.subtype === 'wait_reply');
   const [showRuns, setShowRuns] = useState(false);
+  const stepCount = nodes.filter(n => n.type !== 'trigger').length;
+  const last = stats.lastStatus ? describeRun({ status: stats.lastStatus, error: stats.lastError, trace: stats.lastTrace }) : null;
 
   return (
     <div style={{ ...card, padding:20, display:'flex', flexDirection:'column', gap:14 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
-        <div style={{ display:'flex', gap:12, alignItems:'center' }}>
-          <div style={{ width:32, height:32, borderRadius:8, background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <div style={{ display:'flex', gap:12, alignItems:'center', minWidth:0 }}>
+          <div style={{ width:32, height:32, borderRadius:8, background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
             <I n="wflow" s={16} c="#f59e0b" />
           </div>
-          <div>
+          <div style={{ minWidth:0 }}>
             <h3 style={{ fontSize:15, fontWeight:600, color:'var(--t1)' }}>{w.name}</h3>
-            <p style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>
-              {Array.isArray(w.nodes) ? w.nodes.length : 0} steps · {runs.length} run{runs.length === 1 ? '' : 's'} · updated {new Date(w.updatedAt || w.createdAt).toLocaleDateString()}
+            <p style={{ fontSize:11, color:'var(--t3)', marginTop:2, display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+              <span>{stepCount} step{stepCount === 1 ? '' : 's'}</span>
+              {stats.count !== null && <span>· {stats.count} run{stats.count === 1 ? '' : 's'}</span>}
+              {stats.lastAt
+                ? <span title={new Date(stats.lastAt).toLocaleString()}>· last run {timeAgo(stats.lastAt)}</span>
+                : stats.count === 0 && <span>· never run</span>}
+              {last && <StatusPill tone={last.tone}>{last.label}</StatusPill>}
+              <span>· updated {new Date(w.updatedAt || w.createdAt).toLocaleDateString()}</span>
             </p>
           </div>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <Toggle on={w.isActive} onToggle={onToggle} />
-          <IconBtn icon="pencil" onClick={onEdit} title="Edit" />
-          <IconBtn icon="trash" danger onClick={onDelete} title="Delete" />
+          {!readOnly && <IconBtn icon="pencil" onClick={onEdit} title="Edit" />}
+          {!readOnly && <IconBtn icon="trash" danger onClick={onDelete} title="Delete" />}
         </div>
       </div>
 
       <div style={{ display:'flex', flexWrap:'wrap', gap:6, alignItems:'center', background:'rgba(255,255,255,0.01)', border:'1px solid var(--bd)', borderRadius:8, padding:'10px 14px' }}>
-        {(Array.isArray(w.nodes) ? w.nodes : []).map((step, idx) => (
+        {nodes.map((step, idx) => (
           <div key={step.id || idx} style={{ display:'flex', alignItems:'center', gap:6 }}>
             {idx > 0 && <I n="arrow" s={10} c="var(--t3)" />}
-            <span style={{ fontSize:12, padding:'3px 8px', borderRadius:6, background: step.type === 'trigger' ? 'rgba(245,158,11,0.08)' : 'rgba(53,232,242,0.08)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:600 }}>
+            <span style={{ fontSize:12, padding:'3px 8px', borderRadius:6, background: step.type === 'trigger' ? 'rgba(245,158,11,0.08)' : step.type === 'condition' ? 'rgba(157,107,255,0.08)' : 'rgba(53,232,242,0.08)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.2)' : step.type === 'condition' ? 'rgba(157,107,255,0.25)' : 'var(--gbd)'}`, color: TYPE_COLOR[step.type] || 'var(--green)', fontWeight:600 }}>
               {stepLabel(step)}
             </span>
           </div>
         ))}
       </div>
 
-      {!w.isActive && <Banner tone="warn">This workflow is paused — it will not run on incoming messages.</Banner>}
+      {!w.isActive && <Banner tone="warn">This workflow is paused — it will not run on incoming messages or CRM events.</Banner>}
+      {last?.tone === 'error' && stats.lastError && <Banner tone="error">Last run failed: {stats.lastError}</Banner>}
 
       <div style={{ borderTop:'1px solid var(--bd)', paddingTop:12, display:'flex', gap:16, flexWrap:'wrap' }}>
-        <button onClick={onSimulate} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'var(--green)', fontWeight:600, display:'flex', alignItems:'center', gap:6, padding:0 }}>
-          <I n="play" s={12} c="var(--green)" /> Test this workflow
-        </button>
+        {/* Testing needs the member role on the server, so viewers and agents
+            get the history only. */}
+        {!readOnly && (
+          <button onClick={onSimulate} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'var(--green)', fontWeight:600, display:'flex', alignItems:'center', gap:6, padding:0 }}>
+            <I n="play" s={12} c="var(--green)" /> Test this workflow
+          </button>
+        )}
         <button onClick={() => setShowRuns(v => !v)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'var(--t2)', fontWeight:600, display:'flex', alignItems:'center', gap:6, padding:0 }}>
           <I n="clock" s={12} c="var(--t2)" /> {showRuns ? 'Hide' : 'Show'} run history
         </button>
       </div>
 
-      {sim && (
-        <div style={{ border:'1px solid var(--bd)', borderRadius:8, padding:14, display:'flex', flexDirection:'column', gap:10, background:'rgba(255,255,255,0.02)' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <span style={{ fontSize:12, fontWeight:700, color:'var(--t1)' }}>Test with a sample message</span>
-            <IconBtn icon="x" onClick={onSimClose} />
-          </div>
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-            <input value={sim.sample} onChange={e => onSimChange(e.target.value)}
-              placeholder="Type what a customer would send…" style={{ ...inputStyle, flex:1, minWidth:220 }} />
-            <Btn size="sm" onClick={onSimRun} disabled={sim.busy}>{sim.busy ? 'Running…' : 'Run test'}</Btn>
-          </div>
-          {waitsForReply && (
-            <input value={sim.replies || ''} onChange={e => onSimRepliesChange(e.target.value)}
-              placeholder="Customer's replies, in order, separated by | — e.g. Track my order | 12345"
-              style={{ ...inputStyle, width:'100%' }} />
-          )}
-          <p style={{ fontSize:11, color:'var(--t3)', margin:0 }}>Simulation only — no messages are actually sent.</p>
-
-          {sim.result?.error && <Banner tone="error">{sim.result.error}</Banner>}
-          {sim.result && !sim.result.error && (
-            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              <span style={{ fontSize:12.5, fontWeight:700, color: sim.result.ran ? 'var(--green)' : '#f87171' }}>
-                {sim.result.ran ? 'Triggered' : `Would not run — ${sim.result.reason || 'trigger did not match'}`}
-              </span>
-              {(sim.result.trace || []).map((t, i) => (
-                <div key={i} style={{ fontSize:12, color:'var(--t2)', display:'flex', gap:8, paddingLeft:4 }}>
-                  <span style={{ color:'var(--t3)', minWidth:56 }}>{t.step}</span>
-                  <span style={{ flex:1 }}>{t.detail}</span>
-                  <span style={{ color: t.result === 'no match' || t.result === 'skipped' || String(t.result).startsWith('no') ? '#f87171' : t.result === 'waiting' ? '#f59e0b' : 'var(--green)' }}>{t.result}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {sim && !readOnly && (
+        <SimPanel title="Test with a sample message" sim={sim} waitsForReply={waitsForReply}
+          onSample={onSimChange} onReplies={onSimRepliesChange} onRun={onSimRun} onClose={onSimClose} workflowId={w.id} />
       )}
 
-      {showRuns && (
-        <div style={{ border:'1px solid var(--bd)', borderRadius:8, overflow:'hidden' }}>
-          {runs.length === 0 ? (
-            <div style={{ padding:16, fontSize:12.5, color:'var(--t2)', textAlign:'center' }}>
-              No runs yet. This workflow fires when a customer sends a matching message.
-            </div>
-          ) : runs.slice(0, 8).map(run => (
-            <div key={run.id} style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
-              <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20, color: run.status === 'COMPLETED' ? 'var(--success)' : run.status === 'FAILED' ? '#f87171' : run.status === 'CANCELLED' ? 'var(--t3)' : '#fbbf24', background: run.status === 'COMPLETED' ? 'var(--sbg)' : run.status === 'FAILED' ? 'rgba(239,68,68,.08)' : run.status === 'CANCELLED' ? 'var(--surf3)' : 'rgba(245,158,11,.08)' }}>
-                {run.status}
-              </span>
-              <span style={{ fontSize:12, color:'var(--t2)', flex:1, minWidth:160 }}>
-                {run.triggerMessage ? `“${run.triggerMessage}”` : '—'}
-              </span>
-              <span style={{ fontSize:11, color:'var(--t3)' }}>{new Date(run.startedAt).toLocaleString()}</span>
-              {run.error && (
-                <span style={{ flexBasis:'100%', fontSize:11.5, color:'#f87171' }}>{run.error}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      {showRuns && <RunHistory workflowId={w.id} tick={runsTick} />}
     </div>
   );
 };
@@ -3115,7 +3677,8 @@ export default function AutomationView({ initialTab }) {
 
   const isMobile = useIsMobile();
   // Viewers and agents can look but not change anything here; the disabled
-  // fieldset below makes every control in the tab body read-only at once.
+  // fieldset below makes every control in the tab body read-only at once
+  // (except on Workflows, which hides its edit controls itself).
   const readOnly = !can('automation.manage');
 
   const renderContent = () => {
@@ -3174,7 +3737,9 @@ export default function AutomationView({ initialTab }) {
               </span>
             </div>
           )}
-          <fieldset disabled={readOnly} style={{ border:0, padding:0, margin:0, minWidth:0 }}>
+          {/* The Workflows tab gates its own controls, because run history has to
+              stay usable for viewers and agents, which a disabled fieldset prevents. */}
+          <fieldset disabled={readOnly && activeTab !== 'workflows'} style={{ border:0, padding:0, margin:0, minWidth:0 }}>
             {renderContent()}
           </fieldset>
         </div>
