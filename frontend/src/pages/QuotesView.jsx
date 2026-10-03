@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { Modal } from '../components/Modal.jsx';
@@ -7,6 +7,12 @@ import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { fmtMoney, fmtDate, pretty } from '../lib/format.js';
 import { can } from '../lib/permissions.js';
+import { ListPager } from '../components/ListPager.jsx';
+import { PAGE_SIZE, pageParams, pageCount } from '../lib/paging.js';
+
+// The product picker searches the catalogue on the server (CF-048): the
+// products list is paged, so a fixed first page hid the rest of a large one.
+const PRODUCT_PICKER_SIZE = 50;
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -33,9 +39,14 @@ const ColHead = ({ children, align = 'left' }) => (
   <th style={{ padding: '10px 16px', textAlign: align, fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.08em', whiteSpace: 'nowrap' }}>{children}</th>
 );
 
-const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
+const QuoteDetailModal = ({ quoteId, onClose, onChanged }) => {
   const [quote, setQuote] = useState(null);
   const [productId, setProductId] = useState('');
+  const productIdRef = useRef(productId);
+  productIdRef.current = productId;
+  const [products, setProducts] = useState([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [productTotal, setProductTotal] = useState(0);
   const [qty, setQty] = useState('1');
   const [discount, setDiscount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -71,6 +82,29 @@ const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
   };
 
   const editable = quote?.status === 'DRAFT';
+
+  useEffect(() => {
+    if (!editable || locked) return undefined;
+    let cancelled = false;
+    const t = setTimeout(() => {
+      const qs = new URLSearchParams({ limit: String(PRODUCT_PICKER_SIZE), offset: '0' });
+      if (productSearch.trim()) qs.set('search', productSearch.trim());
+      wFetch(`/products?${qs}`)
+        .then(r => (r.ok ? r.json() : Promise.reject(new Error(`Could not load products (${r.status})`))))
+        .then(d => {
+          if (cancelled) return;
+          const list = d?.data ?? [];
+          setProductTotal(Number.isFinite(d?.total) ? d.total : list.length);
+          // The product already chosen stays selectable while the search changes.
+          setProducts(prev => {
+            const chosen = prev.find(p => p.id === productIdRef.current);
+            return chosen && !list.some(p => p.id === chosen.id) ? [chosen, ...list] : list;
+          });
+        })
+        .catch((e) => console.warn('[QuotesView] Loading products failed:', e?.message || e));
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [editable, locked, productSearch]);
 
   const applyDiscount = () => act(() => wFetch(`/quotes/${quote.id}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -149,8 +183,15 @@ const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
               <div style={{ flex: 2, minWidth: 170 }}>
                 <FLabel>Add product</FLabel>
+                <FInput value={productSearch} onChange={e => setProductSearch(e.target.value)} placeholder="Search products by name or SKU…" />
+                <div style={{ height: 6 }} />
                 <FSelect value={productId} onChange={e => setProductId(e.target.value)} placeholder="Choose a product"
                   options={products.map(p => ({ value: p.id, label: `${p.name} — ${fmtMoney(p.unitPrice)}` }))} />
+                {productTotal > PRODUCT_PICKER_SIZE && (
+                  <div style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 4 }}>
+                    Top {PRODUCT_PICKER_SIZE} of {productTotal.toLocaleString('en-IN')} — search to find others.
+                  </div>
+                )}
               </div>
               <div style={{ width: 84 }}><FLabel>Qty</FLabel><FInput type="number" value={qty} onChange={e => setQty(e.target.value)} /></div>
               <Btn size="sm" disabled={busy || locked || !productId}
@@ -200,7 +241,9 @@ const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
 
 export const QuotesView = () => {
   const [quotes, setQuotes] = useState([]);
-  const [products, setProducts] = useState([]);
+  // Read a page at a time (CF-048); `total` is every quote in the filter.
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [deals, setDeals] = useState([]);
   const [status, setStatus] = useState('');
   const [openId, setOpenId] = useState(null);
@@ -209,20 +252,27 @@ export const QuotesView = () => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
 
+  useEffect(() => { setPage(1); }, [status]);
+
   const load = useCallback(() => {
     setLoading(true);
     const qs = new URLSearchParams();
     if (status) qs.set('status', status);
-    wFetch(`/quotes?${qs}`)
+    wFetch(`/quotes?${pageParams(qs, page, PAGE_SIZE)}`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error('Could not load quotes'))))
-      .then(d => setQuotes(d.data ?? []))
+      .then(d => {
+        const list = d.data ?? [];
+        const count = d.total ?? list.length;
+        if (list.length === 0 && page > 1 && count > 0) { setPage(pageCount(count, PAGE_SIZE)); return; }
+        setQuotes(list);
+        setTotal(count);
+      })
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false));
-  }, [status]);
+  }, [status, page]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    wFetch('/products').then(r => r.ok && r.json()).then(d => setProducts(d?.data ?? [])).catch((err) => console.warn('[QuotesView] Loading products failed:', err?.message || err));
     wFetch('/deals').then(r => r.ok && r.json()).then(d => setDeals(d?.data ?? [])).catch((err) => console.warn('[QuotesView] Loading deals failed:', err?.message || err));
   }, []);
 
@@ -252,7 +302,7 @@ export const QuotesView = () => {
       <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Quotes</span>
-          <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{quotes.length}</span>
+          <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{total.toLocaleString('en-IN')}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 150 }}>
@@ -296,6 +346,9 @@ export const QuotesView = () => {
             </tbody>
           </table>
         </div>
+        {total > PAGE_SIZE && (
+          <ListPager page={page} pageSize={PAGE_SIZE} total={total} loading={loading} onPage={setPage} noun="quote" />
+        )}
       </div>
 
       {creating && (
@@ -314,7 +367,7 @@ export const QuotesView = () => {
       )}
 
       {openId && (
-        <QuoteDetailModal quoteId={openId} products={products}
+        <QuoteDetailModal quoteId={openId}
           onClose={() => setOpenId(null)} onChanged={load} />
       )}
     </div>

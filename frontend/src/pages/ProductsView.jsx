@@ -7,6 +7,8 @@ import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { fmtMoney } from '../lib/format.js';
 import { can } from '../lib/permissions.js';
+import { ListPager } from '../components/ListPager.jsx';
+import { PAGE_SIZE, pageParams, pageCount } from '../lib/paging.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -103,6 +105,11 @@ export const ProductsView = () => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [notice, setNotice] = useState(null);
+  // Read a page at a time (CF-048); search and filters stay on the server.
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+
+  useEffect(() => { setPage(1); }, [search, category, showInactive]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -110,12 +117,19 @@ export const ProductsView = () => {
     if (search) qs.set('search', search);
     if (category) qs.set('category', category);
     if (showInactive) qs.set('includeInactive', 'true');
-    wFetch(`/products?${qs}`)
+    wFetch(`/products?${pageParams(qs, page, PAGE_SIZE)}`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error('Could not load products'))))
-      .then(d => { setProducts(d.data ?? []); setCategories(d.categories ?? []); })
+      .then(d => {
+        const list = d.data ?? [];
+        const count = d.total ?? list.length;
+        if (list.length === 0 && page > 1 && count > 0) { setPage(pageCount(count, PAGE_SIZE)); return; }
+        setProducts(list);
+        setTotal(count);
+        setCategories(d.categories ?? []);
+      })
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false));
-  }, [search, category, showInactive]);
+  }, [search, category, showInactive, page]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -143,7 +157,7 @@ export const ProductsView = () => {
       <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Products &amp; services</span>
-          <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{products.length}</span>
+          <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{total.toLocaleString('en-IN')}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 11px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)' }}>
@@ -219,6 +233,9 @@ export const ProductsView = () => {
             </tbody>
           </table>
         </div>
+        {total > PAGE_SIZE && (
+          <ListPager page={page} pageSize={PAGE_SIZE} total={total} loading={loading} onPage={setPage} noun="product" />
+        )}
       </div>
 
       {editing !== undefined && (
