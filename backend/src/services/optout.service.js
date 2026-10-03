@@ -239,7 +239,7 @@ export async function listOptOuts(workspaceId, { search = '', status = 'active',
   }
 
   const [rows, total, activeCount] = await Promise.all([
-    prisma.optOut.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
+    prisma.optOut.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip, take }),
     prisma.optOut.count({ where }),
     prisma.optOut.count({ where: { workspaceId, active: true } }),
   ]);
@@ -334,7 +334,14 @@ const csvCell = (value) => {
 };
 
 export async function exportOptOutsCsv(workspaceId, { status = 'active', search = '' } = {}) {
-  const { data } = await listOptOuts(workspaceId, { status, search, page: 1, limit: 200 });
+  // Every page, not just the first: the export used to stop silently at the
+  // list's 200-row page size (CF-048).
+  const data = [];
+  for (let page = 1; ; page += 1) {
+    const { data: rows } = await listOptOuts(workspaceId, { status, search, page, limit: 200 });
+    data.push(...rows);
+    if (rows.length < 200) break;
+  }
   const header = ['Phone Number', 'Workspace', 'Blocked Date', 'Blocked Time', 'Reason', 'Blocked By', 'Keyword', 'Source', 'Status'];
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } });
 

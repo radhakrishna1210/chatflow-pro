@@ -48,16 +48,36 @@ export async function update(req, res) {
 
 // CSV download. Sends the same filters the list endpoint takes, so "export"
 // means "export what I am looking at".
+//
+// Streamed: rows are written as each chunk is read, so a large workspace is
+// neither capped nor held in memory (CF-048). The row count is taken first so
+// X-Export-Count can still be sent as a header.
 export async function exportCsv(req, res) {
   const { page: _p, limit: _l, ...filters } = req.query;
-  const { csv, filename, count, truncated } = await contactsService.exportContactsCsv(
-    req.params.workspaceId, filters,
-  );
+  const count = await contactsService.countContacts(req.params.workspaceId, filters);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Disposition', `attachment; filename="contacts-${new Date().toISOString().slice(0, 10)}.csv"`);
   res.setHeader('X-Export-Count', String(count));
-  if (truncated) res.setHeader('X-Export-Truncated', 'true');
   // A BOM so Excel opens non-ASCII names in the right encoding instead of
   // mangling them.
-  res.send('﻿' + csv);
+  res.write('﻿');
+  let first = true;
+  try {
+    await contactsService.exportContactsCsv(req.params.workspaceId, filters, {
+      writeLine: async (line) => {
+        if (res.destroyed) throw new Error('client went away');
+        const ok = res.write(first ? line : `\r\n${line}`);
+        first = false;
+        // Respect backpressure so a slow client cannot make us buffer the file.
+        if (!ok) await new Promise((resolve) => { res.once('drain', resolve); res.once('close', resolve); });
+      },
+    });
+    res.end();
+  } catch (err) {
+    // Headers and part of the file are already out, so the error handler
+    // cannot answer with JSON. Cut the download short so it is visibly
+    // incomplete rather than silently truncated.
+    console.error(`[Contacts] Export for ${req.params.workspaceId} failed mid-stream:`, err.message);
+    res.destroy(err);
+  }
 }
