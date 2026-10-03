@@ -9,6 +9,7 @@ import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { SavedViews } from '../components/SavedViews.jsx';
 import { ImportExport } from '../components/ImportExport.jsx';
+import { can } from '../lib/permissions.js';
 
 const DEFAULT_STAGES = [
   { key: 'QUALIFICATION', label: 'Qualification', tone: 'blue', color: '#3b82f6' },
@@ -94,7 +95,9 @@ const HealthDot = ({ health, showScore = false }) => {
 
 const DealCard = ({ deal, onDragStart, onDragEnd, onClick, dragging, onMoveStage }) => (
   <div
-    draggable
+    // Moving a deal between stages is a write (PATCH /deals/:id/stage), so the
+    // card only drags for roles that may make it.
+    draggable={can('crm.records')}
     onDragStart={onDragStart}
     onDragEnd={onDragEnd}
     onClick={onClick}
@@ -107,7 +110,7 @@ const DealCard = ({ deal, onDragStart, onDragEnd, onClick, dragging, onMoveStage
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); }
       if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
         e.preventDefault();
-        onMoveStage?.(deal, e.key === 'ArrowRight' ? 1 : -1);
+        if (can('crm.records')) onMoveStage?.(deal, e.key === 'ArrowRight' ? 1 : -1);
       }
     }}
     className="m-lift m-press"
@@ -270,9 +273,9 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages 
   return (
     <Modal title={deal ? deal.title : 'Deal'} onClose={onClose} width={560}
       footer={<>
-        <Btn variant="outline" size="sm" onClick={remove} disabled={saving || !deal}>Delete</Btn>
-        <Btn variant="ghost" size="sm" onClick={onClose}>Cancel</Btn>
-        <Btn size="sm" onClick={save} disabled={saving || !deal}>{saving ? 'Saving…' : 'Save'}</Btn>
+        {can('crm.records') && <Btn variant="outline" size="sm" onClick={remove} disabled={saving || !deal}>Delete</Btn>}
+        <Btn variant="ghost" size="sm" onClick={onClose}>{can('crm.records') ? 'Cancel' : 'Close'}</Btn>
+        {can('crm.records') && <Btn size="sm" onClick={save} disabled={saving || !deal}>{saving ? 'Saving…' : 'Save'}</Btn>}
       </>}>
       {err && <div style={{ marginBottom: 12 }}><ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner></div>}
       {!deal ? (
@@ -548,7 +551,9 @@ export default function DealsView({ initialTab }) {
               <Btn key={id} size="sm" variant={tab === id ? 'primary' : 'ghost'} onClick={() => switchTab(id)}>{label}</Btn>
             ))}
           </div>
-          <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New Deal</Btn>
+          {can('crm.records') && (
+            <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New Deal</Btn>
+          )}
         </div>
       </div>
 

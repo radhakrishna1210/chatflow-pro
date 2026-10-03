@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { fmtMoney } from '../lib/format.js';
+import { can } from '../lib/permissions.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -158,7 +159,9 @@ export const ProductsView = () => {
             <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
             Show inactive
           </label>
-          <Btn size="sm" onClick={() => setEditing(null)}>New product</Btn>
+          {can('crm.records') && (
+            <Btn size="sm" onClick={() => setEditing(null)}>New product</Btn>
+          )}
         </div>
       </div>
 
@@ -202,12 +205,14 @@ export const ProductsView = () => {
                     <StatusBadge label={p.isService ? 'Service' : 'Product'} tone={p.isService ? 'violet' : 'blue'} />
                   </td>
                   <td style={{ padding: '11px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {can('crm.records') && <>
                     <button onClick={() => setEditing(p)} aria-label={`Edit ${p.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5 }}>
                       <I n="pencil" s={14} c="var(--t2)" />
                     </button>
                     <button onClick={() => remove(p)} aria-label={`Remove ${p.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5 }}>
                       <I n="trash" s={14} c="#f87171" />
                     </button>
+                    </>}
                   </td>
                 </tr>
               ))}

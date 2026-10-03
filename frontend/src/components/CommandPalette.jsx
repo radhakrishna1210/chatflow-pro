@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { I } from './Icons.jsx';
 import { wFetch } from '../lib/api.js';
+import { canOpenSection } from '../lib/permissions.js';
 
 // Navigation and create actions available without typing a search term. These
 // are the destinations the palette can reach; anything else comes back from
@@ -9,7 +10,7 @@ const ACTIONS = [
   { id: 'nav-home', label: 'Go to Home', icon: 'home', nav: 'home', keywords: 'dashboard overview' },
   { id: 'nav-crm', label: 'Go to CRM Overview', icon: 'chart', nav: 'crm-overview', keywords: 'pipeline metrics kpi' },
   { id: 'nav-crm-sales-inbox', label: 'Go to CRM Sales Inbox', icon: 'msg', nav: 'crm-sales-inbox', keywords: 'sales inbox leads follow-up category segmentation' },
-  { id: 'nav-ai-chatbots', label: 'Go to AI Chatbots & Agents', icon: 'bot', nav: 'ai-chatbots', keywords: 'ai agents bots qualification compliance support knowledge guidelines actions' },
+  { id: 'nav-ai-chatbots', label: 'Go to AI Agents', icon: 'bot', nav: 'ai-agent', keywords: 'ai agents chatbots bots whatsapp agent deploy autonomous crm agent queue knowledge guidelines actions' },
   { id: 'nav-leads', label: 'Go to Leads', icon: 'target', nav: 'leads', keywords: 'prospects' },
   { id: 'nav-deals', label: 'Go to Deals', icon: 'briefcase', nav: 'deals', keywords: 'pipeline opportunities kanban' },
   { id: 'nav-tasks', label: 'Go to Tasks', icon: 'check-square', nav: 'tasks', keywords: 'todo work queue' },
@@ -51,9 +52,11 @@ export const CommandPalette = () => {
 
   const term = q.trim();
 
+  // Sections this role cannot open are not offered (lib/permissions.js).
+  const allowedActions = ACTIONS.filter(a => !a.nav || canOpenSection(a.nav));
   const filteredActions = term
-    ? ACTIONS.filter(a => `${a.label} ${a.keywords}`.toLowerCase().includes(term.toLowerCase()))
-    : ACTIONS;
+    ? allowedActions.filter(a => `${a.label} ${a.keywords}`.toLowerCase().includes(term.toLowerCase()))
+    : allowedActions;
 
   const items = [
     ...filteredActions.map(a => ({ kind: 'action', ...a })),

@@ -186,6 +186,7 @@ ws.use('/lead-forms', leadFormsRoutes);
 ws.use('/tickets', ticketsRoutes);
 ws.use('/insights', insightsRoutes);
 ws.use('/copilot', copilotRoutes);
+// Old path of the autonomous agent; canonical path is /ai-agents/autonomous.
 ws.use('/agent', agentRoutes);
 ws.use('/progress', gamificationRoutes);
 ws.use('/conversations', conversationsRoutes);
@@ -212,8 +213,16 @@ ws.use('/blocked-numbers', optOutRoutes);
 ws.use('/subscription', subscriptionRoutes);
 ws.use('/integrations', integrationsRoutes);
 ws.use('/support', supportRoutes);
-ws.use('/ai-agent', aiAgentRoutes);
+// AI Agents: one route family for the one AI Agents area —
+//   /ai-agents             the agent studio (personas, channels, guidelines, actions)
+//   /ai-agents/whatsapp    the live WhatsApp AI agent (config, knowledge, deploy, test)
+//   /ai-agents/autonomous  the autonomous CRM agent (switch, queue, suggestions)
+// The two sub-families are mounted before the studio so its /:id routes never
+// see them. /ai-agent and /agent stay as aliases for existing clients.
+ws.use('/ai-agents/whatsapp', aiAgentRoutes);
+ws.use('/ai-agents/autonomous', agentRoutes);
 ws.use('/ai-agents', aiAgentsRoutes);
+ws.use('/ai-agent', aiAgentRoutes);
 ws.use('/intents', intentRoutes);
 ws.use('/invitations', invitationsRoutes);
 ws.use('/switch', workspaceSwitchRoutes);

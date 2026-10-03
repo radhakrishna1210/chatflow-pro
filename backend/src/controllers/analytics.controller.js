@@ -5,6 +5,11 @@ export async function overview(req, res) {
   res.json(data);
 }
 
+// The Home screen's cards in one request: counts, not lists.
+export async function home(req, res) {
+  res.json(await analyticsService.getHomeStats(req.params.workspaceId));
+}
+
 export async function delivery(req, res) {
   const data = await analyticsService.getDeliveryStats(req.params.workspaceId, req.query.days);
   res.json(data);

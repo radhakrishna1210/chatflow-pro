@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { notify } from '../components/Feedback.jsx';
+import { can } from '../lib/permissions.js';
 import { useRealtime, useThrottledCallback } from '../lib/realtime.js';
 
 const CATEGORY_COLORS = {
@@ -38,6 +39,13 @@ const CategoryBadge = ({ category = 'COLD' }) => {
 };
 
 export default function CrmSalesInboxView() {
+  // What this role may do here (lib/permissions.js): a reply to an existing
+  // thread is agent work; a template send, a campaign launch, sequence
+  // enrolment, re-scoring and deleting leads are member work.
+  const canReply = can('inbox.reply');
+  const canSendTemplate = can('inbox.sendTemplate');
+  const canLaunch = can('campaigns.manage');
+  const canRecords = can('crm.records');
   const [activeTab, setActiveTab] = useState('individual'); // 'individual' | 'segment'
 
   // Common data
@@ -986,7 +994,7 @@ export default function CrmSalesInboxView() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    <Btn size="sm" variant="sec" onClick={() => setShowTemplateModal(true)} disabled={selectedLead.contact?.optedOut}>
+                    <Btn size="sm" variant="sec" onClick={() => setShowTemplateModal(true)} disabled={selectedLead.contact?.optedOut || !canSendTemplate}>
                       <I n="file" s={14} /> Send Template
                     </Btn>
                   </div>
@@ -1006,7 +1014,7 @@ export default function CrmSalesInboxView() {
                       ⚡ <strong>WhatsApp 24h Window:</strong> Meta requires customer activity within 24h for free-form replies. Send an approved template to re-open the conversation.
                     </span>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
+                      <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)} disabled={!canSendTemplate}>
                         <I n="file" s={12} /> Send Template
                       </Btn>
                     </div>
@@ -1019,7 +1027,7 @@ export default function CrmSalesInboxView() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span>⚠️ {chatError}</span>
                       {chatError.toLowerCase().includes('template') && (
-                        <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
+                        <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)} disabled={!canSendTemplate}>
                           Send Approved Template
                         </Btn>
                       )}
@@ -1075,7 +1083,7 @@ export default function CrmSalesInboxView() {
                     disabled={selectedLead.contact?.optedOut}
                     style={{ flex: 1 }}
                   />
-                  <Btn onClick={handleSendMessage} disabled={sendingMsg || !messageText.trim() || selectedLead.contact?.optedOut}>
+                  <Btn onClick={handleSendMessage} disabled={!canReply || sendingMsg || !messageText.trim() || selectedLead.contact?.optedOut}>
                     <I n="send" s={15} /> Send
                   </Btn>
                 </div>
@@ -1129,6 +1137,7 @@ export default function CrmSalesInboxView() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <button
                         onClick={handleRecalculateCategory}
+                        disabled={!canRecords}
                         title="Recalculate Lead Category & Score"
                         style={{
                           background: 'rgba(255,255,255,0.04)',
@@ -1167,7 +1176,7 @@ export default function CrmSalesInboxView() {
                       >
                         <I n="columns" s={12} /> {rightWidth >= 480 ? 'Compact' : 'Expand'}
                       </button>
-                      <button
+                      {canRecords && <button
                         onClick={() => setConfirmDeleteLead(true)}
                         title="Delete Lead from CRM"
                         style={{
@@ -1183,12 +1192,13 @@ export default function CrmSalesInboxView() {
                         }}
                       >
                         <I n="trash" s={12} c="#f87171" />
-                      </button>
+                      </button>}
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <button
+                      disabled={!canRecords}
                       onClick={() => { setEnrollTarget({ type: 'lead', leadId: selectedLead.id }); setShowEnrollModal(true); }}
                       title="Enroll Lead in Sequence Cadence"
                       style={{
@@ -1374,7 +1384,7 @@ export default function CrmSalesInboxView() {
               </h3>
 
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                {selectedAudienceIds.size > 0 && (
+                {selectedAudienceIds.size > 0 && canRecords && (
                   <button
                     onClick={() => setConfirmBulkDeleteAudience(true)}
                     style={{
@@ -1396,7 +1406,7 @@ export default function CrmSalesInboxView() {
                 )}
                 <Btn
                   variant="sec"
-                  disabled={(audienceData?.eligibleCount || 0) === 0}
+                  disabled={!canRecords || (audienceData?.eligibleCount || 0) === 0}
                   onClick={() => {
                     const eligibleIds = (audienceData?.leads || []).filter(l => l.isEligible).map(l => l.id);
                     setEnrollTarget({ type: 'segment', leadIds: eligibleIds });
@@ -1406,7 +1416,7 @@ export default function CrmSalesInboxView() {
                   <I n="layers" s={16} /> Enroll Segment in Sequence
                 </Btn>
                 <Btn
-                  disabled={(audienceData?.eligibleCount || 0) === 0}
+                  disabled={!canLaunch || (audienceData?.eligibleCount || 0) === 0}
                   onClick={() => setShowConfirmModal(true)}
                 >
                   <I n="send" s={16} /> Configure & Launch WhatsApp Campaign

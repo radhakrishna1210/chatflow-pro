@@ -15,6 +15,7 @@ import AgentTab from '../components/AgentTab.jsx';
 import { LeadDistributionModal } from '../components/LeadDistributionModal.jsx';
 import { LogInteractionModal } from '../components/LogInteractionModal.jsx';
 import { BulkTaskModal } from '../components/BulkTaskModal.jsx';
+import { can } from '../lib/permissions.js';
 
 const DEFAULT_LEAD_STAGES = [
   { key: 'NEW', label: 'New Lead', color: '#3b82f6' },
@@ -469,7 +470,11 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
   const [tab, setTab] = useState('overview'); // 'overview' | 'engagements' | 'form_intent' | 'tasks' | 'notes'
   const [notes, setNotes] = useState(lead.notes || '');
   const [savingNotes, setSavingNotes] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busyState, setBusy] = useState(false);
+  // Every edit on this panel is a member-level write (authorize('CLIENT') on
+  // /leads); for viewers and agents the controls that use `busy` stay locked.
+  const readOnly = !can('crm.records');
+  const busy = busyState || readOnly;
   const [err, setErr] = useState(null);
   const [converting, setConverting] = useState(false);
   const [loggingTouchpoint, setLoggingTouchpoint] = useState(false);
@@ -626,7 +631,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
 
         {/* Lead Actions Bar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
+          {can('activities.log') && <button
             onClick={() => setLoggingTouchpoint(true)}
             style={{
               padding: '6px 12px',
@@ -643,7 +648,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
             }}
           >
             <I n="phone" s={13} /> Log Touchpoint
-          </button>
+          </button>}
 
           <button
             onClick={() => {
@@ -700,7 +705,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
               : 'Early stage enquiry. Nurture with educational WhatsApp templates and sequence.'}
           </div>
         </div>
-        <button
+        {!readOnly && <button
           onClick={() => setAddingTask(true)}
           style={{
             padding: '5px 12px',
@@ -715,7 +720,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
           }}
         >
           Create Task
-        </button>
+        </button>}
       </div>
 
       {/* 360° Lead Detail Sub-Tabs */}
@@ -1065,7 +1070,9 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>Operational follow-up tasks for this lead</span>
-            <Btn size="sm" onClick={() => setAddingTask(true)}>+ Add Task</Btn>
+            {can('crm.records') && (
+              <Btn size="sm" onClick={() => setAddingTask(true)}>+ Add Task</Btn>
+            )}
           </div>
 
           {tasks.length === 0 ? (
@@ -1108,7 +1115,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
           <FLabel>Internal Rep Notes</FLabel>
           <FTextarea value={notes} onChange={e => setNotes(e.target.value)} rows={6} placeholder="Context, customer pain points, budget, objections…" />
           <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-            <Btn variant="ghost" size="sm" onClick={saveNotes} disabled={savingNotes || notes === (lead.notes || '')}>
+            <Btn variant="ghost" size="sm" onClick={saveNotes} disabled={readOnly || savingNotes || notes === (lead.notes || '')}>
               {savingNotes ? 'Saving…' : 'Save Notes'}
             </Btn>
           </div>
@@ -1371,11 +1378,13 @@ export default function LeadsView() {
             <I n="zap" s={13} c="var(--accent, #35e8f2)" /> Routing Rules
           </button>
 
-          <ImportExport entity="leads" canImport onImported={load} />
+          <ImportExport entity="leads" canImport={can('crm.records')} onImported={load} />
 
-          <Btn size="sm" onClick={() => setCreating(true)}>
-            <I n="plus" s={14} c="#060A10" /> New Lead
-          </Btn>
+          {can('crm.records') && (
+            <Btn size="sm" onClick={() => setCreating(true)}>
+              <I n="plus" s={14} c="#060A10" /> New Lead
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -1433,7 +1442,8 @@ export default function LeadsView() {
             </button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Every bulk action is a member-level write (authorize('CLIENT')). */}
+          {can('crm.records') && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {/* Assign Rep */}
             <select
               onChange={(e) => { if (e.target.value) handleBulkAssign(e.target.value); }}
@@ -1469,12 +1479,12 @@ export default function LeadsView() {
             </select>
 
             {/* Create Task */}
-            <button
+            {can('crm.records') && <button
               onClick={() => setBulkTaskModalOpen(true)}
               style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--bd)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
             >
               + Add Task
-            </button>
+            </button>}
 
             {/* Start Campaign */}
             <button
@@ -1485,13 +1495,13 @@ export default function LeadsView() {
             </button>
 
             {/* Delete */}
-            <button
+            {can('crm.records') && <button
               onClick={() => setConfirmBulkDelete(true)}
               style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
             >
               Delete
-            </button>
-          </div>
+            </button>}
+          </div>}
         </div>
       )}
 

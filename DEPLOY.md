@@ -221,6 +221,12 @@ release. Do them in this order.
 1. **Dependencies.** `multer` moved to `^2.0.2`. Deploys run `npm ci`, which
    installs it; any long-lived checkout that runs the backend (a dev box, or a
    VPS run without `deploy-vps.sh`) needs `cd backend && npm install`.
+   The frontend build moved to **Vite 7** (`vite ^7.3.6`,
+   `@vitejs/plugin-react ^5.2.0`), which needs **Node >= 22.12** (or 20.19+;
+   `frontend/package.json` engines now say `>=22.12 <23`). Render's
+   `NODE_VERSION=22` and the VPS Node 22.23 both qualify; a box on an older
+   22.x must upgrade Node before `npm ci && npm run build` in `frontend/`.
+   No config changes are needed beyond reinstalling `frontend/node_modules`.
 2. **Prisma client.** The schema changed. `npm ci`/`npm install` regenerate the
    client via `postinstall`; otherwise run `cd backend && npx prisma generate`.
    Code from this release fails on new columns until the client is regenerated.
@@ -246,6 +252,7 @@ release. Do them in this order.
    | `20261003100000_workspace_addon_stacking_auto_renew` | Drops the one-row-per-add-on unique index (packs stack, one row per pack); `WorkspaceAddon.autoRenew`, `renewedAt`, `expiredAt`; indexes |
    | `20261003101000_plan_feature_fallback_voice` | Data: adds `fallback: true` and `voice: true` to every plan's `features` (values already set are kept) |
    | `20261003120000_oauth_pkce` | OAuth provider PKCE: `OAuthClient.publicClient`, nullable `clientSecretHash` (CHECK: public or has a secret), `OAuthAuthorizationCode.codeChallenge`/`codeChallengeMethod`. Existing clients stay confidential; no action needed |
+   | `20261003130000_plan_feature_autonomous_agent` | Data: adds `autonomousAgent: true` to paid plans' `features`. Free-plan workspaces are no longer swept by the autonomous CRM agent |
    | `20261003140000_object_storage_keys` | `TemplateAsset.bytes` nullable + `storageKey`; `Message.mediaStorageKey`, `mediaSize` |
    | `20261003141000_instagram_inbox_and_voice_transcripts` | `Message.transcript`; `Conversation.channel` (enum, default WHATSAPP) + one-Instagram-thread-per-contact partial unique index; `Contact.instagramUserId`/`instagramUsername` (unique per workspace) |
 
@@ -399,6 +406,14 @@ Tell workspace owners before the release:
   in conversations, AI reply suggestions/preview, add/delete notes, assign /
   change status / toggle the bot, create and edit contacts, block a number
   (opt-out), and log CRM activities. Unblocking numbers needs CLIENT.
+- **Autonomous CRM agent** is a paid-plan feature (`autonomousAgent`): on the
+  Free plan it books and changes nothing, and switching it on, running it or
+  retrying a task answers `PLAN_FEATURE_LOCKED`. Its queue view
+  (`/ai-agents/autonomous/pending`, alias `/agent/pending`) is ADMIN only.
+- **AI Agents** is one sidebar entry (WhatsApp agent, agent studio, autonomous
+  agent); the canonical API is `/ai-agents`, `/ai-agents/whatsapp`,
+  `/ai-agents/autonomous`. The old `/ai-agent/*` and `/agent/*` paths keep
+  working.
 - Impersonation by a super admin now requires a reason, lasts 30 minutes, is
   tab-scoped and cannot create lasting credentials.
 

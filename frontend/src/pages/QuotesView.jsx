@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { fmtMoney, fmtDate, pretty } from '../lib/format.js';
+import { can } from '../lib/permissions.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -38,6 +39,8 @@ const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
   const [qty, setQty] = useState('1');
   const [discount, setDiscount] = useState('');
   const [busy, setBusy] = useState(false);
+  // Status changes and line edits are member work; viewers and agents read.
+  const locked = !can('crm.records');
   const [err, setErr] = useState(null);
 
   const load = useCallback(() => {
@@ -87,7 +90,7 @@ const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
             </span>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
               {(NEXT_STATUS[quote.status] || []).map(s => (
-                <Btn key={s} size="sm" variant={s === 'ACCEPTED' ? 'primary' : 'outline'} disabled={busy}
+                <Btn key={s} size="sm" variant={s === 'ACCEPTED' ? 'primary' : 'outline'} disabled={busy || locked}
                   onClick={() => act(() => wFetch(`/quotes/${quote.id}/status`, {
                     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s }),
                   }))}>
@@ -125,7 +128,7 @@ const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
                   <td style={{ padding: '9px 16px', fontSize: 12.5, color: 'var(--t1)', textAlign: 'right', fontWeight: 600 }}>{fmtMoney(l.total)}</td>
                   {editable && (
                     <td style={{ padding: '9px 10px', textAlign: 'right' }}>
-                      <button aria-label={`Remove ${l.name}`} disabled={busy}
+                      <button aria-label={`Remove ${l.name}`} disabled={busy || locked}
                         onClick={() => act(() => wFetch(`/quotes/${quote.id}/line-items/${l.id}`, { method: 'DELETE' }))}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
                         <I n="x" s={13} c="#f87171" />
@@ -150,7 +153,7 @@ const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
                   options={products.map(p => ({ value: p.id, label: `${p.name} — ${fmtMoney(p.unitPrice)}` }))} />
               </div>
               <div style={{ width: 84 }}><FLabel>Qty</FLabel><FInput type="number" value={qty} onChange={e => setQty(e.target.value)} /></div>
-              <Btn size="sm" disabled={busy || !productId}
+              <Btn size="sm" disabled={busy || locked || !productId}
                 onClick={() => act(() => wFetch(`/quotes/${quote.id}/line-items`, {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ productId, quantity: Number(qty || 1) }),
@@ -164,7 +167,7 @@ const QuoteDetailModal = ({ quoteId, products, onClose, onChanged }) => {
               </div>
               {/* An explicit apply, not a save-on-blur: closing the modal
                   straight after typing would otherwise lose the discount. */}
-              <Btn size="sm" variant="outline" disabled={busy || String(Number(discount || 0)) === String(Number(quote.discountPct))}
+              <Btn size="sm" variant="outline" disabled={busy || locked || String(Number(discount || 0)) === String(Number(quote.discountPct))}
                 onClick={applyDiscount}>
                 Apply
               </Btn>
@@ -256,7 +259,9 @@ export const QuotesView = () => {
             <FSelect value={status} onChange={e => setStatus(e.target.value)} placeholder="All statuses"
               options={Object.keys(STATUS_TONE).map(s => ({ value: s, label: pretty(s) }))} />
           </div>
-          <Btn size="sm" onClick={() => setCreating(true)}>New quote</Btn>
+          {can('crm.records') && (
+            <Btn size="sm" onClick={() => setCreating(true)}>New quote</Btn>
+          )}
         </div>
       </div>
 

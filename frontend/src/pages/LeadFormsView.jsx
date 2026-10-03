@@ -7,6 +7,7 @@ import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { fmtDate } from '../lib/format.js';
 import { confirmDialog } from '../components/Feedback.jsx';
+import { can } from '../lib/permissions.js';
 
 // Builder for public lead-capture forms.
 //
@@ -646,7 +647,9 @@ export default function LeadFormsView() {
             Public forms that create leads. Submissions are recorded whether or not a lead results.
           </p>
         </div>
-        <Btn size="sm" onClick={() => setEditing('new')}><I n="plus" s={14} c="#060A10" /> New form</Btn>
+        {can('crm.records') && (
+          <Btn size="sm" onClick={() => setEditing('new')}><I n="plus" s={14} c="#060A10" /> New form</Btn>
+        )}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: '24px 32px', flex: 1 }}>
@@ -662,7 +665,9 @@ export default function LeadFormsView() {
             A form collects a name and phone number from a public page and turns each submission into a
             scored lead.
           </p>
-          <Btn size="sm" onClick={() => setEditing('new')}><I n="plus" s={14} /> Create your first form</Btn>
+          {can('crm.records') && (
+            <Btn size="sm" onClick={() => setEditing('new')}><I n="plus" s={14} /> Create your first form</Btn>
+          )}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
@@ -683,7 +688,7 @@ export default function LeadFormsView() {
                   {f._count?.submissions ?? 0} submission{(f._count?.submissions ?? 0) === 1 ? '' : 's'}
                   <span style={{ color: 'var(--t3)' }}> · {(f.fields ?? []).length} fields</span>
                 </span>
-                <div style={{ display: 'flex', gap: 5 }}>
+                {can('crm.records') && <div style={{ display: 'flex', gap: 5 }}>
                   <button onClick={() => setEditing(f)} aria-label={`Edit ${f.name}`}
                     style={{ background: 'none', border: '1px solid var(--bd)', borderRadius: 6, width: 27, height: 27, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                     <I n="pencil" s={12} c="var(--t2)" />
@@ -692,7 +697,7 @@ export default function LeadFormsView() {
                     style={{ background: 'none', border: '1px solid var(--bd)', borderRadius: 6, width: 27, height: 27, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                     <I n="trash" s={12} c="#f87171" />
                   </button>
-                </div>
+                </div>}
               </div>
             </div>
           ))}

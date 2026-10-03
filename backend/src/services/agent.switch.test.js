@@ -22,13 +22,14 @@ const eligible = (ws, where) => {
   if (typeof where.id === 'string' && ws.id !== where.id) return false;
   if (where.autonomousAgentEnabled !== undefined && ws.autonomousAgentEnabled !== where.autonomousAgentEnabled) return false;
   if (where.suspended !== undefined && ws.suspended !== where.suspended) return false;
-  if (where.OR) {
-    const ok = where.OR.some((cond) => {
-      const is = cond.subscription.is;
-      if (is === null) return ws.subscription == null;
-      return ws.subscription != null && !is.status.notIn.includes(ws.subscription.status);
-    });
-    if (!ok) return false;
+  if (where.subscription) {
+    const is = where.subscription.is;
+    const sub = ws.subscription;
+    if (sub == null) return false;
+    if (is.status?.notIn?.includes(sub.status)) return false;
+    // plan: { is: { features: { path: [flag], equals: true } } }
+    const feat = is.plan?.is?.features;
+    if (feat && sub.plan?.features?.[feat.path[0]] !== feat.equals) return false;
   }
   return true;
 };
@@ -56,16 +57,22 @@ prisma.agentTask.updateMany = async ({ where, data }) => {
 prisma.deal.findMany = async () => [];
 prisma.lead.findMany = async () => [];
 
-const ws = (id, extra = {}) => ({ id, autonomousAgentEnabled: true, suspended: false, subscription: null, ...extra });
+// A paid plan carries the autonomousAgent flag (migration 20261003130000).
+const PAID = { features: { campaignAi: true, autonomousAgent: true } };
+const FREE = { features: { automation: true, workflows: true } };
+const ws = (id, extra = {}) => ({
+  id, autonomousAgentEnabled: true, suspended: false,
+  subscription: { status: 'ACTIVE', plan: PAID }, ...extra,
+});
 
 test('only switched-on, active workspaces are eligible', async () => {
   workspaces = [
     ws('a'),
     ws('b', { autonomousAgentEnabled: false }),
     ws('c', { suspended: true }),
-    ws('d', { subscription: { status: 'EXPIRED' } }),
-    ws('e', { subscription: { status: 'CANCELLED' } }),
-    ws('f', { subscription: { status: 'ACTIVE' } }),
+    ws('d', { subscription: { status: 'EXPIRED', plan: PAID } }),
+    ws('e', { subscription: { status: 'CANCELLED', plan: PAID } }),
+    ws('f', { subscription: { status: 'PAST_DUE', plan: PAID } }),
   ];
   assert.deepEqual(await agent.listAgentWorkspaceIds({ take: 50 }), ['a', 'f']);
   assert.equal(await agent.agentAllowed('a'), true);
@@ -128,4 +135,38 @@ test('switching off retires queued work', async () => {
   assert.equal(tasks[2].status, 'PENDING', 'another workspace\'s queue is untouched');
 
   assert.deepEqual(await agent.setAgentEnabled('a', true), { enabled: true });
+});
+
+test('the agent is a plan feature: free plans and workspaces without a subscription are not swept', async () => {
+  workspaces = [
+    ws('paid'),
+    ws('free', { subscription: { status: 'ACTIVE', plan: FREE } }),
+    ws('nosub', { subscription: null }),
+    ws('flag-false', { subscription: { status: 'ACTIVE', plan: { features: { autonomousAgent: false } } } }),
+  ];
+  assert.deepEqual(await agent.listAgentWorkspaceIds({ take: 50 }), ['paid']);
+  assert.equal(await agent.agentAllowed('paid'), true);
+  assert.equal(await agent.agentAllowed('free'), false);
+  assert.equal(await agent.agentAllowed('nosub'), false);
+  const r = await agent.sweepWorkspace('free');
+  assert.equal(r.skipped, true);
+  // The filter names the same flag the routes gate on.
+  assert.deepEqual(agent.AGENT_ELIGIBLE_WHERE.subscription.is.plan.is.features.path, [agent.AUTONOMOUS_AGENT_FEATURE]);
+});
+
+test('a task booked before a downgrade is retired, not run', async () => {
+  workspaces = [ws('down', { subscription: { status: 'ACTIVE', plan: FREE } })];
+  const updates = [];
+  const originalUpdate = prisma.agentTask.update;
+  const originalRun = prisma.agentRun.create;
+  prisma.agentTask.update = async (args) => { updates.push(args); return args; };
+  prisma.agentRun.create = async ({ data }) => data;
+  try {
+    const run = await agent.runTask({ id: 't1', workspaceId: 'down', kind: 'advance_contacted', targetType: 'lead', targetId: 'l1', attempts: 1 });
+    assert.match(run.summary, /^Refused:/);
+    assert.equal(updates[0].data.status, 'SKIPPED');
+  } finally {
+    prisma.agentTask.update = originalUpdate;
+    prisma.agentRun.create = originalRun;
+  }
 });

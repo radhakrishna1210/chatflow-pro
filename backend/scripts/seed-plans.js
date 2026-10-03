@@ -50,7 +50,7 @@ const PLANS = [
     overageRatePerMsg: 0.01,
     // null = charge cost: the shared per-category rates.
     overageRates: null,
-    features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true },
+    features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true, autonomousAgent: true },
   },
   {
     key: 'GROWTH',
@@ -65,7 +65,7 @@ const PLANS = [
     apiKeyLimit: null,
     overageRatePerMsg: 0.008,
     overageRates: null,
-    features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true },
+    features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true, autonomousAgent: true },
   },
 ];
 

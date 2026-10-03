@@ -55,6 +55,7 @@ test('AGENT can do inbox work', () => {
   allowed(req('AGENT', 'POST', 'opt-outs'));
   allowed(req('AGENT', 'POST', 'blocked-numbers'));
   allowed(req('AGENT', 'POST', 'ai-agent', '/test'));
+  allowed(req('AGENT', 'POST', 'ai-agents/whatsapp', '/test'));
 });
 
 test('AGENT can log CRM activities but not delete them', () => {
@@ -73,6 +74,9 @@ test('AGENT cannot spend, fabricate or bulk-change data', () => {
   denied(req('AGENT', 'POST', 'opt-outs', '/unblock'));
   denied(req('AGENT', 'DELETE', 'blocked-numbers', '/o1'));
   denied(req('AGENT', 'PATCH', 'ai-agent', '/config'));
+  denied(req('AGENT', 'PATCH', 'ai-agents/whatsapp', '/config'));
+  denied(req('AGENT', 'POST', 'ai-agents', '/a1/test'));
+  denied(req('AGENT', 'POST', 'ai-agents/autonomous', '/tasks/t1/cancel'));
   denied(req('AGENT', 'POST', 'campaigns'));
 });
 

@@ -1213,10 +1213,15 @@ export default function AuthenticationDashboard({ header }) {
             </p>
           </div>
 
-          <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+            {/* PATCH /authentication is authorize('ADMIN'): it picks the number
+                and template every OTP is sent (and charged) through. */}
+            {!canManageKeys && (
+              <span style={{ fontSize: 12, color: 'var(--t3)' }}>Only a workspace admin can change this configuration.</span>
+            )}
             <Btn
               onClick={saveConfiguration}
-              disabled={saving || !templateId || !waNumberId}
+              disabled={!canManageKeys || saving || !templateId || !waNumberId}
               style={{ boxShadow: 'var(--glow)' }}
             >
               {saving ? 'Saving…' : 'Save Configuration'}

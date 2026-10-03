@@ -2,6 +2,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { I } from './Icons.jsx';
 import { Btn } from './Btn.jsx';
 import { wFetch } from '../lib/api.js';
+import { can } from '../lib/permissions.js';
+import { AI_AGENTS_API, aiAgentsHref } from '../lib/aiAgentsApi.js';
+import { usePlanFeatures } from '../lib/usePlanFeatures.js';
+
+const AUTONOMOUS = AI_AGENTS_API.autonomous;
+
+const openAgentAdmin = () => {
+  window.history.pushState({}, '', aiAgentsHref('autonomous'));
+  window.dispatchEvent(new PopStateEvent('popstate'));
+};
 
 // What the autonomous agent has done to one record.
 //
@@ -52,7 +62,7 @@ const Suggestion = ({ fact, onSettled }) => {
     setBusy(true);
     setError(null);
     try {
-      const res = await wFetch(`/agent/facts/${fact.id}`, {
+      const res = await wFetch(`${AUTONOMOUS}/facts/${fact.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accepted }),
@@ -89,11 +99,13 @@ const Suggestion = ({ fact, onSettled }) => {
         <span style={{ fontSize: 11.5, color: fact.accepted ? 'var(--green)' : 'var(--t3)' }}>
           {fact.accepted ? 'Accepted' : 'Rejected'} · {fmtWhen(fact.settledAt)}
         </span>
-      ) : (
+      ) : can('aiAgent.settleSuggestion') ? (
         <div style={{ display: 'flex', gap: 6 }}>
           <Btn size="sm" onClick={() => settle(true)} disabled={busy}>Accept</Btn>
           <Btn size="sm" variant="ghost" onClick={() => settle(false)} disabled={busy}>Reject</Btn>
         </div>
+      ) : (
+        <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>Waiting for a member to accept or reject it.</span>
       )}
     </div>
   );
@@ -105,7 +117,7 @@ export default function AgentTab({ targetType, targetId }) {
 
   const load = useCallback(async () => {
     try {
-      const res = await wFetch(`/agent/history/${targetType}/${targetId}`);
+      const res = await wFetch(`${AUTONOMOUS}/history/${targetType}/${targetId}`);
       if (!res.ok) throw new Error(`Could not load the agent history (${res.status}).`);
       setData(await res.json());
       setError(null);
@@ -117,13 +129,17 @@ export default function AgentTab({ targetType, targetId }) {
   useEffect(() => { setData(null); load(); }, [load]);
 
   // The workspace-wide on/off switch. Reading it is open to every member;
-  // changing it is admin-only, and a refusal is shown inline.
+  // changing it is admin-only (and switching on needs a plan that includes the
+  // agent), so only admins are offered the button. The queue itself is managed
+  // in AI Agents → Autonomous agent.
+  const canManageAgent = can('autonomousAgent.manage');
   const [agentOn, setAgentOn] = useState(null);
+  const planAllows = usePlanFeatures().allows('autonomousAgent');
   const [switchBusy, setSwitchBusy] = useState(false);
   const [switchError, setSwitchError] = useState(null);
 
   useEffect(() => {
-    wFetch('/agent/settings')
+    wFetch(`${AUTONOMOUS}/settings`)
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => { if (s) setAgentOn(s.enabled === true); })
       .catch((err) => console.warn('[AgentTab] Loading agent settings failed:', err?.message || err));
@@ -133,7 +149,7 @@ export default function AgentTab({ targetType, targetId }) {
     setSwitchBusy(true);
     setSwitchError(null);
     try {
-      const res = await wFetch('/agent/settings', {
+      const res = await wFetch(`${AUTONOMOUS}/settings`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !agentOn }),
@@ -151,14 +167,21 @@ export default function AgentTab({ targetType, targetId }) {
 
   const agentSwitch = agentOn === null ? null : (
     <div style={{ ...card, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 12.5, color: agentOn ? 'var(--t2)' : '#fbbf24', flex: 1 }}>
-        {agentOn
-          ? 'The autonomous agent is on for this workspace.'
-          : 'The autonomous agent is off for this workspace — it books and changes nothing.'}
+      <span style={{ fontSize: 12.5, color: agentOn && planAllows ? 'var(--t2)' : '#fbbf24', flex: 1 }}>
+        {!planAllows
+          ? 'The autonomous agent is not included in this workspace\'s plan — it books and changes nothing.'
+          : agentOn
+            ? 'The autonomous agent is on for this workspace.'
+            : 'The autonomous agent is off for this workspace — it books and changes nothing.'}
       </span>
-      <Btn size="sm" variant="ghost" onClick={toggleAgent} disabled={switchBusy}>
-        {agentOn ? 'Turn off' : 'Turn on'}
-      </Btn>
+      {canManageAgent && (planAllows || agentOn) && (
+        <Btn size="sm" variant="ghost" onClick={toggleAgent} disabled={switchBusy}>
+          {agentOn ? 'Turn off' : 'Turn on'}
+        </Btn>
+      )}
+      {canManageAgent && (
+        <Btn size="sm" variant="ghost" onClick={openAgentAdmin}>Manage queue</Btn>
+      )}
       {switchError && <span style={{ width: '100%', fontSize: 11.5, color: '#f87171' }}>{switchError}</span>}
     </div>
   );

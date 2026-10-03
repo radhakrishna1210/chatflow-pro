@@ -79,6 +79,7 @@ test('ordinary actions are permitted', () => {
 
 let dbAvailable = false;
 let workspaceId;
+let planId;
 let contactId;
 let dealId;
 let leadId;
@@ -87,6 +88,17 @@ test.before(async () => {
   try { await prisma.$connect(); dbAvailable = true; } catch { return; }
   const stamp = Date.now();
   workspaceId = (await prisma.workspace.create({ data: { name: `agent-${stamp}` } })).id;
+  // The agent is a plan feature (CF-046): the sweep only visits workspaces on
+  // a plan that carries it.
+  planId = (await prisma.plan.create({
+    data: {
+      key: `agent-test-${stamp}`, name: 'Agent test plan', priceMonthly: 1, messageQuota: 0,
+      overageRatePerMsg: 0, features: { autonomousAgent: true }, isActive: false,
+    },
+  })).id;
+  await prisma.subscription.create({
+    data: { workspaceId, planId, currentPeriodEnd: new Date(Date.now() + 30 * 86400000) },
+  });
   contactId = (await prisma.contact.create({
     data: { workspaceId, name: 'Agent Fixture', phoneNumber: `+9197${stamp % 100000000}`, tags: [] },
   })).id;
@@ -100,6 +112,7 @@ test.before(async () => {
 
 test.after(async () => {
   if (workspaceId) await prisma.workspace.delete({ where: { id: workspaceId } }).catch(() => {});
+  if (planId) await prisma.plan.delete({ where: { id: planId } }).catch(() => {});
   await prisma.$disconnect();
 });
 

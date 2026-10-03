@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { pretty } from '../lib/format.js';
+import { can } from '../lib/permissions.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -461,7 +462,9 @@ export const SequencesView = () => {
             Multi-step follow-ups that stop automatically when someone replies or opts out.
           </div>
         </div>
-        <Btn size="sm" onClick={() => setEditing(null)}><I n="plus" s={14} c="#060A10" /> New sequence</Btn>
+        {can('crm.records') && (
+          <Btn size="sm" onClick={() => setEditing(null)}><I n="plus" s={14} c="#060A10" /> New sequence</Btn>
+        )}
       </div>
 
       <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -496,7 +499,7 @@ export const SequencesView = () => {
                 <span>{s.stats?.EXITED ?? 0} exited</span>
               </div>
 
-              <div style={{ display: 'flex', gap: 6 }}>
+              {can('crm.records') && <div style={{ display: 'flex', gap: 6 }}>
                 {s.status === 'DRAFT' && <>
                   <Btn size="sm" variant="ghost" onClick={() => setEditing(s)}>Edit</Btn>
                   <Btn size="sm" onClick={() => changeStatus(s, 'PUBLISHED')}>Publish</Btn>
@@ -507,7 +510,7 @@ export const SequencesView = () => {
                 {s.status === 'PAUSED' && (
                   <Btn size="sm" onClick={() => changeStatus(s, 'PUBLISHED')}>Resume</Btn>
                 )}
-              </div>
+              </div>}
             </div>
 
             <div style={{ display: 'flex', gap: 5, marginTop: 11, flexWrap: 'wrap' }}>

@@ -5,6 +5,7 @@ import { Modal } from '../components/Modal.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
+import { can } from '../lib/permissions.js';
 
 // Customer support queues.
 //
@@ -426,7 +427,9 @@ export default function TicketsView() {
             Customer issues with a response target by priority. Sorted by urgency and deadline.
           </p>
         </div>
-        <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New ticket</Btn>
+        {can('crm.records') && (
+          <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New ticket</Btn>
+        )}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '24px 32px', flex: 1 }}>

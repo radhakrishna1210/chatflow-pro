@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
-import { canManage, canBill, canHandleConversations, isReadOnly, ROLE_LABELS } from '../lib/permissions.js';
+import { can, canManage, canBill, isReadOnly, canOpenSection, roleLabel, ROLE_LABELS } from '../lib/permissions.js';
+import { aiAgentsHref } from '../lib/aiAgentsApi.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
@@ -565,61 +566,52 @@ const inr = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimu
 // nobody ever sees twice.
 const NEXT_ACTION_DISMISS_KEY = 'cfp:nextAction:dismissed';
 
-// `numbers` comes from HomeView, which already loads them for its own card.
-const NextBestAction = ({ onGo, numbers }) => {
-  const [action, setAction] = useState(null);
+// `stats` is HomeView's one /analytics/home response: counts and the single
+// draft / scheduled campaign worth naming, found by query rather than by
+// scanning the first page of the campaign list (which missed any draft older
+// than the 20 newest campaigns).
+function nextActionFrom(stats) {
+  if (!stats) return null;
+  if (!stats.numbers?.total) {
+    return {
+      kind: 'Connect a number',
+      title: 'Connect your WhatsApp number to start sending.',
+      detail: 'Everything else is ready — campaigns need a verified number.',
+      cta: 'Connect', section: 'setup',
+    };
+  }
+  const draft = stats.campaigns?.latestDraft;
+  if (draft) {
+    return {
+      kind: 'Ready to launch',
+      title: `“${draft.name}” is still a draft.`,
+      detail: 'Finish the last steps and send it.',
+      cta: 'Open', section: 'campaigns', draftId: draft.id,
+    };
+  }
+  const scheduled = stats.campaigns?.nextScheduled;
+  if (scheduled) {
+    return {
+      kind: 'Scheduled',
+      title: `“${scheduled.name}” goes out ${fmtDate(scheduled.scheduledAt)}.`,
+      detail: 'Review the audience and message before it sends.',
+      cta: 'Review', section: 'campaigns',
+    };
+  }
+  if (!stats.campaigns?.total) {
+    return {
+      kind: 'Get started',
+      title: 'Send your first campaign.',
+      detail: 'Pick a template, choose an audience, and go.',
+      cta: 'Create', section: 'campaigns-create',
+    };
+  }
+  return null;
+}
+
+const NextBestAction = ({ onGo, stats }) => {
   const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(NEXT_ACTION_DISMISS_KEY) === '1');
-
-  useEffect(() => {
-    let alive = true;
-    const hasNumber = Array.isArray(numbers) && numbers.length > 0;
-    (hasNumber
-      ? wFetch('/campaigns').then(r => (r.ok ? r.json() : [])).catch((err) => { console.warn('[Dashboard] Loading campaigns for the next action failed:', err?.message || err); return []; })
-      : Promise.resolve([])
-    ).then((campaigns) => {
-      if (!alive) return;
-      const list = Array.isArray(campaigns) ? campaigns : (campaigns?.data || []);
-
-      if (!hasNumber) {
-        setAction({
-          kind: 'Connect a number',
-          title: 'Connect your WhatsApp number to start sending.',
-          detail: 'Everything else is ready — campaigns need a verified number.',
-          cta: 'Connect', section: 'setup',
-        });
-        return;
-      }
-      const draft = list.find(c => c.status === 'DRAFT');
-      if (draft) {
-        setAction({
-          kind: 'Ready to launch',
-          title: `“${draft.name}” is still a draft.`,
-          detail: 'Finish the last steps and send it.',
-          cta: 'Open', section: 'campaigns', draftId: draft.id,
-        });
-        return;
-      }
-      const scheduled = list.find(c => c.status === 'SCHEDULED');
-      if (scheduled) {
-        setAction({
-          kind: 'Scheduled',
-          title: `“${scheduled.name}” goes out ${fmtDate(scheduled.scheduledAt)}.`,
-          detail: 'Review the audience and message before it sends.',
-          cta: 'Review', section: 'campaigns',
-        });
-        return;
-      }
-      if (list.length === 0) {
-        setAction({
-          kind: 'Get started',
-          title: 'Send your first campaign.',
-          detail: 'Pick a template, choose an audience, and go.',
-          cta: 'Create', section: 'campaigns-create',
-        });
-      }
-    });
-    return () => { alive = false; };
-  }, [numbers]);
+  const action = nextActionFrom(stats);
 
   if (!action || dismissed) return null;
 
@@ -727,11 +719,37 @@ const LegalView = ({ initialTab }) => {
   );
 };
 
+// The workspace at a glance, from /analytics/home. Each tile opens the section
+// it counts.
+const HomeStatTiles = ({ stats }) => {
+  const tiles = [
+    { label: 'Contacts', value: stats.contacts?.total ?? 0, section: 'contacts' },
+    { label: 'Open conversations', value: stats.conversations?.open ?? 0, section: 'inbox' },
+    { label: 'Unread messages', value: stats.conversations?.unread ?? 0, section: 'inbox', accent: (stats.conversations?.unread ?? 0) > 0 ? 'var(--accent)' : undefined },
+    { label: 'Active campaigns', value: stats.campaigns?.active ?? 0, section: 'campaigns', sub: `${(stats.campaigns?.total ?? 0).toLocaleString()} in total` },
+    { label: 'WhatsApp numbers', value: stats.numbers?.total ?? 0, section: canManage() ? 'setup' : null, sub: `${stats.numbers?.active ?? 0} active` },
+  ];
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+      {tiles.map(t => (
+        <button key={t.label} type="button" disabled={!t.section}
+          onClick={() => t.section && window.dispatchEvent(new CustomEvent('app:nav', { detail: t.section }))}
+          style={{ ...card, padding: '14px 16px', textAlign: 'left', cursor: t.section ? 'pointer' : 'default', fontFamily: 'inherit' }}>
+          <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>{t.label}</p>
+          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 19, color: t.accent || 'var(--t1)', letterSpacing: '-.02em' }}>{Number(t.value).toLocaleString()}</p>
+          {t.sub && <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 3 }}>{t.sub}</p>}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const HomeView = () => {
   const [prompt, setPrompt] = useState('');
   const [guided, setGuided] = useState(true);
-  const [numbers, setNumbers] = useState(null);
-  const number = numbers?.[0] ?? null;
+  // One counts-only request for every figure on this screen (CF-196).
+  const [stats, setStats] = useState(null);
+  const number = stats?.numbers?.primary ?? null;
   const [loading, setLoading] = useState(true);
   const [plan, setPlan] = useState(null);
   const [instagram, setInstagram] = useState(undefined);
@@ -742,10 +760,10 @@ const HomeView = () => {
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
-    wFetch('/whatsapp/numbers')
-      .then(r => r.ok && r.json())
-      .then(nums => setNumbers(Array.isArray(nums) ? nums : []))
-      .catch(() => setNumbers([]))
+    wFetch('/analytics/home')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setStats(d && typeof d === 'object' ? d : null))
+      .catch(() => setStats(null))
       .finally(() => setLoading(false));
     // Only someone who can actually buy a plan is shown the upgrade prompt.
     if (canBill()) {
@@ -838,7 +856,10 @@ const HomeView = () => {
 
         {!loading && (
         <>
-        <NextBestAction numbers={numbers} onGo={(a) => {
+        {/* Every suggestion is a member-level action (connect a number,
+            launch or create a campaign), so roles that cannot take it are not
+            offered it. */}
+        {canManage() && <NextBestAction stats={stats} onGo={(a) => {
           // A draft opens straight into its own editor rather than the list —
           // the whole point of the card is to remove the next click.
           if (a.draftId) {
@@ -847,7 +868,9 @@ const HomeView = () => {
             return;
           }
           window.dispatchEvent(new CustomEvent('app:nav', { detail: a.section }));
-        }} />
+        }} />}
+
+        {stats && <HomeStatTiles stats={stats} />}
 
         {canUpgrade && <div style={{ borderRadius: 'var(--rl)', background: 'linear-gradient(135deg,rgba(53,232,242,0.1),rgba(14,165,233,0.06))', border: '1px solid var(--gbd)', padding: '16px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1119,16 +1142,19 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
     finally { setLifecycleChanging(false); }
   };
 
+  // Every lifecycle action, the export included, is member-level
+  // (authorize('CLIENT') on the routes); viewers and agents get the report.
+  const mayManage = can('campaigns.manage');
   // Members can cancel too — they can create and launch campaigns, so being
   // unable to stop one would be worse than not starting it.
-  const cancellable = c && ['DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED'].includes(c.status);
+  const cancellable = mayManage && c && ['DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED'].includes(c.status);
   // A draft is unfinished work, so it gets a way back into the wizard. Only a
   // draft: anything launched is a report, and "editing" it would imply changes
   // reaching messages that have already gone out.
-  const editable = c?.status === 'DRAFT';
+  const editable = mayManage && c?.status === 'DRAFT';
   const isAuthentication = String(c?.template?.category || '').toUpperCase() === 'AUTHENTICATION';
-  const pausable = ['RUNNING', 'SCHEDULED'].includes(c?.status);
-  const resumable = c?.status === 'PAUSED';
+  const pausable = mayManage && ['RUNNING', 'SCHEDULED'].includes(c?.status);
+  const resumable = mayManage && c?.status === 'PAUSED';
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef, true);
@@ -1310,7 +1336,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
 
         <div style={{ padding:'14px 22px', borderTop:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <span style={{ fontSize:11, color:'var(--t3)' }}>
-            {editable
+            {c?.status === 'DRAFT'
               ? 'This campaign is a draft — nothing sends until you launch it.'
               : 'Counters update live from delivery webhooks.'}
           </span>
@@ -1321,7 +1347,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                 {cancelling ? 'Cancelling…' : 'Cancel Campaign'}
               </Btn>
             )}
-            {c && c.status !== 'DRAFT' && (
+            {mayManage && c && c.status !== 'DRAFT' && (
               <Btn variant="outline" size="sm" onClick={exportReport} disabled={exporting}>
                 <I n="download" s={12} c="var(--t2)" />
                 {exporting ? 'Exporting…' : 'Export CSV'}
@@ -1416,9 +1442,13 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
             be admin-only, which left members on a Free plan able to import
             contacts and then do nothing with them. */}
         <WalletStatusBanner style={{ marginBottom: 16 }} />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-          <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>
-        </div>
+        {/* Creating is member work (authorize('CLIENT')); viewers and agents
+            see the campaigns and their results only. */}
+        {can('campaigns.manage') && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+            <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>
+          </div>
+        )}
         {loading ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading campaigns…</div>
         ) : visibleCampaigns.length === 0 ? (
@@ -2558,10 +2588,11 @@ const PlaceholderView = ({ title, icon }) => (
   </div>
 );
 
-// `minRole` hides a section from roles that can do nothing in it (see
-// lib/permissions.js). VIEWER and AGENT keep every section they can read; the
-// ones hidden are pure configuration. The server enforces all of this anyway —
-// this only stops offering screens whose every control would answer 403.
+// Sections a role can do nothing in (lib/permissions.js SECTION_MIN_ROLE) are
+// left out of that role's nav, and opening one by URL shows a no-access page.
+// VIEWER and AGENT keep every section they can read; the ones hidden are pure
+// configuration. The server enforces all of this anyway — this only stops
+// offering screens whose every control would answer 403.
 const ADMIN_NAV = [
   { id: 'home',           label: 'Home',           icon: 'home'  },
   { id: 'templates',      label: 'Templates',      icon: 'file'  },
@@ -2570,24 +2601,24 @@ const ADMIN_NAV = [
   { id: 'contacts',       label: 'Contacts',       icon: 'users' },
   { id: 'inbox',          label: 'Inbox',          icon: 'msg'   },
 
-  { id: 'widget',         label: 'Website Widget', icon: 'globe', minRole: 'CLIENT' },
-  { id: 'integrations',   label: 'Integrations',   icon: 'plug', minRole: 'CLIENT' },
-  { id: 'ai-agent',       label: 'AI Agent',       icon: 'bot'   },
+  { id: 'widget',         label: 'Website Widget', icon: 'globe' },
+  { id: 'integrations',   label: 'Integrations',   icon: 'plug' },
+  // The one AI Agents area: WhatsApp agent, agent studio, autonomous CRM agent.
+  { id: 'ai-agent',       label: 'AI Agents',      icon: 'bot'   },
   { id: 'automation',     label: 'Automation',     icon: 'zap'   },
   { id: 'intent-matching', label: 'Intent Matching', icon: 'spark' },
   { id: 'analytics',      label: 'Analytics',      icon: 'chart' },
   { id: 'chat-analysis',  label: 'Chat Analysis',  icon: 'chart' },
   { id: 'user-analytics', label: 'User Analytics', icon: 'user'  },
-  { id: 'setup',          label: 'Number Setup',   icon: 'phone', minRole: 'CLIENT' },
+  { id: 'setup',          label: 'Number Setup',   icon: 'phone' },
   { id: 'payments',       label: 'Payments',       icon: 'credit' },
-  { id: 'api',            label: 'API Keys',       icon: 'key', minRole: 'CLIENT' },
+  { id: 'api',            label: 'API Keys',       icon: 'key' },
   { id: 'support',        label: 'Help & Support', icon: 'msg'   },
   { id: 'resources',      label: 'Resource Center', icon: 'file' },
   { id: 'settings',       label: 'Settings',       icon: 'cog'   },
 
   { id: 'crm-overview',   label: 'CRM Overview',   icon: 'layout' },
   { id: 'crm-sales-inbox',label: 'CRM Sales Inbox',icon: 'msg'   },
-  { id: 'ai-chatbots',    label: 'AI Chatbots',    icon: 'bot'   },
   { id: 'leads',          label: 'Leads',          icon: 'target' },
   { id: 'deals',          label: 'Deals',          icon: 'briefcase' },
   { id: 'tasks',          label: 'Tasks',          icon: 'check-square' },
@@ -2598,7 +2629,7 @@ const ADMIN_NAV = [
   { id: 'sequences',      label: 'Sequences',      icon: 'wflow' },
   { id: 'lead-forms',     label: 'Lead Forms',     icon: 'note'  },
   { id: 'tickets',        label: 'Tickets',        icon: 'alertc' },
-  { id: 'customize-business', label: 'Customize Your Business', icon: 'sliders', minRole: 'CLIENT' },
+  { id: 'customize-business', label: 'Customize Your Business', icon: 'sliders' },
   { id: 'legal',          label: 'Legal',          icon: 'file'  },
 ];
 
@@ -2671,7 +2702,7 @@ const TEXT_GLYPHS = new Set(['\u2726', '\u26A1']);
 const NAV_GROUPS = [
   { name: 'COMMAND',    ids: ['home', 'inbox'] },
   { name: 'GROW',       ids: ['campaigns', 'templates', 'authentication', 'contacts'] },
-  { name: 'CRM & SALES', ids: ['crm-overview', 'crm-sales-inbox', 'ai-chatbots', 'leads', 'deals', 'tasks', 'engagements', 'forecast', 'products', 'quotes', 'sequences', 'lead-forms', 'tickets', 'customize-business'] },
+  { name: 'CRM & SALES', ids: ['crm-overview', 'crm-sales-inbox', 'leads', 'deals', 'tasks', 'engagements', 'forecast', 'products', 'quotes', 'sequences', 'lead-forms', 'tickets', 'customize-business'] },
   { name: 'AUTOMATE',   ids: ['ai-agent', 'automation', 'intent-matching'] },
   { name: 'UNDERSTAND', ids: ['analytics', 'chat-analysis', 'user-analytics'] },
   { name: 'CONNECT',    ids: ['widget', 'integrations', 'setup', 'api', 'payments', 'support', 'resources', 'settings'] },
@@ -2713,21 +2744,42 @@ function navGroupsForUser(user) {
   return rest.length ? [...bands, { name: 'MORE', items: rest }] : bands;
 }
 
-const meetsRole = (minRole, user) =>
-  !minRole || (minRole === 'CLIENT' ? canManage(user) : minRole === 'AGENT' ? canHandleConversations(user) : true);
-
 function navForUser(user) {
   if (user?.superAdmin === true) return SUPERADMIN_NAV;
-  return ADMIN_NAV.filter(item => meetsRole(item.minRole, user));
+  return ADMIN_NAV.filter(item => canOpenSection(item.id, user));
 }
 
-// Sections reachable by URL but not listed in the nav carry their own floor.
-const SECTION_MIN_ROLE = { 'campaigns-create': 'CLIENT' };
+// Shown instead of a section the role cannot use, so a bookmark or a shared
+// link says why rather than silently landing somewhere else.
+const NoAccessView = ({ title }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+    <DashHeader title={title} />
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ ...card, maxWidth: 440, padding: '32px 28px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 52, height: 52, borderRadius: 14, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <I n="lock" s={24} c="#f59e0b" />
+        </div>
+        <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>No access</h3>
+        <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.6 }}>
+          {title} is workspace configuration, which your role ({roleLabel()}) cannot change.
+          Ask a workspace admin if you need something here.
+        </p>
+        <Btn size="sm" onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'home' }))}>Back to Home</Btn>
+      </div>
+    </div>
+  </div>
+);
 
-function sectionAllowed(section, user) {
-  if (user?.superAdmin === true) return true;
-  const item = ADMIN_NAV.find(n => n.id === section);
-  return meetsRole(item?.minRole ?? SECTION_MIN_ROLE[section], user);
+// Old links into what is now the AI Agents area. Kept working by rewriting the
+// address to the new one (replace, not push, so Back does not loop).
+//   /dashboard/automation?tab=wa-agent  → /dashboard/ai-agent?tab=whatsapp
+//   /dashboard/ai-chatbots[?tab=x]      → /dashboard/ai-agent?tab=x (studio)
+function legacyRedirect(path, search) {
+  const rest = String(path || '').replace(/^\/dashboard\/?/, '').split('/')[0];
+  const tab = new URLSearchParams(search || '').get('tab');
+  if (rest === 'automation' && tab === 'wa-agent') return aiAgentsHref('whatsapp');
+  if (rest === 'ai-chatbots') return aiAgentsHref(tab || 'chat-bots');
+  return null;
 }
 
 // ─── mobile bottom tab bar ───────────────────────────────────────────────────
@@ -2991,6 +3043,9 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
 
 const VALID_SECTIONS = new Set([...ADMIN_NAV.map(n => n.id), ...ADMIN_TABS.map(n => n.id), 'campaigns-create', 'profile', 'resources']);
 
+// Titles for the no-access page of sections that are not in the nav.
+const SECTION_TITLES = { 'campaigns-create': 'Create campaign' };
+
 function sectionFromPath(path, user) {
   const defaultSection = user?.superAdmin === true ? 'admin-overview' : 'home';
   // The Resource Center lives at its own /resources* URL family but renders
@@ -3000,7 +3055,9 @@ function sectionFromPath(path, user) {
   if (!rest) return defaultSection;
   if (rest === 'platform') return 'admin-overview'; // pre-restructure bookmark
   const section = rest === 'campaigns/create' ? 'campaigns-create' : rest.split('/')[0];
-  return VALID_SECTIONS.has(section) && sectionAllowed(section, user) ? section : defaultSection;
+  // A section the role may not open still resolves, so renderView can show
+  // the no-access page instead of silently sending the user Home.
+  return VALID_SECTIONS.has(section) ? section : defaultSection;
 }
 
 // `subTab` becomes a `?tab=` query param so a Quick Link can deep-link into a
@@ -3052,7 +3109,15 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     : user?.role === 'AGENT' ? 'Agent access: you can work the inbox and contacts. Other sections are view-only.'
     : null;
 
-  const page = sectionFromPath(routePath ?? window.location.pathname, user);
+  const currentPath = routePath ?? window.location.pathname;
+  const currentSearch = routeSearch ?? window.location.search;
+  const redirectTo = legacyRedirect(currentPath, currentSearch);
+  useEffect(() => {
+    if (!redirectTo) return;
+    window.history.replaceState({}, '', redirectTo);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, [redirectTo]);
+  const page = sectionFromPath(redirectTo ? redirectTo.split('?')[0] : currentPath, user);
   const isCrmTab = CRM_TAB_IDS.has(page);
 
   useEffect(() => {
@@ -3093,7 +3158,7 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
   // Read fresh on every render (mirrors the routePath-falls-back-to-location
   // pattern above) — reflects whatever `?tab=` the current URL carries so a
   // deep-linked Quick Link can seed a tabbed page's initial sub-tab.
-  const initialSubTab = new URLSearchParams(routeSearch ?? window.location.search).get('tab') || undefined;
+  const initialSubTab = new URLSearchParams(redirectTo ? (redirectTo.split('?')[1] || '') : currentSearch).get('tab') || undefined;
 
   // Which draft the campaign wizard is editing, if any. Kept in the URL rather
   // than component state for the same reason `page` is: a refresh mid-edit
@@ -3127,6 +3192,10 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
   }, [onNav]); // eslint-disable-line
 
   const renderView = () => {
+    if (!canOpenSection(page, user)) {
+      const navItem = ADMIN_NAV.find(n => n.id === page);
+      return <NoAccessView title={navItem?.label || SECTION_TITLES[page] || 'This section'} />;
+    }
     if (page === 'campaigns-create') {
       return (
         <CreateCampaign
@@ -3159,12 +3228,10 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     if (page === 'widget')     return <WidgetsView />;
     if (page === 'contacts')   return <ContactsView />;
     if (page === 'automation')     return <AutomationView initialTab={initialSubTab || 'basic'} />;
-    // The WhatsApp AI Agent and AI Intent Matching are tabs 4 and 5 of the
-    // Automation page, which buried two of the product's headline features.
-    // The design set lists them as first-class destinations, so they get their
-    // own routes and sidebar entries — pointing at the existing, already-wired
-    // implementation rather than a second copy of it.
-    if (page === 'ai-agent' || page === 'ai-chatbots') return <AiAgentsView user={user} initialTab={initialSubTab} />;
+    // One AI Agents area (WhatsApp agent, studio, autonomous agent). AI Intent
+    // Matching stays an Automation tab with its own route and sidebar entry.
+    // 'ai-chatbots' is an old route, redirected above; it renders the same.
+    if (page === 'ai-agent' || page === 'ai-chatbots') return <AiAgentsView initialTab={initialSubTab} />;
     if (page === 'intent-matching') return <AutomationView initialTab="ai-intent" />;
     if (page === 'crm-overview') return <CrmDashboardView user={user} />;
     if (page === 'leads')      return <LeadsView />;

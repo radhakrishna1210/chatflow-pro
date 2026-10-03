@@ -25,6 +25,10 @@ export const PLAN_FEATURES = Object.freeze({
   fallback: { label: 'SMS and email fallback' },
   // Enabling Voice AI, and answering calls with it
   voice: { label: 'Voice AI' },
+  // The autonomous CRM agent: switching it on, running it, re-queueing its
+  // tasks (routes/agent.routes.js), and at runtime its sweep and task runner
+  // (agent.service.js AGENT_ELIGIBLE_WHERE). Paid plans only (CF-046).
+  autonomousAgent: { label: 'the autonomous CRM agent' },
 });
 
 export const PLAN_FEATURE_KEYS = Object.keys(PLAN_FEATURES);
