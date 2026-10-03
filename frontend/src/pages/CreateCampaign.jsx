@@ -6,6 +6,7 @@ import { wFetch } from '../lib/api.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 import { notify } from '../components/Feedback.jsx';
+import { usePlanFeatures } from '../lib/usePlanFeatures.js';
 
 // Extract body text from Meta components array
 const getBodyText = (components) => {
@@ -904,6 +905,9 @@ const CTA_PRESETS = ['Ask Anything', 'Have a Question?', 'Need Help?', 'Agent Su
 const CTA_MAX = 25;
 
 const StepAiAgent = ({ enabled, setEnabled, agents, agentId, setAgentId, ctaLabel, setCtaLabel, template, onNext }) => {
+  // Attaching an agent is the campaignAi plan feature (enforced server-side).
+  const { allows } = usePlanFeatures();
+  const planLocked = !allows('campaignAi');
   const deployed = agents.filter(a => a.deployed);
   const quickReplies = quickReplyButtons(template?.components);
   const matching = quickReplies.find(t => ctaKey(t) === ctaKey(ctaLabel));
@@ -916,13 +920,19 @@ const StepAiAgent = ({ enabled, setEnabled, agents, agentId, setAgentId, ctaLabe
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
         <div style={{ paddingTop: '2px' }}>
-          <Toggle on={enabled} onToggle={() => setEnabled(!enabled)} />
+          {/* Switching off stays possible on a plan without the agent. */}
+          <Toggle on={enabled} onToggle={() => { if (enabled || !planLocked) setEnabled(!enabled); }} />
         </div>
         <div>
           <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--t1)', marginBottom: '3px' }}>Enable AI Agent for this Campaign</p>
           <p style={{ fontSize: '12px', color: 'var(--t2)', lineHeight: 1.55 }}>
             Customers who tap the CTA start a chat with your agent, which already knows what this campaign said.
           </p>
+          {planLocked && (
+            <p style={{ fontSize: '12px', color: '#fbbf24', lineHeight: 1.55, marginTop: 4 }}>
+              The Campaign AI Agent is not included in your plan. Upgrade from Payments to attach one.
+            </p>
+          )}
         </div>
       </div>
 
@@ -1124,6 +1134,8 @@ const StepRetries = ({ initial = null, onRetryToggle, onSaved, onCommit }) => {
 
 // ─── Step 9 · Fallback Channels ───────────────────────────────────────────────────
 const StepFallback = ({ retriesActive, onSaved }) => {
+  // Fallback channels are the `fallback` plan feature (enforced server-side).
+  const { allows } = usePlanFeatures();
   const [caps, setCaps]       = useState({ sms: false, email: false });
   const [smsEnabled, setSmsEnabled]     = useState(false);
   const [emailEnabled, setEmailEnabled] = useState(false);
@@ -1135,7 +1147,8 @@ const StepFallback = ({ retriesActive, onSaved }) => {
   const [emailSubject, setEmailSubject] = useState('');
   const [emailText, setEmailText] = useState('');
   const [saved, setSaved] = useState(false);
-  const canEnable = !retriesActive;
+  const planLocked = !allows('fallback');
+  const canEnable = !retriesActive && !planLocked;
   const isDltId = (v) => /^\d{19}$/.test(v.trim());
   const smsReady = smsFrom.trim() && smsText.trim() && isDltId(dltTemplateId) && isDltId(dltEntityId);
   const smsBlocked = smsEnabled && caps.sms && !smsReady;
@@ -1171,7 +1184,12 @@ const StepFallback = ({ retriesActive, onSaved }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      {!canEnable && (
+      {planLocked && (
+        <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.25)', color: '#f59e0b', fontSize: '12.5px', lineHeight: 1.5 }}>
+          SMS and email fallback are not included in your plan. Upgrade from Payments to use them.
+        </div>
+      )}
+      {retriesActive && (
         <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', color: '#f87171', fontSize: '12.5px', lineHeight: 1.5 }}>
           Fallback channels cannot be enabled when Retries are active. Turn off Retries to configure Fallbacks.
         </div>

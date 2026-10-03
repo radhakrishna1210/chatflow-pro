@@ -8,6 +8,7 @@ import { applyStepChange, TRIGGER_SUBTYPES, ACTION_SUBTYPES, CONDITION_SUBTYPES 
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
 import { confirmDialog } from '../components/Feedback.jsx';
+import { usePlanFeatures } from '../lib/usePlanFeatures.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Manrope',sans-serif", boxSizing:'border-box' };
@@ -45,10 +46,8 @@ const PlanLocked = ({ feature }) => (
     <div>
       <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:17, fontWeight:700, color:'var(--t1)', marginBottom:6 }}>Not included in your plan</h3>
       <p style={{ fontSize:13, color:'var(--t2)', maxWidth:420 }}>
-        {feature === 'workflows'
-          ? 'Workflows are available on the Pro plan and above.'
-          : 'Automation is available on the Starter plan and above.'}
-        {' '}Upgrade to turn this on.
+        {({ workflows: 'Workflows are', voice: 'Voice AI is', campaignAi: 'The Campaign AI Agent is' })[feature] || 'Automation is'}
+        {' '}not part of your current plan. Upgrade to turn this on.
       </p>
     </div>
     <Btn onClick={() => { window.location.href = '/dashboard/settings?tab=billing'; }} style={{ boxShadow:'var(--glow)' }}>
@@ -1724,6 +1723,9 @@ const IntentEditor = ({ intent, onClose, onSaved }) => {
 };
 
 const AIIntentMatchingTab = () => {
+  // Intent matching is the campaignAi plan feature (enforced server-side).
+  const { allows } = usePlanFeatures();
+  const planLocked = !allows('campaignAi');
   const [enabled, setEnabled] = useState(false);
   const [threshold, setThreshold] = useState(0.6);
   const [llmAvailable, setLlmAvailable] = useState(true);
@@ -1813,13 +1815,14 @@ const AIIntentMatchingTab = () => {
         title="Intent matching" subtitle={`Rules that route messages before the AI · ${activeCount} active`}
         badge={enabled && <Pill>On</Pill>}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <Btn variant="outline" onClick={() => setEditor({ intent: null })}>
+          <Btn variant="outline" onClick={() => setEditor({ intent: null })} disabled={planLocked}>
             <I n="plus" s={13} c="var(--t2)" /> New intent
           </Btn>
-          <Toggle on={enabled} onToggle={() => persist(!enabled, threshold)} disabled={saving} />
+          <Toggle on={enabled} onToggle={() => persist(!enabled, threshold)} disabled={saving || (planLocked && !enabled)} />
         </div>
       </TabHeader>
 
+      {planLocked && <Banner tone="warn">Intent matching is not included in your plan. Upgrade from Payments to turn it on.</Banner>}
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 
       <div className="intent-grid" style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 320px', gap:16, alignItems:'start' }}>
@@ -2044,6 +2047,9 @@ const SectionIntro = ({ section }) => (
 );
 
 const WhatsAppAIAgentTab = () => {
+  // Deploying and testing the agent is the campaignAi plan feature.
+  const { allows } = usePlanFeatures();
+  const planLocked = !allows('campaignAi');
   const [cfg, setCfg] = useState(null);
   const [section, setSection] = useState('identity');
 
@@ -2239,13 +2245,14 @@ const WhatsAppAIAgentTab = () => {
         badge={deployed && <Pill>Live</Pill>}>
         <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
           <Btn variant="outline" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Btn>
-          <Btn onClick={deploy} disabled={deploying || llmMissing}
+          <Btn onClick={deploy} disabled={deploying || llmMissing || (planLocked && !deployed)}
             style={deployed ? { background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', boxShadow:'none' } : { boxShadow:'var(--glow)' }}>
             {deploying ? 'Working…' : deployed ? 'Undeploy agent' : <><I n="play" s={14} c="#08090c"/> Deploy agent</>}
           </Btn>
         </div>
       </TabHeader>
 
+      {planLocked && <Banner tone="warn">The Campaign AI Agent is not included in your plan. You can configure it here; upgrade from Payments to deploy it.</Banner>}
       {llmMissing && <Banner tone="warn">No LLM provider is configured on the server. Set <code>GEMINI_API_KEY</code> in the backend environment to enable deployment and live testing.</Banner>}
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
 
@@ -2884,6 +2891,8 @@ const InstagramQuickflowsTab = () => {
 // 7. VOICE AI
 // ─────────────────────────────────────────────
 const VoiceAITab = () => {
+  // Switching Voice AI on is the `voice` plan feature (enforced server-side).
+  const { allows } = usePlanFeatures();
   const [cfg, setCfg] = useState(null);
   const [calls, setCalls] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2915,6 +2924,7 @@ const VoiceAITab = () => {
   if (loading) return <Loading />;
   if (locked) return <PlanLocked feature={locked} />;
   if (!cfg) return <Banner tone="error">Could not load voice settings.</Banner>;
+  if (!cfg.voiceAiEnabled && !allows('voice')) return <PlanLocked feature="voice" />;
 
   if (!cfg.voiceAiEnabled) {
     return (

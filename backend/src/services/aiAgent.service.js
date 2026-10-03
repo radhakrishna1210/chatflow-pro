@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { extractDocumentText, truncateAtSentence } from '../lib/documentText.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
+import { planAllows } from './planFeatures.service.js';
 import { hasMeaningfulText } from '../lib/textValidation.js';
 import {
   resolveCampaignContext, generateCampaignReply,
@@ -389,8 +390,10 @@ export async function matchIntent(workspaceId, messageBody) {
 
   const threshold = ws.intentMatchThreshold ?? 0.6;
 
-  // 1. LLM classifier — pick the best keyword or NONE.
-  if (llmAvailable()) {
+  // 1. LLM classifier — pick the best keyword or NONE. AI intent matching is
+  //    a plan feature (campaignAi); without it only the deterministic match
+  //    below runs, which spends no model tokens.
+  if (llmAvailable() && await planAllows(workspaceId, 'campaignAi')) {
     const list = triggers.map((t, i) => `${i + 1}. ${t.keyword}`).join('\n');
     const system = `You route a customer's WhatsApp message to the single best-matching automation keyword. Reply with ONLY the number of the best match, or "0" if none fit well.`;
     const prompt = `Message: "${messageBody}"\n\nKeywords:\n${list}\n\nBest match number:`;
@@ -425,6 +428,9 @@ export async function generateAgentReply(workspaceId, messageBody, { contactName
   });
   if (!ws?.aiAgentEnabled) return null;
   if (!llmAvailable()) return null;
+  // A workspace whose plan lost the agent (a downgrade, or the flag switched
+  // off on its plan) keeps its configuration but gets no model replies.
+  if (!await planAllows(workspaceId, 'campaignAi')) return null;
 
   // Everything below is runtime context, read fresh from the database on every
   // message. None of it is stored in the agent's configuration: the system

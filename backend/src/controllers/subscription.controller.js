@@ -5,6 +5,7 @@ import {
 } from '../services/subscription.service.js';
 import { MESSAGE_CATEGORY_RATES } from '../lib/messagePricing.js';
 import * as addons from '../services/addons.service.js';
+import { planFeatureMap } from '../services/planFeatures.service.js';
 import * as billingProfile from '../services/billingProfile.service.js';
 
 export async function getSummary(req, res) {
@@ -76,6 +77,10 @@ export async function getBillingProfile(req, res) {
 
 export async function saveBillingProfile(req, res) {
   res.json(await billingProfile.saveBillingProfile(req.params.workspaceId, req.body));
+}
+
+export async function getPlanFeatures(req, res) {
+  res.json({ features: await planFeatureMap(req.params.workspaceId) });
 }
 
 // ─── Add-ons ─────────────────────────────────────────────────────────────────

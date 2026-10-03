@@ -82,7 +82,7 @@ async function initializeSubscriptions() {
       overageRates: { MARKETING: 2.18, UTILITY: 0.32, AUTHENTICATION: 0.26 },
       // Keep in sync with scripts/seed-plans.js. Only used to create a plan
       // that is missing; existing rows (and super-admin edits) are left alone.
-      features: { automation: true, workflows: true },
+      features: { automation: true, workflows: true, fallback: true, voice: true },
     },
     // Basic carries the former Pro limits and features; Growth carries the
     // former Enterprise ones. STARTER/PRO/ENTERPRISE are retired below.
@@ -100,7 +100,7 @@ async function initializeSubscriptions() {
       overageRatePerMsg: 0.01,
       // null = charge cost: the shared per-category rates.
       overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true },
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true },
     },
     {
       key: 'GROWTH',
@@ -115,7 +115,7 @@ async function initializeSubscriptions() {
       apiKeyLimit: null,
       overageRatePerMsg: 0.008,
       overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true },
+      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true, campaignAi: true, fallback: true, voice: true },
     },
   ];
 

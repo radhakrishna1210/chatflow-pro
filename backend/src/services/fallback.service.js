@@ -5,6 +5,7 @@ import { sendMail } from '../lib/mailer.js';
 import { debit, credit } from './wallet.service.js';
 import { isOptedOut } from './optout.service.js';
 import { SMS_FALLBACK_RATE } from '../lib/messagePricing.js';
+import { planAllows } from './planFeatures.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Campaign fallback channels (wizard step 8)
@@ -141,6 +142,9 @@ export async function runFallbackForRecipient(campaign, recipient, contact) {
   const attempts = [];
   if (contact?.phoneNumber && await isOptedOut(workspaceId, contact.phoneNumber)) {
     attempts.push({ ok: false, channel: 'all', reason: 'recipient opted out' });
+  } else if (!await planAllows(workspaceId, 'fallback')) {
+    // Saved while the plan included it; the plan no longer does.
+    attempts.push({ ok: false, channel: 'all', reason: 'fallback is not included in the current plan' });
   } else {
     if (config.smsEnabled) attempts.push(await sendSmsFallback(config, contact, { workspaceId, campaign, recipient }));
     if (config.emailEnabled) attempts.push(await sendEmailFallback(config, contact));

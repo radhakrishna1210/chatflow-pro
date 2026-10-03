@@ -10,6 +10,7 @@ import { splitCampaignCharge, settleCampaignUnits } from '../lib/campaignCharge.
 import { getAgent } from './aiAgent.service.js';
 import { normalizeCtaLabel, buildCampaignContext, findCtaButton } from './campaignAi.service.js';
 import { isCopyCodeAuthenticationTemplate } from '../authentication/authentication.service.js';
+import { assertPlanFeature } from './planFeatures.service.js';
 
 const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
@@ -39,6 +40,9 @@ async function resolveAiAgentConfig(workspaceId, aiAgent) {
     return { aiAgentEnabled: false, aiAgentId: null, aiAgentCtaLabel: null };
   }
 
+  // A campaign agent is the campaignAi plan feature (CF-051); detaching one
+  // above stays open so a downgraded workspace can still edit its drafts.
+  await assertPlanFeature(workspaceId, 'campaignAi');
   const agent = await getAgent(workspaceId, aiAgent.agentId ?? null);
   if (!agent.deployed) {
     const e = new Error('Deploy your WhatsApp AI Agent before attaching it to a campaign.');
@@ -49,6 +53,14 @@ async function resolveAiAgentConfig(workspaceId, aiAgent) {
     aiAgentId: agent.id,
     aiAgentCtaLabel: normalizeCtaLabel(aiAgent.ctaLabel),
   };
+}
+
+// Fallback channels are the `fallback` plan feature. Saving a config with
+// both channels off (or clearing it) is always allowed.
+async function assertFallbackAllowed(workspaceId, fallbackConfig) {
+  if (fallbackConfig?.smsEnabled || fallbackConfig?.emailEnabled) {
+    await assertPlanFeature(workspaceId, 'fallback');
+  }
 }
 
 // Non-fatal advice for the wizard: without a quick-reply button on the
@@ -263,6 +275,7 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
   }
 
   const aiConfig = await resolveAiAgentConfig(workspaceId, aiAgent);
+  await assertFallbackAllowed(workspaceId, fallbackConfig);
 
   return prisma.campaign.create({
     data: {
@@ -340,7 +353,10 @@ export async function updateCampaign(workspaceId, campaignId, {
   }
   if (retryConfig !== undefined) data.retryConfig = retryConfig ? normalizeRetryConfig(retryConfig) : null;
   if (goal !== undefined) data.goal = goal;
-  if (fallbackConfig !== undefined) data.fallbackConfig = fallbackConfig;
+  if (fallbackConfig !== undefined) {
+    await assertFallbackAllowed(workspaceId, fallbackConfig);
+    data.fallbackConfig = fallbackConfig;
+  }
   const aiConfig = await resolveAiAgentConfig(workspaceId, aiAgent);
   if (aiConfig) Object.assign(data, aiConfig);
 

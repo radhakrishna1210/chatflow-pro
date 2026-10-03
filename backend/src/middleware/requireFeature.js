@@ -1,16 +1,20 @@
-import { hasFeature } from '../services/subscription.service.js';
+import { assertPlanFeature } from '../services/planFeatures.service.js';
 
-// Gates an entire route surface (e.g. Workflows, Integrations) behind a plan
+// Gates a route (or a whole route surface, e.g. Workflows) behind a plan
 // feature flag, mirroring the frontend's existing "Coming Soon" upsell
-// pattern (README §12.4) instead of returning a generic error.
+// pattern (README §12.4) instead of returning a generic error. The flags and
+// the upgrade message live in services/planFeatures.service.js.
 export function requireFeature(flag) {
   return async (req, res, next) => {
-    const allowed = await hasFeature(req.user.workspaceId, flag);
-    if (!allowed) {
+    try {
+      await assertPlanFeature(req.user.workspaceId, flag);
+    } catch (err) {
+      if (err.code !== 'PLAN_FEATURE_LOCKED') return next(err);
       return res.status(403).json({
-        error: `This feature isn't included in your current plan. Upgrade to unlock it.`,
-        code: 'PLAN_FEATURE_LOCKED',
+        error: err.message,
+        code: err.code,
         feature: flag,
+        upgradeTo: err.details?.upgradeTo ?? null,
       });
     }
     next();

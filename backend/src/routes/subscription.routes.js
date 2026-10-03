@@ -27,6 +27,9 @@ router.use(authenticate, workspaceContext);
 router.get('/', controller.getSummary);
 router.get('/plans', controller.getPlans);
 router.get('/pricing', controller.getMessagePricing);
+// Which plan features this workspace has, so screens can disable what its
+// plan does not include (the server enforces it regardless).
+router.get('/features', controller.getPlanFeatures);
 // Changing/buying a plan is ADMIN-only (README §12.2 role table), same
 // restriction already used for wallet recharge.
 router.post('/checkout', authorize('ADMIN'), controller.createCheckout);
