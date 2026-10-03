@@ -38,6 +38,8 @@ import { recoverStrandedCampaigns, startCampaignRecoverySweep } from './services
 import { runBillingCycleSweep } from './services/subscription.service.js';
 import { syncIndex as syncSiteKnowledge } from './services/siteKnowledge.service.js';
 import { campaignQueue } from './queues/campaign.queue.js';
+import { closeRealtimeStreams } from './services/realtime.service.js';
+import { closeRealtimeBus } from './lib/realtimeBus.js';
 import { emailQueue } from './queues/email.queue.js';
 import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
 import { workflowQueue } from './queues/workflow.queue.js';
@@ -477,6 +479,8 @@ async function shutdown(signal) {
   }, 25_000);
 
   try {
+    // Open event streams never end by themselves, and close() waits for them.
+    closeRealtimeStreams();
     if (httpServer) await new Promise((res) => httpServer.close(res));
     await Promise.allSettled([
       campaignWorker?.close(),
@@ -490,7 +494,7 @@ async function shutdown(signal) {
       agentWorker?.close(),
     ]);
     await Promise.allSettled([campaignQueue.close(), emailQueue.close(), billingQueue.close(), workflowQueue.close(), sequenceQueue.close(), webhookQueue.close(), outgoingWebhookQueue.close(), crmMaintenanceQueue.close(), agentQueue.close()]);
-    await Promise.allSettled([redis.quit()]);
+    await Promise.allSettled([closeRealtimeBus(), redis.quit()]);
     await prisma.$disconnect();
     clearTimeout(timeout);
     console.log('[Server] Shutdown complete');

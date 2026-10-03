@@ -98,6 +98,17 @@ const envSchema = z.object({
   // only, no HTTP listener, so workers can run in their own process.
   SERVE_HTTP: z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1'),
 
+  // Server-sent events for the inbox, campaign and template screens
+  // (lib/realtimeBus.js, services/realtime.service.js). "false" turns the push
+  // channel off everywhere; the screens then poll as they did before.
+  REALTIME_ENABLED: z.enum(['true', 'false', '1', '0']).default('true').transform((v) => v === 'true' || v === '1'),
+  // Open streams one user may hold on one web process. A new one beyond this
+  // closes that user's oldest (most often a tab left open somewhere).
+  REALTIME_MAX_STREAMS_PER_USER: z.coerce.number().int().min(1).default(5),
+  // Comment line written to every stream this often so proxies (Render,
+  // nginx's 60 s proxy_read_timeout) never see it idle.
+  REALTIME_HEARTBEAT_MS: z.coerce.number().int().min(1000).default(25_000),
+
   CAMPAIGN_BATCH_SIZE: z.coerce.number().default(50),
   CAMPAIGN_WORKER_CONCURRENCY: z.coerce.number().default(2),
   // Meta Cloud API Tier-1 numbers allow ~250 msgs/min → 1 msg / 250ms is safe.
