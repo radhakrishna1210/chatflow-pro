@@ -53,6 +53,10 @@ const envSchema = z.object({
   META_TWO_STEP_PIN: z.string().regex(/^\d{6}$/, 'must be 6 digits').optional(),
   META_WEBHOOK_VERIFY_TOKEN: z.string().min(1),
   META_API_VERSION: z.string().default('v21.0'),
+  // Per-request timeout for Graph API calls made through metaClient (sends,
+  // template edits). Without one a hung send outlived the workflow run lease
+  // and was executed a second time by the recovery sweep.
+  META_HTTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300_000).default(30_000),
   // Must exactly match the redirect_uri configured in the Meta App dashboard
   // for Embedded Signup. Defaults to the backend callback route.
   META_REDIRECT_URI: z.string().url().optional(),

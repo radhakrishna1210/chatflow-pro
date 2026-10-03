@@ -3,10 +3,17 @@ import { env } from '../config/env.js';
 
 const BASE = `https://graph.facebook.com/${env.META_API_VERSION}`;
 
+// Every Graph call made through this client is bounded. It had no timeout
+// (axios defaults to none), so a send that hung outlived the 10-minute
+// workflow run lease and the recovery sweep executed the step again — a
+// duplicate OTP. META_HTTP_TIMEOUT_MS overrides the 30s default.
+export const metaTimeoutMs = () => Number(env.META_HTTP_TIMEOUT_MS) > 0 ? Number(env.META_HTTP_TIMEOUT_MS) : 30_000;
+
 export function metaClient(accessToken) {
   return axios.create({
     baseURL: BASE,
     headers: { Authorization: `Bearer ${accessToken}` },
+    timeout: metaTimeoutMs(),
   });
 }
 
@@ -175,6 +182,9 @@ export async function uploadPhoneMedia({ phoneNumberId, accessToken, buffer, mim
       headers: { Authorization: `Bearer ${accessToken}` },
       maxBodyLength: Infinity,
       maxContentLength: Infinity,
+      // A template send uploads its header media first; an upload must not be
+      // able to hang a workflow step either. Videos get longer than a text send.
+      timeout: Math.max(metaTimeoutMs(), 120_000),
     });
     if (!data?.id) {
       const e = new Error('Meta accepted the media but returned no id'); e.status = 502; throw e;
@@ -631,6 +641,28 @@ export const INTERACTIVE_LIMITS = {
 
 const clip = (value, max) => String(value ?? '').trim().slice(0, max);
 
+// Titles as WhatsApp will show them: clipped to `max`, and unique. Two options
+// sharing their first 20 characters used to go out as identical buttons —
+// Meta refuses duplicate reply-button titles, and a tap could only ever be
+// mapped back to the first. A clash keeps the first title and gives the later
+// ones a numbered suffix inside the limit ("Talk to support… 2").
+// workflowEngine.service.js#resolveReply uses the same function, so a tap on a
+// suffixed title maps back to the option it was made from.
+export function uniqueTitles(labels, max) {
+  const seen = new Set();
+  return (Array.isArray(labels) ? labels : []).map((label) => {
+    const base = clip(label, max).trimEnd();
+    if (!base) return base;
+    let title = base;
+    for (let n = 2; seen.has(title.toLowerCase()); n += 1) {
+      const suffix = ` ${n}`;
+      title = `${base.slice(0, max - suffix.length).trimEnd()}${suffix}`;
+    }
+    seen.add(title.toLowerCase());
+    return title;
+  });
+}
+
 // Meta requires each option to carry an id that is unique within the message
 // and comes back on the reply. Authors write only a label, so derive one.
 const optionId = (label, index) => {
@@ -643,10 +675,10 @@ const optionId = (label, index) => {
  * @param {string[]} buttons option labels
  */
 export async function sendButtonMessage(phoneNumberId, accessToken, to, { body, buttons, footer }) {
-  const labels = (Array.isArray(buttons) ? buttons : [])
+  const labels = uniqueTitles((Array.isArray(buttons) ? buttons : [])
     .map((b) => clip(typeof b === 'string' ? b : b?.title, INTERACTIVE_LIMITS.buttonTitleChars))
     .filter(Boolean)
-    .slice(0, INTERACTIVE_LIMITS.buttonCount);
+    .slice(0, INTERACTIVE_LIMITS.buttonCount), INTERACTIVE_LIMITS.buttonTitleChars);
 
   if (labels.length === 0) throw new Error('An interactive message needs at least one button.');
   const text = clip(body, INTERACTIVE_LIMITS.bodyChars);
@@ -677,7 +709,7 @@ export async function sendButtonMessage(phoneNumberId, accessToken, to, { body, 
  * carry. Meta shows these behind a button rather than inline.
  */
 export async function sendListMessage(phoneNumberId, accessToken, to, { body, rows, buttonText, header, footer }) {
-  const items = (Array.isArray(rows) ? rows : [])
+  const clipped = (Array.isArray(rows) ? rows : [])
     .map((r) => (typeof r === 'string' ? { title: r } : r))
     .map((r) => ({
       title: clip(r?.title, INTERACTIVE_LIMITS.rowTitleChars),
@@ -685,6 +717,8 @@ export async function sendListMessage(phoneNumberId, accessToken, to, { body, ro
     }))
     .filter((r) => r.title)
     .slice(0, INTERACTIVE_LIMITS.rowCount);
+  const titles = uniqueTitles(clipped.map((r) => r.title), INTERACTIVE_LIMITS.rowTitleChars);
+  const items = clipped.map((r, i) => ({ ...r, title: titles[i] }));
 
   if (items.length === 0) throw new Error('A list message needs at least one option.');
   const text = clip(body, INTERACTIVE_LIMITS.bodyChars);
