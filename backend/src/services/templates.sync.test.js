@@ -35,7 +35,7 @@ mock.module(here('../lib/meta.js'), {
   },
 });
 mock.module(here('../lib/encryption.js'), { namedExports: { decrypt: () => 'token' } });
-mock.module(here('./templateImage.service.js'), { namedExports: { storeAsset: async () => ({}) } });
+mock.module(here('./templateImage.service.js'), { namedExports: { storeAsset: async () => ({}), assertCardAssetsOwned: async () => {} } });
 mock.module(here('./notification.service.js'), { namedExports: { notifyWorkspace: async (ws, note) => { notes.push(note); } } });
 
 const { syncTemplatesFromMeta } = await import('./templates.service.js');

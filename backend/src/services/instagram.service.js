@@ -329,7 +329,7 @@ export async function deliverInstagramReply({
           statusAt: new Date(), errorCode: Number.isFinite(Number(igError?.code)) ? Number(igError.code) : null,
           errorMessage: detail, sentAt: new Date(), senderUserId,
         },
-      }).catch(() => {});
+      }).catch((recErr) => console.error(`[Instagram] Could not record the failed send on ${conversationId}:`, recErr.message));
     }
     return { ok: false, code: 'IG_REJECTED', detail };
   }

@@ -3,7 +3,7 @@ import { createMetaTemplate, editMetaTemplate, deleteMetaTemplate, getWabaTempla
 import { decrypt } from '../lib/encryption.js';
 import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.js';
 import { normalizeTemplateComponents, detectTemplateType, toMetaComponents, preserveInternalFields } from '../lib/templateStructure.js';
-import { storeAsset } from './templateImage.service.js';
+import { storeAsset, assertCardAssetsOwned } from './templateImage.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { realtime } from '../lib/realtimeBus.js';
 
@@ -194,7 +194,9 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
   // One batch for the changed rows and one insert for the new ones.
   if (toUpdate.length > 0) await prisma.$transaction(toUpdate);
   if (toCreate.length > 0) await prisma.template.createMany({ data: toCreate });
-  for (const note of announcements) notifyWorkspace(workspaceId, note).catch(() => {});
+  for (const note of announcements) {
+    notifyWorkspace(workspaceId, note).catch((err) => console.warn(`[Templates] ${note.type} notification failed:`, err.message));
+  }
 
   // Anything on this number that Meta no longer returns was deleted there, so
   // mirror the deletion locally. Only rows that were sourced from Meta
@@ -272,6 +274,7 @@ export async function createTemplate(workspaceId, { name, category, language, co
   // match its siblings, and reports it hours later as an opaque review failure
   // — so the whole structure is validated against the category up front.
   const safeComponents = normalizeTemplateComponents(category, components);
+  await assertCardAssetsOwned(workspaceId, safeComponents);
 
   const waNumber = await resolveWaNumber(workspaceId, waNumberId);
   const wabaId = waNumber.wabaId;
@@ -325,6 +328,7 @@ export async function updateTemplate(workspaceId, id, updates) {
   // one, so an edit cannot smuggle past what create would have rejected.
   if (updates.components) {
     updates.components = normalizeTemplateComponents(updates.category || template.category, updates.components);
+    await assertCardAssetsOwned(workspaceId, updates.components);
   }
 
   // The stored content is what campaigns build their sends from, so it must
@@ -401,7 +405,7 @@ export async function deleteTemplate(workspaceId, id) {
       ? await prisma.waNumber.findFirst({ where: { id: template.waNumberId, workspaceId } })
       : await resolveWaNumber(workspaceId, null, { required: false });
     if (waNumber) {
-      await deleteMetaTemplate(waNumber.wabaId, template.metaTemplateId, decrypt(waNumber.encryptedAccessToken)).catch(() => null);
+      await deleteMetaTemplate(waNumber.wabaId, template.metaTemplateId, decrypt(waNumber.encryptedAccessToken)).catch((err) => { console.warn(`[Templates] Deleting template ${template.metaTemplateId} on Meta failed; deleted locally:`, err.message); return null; });
     }
   }
   // Always a tombstone, never a hard delete.

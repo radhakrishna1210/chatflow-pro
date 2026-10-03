@@ -89,7 +89,7 @@ async function main() {
   for (const workspaceId of targetWorkspaceIds) {
     const leads = await prisma.lead.findMany({ where: { workspaceId }, select: { id: true } });
     for (const l of leads) {
-      await computeLeadCategory(workspaceId, l.id).catch(() => {});
+      await computeLeadCategory(workspaceId, l.id).catch((err) => console.warn(`[Seed] Lead category for ${l.id} failed:`, err.message));
     }
   }
 

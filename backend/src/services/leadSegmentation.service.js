@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { forEachChunk } from '../lib/paging.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
 
@@ -222,21 +223,21 @@ export async function computeLeadCategory(workspaceId, leadId) {
 /**
  * Recalculates lead category for all active leads in a workspace.
  */
+// Walks the workspace's leads in chunks (CF-048) and keeps counts, not results.
 export async function recalculateAllLeadCategories(workspaceId) {
-  const leads = await prisma.lead.findMany({
-    where: { workspaceId },
-    select: { id: true },
+  let total = 0;
+  let updated = 0;
+  await forEachChunk(prisma.lead, { where: { workspaceId }, select: { id: true } }, async (leads) => {
+    total += leads.length;
+    for (const lead of leads) {
+      try {
+        await computeLeadCategory(workspaceId, lead.id);
+        updated += 1;
+      } catch (err) {
+        console.error(`[LeadSegmentation] Failed to compute category for lead ${lead.id}:`, err.message);
+      }
+    }
   });
 
-  const results = [];
-  for (const lead of leads) {
-    try {
-      const res = await computeLeadCategory(workspaceId, lead.id);
-      results.push(res);
-    } catch (err) {
-      console.error(`[LeadSegmentation] Failed to compute category for lead ${lead.id}:`, err.message);
-    }
-  }
-
-  return { total: leads.length, updated: results.length };
+  return { total, updated };
 }

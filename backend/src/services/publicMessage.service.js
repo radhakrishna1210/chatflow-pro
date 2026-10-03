@@ -88,6 +88,7 @@ export async function sendPublicMessage(workspaceId, { to, template, type, body,
     }
 
     const payload = await buildTemplateSendPayload(stored, {
+      workspaceId,
       phoneNumberId,
       accessToken,
       resolve: (i) => supplied[Number(i)] ?? '',

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 import { markFirstResponseForConversation } from './tickets.service.js';
 import { generateAgentReply } from './aiAgent.service.js';
 import { decrypt } from '../lib/encryption.js';
@@ -195,7 +196,7 @@ export async function getOrCreateConversation(workspaceId, { contactId, waNumber
   return conversation;
 }
 
-export async function getMessages(workspaceId, conversationId) {
+export async function getMessages(workspaceId, conversationId, { limit } = {}) {
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
   });
@@ -205,11 +206,17 @@ export async function getMessages(workspaceId, conversationId) {
   // Only when it changed: an open thread refetches on this, and must not loop.
   if (conversation.unreadCount > 0) realtime.conversationUpdated(workspaceId, conversationId, 'read');
 
-  const messages = await prisma.message.findMany({
+  // The newest `take` messages, still returned oldest-first. A years-long
+  // thread used to come back whole on every open and every poll (CF-048).
+  const { take } = listWindow({ limit }, { defaultLimit: 500, maxLimit: 2000 });
+  const newest = await prisma.message.findMany({
     where: { conversationId },
-    orderBy: { sentAt: 'asc' },
+    orderBy: [{ sentAt: 'desc' }, { id: 'desc' }],
     include: { senderUser: { select: { id: true, name: true } } },
+    take: take + 1,
   });
+  const hasMore = newest.length > take;
+  const messages = newest.slice(0, take).reverse();
 
   // The composer needs to know whether a free-form reply is even allowed before
   // the agent types one. Returned alongside the thread so the inbox can say
@@ -218,6 +225,7 @@ export async function getMessages(workspaceId, conversationId) {
 
   return {
     messages,
+    hasMore,
     // Whether the automation is currently allowed to answer this thread, so the
     // composer can show it rather than leaving the agent guessing whether the
     // bot is about to reply over them.
@@ -276,7 +284,7 @@ async function sendInstagramInboxReply(conversation, userId, body) {
     conversationId: conversation.id, body, reason: 'Message overage', senderUserId: userId ?? null,
   });
   if (outcome.ok) {
-    if (userId) markFirstResponseForConversation(conversation.workspaceId, conversation.id).catch(() => {});
+    if (userId) markFirstResponseForConversation(conversation.workspaceId, conversation.id).catch((err) => console.warn(`[Conversations] First-response mark failed for ${conversation.id}:`, err.message));
     return outcome.message;
   }
   const errors = {
@@ -353,7 +361,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   } catch (err) {
     // The credit was consumed before the send. Nothing went out, so hand it
     // back rather than charging for a message that does not exist.
-    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }); // never throws; logs its own failures
     throw describeSendFailure(err);
   }
 
@@ -371,7 +379,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     },
     include: { senderUser: { select: { id: true, name: true } } },
   });
-  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
+  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch((err) => console.warn(`[Conversations] First-response mark failed for ${conversationId}:`, err.message));
 
   await prisma.conversation.update({
     where: { id: conversationId },
@@ -453,7 +461,7 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
       { mediaId, type: spec.type, caption, filename: fileName },
     );
   } catch (err) {
-    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }); // never throws; logs its own failures
     throw describeSendFailure(err);
   }
 
@@ -475,11 +483,12 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     },
     include: { senderUser: { select: { id: true, name: true } } },
   });
-  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
+  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch((err) => console.warn(`[Conversations] First-response mark failed for ${conversationId}:`, err.message));
   // Our own copy in file storage: Meta drops the media after ~30 days, and the
   // thread should still be able to show what was sent. Not awaited — the send
   // has happened either way.
-  archiveOutboundMedia({ workspaceId, messageId: message.id, buffer, mimeType }).catch(() => {});
+  archiveOutboundMedia({ workspaceId, messageId: message.id, buffer, mimeType })
+    .catch((err) => console.warn(`[Conversations] Could not archive sent media for message ${message.id}:`, err.message));
 
   await prisma.conversation.update({
     where: { id: conversationId },
@@ -561,6 +570,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
   const resolve = (i, component) => String(supplied[i] ?? '').trim() || contactVariableResolver(conversation.contact)(i, component);
 
   const payload = await buildTemplateSendPayload(template, {
+    workspaceId,
     phoneNumberId: conversation.waNumber.metaPhoneNumberId,
     accessToken,
     resolve,
@@ -573,7 +583,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
       conversation.contact.phoneNumber, payload,
     );
   } catch (err) {
-    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }).catch(() => {});
+    await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }); // never throws; logs its own failures
     throw describeSendFailure(err);
   }
 
@@ -590,7 +600,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     },
     include: { senderUser: { select: { id: true, name: true } } },
   });
-  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
+  if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch((err) => console.warn(`[Conversations] First-response mark failed for ${conversationId}:`, err.message));
 
   await prisma.conversation.update({
     where: { id: conversationId },

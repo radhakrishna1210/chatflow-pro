@@ -11,7 +11,7 @@ export function startSequenceWorker() {
     async (job) => {
       if (job.name === 'sweep') {
         const due = await findDueEnrollments({ limit: 100 });
-        for (const row of due) await enqueueAdvance(row.id).catch(() => {});
+        for (const row of due) await enqueueAdvance(row.id).catch((err) => console.warn(`[SequenceWorker] Could not enqueue enrollment ${row.id}:`, err.message));
         return { swept: due.length };
       }
 

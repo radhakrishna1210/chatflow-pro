@@ -217,7 +217,7 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages 
     wFetch(`/activities?dealId=${dealId}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d && d.data) setActivities(d.data); })
-      .catch(() => {});
+      .catch((err) => console.warn('[DealsView] Loading deal activities failed:', err?.message || err));
   }, [dealId]);
 
   const save = async () => {
@@ -360,7 +360,7 @@ const NewDealModal = ({ members, onClose, onCreated, stages = [] }) => {
     wFetch(`/contacts?search=${encodeURIComponent(search)}&limit=20`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (!cancelled && d) setContacts(Array.isArray(d) ? d : d.data ?? []); })
-      .catch(() => {});
+      .catch((err) => console.warn('[DealsView] Searching contacts failed:', err?.message || err));
     return () => { cancelled = true; };
   }, [search]);
 
@@ -457,7 +457,7 @@ export default function DealsView({ initialTab }) {
           })));
         }
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[DealsView] Loading pipeline stages failed:', err?.message || err));
   }, []);
 
   useEffect(() => { loadStages(); }, [loadStages]);
@@ -476,7 +476,7 @@ export default function DealsView({ initialTab }) {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    wFetch('/members').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setMembers(d); }).catch(() => {});
+    wFetch('/members').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setMembers(d); }).catch((err) => console.warn('[DealsView] Loading members failed:', err?.message || err));
   }, []);
 
   const switchTab = (next) => {

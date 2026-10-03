@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { findManyChunked } from '../lib/paging.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
 import { assertWithinLimit } from './subscription.service.js';
 import { normalizeRetryConfig, retryPolicySummary } from '../lib/retry.js';
@@ -573,7 +574,7 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
     });
     if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
     category = campaign.template?.category ?? null;
-    const recipients = await prisma.campaignRecipient.findMany({
+    const recipients = await findManyChunked(prisma.campaignRecipient, {
       where: { campaignId, status: 'PENDING' },
       include: { contact: { select: AUDIENCE_CONTACT_FIELDS } },
     });
@@ -665,7 +666,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     }
   }
 
-  const recipients = await prisma.campaignRecipient.findMany({
+  const recipients = await findManyChunked(prisma.campaignRecipient, {
     where: { campaignId, status: 'PENDING' },
     include: { contact: { select: AUDIENCE_CONTACT_FIELDS } },
   });
@@ -839,7 +840,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     // The campaign never made it into the queue, so it never starts — refund
     // in full rather than leaving the customer charged for nothing. A job
     // that was queued before the bookkeeping failed must not send unpaid.
-    if (queuedJob) await queuedJob.remove().catch(() => {});
+    if (queuedJob) await queuedJob.remove().catch((err) => console.error(`[Campaign] Could not remove queued job for campaign ${campaignId} after a failed launch — it may send unpaid:`, err.message));
     await refundCampaign(campaignId, totalCost, 'Campaign could not be queued');
     await undoReservation();
     await prisma.campaign.updateMany({
@@ -855,7 +856,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     body: `${valid.length} recipient${valid.length === 1 ? '' : 's'} · ${quotaUnits ? `${quotaUnits} from plan quota · ` : ''}₹${totalCost.toFixed(2)} deducted${blocked.length ? ` · ${blocked.length} skipped (opted out)` : ''}`,
     link: 'campaigns',
     meta: { campaignId },
-  }).catch(() => {});
+  }).catch((err) => console.warn(`[Campaign] Launch notification failed for ${campaignId}:`, err.message));
 
   const launched = await prisma.campaign.findUnique({ where: { id: campaignId } });
   return {
@@ -1086,8 +1087,8 @@ export async function pauseCampaign(workspaceId, campaignId) {
   // A scheduled campaign has a delayed job waiting; drop it so it cannot fire
   // while paused. Resuming re-queues.
   if (campaign.queueJobId) {
-    const job = await campaignQueue.getJob(campaign.queueJobId).catch(() => null);
-    if (job) await job.remove().catch(() => {});
+    const job = await campaignQueue.getJob(campaign.queueJobId).catch((err) => { console.error(`[Campaign] Could not look up the queued job for paused campaign ${campaign.id}:`, err.message); return null; });
+    if (job) await job.remove().catch((err) => console.error(`[Campaign] Could not remove the queued job for paused campaign ${campaign.id}:`, err.message));
   }
 
   const remaining = await prisma.campaignRecipient.count({ where: { campaignId, status: 'PENDING' } });
@@ -1189,12 +1190,12 @@ export async function cancelCampaign(workspaceId, campaignId) {
 
   // Remove the queued job by its stored ID (reliable) and by scan (fallback).
   if (campaign.queueJobId) {
-    const job = await campaignQueue.getJob(campaign.queueJobId).catch(() => null);
-    if (job) await job.remove().catch(() => {});
+    const job = await campaignQueue.getJob(campaign.queueJobId).catch((err) => { console.error(`[Campaign] Could not look up the queued job for campaign ${campaign.id}:`, err.message); return null; });
+    if (job) await job.remove().catch((err) => console.error(`[Campaign] Could not remove the queued job for campaign ${campaign.id}:`, err.message));
   }
-  const jobs = await campaignQueue.getJobs(['delayed', 'waiting', 'paused']).catch(() => []);
+  const jobs = await campaignQueue.getJobs(['delayed', 'waiting', 'paused']).catch((err) => { console.error(`[Campaign] Could not scan queued jobs for campaign ${campaignId}:`, err.message); return []; });
   for (const job of jobs) {
-    if (job.data?.campaignId === campaignId) await job.remove().catch(() => {});
+    if (job.data?.campaignId === campaignId) await job.remove().catch((err) => console.error(`[Campaign] Could not remove job ${job.id} for campaign ${campaignId}:`, err.message));
   }
 
   // A send already handed to Meta when the cancel landed finishes and claims

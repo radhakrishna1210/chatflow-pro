@@ -470,13 +470,81 @@ export async function getAsset(workspaceId, assetId) {
   return asset;
 }
 
+// The one place stored template media is resolved for a send (CF-110).
+//
+// An asset id reaches a send from template data — Template.headerAssetId, or a
+// carousel card's `_assetId`, which is editable component JSON — and a template
+// saved before ownership was checked at save, or whose asset has since been
+// deleted, can still name an asset this workspace does not own. Resolving it
+// unscoped would upload another tenant's picture from this tenant's number and
+// overwrite that asset's media-id cache, so it is only ever looked up inside
+// the SENDING workspace, and a miss fails the send with a clear, fixable error.
+export async function resolveTemplateAsset(workspaceId, assetId, { label = 'this template' } = {}) {
+  const asset = assetId && workspaceId
+    ? await prisma.templateAsset.findFirst({ where: { id: String(assetId), workspaceId } })
+    : null;
+  if (asset) return asset;
+
+  // Only for the log: a reference into another workspace is an attempted
+  // cross-tenant read (or a corrupted template), not just stale data. The
+  // caller is told the same thing either way.
+  if (assetId) {
+    try {
+      const other = await prisma.templateAsset.findUnique({ where: { id: String(assetId) }, select: { workspaceId: true } });
+      if (other && other.workspaceId !== workspaceId) {
+        console.warn(`[TemplateImage] Refused media from another workspace for ${label}: asset ${assetId} is not owned by sending workspace ${workspaceId}.`);
+      }
+    } catch (err) {
+      console.warn(`[TemplateImage] Could not classify missing asset ${assetId} for ${label}: ${err.message}`);
+    }
+  }
+
+  const e = new Error(`The media for ${label} is not available in this workspace — it was deleted or belongs to another workspace. Re-upload it in the template editor.`);
+  e.status = 422;
+  e.code = 'TEMPLATE_MEDIA_UNAVAILABLE';
+  e.expose = true;
+  throw e;
+}
+
+// Save-time half of the same rule: every carousel card `_assetId` in
+// `components` must belong to `workspaceId`. Called before a template's
+// components are stored, so a foreign id is refused up front instead of only
+// failing at send.
+export async function assertCardAssetsOwned(workspaceId, components) {
+  const refs = carouselCards(components)
+    .map((card, index) => ({
+      index,
+      id: (Array.isArray(card?.components) ? card.components : [])
+        .find((c) => String(c?.type || '').toUpperCase() === 'HEADER')?._assetId,
+    }))
+    .filter((r) => r.id)
+    .map((r) => ({ ...r, id: String(r.id) }));
+  if (refs.length === 0) return;
+  // At most ten cards, so this lookup is bounded by construction.
+  const owned = await prisma.templateAsset.findMany({
+    where: { id: { in: [...new Set(refs.map((r) => r.id))] }, workspaceId },
+    select: { id: true },
+  });
+  const ownedIds = new Set(owned.map((a) => a.id));
+  const missing = refs.find((r) => !ownedIds.has(r.id));
+  if (missing) {
+    const e = new Error(`The image for card ${missing.index + 1} is not available in this workspace. Re-upload it in the template editor.`);
+    e.status = 400;
+    e.code = 'TEMPLATE_MEDIA_UNAVAILABLE';
+    e.expose = true;
+    throw e;
+  }
+}
+
 export const toDataUri = (mimeType, buffer) => `data:${mimeType};base64,${Buffer.from(buffer).toString('base64')}`;
 
 // The `header` entry a send must carry when the template has an image header,
 // or null when it doesn't. Meta requires this on EVERY send of such a template
 // — omitting it fails the message with error 132000 (parameter count mismatch),
 // which is what made image headers look like they simply didn't arrive.
-export async function headerImageComponent(template, { phoneNumberId, accessToken }) {
+//
+// `workspaceId` is the workspace doing the send; the asset must belong to it.
+export async function headerImageComponent(template, { phoneNumberId, accessToken, workspaceId = template?.workspaceId }) {
   const header = (Array.isArray(template?.components) ? template.components : [])
     .find((c) => String(c?.type || '').toUpperCase() === 'HEADER');
   if (!header || String(header.format || '').toUpperCase() !== 'IMAGE') return null;
@@ -500,12 +568,7 @@ export async function headerImageComponent(template, { phoneNumberId, accessToke
     throw e;
   }
 
-  const asset = await prisma.templateAsset.findFirst({ where: { id: assetId, workspaceId: template.workspaceId } });
-  if (!asset) {
-    const e = new Error(`The header image for template "${template.name}" is missing. Re-upload it.`);
-    e.status = 422;
-    throw e;
-  }
+  const asset = await resolveTemplateAsset(workspaceId, assetId, { label: `the header image of template "${template.name}"` });
 
   const mediaId = await resolveSendableMediaId(asset, { phoneNumberId, accessToken });
   return { type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] };
@@ -627,10 +690,14 @@ async function rememberCardAsset(template, cardIndex, assetId) {
 // carousel has up to ten pictures and Template.headerAssetId holds only one.
 // `resolveMediaId` is injectable so payload assembly can be exercised without a
 // database or a Meta upload — everything else about a carousel send is pure
-// shape work, and it was untestable only because of this one call.
+// shape work, and it was untestable only because of this one call. No
+// production caller passes it.
+//
+// `workspaceId` is the workspace doing the send; every card's asset must
+// belong to it.
 export async function carouselComponent(
   template,
-  { phoneNumberId, accessToken, resolve, resolveMediaId = null },
+  { phoneNumberId, accessToken, resolve, resolveMediaId = null, workspaceId = template?.workspaceId },
 ) {
   const cards = carouselCards(template?.components);
   if (cards.length === 0) return null;
@@ -656,15 +723,10 @@ export async function carouselComponent(
       throw e;
     }
     // `_assetId` comes from editable component JSON, so it is only honoured
-    // for an asset this template's own workspace owns.
+    // for an asset the sending workspace owns.
     const asset = resolveMediaId
       ? { id: assetId }
-      : await prisma.templateAsset.findFirst({ where: { id: assetId, workspaceId: template.workspaceId } });
-    if (!asset) {
-      const e = new Error(`The media for card ${index + 1} of template "${template.name}" is missing. Re-upload it.`);
-      e.status = 422;
-      throw e;
-    }
+      : await resolveTemplateAsset(workspaceId, assetId, { label: `card ${index + 1} of template "${template.name}"` });
 
     const mediaId = await mintMediaId(asset);
     const kind = String(header.format || 'IMAGE').toLowerCase();

@@ -1,5 +1,6 @@
 import { LeadStatus, DealStage } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { findManyChunked } from '../lib/paging.js';
 import { scopeFilter, activityScopeFilter, withScope } from './recordScope.service.js';
 
 const REPORT_ENTITY_TYPE = 'crm_custom_report';
@@ -99,7 +100,7 @@ export async function executeCustomReport(workspaceId, {
     }, scope);
 
     if (groupBy === 'owner') {
-      const leads = await prisma.lead.findMany({
+      const leads = await findManyChunked(prisma.lead, {
         where,
         select: {
           id: true,
@@ -191,7 +192,7 @@ export async function executeCustomReport(workspaceId, {
     }, scope);
 
     if (groupBy === 'owner') {
-      const deals = await prisma.deal.findMany({
+      const deals = await findManyChunked(prisma.deal, {
         where,
         select: {
           id: true,

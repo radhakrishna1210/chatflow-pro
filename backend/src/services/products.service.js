@@ -1,6 +1,9 @@
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 
-export async function listProducts(workspaceId, { search = '', category = '', includeInactive = false } = {}) {
+export async function listProducts(workspaceId, { search = '', category = '', includeInactive = false, limit, offset } = {}) {
+  // Optional paging; the default covers a normal catalogue in full (CF-048).
+  const { take, skip } = listWindow({ limit, offset });
   const where = {
     workspaceId,
     ...(includeInactive ? {} : { isActive: true }),
@@ -17,7 +20,7 @@ export async function listProducts(workspaceId, { search = '', category = '', in
   };
 
   const [data, total, categories] = await Promise.all([
-    prisma.product.findMany({ where, orderBy: { name: 'asc' } }),
+    prisma.product.findMany({ where, orderBy: [{ name: 'asc' }, { id: 'asc' }], skip, take }),
     prisma.product.count({ where }),
     prisma.product.findMany({
       where: { workspaceId, category: { not: null } },
@@ -26,7 +29,7 @@ export async function listProducts(workspaceId, { search = '', category = '', in
     }),
   ]);
 
-  return { data, total, categories: categories.map((c) => c.category).filter(Boolean).sort() };
+  return { data, total, limit: take, offset: skip, categories: categories.map((c) => c.category).filter(Boolean).sort() };
 }
 
 export async function getProduct(workspaceId, id) {

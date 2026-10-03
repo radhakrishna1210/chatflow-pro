@@ -42,12 +42,12 @@ export function LogInteractionModal({ lead, onClose, onLogged }) {
     wFetch('/crm-customization/call_outcomes')
       .then(r => r.ok && r.json())
       .then(d => { if (d?.data?.outcomes) setCallOutcomes(d.data.outcomes); })
-      .catch(() => {});
+      .catch((err) => console.warn('[LogInteractionModal] Loading call outcomes failed:', err?.message || err));
 
     wFetch('/crm-customization/visit_outcomes')
       .then(r => r.ok && r.json())
       .then(d => { if (d?.data?.outcomes) setVisitOutcomes(d.data.outcomes); })
-      .catch(() => {});
+      .catch((err) => console.warn('[LogInteractionModal] Loading visit outcomes failed:', err?.message || err));
   }, []);
 
   const activeOutcomeOptions = type === 'CALL' && callOutcomes.length > 0

@@ -245,6 +245,7 @@ release. Do them in this order.
    | `20261002190000_fk_actions_and_hot_indexes` | Foreign-key delete/update actions and hot-path indexes |
    | `20261003100000_workspace_addon_stacking_auto_renew` | Drops the one-row-per-add-on unique index (packs stack, one row per pack); `WorkspaceAddon.autoRenew`, `renewedAt`, `expiredAt`; indexes |
    | `20261003101000_plan_feature_fallback_voice` | Data: adds `fallback: true` and `voice: true` to every plan's `features` (values already set are kept) |
+   | `20261003120000_oauth_pkce` | OAuth provider PKCE: `OAuthClient.publicClient`, nullable `clientSecretHash` (CHECK: public or has a secret), `OAuthAuthorizationCode.codeChallenge`/`codeChallengeMethod`. Existing clients stay confidential; no action needed |
    | `20261003140000_object_storage_keys` | `TemplateAsset.bytes` nullable + `storageKey`; `Message.mediaStorageKey`, `mediaSize` |
    | `20261003141000_instagram_inbox_and_voice_transcripts` | `Message.transcript`; `Conversation.channel` (enum, default WHATSAPP) + one-Instagram-thread-per-contact partial unique index; `Contact.instagramUserId`/`instagramUsername` (unique per workspace) |
 
@@ -424,6 +425,26 @@ Tell workspace owners before the release:
 - **Redeploys during a campaign**: on SIGTERM the send loop stops after the
   message in flight and queues a `resume-<campaignId>-<ts>` job for the next
   worker, so the 25 s shutdown budget is no longer exceeded by long campaigns.
+
+### List limits and template media
+
+- **Bounded lists.** The leads, tickets, quotes, products, invoices and support
+  ticket lists return at most 500 rows by default (`?limit=` up to 1000,
+  `?offset=`); `{data, total}` responses also report `limit`/`offset`, so a
+  client can tell it got a page. Super-admin workspace lists default to 1000
+  (max 5000). An inbox thread returns its newest 500 messages (`?limit=` up
+  to 2000) with `hasMore`. Workspaces above these sizes see the first page
+  until the screens page through the rest. The contacts export is no longer
+  capped at 50,000 rows (it streams; `X-Export-Truncated` is never sent), and
+  the blocked-numbers export includes every row, not just the first 200.
+- **Template media** is resolved only inside the sending workspace. A
+  template whose carousel card or header names an image another workspace
+  owns, or one since deleted, now fails to send with
+  `TEMPLATE_MEDIA_UNAVAILABLE`. Re-uploading the image in the template editor
+  fixes it.
+- **OAuth provider PKCE.** Nothing changes for the existing (confidential)
+  Spandan client. A public client registered with `publicClient: true` in
+  `seedOAuthClients.js` must use PKCE (S256); see `backend/docs/PUBLIC_API.md`.
 
 ---
 

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 import { scopeFilter, withScope } from './recordScope.service.js';
 import { assertRecordReferences } from './crmReferences.js';
 import { awardXp, revokeXp } from './gamification.service.js';
@@ -48,7 +49,7 @@ export function categorySlaHours(customConfig, category) {
 
 async function ticketSlaHours(workspaceId, category) {
   if (!category) return null;
-  const config = await getSection(workspaceId, 'ticket_customization').catch(() => null);
+  const config = await getSection(workspaceId, 'ticket_customization').catch((err) => { console.warn(`[Tickets] Ticket customization unavailable for ${workspaceId}; using defaults:`, err.message); return null; });
   return categorySlaHours(config, category);
 }
 
@@ -80,7 +81,9 @@ function viewFilter(view, userId) {
   }
 }
 
-export async function listTickets(workspaceId, { view = 'open', status = '', priority = '' } = {}, user = null) {
+export async function listTickets(workspaceId, { view = 'open', status = '', priority = '', limit, offset } = {}, user = null) {
+  // Optional paging; the default covers a normal queue in full (CF-048).
+  const { take, skip } = listWindow({ limit, offset });
   const scope = user ? await scopeFilter(workspaceId, user) : {};
   const where = withScope({
     workspaceId,
@@ -95,7 +98,9 @@ export async function listTickets(workspaceId, { view = 'open', status = '', pri
       include: TICKET_INCLUDE,
       // Urgent first, then closest to breaching. A queue sorted by creation
       // date buries the ticket that is about to miss its target.
-      orderBy: [{ priority: 'desc' }, { dueAt: 'asc' }],
+      orderBy: [{ priority: 'desc' }, { dueAt: 'asc' }, { id: 'asc' }],
+      skip,
+      take,
     }),
     prisma.crmTicket.count({ where }),
   ]);
@@ -125,7 +130,7 @@ export async function createTicket(workspaceId, body) {
 
   const priority = body.priority || 'NORMAL';
 
-  const customConfig = await getSection(workspaceId, 'ticket_customization').catch(() => null);
+  const customConfig = await getSection(workspaceId, 'ticket_customization').catch((err) => { console.warn(`[Tickets] Ticket customization unavailable for ${workspaceId}; using defaults:`, err.message); return null; });
   const defaultStage = customConfig?.stages?.find((s) => s.isDefault)?.key;
 
   const VALID_STATUSES = ['NEW', 'OPEN', 'WAITING', 'RESOLVED', 'CLOSED'];

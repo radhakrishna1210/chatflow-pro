@@ -293,7 +293,7 @@ export async function handleInstagramMessage({ workspaceId, accountId, event, fl
       body: `${contact.name || 'An Instagram user'} asked not to be messaged on Instagram.`,
       link: 'inbox',
       meta: { conversationId: conversation.id },
-    }).catch(() => {});
+    }).catch((err) => console.warn('[InstagramInbox] Opt-out notification failed:', err.message));
     return { handled: true, step: 'optout', conversationId: conversation.id };
   }
 
@@ -304,7 +304,7 @@ export async function handleInstagramMessage({ workspaceId, accountId, event, fl
       const sent = await reply(conversation.id, flow.responseTemplate);
       if (sent.ok) {
         await prisma.instagramFlow.update({ where: { id: flow.id }, data: { triggeredCount: { increment: 1 } } })
-          .catch(() => {});
+          .catch((err) => console.warn(`[InstagramInbox] Could not count a trigger of flow ${flow.id}:`, err.message));
       }
       return { handled: true, step: 'quickflow', conversationId: conversation.id };
     }

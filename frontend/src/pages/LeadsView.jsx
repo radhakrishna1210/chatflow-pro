@@ -133,7 +133,7 @@ const NewLeadModal = ({ onClose, onCreated, crmConfig }) => {
     wFetch(`/contacts?search=${encodeURIComponent(search)}&limit=20`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (!cancelled && d) setContacts(Array.isArray(d) ? d : d.data ?? []); })
-      .catch(() => {});
+      .catch((err) => console.warn('[LeadsView] Searching contacts failed:', err?.message || err));
     return () => { cancelled = true; };
   }, [search, mode]);
 
@@ -377,7 +377,7 @@ const ConvertModal = ({ lead, members, onClose, onConverted }) => {
           setStages(rawStages.map(s => ({ key: s.key, label: s.label || pretty(s.key) })));
         }
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[LeadsView] Loading lead stages failed:', err?.message || err));
   }, []);
 
   const submit = async () => {
@@ -524,7 +524,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
     wFetch('/custom-fields?entity=lead')
       .then(r => (r.ok ? r.json() : { data: [] }))
       .then(d => setCustomDefs(d.data ?? []))
-      .catch(() => {});
+      .catch((err) => console.warn('[LeadsView] Loading custom fields failed:', err?.message || err));
   }, []);
 
   const customDirty = JSON.stringify(customValues ?? {}) !== JSON.stringify(lead.customFields ?? {});
@@ -1178,7 +1178,7 @@ export default function LeadsView() {
     wFetch('/crm-customization')
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d?.data) setCrmConfig(d.data); })
-      .catch(() => {});
+      .catch((err) => console.warn('[LeadsView] Loading CRM configuration failed:', err?.message || err));
   }, []);
 
   // Typing shouldn't fire a request per keystroke, and a slow response for an
@@ -1315,7 +1315,7 @@ export default function LeadsView() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    wFetch('/members').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setMembers(d); }).catch(() => {});
+    wFetch('/members').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setMembers(d); }).catch((err) => console.warn('[LeadsView] Loading members failed:', err?.message || err));
   }, []);
 
   const refreshDetail = () => {
@@ -1324,7 +1324,7 @@ export default function LeadsView() {
     wFetch(`/leads/${activeId}`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d) setDetail(d); })
-      .catch(() => {});
+      .catch((err) => console.warn('[LeadsView] Refreshing lead failed:', err?.message || err));
   };
 
   useEffect(() => {

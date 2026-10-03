@@ -117,7 +117,7 @@ export async function ask(workspaceId, user, message, { history = [] } = {}) {
     const dbUser = await prisma.user.findUnique({
       where: { id: user.id },
       select: { name: true },
-    }).catch(() => null);
+    }).catch((err) => { console.warn(`[Copilot] Could not load the name of user ${user.id}:`, err.message); return null; });
     if (dbUser?.name) {
       currentUser = { ...user, name: dbUser.name };
     }

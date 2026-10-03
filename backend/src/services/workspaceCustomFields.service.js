@@ -200,7 +200,7 @@ export async function recordCustomEvent(workspaceId, key, payload = {}) {
   await prisma.workspaceCustomEvent.update({
     where: { id: event.id },
     data: { seenCount: { increment: 1 }, lastSeenAt: new Date() },
-  }).catch(() => {});
+  }).catch((err) => console.warn(`[CustomEvents] Could not bump the seen count of event ${event.id}:`, err.message));
 
   const { emitWebhook } = await import('./outgoingWebhook.service.js');
   emitWebhook(workspaceId, 'custom.event', { key: event.key, label: event.label, payload });

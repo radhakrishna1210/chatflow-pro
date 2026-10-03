@@ -125,3 +125,103 @@ test('recipientIdentity is scoped to the workspace', async () => {
   assert.notEqual(id({ workspaceId: 'w1', body: { to: '91 1' } }), id({ workspaceId: 'w2', body: { to: '911' } }));
   assert.equal(id({ workspaceId: 'w1', body: {} }), null);
 });
+
+// ─── In-memory fallback store (CF-130) ──────────────────────────────────────
+
+test('MemoryRateStore: concurrent hits on one key each get a distinct count', async () => {
+  const { MemoryRateStore } = await import('./rateLimit.js');
+  const store = new MemoryRateStore();
+  const counts = await Promise.all(Array.from({ length: 500 }, async () => {
+    await null; // yield, so the hits interleave as concurrent requests would
+    return store.hit('k', 60_000).count;
+  }));
+  assert.deepEqual([...counts].sort((a, b) => a - b), Array.from({ length: 500 }, (_, i) => i + 1));
+});
+
+test('MemoryRateStore: the window expires and restarts at the next hit', async () => {
+  const { MemoryRateStore } = await import('./rateLimit.js');
+  let t = 1_000;
+  const store = new MemoryRateStore({ now: () => t });
+  store.hit('k', 100);
+  store.hit('k', 100);
+  assert.equal(store.peek('k').count, 2);
+  t = 1_100;
+  assert.equal(store.peek('k'), null, 'expired exactly at resetAt, like a Redis TTL');
+  const fresh = store.hit('k', 100);
+  assert.equal(fresh.count, 1);
+  assert.equal(fresh.resetAt, 1_200);
+});
+
+test('MemoryRateStore: a refund never crosses into the next window or below zero', async () => {
+  const { MemoryRateStore } = await import('./rateLimit.js');
+  let t = 0;
+  const store = new MemoryRateStore({ now: () => t });
+  const first = store.hit('k', 100);
+  t = 150;
+  store.hit('k', 100);
+  store.unhit('k', first.windowId);
+  assert.equal(store.peek('k').count, 1, 'stale refund ignored');
+  store.unhit('k');
+  store.unhit('k');
+  assert.equal(store.peek('k').count, 0);
+});
+
+test('MemoryRateStore: memory is bounded, expired windows go first', async () => {
+  const { MemoryRateStore } = await import('./rateLimit.js');
+  let t = 0;
+  const store = new MemoryRateStore({ maxKeys: 100, now: () => t });
+  for (let i = 0; i < 50; i += 1) store.hit(`short-${i}`, 10);
+  for (let i = 0; i < 50; i += 1) store.hit(`long-${i}`, 10_000);
+  t = 20;
+  store.hit('new', 10_000);
+  assert.equal(store.size, 51, 'the 50 expired windows were swept, live ones kept');
+  assert.ok(store.peek('long-0'));
+
+  for (let i = 0; i < 10_000; i += 1) store.hit(`flood-${i}`, 10_000);
+  assert.ok(store.size <= 100, `size ${store.size} stays within maxKeys`);
+  assert.ok(store.peek('flood-9999'), 'the newest key survives eviction');
+  assert.equal(store.peek('long-0'), null, 'the oldest live window was evicted');
+});
+
+test('a 200-request concurrent burst passes exactly `max` (memory fallback)', async () => {
+  const { rateLimit } = await import('./rateLimit.js');
+  const limiter = rateLimit({ windowMs: 60_000, max: 7, keyPrefix: `hammer-${Date.now()}` });
+  const exchanges = Array.from({ length: 200 }, () => fakeExchange('198.51.100.9'));
+  let passed = 0;
+  await Promise.all(exchanges.map(({ req, res }) => limiter(req, res, () => { passed += 1; })));
+  assert.equal(passed, 7);
+  assert.equal(exchanges.filter(({ res }) => res.statusCode === 429).length, 193);
+});
+
+test('a concurrent subject burst from many addresses passes exactly `subjectMax`', async () => {
+  const { rateLimit, emailSubject } = await import('./rateLimit.js');
+  const limiter = rateLimit({ windowMs: 60_000, max: 100, keyPrefix: `spray-${Date.now()}`, subject: emailSubject, subjectMax: 4 });
+  const exchanges = Array.from({ length: 50 }, (_, i) => {
+    const ex = fakeExchange(`203.0.113.${i + 1}`);
+    ex.req.body = { email: 'Victim@Example.com' };
+    return ex;
+  });
+  let passed = 0;
+  await Promise.all(exchanges.map(({ req, res }) => limiter(req, res, () => { passed += 1; })));
+  assert.equal(passed, 4);
+});
+
+test('a concurrent burst of mixed outcomes on a failure-only limiter refunds every success', async () => {
+  const { rateLimit } = await import('./rateLimit.js');
+  const limiter = rateLimit({ windowMs: 60_000, max: 5, keyPrefix: `mixed-${Date.now()}`, countFailuresOnly: true });
+  // Ten rounds of 5 parallel attempts that all succeed: none of them may be
+  // charged, so every round passes in full.
+  for (let round = 0; round < 10; round += 1) {
+    const exchanges = Array.from({ length: 5 }, () => fakeExchange('198.51.100.10'));
+    let passed = 0;
+    await Promise.all(exchanges.map(({ req, res }) => limiter(req, res, () => { passed += 1; })));
+    exchanges.forEach(({ res }) => res.finish(200));
+    assert.equal(passed, 5, `round ${round + 1}`);
+  }
+  // Then a parallel burst of failures is capped at `max`.
+  const exchanges = Array.from({ length: 40 }, () => fakeExchange('198.51.100.10'));
+  let passed = 0;
+  await Promise.all(exchanges.map(({ req, res }) => limiter(req, res, () => { passed += 1; })));
+  exchanges.forEach(({ res }) => { if (res.statusCode !== 429) res.finish(401); });
+  assert.equal(passed, 5);
+});

@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { forEachChunk } from '../lib/paging.js';
 import { parse } from 'csv-parse/sync';
 import { assertWithinLimit } from './subscription.service.js';
 import { setContactOptOut } from './optout.service.js';
@@ -296,22 +297,20 @@ function csvCell(value) {
   return `"${(risky ? `'${raw}` : raw).replace(/"/g, '""')}"`;
 }
 
-// Capped so one request cannot try to hold an unbounded workspace in memory.
-const EXPORT_LIMIT = 50_000;
+export function countContacts(workspaceId, filters = {}) {
+  return prisma.contact.count({ where: buildContactWhere(workspaceId, filters) });
+}
 
-export async function exportContactsCsv(workspaceId, filters = {}) {
+// The export used to be capped at 50,000 rows so one request could not hold an
+// unbounded workspace in memory. It is now read in id-cursor chunks and each
+// chunk's lines go to `writeLine` as they are built (the controller streams
+// them to the response), so nothing is capped and memory stays at one chunk
+// (CF-048). Without `writeLine` the lines are collected into `csv`.
+export async function exportContactsCsv(workspaceId, filters = {}, { writeLine = null } = {}) {
   const where = buildContactWhere(workspaceId, filters);
-  const [contacts, customDefs] = await Promise.all([
-    prisma.contact.findMany({
-      where,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: EXPORT_LIMIT,
-      include: { segments: { select: { name: true } } },
-    }),
-    prisma.workspaceCustomField.findMany({
-      where: { workspaceId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-    }),
-  ]);
+  const customDefs = await prisma.workspaceCustomField.findMany({
+    where: { workspaceId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+  });
 
   // Custom fields become their own columns. An export that silently dropped
   // them would not be the customer's data.
@@ -320,15 +319,23 @@ export async function exportContactsCsv(workspaceId, filters = {}) {
     ...customDefs.map((d) => [d.label, (c) => (c.customFields || {})[d.key] ?? '']),
   ];
 
-  const lines = [columns.map(([header]) => csvCell(header)).join(',')];
-  for (const c of contacts) {
-    lines.push(columns.map(([, read]) => csvCell(read(c))).join(','));
-  }
+  const lines = [];
+  const emit = writeLine ?? ((line) => lines.push(line));
+  await emit(columns.map(([header]) => csvCell(header)).join(','));
+  let count = 0;
+  await forEachChunk(prisma.contact, {
+    where,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    include: { segments: { select: { name: true } } },
+  }, async (contacts) => {
+    for (const c of contacts) await emit(columns.map(([, read]) => csvCell(read(c))).join(','));
+    count += contacts.length;
+  });
 
   return {
-    csv: lines.join('\r\n'),
-    count: contacts.length,
-    truncated: contacts.length === EXPORT_LIMIT,
+    csv: writeLine ? null : lines.join('\r\n'),
+    count,
+    truncated: false,
     filename: `contacts-${new Date().toISOString().slice(0, 10)}.csv`,
   };
 }

@@ -90,8 +90,8 @@ const ProfileMenu = () => {
   // the full list of workspaces this account belongs to for the switcher.
   useEffect(() => {
     if (open) {
-      try { setUser(JSON.parse(localStorage.getItem('user') || '{}')); } catch {}
-      apiFetch('/api/v1/workspaces/mine').then(r => r.ok ? r.json() : []).then(d => { if (Array.isArray(d)) setWorkspaces(d); }).catch(() => {});
+      try { setUser(JSON.parse(localStorage.getItem('user') || '{}')); } catch { /* storage blocked or cached user unreadable: keep the default */ }
+      apiFetch('/api/v1/workspaces/mine').then(r => r.ok ? r.json() : []).then(d => { if (Array.isArray(d)) setWorkspaces(d); }).catch((err) => console.warn('[Dashboard] Loading workspaces failed:', err?.message || err));
     }
   }, [open]);
 
@@ -574,7 +574,7 @@ const NextBestAction = ({ onGo, numbers }) => {
     let alive = true;
     const hasNumber = Array.isArray(numbers) && numbers.length > 0;
     (hasNumber
-      ? wFetch('/campaigns').then(r => (r.ok ? r.json() : [])).catch(() => [])
+      ? wFetch('/campaigns').then(r => (r.ok ? r.json() : [])).catch((err) => { console.warn('[Dashboard] Loading campaigns for the next action failed:', err?.message || err); return []; })
       : Promise.resolve([])
     ).then((campaigns) => {
       if (!alive) return;
@@ -1612,7 +1612,7 @@ const TemplateAiPanel = ({ onClose, onUseDraft }) => {
       // Authentication is created from the separate Authentication page, not
       // this panel, so its suggestion chips are excluded here.
       .then(d => { if (Array.isArray(d?.suggestions)) setSuggestions(d.suggestions.filter(sg => sg.category !== 'AUTHENTICATION')); })
-      .catch(() => {});
+      .catch((err) => console.warn('[Dashboard] Loading template suggestions failed:', err?.message || err));
   }, []);
 
   const generate = async (text) => {
@@ -1884,7 +1884,7 @@ const TemplatesView = () => {
   // untouched.
   const loadTemplates = (which = viewRef.current) =>
     wFetch(which === 'DELETED' ? '/templates?status=DELETED' : '/templates')
-      .then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t => t.category !== 'AUTHENTICATION')); }).catch(()=>{});
+      .then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setTemplates(d.filter(t => t.category !== 'AUTHENTICATION')); }).catch(err=>console.warn('[Dashboard] Loading templates failed:', err?.message||err));
 
   // Switching views refetches rather than filtering what is already loaded.
   useEffect(() => { setTemplates([]); setLoading(true); loadTemplates(view).finally(() => setLoading(false)); }, [view]); // eslint-disable-line
@@ -2801,8 +2801,8 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
   // server totals rather than the length of one page. Super admins have no
   // workspace to count.
   usePolling(() => Promise.all([
-    wFetch('/tasks?isOverdue=true').then(r => (r.ok ? r.json() : null)).catch(() => null),
-    wFetch('/insights/recommendations?limit=1').then(r => (r.ok ? r.json() : null)).catch(() => null),
+    wFetch('/tasks?isOverdue=true').then(r => (r.ok ? r.json() : null)).catch(() => null), // polled every 2 min; a miss keeps the last badge
+    wFetch('/insights/recommendations?limit=1').then(r => (r.ok ? r.json() : null)).catch(() => null), // polled every 2 min; a miss keeps the last badge
   ]).then(([tData, rData]) => {
     if (!tData && !rData) return;
     setCrmBadge((tData?.total ?? tData?.data?.length ?? 0) + (rData?.total ?? 0));
@@ -3215,7 +3215,7 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
       body: '{}',
-    }).catch(() => {});
+    }).catch((err) => console.warn('[Dashboard] Ending impersonation server-side failed:', err?.message || err));
     endImpersonation();
     window.location.href = '/dashboard';
   };

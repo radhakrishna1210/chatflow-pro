@@ -48,7 +48,7 @@ export async function inviteMember(workspaceId, { email, role }, inviterName) {
     inviterName: inviterName || 'A workspace admin',
     workspaceId,
     workspaceName: workspace?.name || 'your workspace',
-  }).catch(() => {});
+  }).catch((err) => console.warn('[Members] Member-invited email could not be queued:', err.message));
 
   return member;
 }

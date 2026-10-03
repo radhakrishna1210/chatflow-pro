@@ -3,7 +3,8 @@
  *
  * `authorize` and `token` are public — an authorization request arrives as a
  * browser navigation from another application, and the token exchange is a
- * server-to-server call authenticated by the client's own secret. `consentInfo`
+ * server-to-server call authenticated by the client's own secret (a public client
+ * with no secret proves itself with its PKCE code_verifier instead). `consentInfo`
  * and `decide` require a logged-in ChatFlow user, because they are the point at
  * which a real person grants access to a workspace they belong to.
  *
@@ -50,11 +51,16 @@ function renderError(res, message, status = 400) {
  * `req` blob is what survives that detour.
  */
 export async function authorize(req, res) {
-  const { client_id: clientId, redirect_uri: redirectUri, response_type: responseType, scope, state } = req.query;
+  const {
+    client_id: clientId, redirect_uri: redirectUri, response_type: responseType, scope, state,
+    code_challenge: codeChallenge, code_challenge_method: codeChallengeMethod,
+  } = req.query;
 
   let validated;
   try {
-    validated = await oauth.validateAuthorizeRequest({ clientId, redirectUri, responseType, scope });
+    validated = await oauth.validateAuthorizeRequest({
+      clientId, redirectUri, responseType, scope, codeChallenge, codeChallengeMethod,
+    });
   } catch (err) {
     if (err instanceof OAuthRenderError) return renderError(res, err.message);
     if (err instanceof OAuthRedirectError) {
@@ -70,6 +76,7 @@ export async function authorize(req, res) {
     redirectUri: String(redirectUri),
     scopes: validated.scopes,
     state: state ? String(state) : '',
+    pkce: validated.pkce,
   });
 
   res.redirect(`${env.CLIENT_URL}/oauth/consent?req=${encodeURIComponent(pending)}`);
@@ -175,6 +182,7 @@ export async function decide(req, res) {
     workspaceId,
     scopes: described.scopes,
     redirectUri: described.redirectUri,
+    pkce: described.pkce,
   });
 
   res.json({
@@ -195,6 +203,7 @@ export async function token(req, res) {
     redirect_uri: redirectUri,
     client_id: clientId,
     client_secret: clientSecret,
+    code_verifier: codeVerifier,
   } = req.body ?? {};
 
   if (grantType !== 'authorization_code') {
@@ -202,7 +211,7 @@ export async function token(req, res) {
   }
 
   try {
-    const payload = await oauth.exchangeAuthorizationCode({ code, clientId, clientSecret, redirectUri });
+    const payload = await oauth.exchangeAuthorizationCode({ code, clientId, clientSecret, redirectUri, codeVerifier });
     // No-store is required for token responses (RFC 6749 §5.1) — this body
     // contains a credential and must not sit in any intermediary's cache.
     res.set('Cache-Control', 'no-store').json(payload);

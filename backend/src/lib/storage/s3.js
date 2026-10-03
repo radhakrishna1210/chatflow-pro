@@ -116,7 +116,7 @@ export function createS3Driver(cfg, { fetch: fetchImpl = globalThis.fetch, now =
       },
     });
     if (!res.ok) await fail(res, `the upload of ${key}`);
-    await res.arrayBuffer().catch(() => {});
+    await res.arrayBuffer().catch(() => {}); // drain the body so the socket is reused; nothing to report
     return { key, size: data.length, contentType };
   }
 

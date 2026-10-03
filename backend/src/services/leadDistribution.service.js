@@ -218,7 +218,7 @@ export async function evaluateAndAssignLead(workspaceId, leadId) {
       leadId: lead.id,
       contactId: lead.contactId,
     },
-  }).catch(() => {});
+  }).catch((err) => console.warn(`[LeadDistribution] Could not log the auto-assignment of lead ${lead.id}:`, err.message));
 
   emitCrmEvent(workspaceId, 'lead_assigned', {
     leadId: lead.id,

@@ -1,7 +1,7 @@
 import * as leadsService from '../services/leads.service.js';
 
 export async function list(req, res) {
-  const { category, status, ownerUserId, search, sort, preset, awaitingTask, uncontacted, source, tag } = req.query;
+  const { category, status, ownerUserId, search, sort, preset, awaitingTask, uncontacted, source, tag, limit, offset } = req.query;
   const result = await leadsService.listLeads(
     req.params.workspaceId,
     {
@@ -15,6 +15,8 @@ export async function list(req, res) {
       uncontacted: uncontacted === 'true' || uncontacted === true,
       source,
       tag,
+      limit,
+      offset,
     },
     req.user
   );

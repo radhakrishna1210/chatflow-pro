@@ -59,7 +59,7 @@ export default function BlockedNumbers({ isAdmin }) {
     wFetch('/blocked-numbers/keywords')
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d?.keywords) setKeywords(d.keywords); })
-      .catch(() => {});
+      .catch((err) => console.warn('[BlockedNumbers] Loading opt-out keywords failed:', err?.message || err));
   }, []);
 
   // Debounced search so typing doesn't fire a request per keystroke.

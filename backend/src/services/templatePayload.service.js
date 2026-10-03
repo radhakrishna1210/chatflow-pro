@@ -157,6 +157,9 @@ const describePayload = (template, templateType, payload, { campaignId }) => ({
  * @param resolve             (index, component) => value for that {{n}}
  * @param extraComponents     appended verbatim (the campaign AI agent's CTA)
  * @param resolveMediaId      test seam: mints a sendable media id from an asset
+ * @param workspaceId         the workspace doing the send. The template and
+ *                            every stored media asset it names must belong to
+ *                            it (CF-110); a mismatch fails the send.
  */
 export async function buildTemplateSendPayload(template, {
   phoneNumberId,
@@ -166,7 +169,13 @@ export async function buildTemplateSendPayload(template, {
   campaignId = null,
   resolveMediaId = null,
   log = true,
+  workspaceId = template?.workspaceId,
 }) {
+  if (template?.workspaceId && workspaceId !== template.workspaceId) {
+    const e = invalid(`Template "${template?.name}" does not belong to the sending workspace.`);
+    e.code = 'TEMPLATE_WORKSPACE_MISMATCH';
+    throw e;
+  }
   const components = Array.isArray(template?.components) ? template.components : [];
   const templateType = detectTemplateType(components);
   const payload = { name: template.name, language: { code: template.language } };
@@ -178,7 +187,7 @@ export async function buildTemplateSendPayload(template, {
     // The bubble above the cards is a plain body; its variables are resolved
     // exactly like a standard template's.
     if (templateHasVariables(components)) parts.push(...buildTextComponents(components, resolve));
-    const carousel = await carouselComponent(template, { phoneNumberId, accessToken, resolve, resolveMediaId });
+    const carousel = await carouselComponent(template, { phoneNumberId, accessToken, resolve, resolveMediaId, workspaceId });
     if (carousel) parts.push(carousel);
   } else if (templateType === TEMPLATE_TYPES.CATALOG) {
     validateCatalogTemplate(template);
@@ -188,7 +197,7 @@ export async function buildTemplateSendPayload(template, {
     if (button) parts.push(button);
   } else {
     // STANDARD — unchanged from what has always worked.
-    const header = await headerImageComponent(template, { phoneNumberId, accessToken });
+    const header = await headerImageComponent(template, { phoneNumberId, accessToken, workspaceId });
     if (header) parts.push(header);
     if (templateHasVariables(components)) parts.push(...buildTextComponents(components, resolve));
     parts.push(...buildButtonComponents(components));

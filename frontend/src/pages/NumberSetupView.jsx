@@ -270,7 +270,7 @@ export default function NumberSetupView() {
       // allows three had two of them invisible — including the one a campaign
       // was actually sending from.
       if (Array.isArray(d)) { setNumbers(d); setNumber(d[0] || null); }
-    }).catch(() => {});
+    }).catch((err) => console.warn('[NumberSetupView] Loading WhatsApp numbers failed:', err?.message || err));
 
   useEffect(() => {
     load();
@@ -314,7 +314,8 @@ export default function NumberSetupView() {
   };
 
   const banEntry = async id => {
-    await adminFetch(`/numbers/pool/${id}/ban`, { method:'PATCH' }).catch(()=>{});
+    const res = await adminFetch(`/numbers/pool/${id}/ban`, { method:'PATCH' }).catch(()=>null);
+    if (!res?.ok) notify((await res?.json().catch(()=>({})))?.error || 'Ban failed');
     loadAdminPool();
   };
 
@@ -345,7 +346,7 @@ export default function NumberSetupView() {
     setWsLoading(true);
     adminFetch('/workspaces')
       .then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setWorkspaces(d); })
-      .catch(() => {})
+      .catch((err) => console.warn('[NumberSetupView] Loading workspaces failed:', err?.message || err))
       .finally(() => setWsLoading(false));
   };
 
@@ -373,7 +374,7 @@ export default function NumberSetupView() {
     setPoolLoading(true);
     wFetch('/whatsapp/numbers/pool')
       .then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setPool(d); })
-      .catch(()=>{})
+      .catch(err=>console.warn('[NumberSetupView] Loading the number pool failed:', err?.message||err))
       .finally(()=>setPoolLoading(false));
   };
 
@@ -632,7 +633,7 @@ export default function NumberSetupView() {
                   setRefreshing(true);
                   wFetch('/whatsapp/numbers/refresh', { method:'POST' })
                     .then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) { setNumbers(d); setNumber(d[0] || null); } })
-                    .catch(()=>{}).finally(()=>setRefreshing(false));
+                    .catch(err=>console.warn('[NumberSetupView] Refreshing numbers failed:', err?.message||err)).finally(()=>setRefreshing(false));
                 }}>
                   <I n="refresh" s={13} c="var(--t2)" />
                   {refreshing ? 'Refreshing…' : 'Refresh Status'}

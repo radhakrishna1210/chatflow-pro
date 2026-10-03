@@ -43,7 +43,7 @@ export async function chargeAndSend(workspaceId, { reason, messageCategory = nul
       source: credit.source,
       amount: credit.amount ?? null,
       messageCategory,
-    }).catch(() => {});
+    }); // never throws; logs its own failures
     throw err?.status ? err : describeSendFailure(err);
   }
   return { result, credit };

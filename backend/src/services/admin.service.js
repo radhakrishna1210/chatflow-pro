@@ -1,5 +1,6 @@
 import twilio from 'twilio';
 import { prisma } from '../lib/prisma.js';
+import { listWindow } from '../lib/paging.js';
 import { encrypt } from '../lib/encryption.js';
 import { getWabaPhoneNumbers, requestOtp, verifyOtp, systemClient } from '../lib/meta.js';
 import { deleteWaNumbers } from './whatsapp.service.js';
@@ -10,7 +11,7 @@ import { PLAN_FEATURE_KEYS } from './planFeatures.service.js';
 // ── Pool summary ──────────────────────────────────────────────
 export async function getPoolSummary() {
   const total = await prisma.numberPool.count();
-  if (total === 0) await syncPoolFromWaba().catch(() => {});
+  if (total === 0) await syncPoolFromWaba().catch((err) => console.warn('[Admin] Number pool sync from WABA failed:', err.message));
 
   const [finalTotal, available, assigned, banned] = await Promise.all([
     prisma.numberPool.count(),
@@ -244,8 +245,13 @@ export async function syncPoolFromWaba() {
 }
 
 // ── Admin: list workspaces (for assignment picker) ───────────
-export async function listWorkspaces() {
+// Platform-wide lists grow with the tenant count, so they take optional
+// limit/offset (CF-048); the default still covers a platform of normal size.
+const ADMIN_LIST = { defaultLimit: 1000, maxLimit: 5000 };
+
+export async function listWorkspaces(page = {}) {
   const workspaces = await prisma.workspace.findMany({
+    ...listWindow(page, ADMIN_LIST),
     select: {
       id: true,
       name: true,
@@ -255,7 +261,7 @@ export async function listWorkspaces() {
         take: 1,
       },
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
   return workspaces.map((w) => ({
     id: w.id,
@@ -368,9 +374,10 @@ export async function getPlatformStats() {
   };
 }
 
-export async function listWorkspacesDetailed() {
+export async function listWorkspacesDetailed(page = {}) {
   const workspaces = await prisma.workspace.findMany({
-    orderBy: { createdAt: 'desc' },
+    ...listWindow(page, ADMIN_LIST),
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     include: {
       _count: { select: { members: true, campaigns: true, contacts: true, waNumbers: true } },
       members: {
@@ -502,28 +509,42 @@ export async function listAllCampaigns({ workspaceId, status } = {}) {
 // ─── Revenue overview (MRR/ARR from active subscriptions) ─────────────────────
 
 export async function getRevenueOverview() {
-  const subs = await prisma.subscription.findMany({
+  // Counted per plan in the database instead of loading every active
+  // subscription with its plan (CF-048).
+  const counts = await prisma.subscription.groupBy({
+    by: ['planId'],
     where: { status: 'ACTIVE' },
-    include: { plan: { select: { id: true, key: true, name: true, priceMonthly: true, currency: true } } },
+    _count: { _all: true },
   });
+  const plans = counts.length
+    ? await prisma.plan.findMany({
+        where: { id: { in: counts.map((c) => c.planId).filter(Boolean) } },
+        select: { id: true, key: true, name: true, priceMonthly: true, currency: true },
+      })
+    : [];
+  const planById = new Map(plans.map((p) => [p.id, p]));
 
   const byPlan = new Map();
   let mrr = 0;
-  for (const s of subs) {
-    if (!s.plan) continue;
-    const price = Number(s.plan.priceMonthly);
-    mrr += price;
-    const existing = byPlan.get(s.plan.key) || {
-      key: s.plan.key, name: s.plan.name, price, currency: s.plan.currency, subscribers: 0, mrr: 0,
+  let activeSubscriptions = 0;
+  for (const c of counts) {
+    const n = c._count._all;
+    activeSubscriptions += n;
+    const plan = planById.get(c.planId);
+    if (!plan) continue;
+    const price = Number(plan.priceMonthly);
+    mrr += price * n;
+    const existing = byPlan.get(plan.key) || {
+      key: plan.key, name: plan.name, price, currency: plan.currency, subscribers: 0, mrr: 0,
     };
-    existing.subscribers += 1;
-    existing.mrr += price;
-    byPlan.set(s.plan.key, existing);
+    existing.subscribers += n;
+    existing.mrr += price * n;
+    byPlan.set(plan.key, existing);
   }
 
   return {
     mrr, arr: mrr * 12,
-    activeSubscriptions: subs.length,
+    activeSubscriptions,
     byPlan: [...byPlan.values()].sort((a, b) => b.mrr - a.mrr),
   };
 }
@@ -680,14 +701,15 @@ export async function listUsers({ search, page, limit } = {}) {
 
 // ─── Workspace analytics segregation — message funnel per workspace ───────────
 
-export async function getWorkspaceAnalytics() {
+export async function getWorkspaceAnalytics(page = {}) {
   const [workspaces, campaignAgg] = await Promise.all([
     prisma.workspace.findMany({
       select: {
         id: true, name: true, plan: true, createdAt: true,
         _count: { select: { members: true, campaigns: true, contacts: true, waNumbers: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...listWindow(page, ADMIN_LIST),
     }),
     prisma.campaign.groupBy({
       by: ['workspaceId'],

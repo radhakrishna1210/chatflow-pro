@@ -35,7 +35,7 @@ export async function enqueueAdvance(enrollmentId, delayMs = 0, { dueAtMs } = {}
     ? sequenceFollowUpJobId(enrollmentId, dueAtMs)
     : sequenceAdvanceJobId(enrollmentId);
   const existing = await sequenceQueue.getJob(jobId);
-  if (existing) await existing.remove().catch(() => {});
+  if (existing) await existing.remove().catch(() => {}); // a job already running or gone cannot be removed; add() below still dedupes by id
   return sequenceQueue.add('advance', { enrollmentId }, {
     delay: delayMs, jobId, removeOnComplete: true, removeOnFail: true,
   });

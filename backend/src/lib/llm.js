@@ -60,7 +60,7 @@ export async function verifyGeminiKey(apiKey, model = env.GEMINI_MODEL) {
       { signal: AbortSignal.timeout(10_000) },
     );
     if (res.ok) return { ok: true };
-    const body = await res.json().catch(() => null);
+    const body = await res.json().catch(() => null); // optional error body — the status alone still reports the failure
     const message = body?.error?.message || `HTTP ${res.status}`;
     if (res.status === 400 || res.status === 401 || res.status === 403) {
       return { ok: false, reason: `Google rejected this key: ${message}` };

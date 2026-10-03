@@ -28,7 +28,7 @@ export function fetchMessageRates() {
     inflight = wFetch('/subscription/pricing')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error('pricing unavailable'))))
       .then((data) => { cache = data?.rates ?? null; return cache; })
-      .catch(() => null)
+      .catch((err) => { console.warn('[pricing] Loading message rates failed:', err?.message || err); return null; })
       .finally(() => { inflight = null; });
   }
   return inflight;

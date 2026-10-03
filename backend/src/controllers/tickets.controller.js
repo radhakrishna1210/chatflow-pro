@@ -1,8 +1,8 @@
 import * as ticketsService from '../services/tickets.service.js';
 
 export async function list(req, res) {
-  const { view, status, priority } = req.query;
-  res.json(await ticketsService.listTickets(req.params.workspaceId, { view, status, priority }, req.user));
+  const { view, status, priority, limit, offset } = req.query;
+  res.json(await ticketsService.listTickets(req.params.workspaceId, { view, status, priority, limit, offset }, req.user));
 }
 export async function counts(req, res) {
   res.json(await ticketsService.ticketCounts(req.params.workspaceId, req.user));

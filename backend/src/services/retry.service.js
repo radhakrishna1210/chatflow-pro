@@ -86,7 +86,7 @@ export async function checkAndCompleteCampaign(campaignId) {
         await settleCampaignRefund(campaignId, 'Refund for unsent campaign messages').catch((e) =>
           console.error(`[Campaign] Settlement failed for ${campaignId}:`, e.message));
 
-        queueCampaignCompletedEmail(completed).catch(() => {});
+        queueCampaignCompletedEmail(completed).catch((err) => console.warn(`[CampaignRetry] Completion email could not be queued for ${campaignId}:`, err.message));
         // The customer's own system is told too — the settings screen has
         // offered a "campaign.completed" subscription all along while nothing
         // ever dispatched one.
@@ -107,7 +107,7 @@ export async function checkAndCompleteCampaign(campaignId) {
           body: `${completed.sent} sent · ${completed.delivered} delivered · ${completed.failed} failed${completed.skipped ? ` · ${completed.skipped} skipped (opted out)` : ''}`,
           link: 'campaigns',
           meta: { campaignId },
-        }).catch(() => {});
+        }).catch((err) => console.warn(`[CampaignRetry] Completion notification failed for ${campaignId}:`, err.message));
       }
       return true;
     }
@@ -127,11 +127,11 @@ export { retryJobId };
 // that fired while its campaign was paused and has to run again on resume.
 export async function enqueueRetryJob({ campaignId, workspaceId, recipientId, attempt, delay = 0 }) {
   const jobId = retryJobId(recipientId, attempt);
-  const existing = await campaignQueue.getJob(jobId).catch(() => null);
+  const existing = await campaignQueue.getJob(jobId).catch((err) => { console.warn(`[CampaignRetry] Job lookup failed for ${jobId}:`, err.message); return null; });
   if (existing) {
     const state = await existing.getState().catch(() => 'unknown');
     if (state !== 'completed' && state !== 'failed') return { queued: false, jobId };
-    await existing.remove().catch(() => {});
+    await existing.remove().catch((err) => console.error(`[CampaignRetry] Could not remove finished job ${jobId}; the re-queue may be dropped:`, err.message));
   }
   await campaignQueue.add(
     'retry-recipient',
@@ -203,8 +203,8 @@ export async function recoverPendingRetries({ now = new Date(), campaignId = nul
 
     // Retries used to be queued under a colon id. One that survived in Redis
     // would not dedupe against the new id and the attempt would run twice.
-    const legacy = await campaignQueue.getJob(legacyRetryJobId(r.id, attempt)).catch(() => null);
-    if (legacy) await legacy.remove().catch(() => {});
+    const legacy = await campaignQueue.getJob(legacyRetryJobId(r.id, attempt)).catch((err) => { console.warn(`[CampaignRetry] Legacy job lookup failed for ${r.id}:`, err.message); return null; });
+    if (legacy) await legacy.remove().catch((err) => console.error(`[CampaignRetry] Could not remove legacy retry job for ${r.id}; the attempt may run twice:`, err.message));
 
     const result = await enqueueRetryJob({
       campaignId: r.campaign.id,
@@ -212,7 +212,7 @@ export async function recoverPendingRetries({ now = new Date(), campaignId = nul
       recipientId: r.id,
       attempt,
       delay: (r.nextRetryAt?.getTime() ?? 0) - now.getTime(),
-    }).catch(() => null);
+    }).catch((err) => { console.error(`[CampaignRetry] Re-queueing retry ${attempt} for recipient ${r.id} failed:`, err.message); return null; });
     if (result?.queued) requeued += 1;
   }
 
@@ -256,7 +256,7 @@ export async function notifyRetrySucceeded(campaign, recipient, attempt) {
     body: `Campaign "${campaign.name}" · ${recipient.contact?.name || recipient.contact?.phoneNumber || 'a recipient'} was delivered on retry attempt ${attempt}.`,
     link: 'campaigns',
     meta: { campaignId: campaign.id, recipientId: recipient.id, attempt, recovered },
-  }).catch(() => {});
+  }).catch((err) => console.warn(`[CampaignRetry] Retry-success notification failed for ${campaign.id}:`, err.message));
 }
 
 export async function handleRecipientFailure(campaign, recipient, reason, metaCode = null) {

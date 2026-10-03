@@ -19,7 +19,7 @@ async function ensureWabaSubscribed(waNumberId, wabaId, accessToken) {
   try {
     await subscribeAppToWaba(wabaId, accessToken);
     if (waNumberId) {
-      await prisma.waNumber.update({ where: { id: waNumberId }, data: { appSubscribed: true } }).catch(() => {});
+      await prisma.waNumber.update({ where: { id: waNumberId }, data: { appSubscribed: true } }).catch((err) => console.warn(`[whatsapp] Could not record appSubscribed on ${waNumberId}:`, err.message));
     }
     console.log(`[whatsapp] Subscribed app to WABA ${wabaId}`);
     return true;
@@ -62,7 +62,7 @@ async function refreshExistingFromMeta(workspaceId) {
       const gone = Number(meta?.code) === 100 || Number(meta?.code) === 190;
       console.error(`[whatsapp] Could not refresh ${n.phoneNumber}:`, meta?.message || err.message);
       if (gone) {
-        await markNumberUnreachable(n.id, meta).catch(() => {});
+        await markNumberUnreachable(n.id, meta).catch((err) => console.warn(`[whatsapp] Could not mark ${n.phoneNumber} unreachable:`, err.message));
       }
     }
   }));
@@ -275,7 +275,7 @@ export async function connectOwnNumber(workspaceId, { phoneNumber, metaPhoneNumb
   // Register for webhook events so the Inbox and delivery counters actually work.
   const subscribed = await ensureWabaSubscribed(number.id, wabaId, accessToken);
   // Pull any existing approved templates from Meta for this number.
-  syncTemplatesFromMeta(workspaceId, number.id).catch(() => {});
+  syncTemplatesFromMeta(workspaceId, number.id).catch((err) => console.warn(`[whatsapp] Template sync after connect failed for ${number.id}:`, err.message));
 
   const { encryptedAccessToken: _omit, ...safe } = number;
   return { ...safe, appSubscribed: subscribed };
@@ -384,7 +384,7 @@ export async function completeEmbeddedSignup(workspaceId, { code, wabaId, phoneN
     ? await prisma.waNumber.update({ where: { id: existing.id }, data })
     : await prisma.waNumber.create({ data });
 
-  syncTemplatesFromMeta(workspaceId, number.id).catch(() => {});
+  syncTemplatesFromMeta(workspaceId, number.id).catch((err) => console.warn(`[whatsapp] Template sync after connect failed for ${number.id}:`, err.message));
 
   const { encryptedAccessToken: _o, ...safe } = number;
   return {
@@ -449,7 +449,7 @@ export async function checkSubscription(workspaceId, numberId) {
   const apps = await getSubscribedApps(n.wabaId, decrypt(n.encryptedAccessToken));
   const subscribed = apps.some((a) => String(a.whatsapp_business_api_data?.id || a.id) === String(env.META_APP_ID)) || apps.length > 0;
   if (subscribed !== n.appSubscribed) {
-    await prisma.waNumber.update({ where: { id: n.id }, data: { appSubscribed: subscribed } }).catch(() => {});
+    await prisma.waNumber.update({ where: { id: n.id }, data: { appSubscribed: subscribed } }).catch((err) => console.warn(`[whatsapp] Could not record appSubscribed on ${n.id}:`, err.message));
   }
   return { subscribed, wabaId: n.wabaId };
 }
@@ -505,7 +505,7 @@ export async function onboardFromPool(workspaceId, poolEntryId) {
   }
 
   // Fire-and-forget: sync templates from Meta for this number
-  syncTemplatesFromMeta(workspaceId, number.id).catch(() => {});
+  syncTemplatesFromMeta(workspaceId, number.id).catch((err) => console.warn(`[whatsapp] Template sync after connect failed for ${number.id}:`, err.message));
 
   return { phoneNumber: number.phoneNumber, displayName: number.displayName, wabaId, appSubscribed: number.appSubscribed };
 }
@@ -621,7 +621,7 @@ export async function connectionHealth(workspaceId, numberId) {
       subscribed ? `${apps.length} app(s) subscribed` : 'No app is subscribed to this WABA.',
       subscribed ? undefined : 'Reconnect the number to re-subscribe.');
     if (subscribed !== n.appSubscribed) {
-      await prisma.waNumber.update({ where: { id: n.id }, data: { appSubscribed: subscribed } }).catch(() => {});
+      await prisma.waNumber.update({ where: { id: n.id }, data: { appSubscribed: subscribed } }).catch((err) => console.warn(`[whatsapp] Could not record appSubscribed on ${n.id}:`, err.message));
     }
   } catch (err) {
     add('webhooks', 'App subscribed to the business account', false, err.message,
@@ -653,7 +653,7 @@ export async function reconnectNumber(workspaceId, numberId, { code, accessToken
     try {
       const tokenRes = await exchangeEmbeddedSignupCode(code);
       accessToken = tokenRes.access_token;
-      const longRes = await getLongLivedToken(accessToken).catch(() => null);
+      const longRes = await getLongLivedToken(accessToken).catch((err) => { console.warn('[whatsapp] Long-lived token exchange failed; keeping the short-lived token:', err.message); return null; });
       if (longRes?.access_token) accessToken = longRes.access_token;
     } catch (err) {
       throw describeConnectionError(err, 'exchanging the sign-in code');

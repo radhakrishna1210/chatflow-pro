@@ -52,7 +52,7 @@ export async function logout(req, res) {
   if (req.user?.jti) await revokeAccessToken(req.user.jti, req.user.exp);
   // "Return to admin" ends an impersonation through here; close the trail.
   if (req.user?.impersonatedBy) {
-    const admin = await prisma.user.findUnique({ where: { id: req.user.impersonatedBy }, select: { email: true } }).catch(() => null);
+    const admin = await prisma.user.findUnique({ where: { id: req.user.impersonatedBy }, select: { email: true } }).catch((err) => { console.warn('[Auth] Could not load the impersonating admin for the audit trail:', err.message); return null; });
     await audit.record({
       actor: { id: req.user.impersonatedBy, email: admin?.email },
       action: 'impersonate.end',

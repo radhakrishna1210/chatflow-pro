@@ -111,7 +111,7 @@ export const CustomFieldAdmin = ({ entity, isAdmin }) => {
     wFetch(`/custom-fields?entity=${entity}&includeInactive=true`)
       .then(r => (r.ok ? r.json() : { data: [] }))
       .then(d => setDefs(d.data ?? []))
-      .catch(() => {});
+      .catch((e) => setErr(e?.message || 'Could not load custom fields'));
   }, [entity]);
 
   useEffect(() => { load(); }, [load]);

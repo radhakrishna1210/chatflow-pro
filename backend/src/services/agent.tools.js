@@ -208,7 +208,7 @@ export const ACTIONS = {
         return { skipped: true, reason: 'Already has an open task.' };
       }
 
-      const health = await computeDealHealth(workspaceId, deal.id).catch(() => null);
+      const health = await computeDealHealth(workspaceId, deal.id).catch((err) => { console.warn(`[AgentTools] Deal health for ${deal.id} failed:`, err.message); return null; });
       const risks = (health?.risks ?? []).map((r) => r.key);
 
       const evidence = [

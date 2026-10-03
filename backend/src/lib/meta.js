@@ -568,7 +568,11 @@ export async function assertTokenOwnsWaba(wabaId, accessToken) {
 // it. Checking membership rather than trusting the id is what stops one
 // workspace attaching a number that belongs to another business.
 export async function assertNumberOnWaba(wabaId, phoneNumberId, accessToken) {
-  const numbers = await getWabaPhoneNumbers(wabaId, accessToken).catch(() => []);
+  // A Meta failure here used to be swallowed into an empty list, which then
+  // told the user the account "has no phone numbers yet" (CF-082).
+  const numbers = await getWabaPhoneNumbers(wabaId, accessToken).catch((err) => {
+    throw describeConnectionError(err, 'listing the numbers on the business account');
+  });
   const match = numbers.find((n) => String(n.id) === String(phoneNumberId));
   if (!match) {
     const e = new Error(

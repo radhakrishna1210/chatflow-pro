@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { findManyChunked } from '../lib/paging.js';
 import { stageProbabilities, CLOSED_STAGES } from './pipelineStages.service.js';
 
 const toNumber = (v) => Number(v || 0);
@@ -55,11 +56,11 @@ export async function getForecast(workspaceId, { from, to, ownerUserId } = {}) {
     // Open deals expected to close in the period. A deal with no expected
     // close date cannot be forecast into a period and is reported separately
     // rather than being silently dropped or silently included.
-    prisma.deal.findMany({
+    findManyChunked(prisma.deal, {
       where: { ...scope, stage: { notIn: CLOSED_STAGES }, expectedCloseDate: { gte: periodStart, lte: periodEnd } },
       select: { id: true, stage: true, customFields: true, value: true, ownerUserId: true, owner: { select: { id: true, name: true, email: true } } },
     }),
-    prisma.deal.findMany({
+    findManyChunked(prisma.deal, {
       where: { ...scope, stage: { in: CLOSED_STAGES }, closedAt: { gte: periodStart, lte: periodEnd } },
       select: { id: true, stage: true, value: true, ownerUserId: true, owner: { select: { id: true, name: true, email: true } } },
     }),

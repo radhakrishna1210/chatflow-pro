@@ -98,7 +98,7 @@ export async function recoverStrandedCampaigns({ now = new Date() } = {}) {
     });
 
     if (action === 'complete') {
-      if (await checkAndCompleteCampaign(c.id).catch(() => false)) result.completed += 1;
+      if (await checkAndCompleteCampaign(c.id).catch((err) => { console.error(`[CampaignRecovery] Completing campaign ${c.id} failed:`, err.message); return false; })) result.completed += 1;
       continue;
     }
     if (action !== 'requeue') continue;

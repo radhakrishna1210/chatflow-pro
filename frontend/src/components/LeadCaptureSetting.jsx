@@ -34,7 +34,7 @@ export const LeadCaptureSetting = ({ isAdmin }) => {
     wFetch('/settings')
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d && typeof d.autoLeadFromReply === 'boolean') setOn(d.autoLeadFromReply); })
-      .catch(() => {});
+      .catch((e) => setErr(e?.message || 'Could not load this setting'));
   }, []);
 
   const toggle = async () => {

@@ -100,7 +100,7 @@ export async function recordAttempt(recipientId, entry) {
   await prisma.campaignRecipient.update({
     where: { id: recipientId },
     data: { retryHistory: history.slice(-MAX_HISTORY_ENTRIES) },
-  }).catch(() => {});
+  }).catch((err) => console.error(`[CampaignBilling] Could not record attempt history for recipient ${recipientId}:`, err.message));
 }
 
 // How many recipients of a campaign have actually been billed. This is what

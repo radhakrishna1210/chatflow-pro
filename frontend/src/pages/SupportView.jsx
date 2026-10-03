@@ -16,7 +16,7 @@ export default function SupportView() {
   const [err, setErr] = useState(null);
   const [tickets, setTickets] = useState([]);
 
-  const load = () => wFetch('/support').then(r => r.ok ? r.json() : []).then(d => setTickets(Array.isArray(d) ? d : [])).catch(() => {});
+  const load = () => wFetch('/support').then(r => r.ok ? r.json() : []).then(d => setTickets(Array.isArray(d) ? d : [])).catch((err) => console.warn('[SupportView] Loading support tickets failed:', err?.message || err));
   useEffect(() => { load(); }, []);
 
   const submit = async (e) => {

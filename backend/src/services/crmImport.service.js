@@ -18,7 +18,7 @@ const normaliseStatus = (v) => String(v || '').trim().toUpperCase().replace(/\s+
 // Custom lifecycle stages configured under Customize, so an exported file
 // re-imports into the same stages instead of collapsing to NEW.
 export async function loadCustomStatuses(workspaceId) {
-  const config = await getSection(workspaceId, 'lead_lifecycle').catch(() => null);
+  const config = await getSection(workspaceId, 'lead_lifecycle').catch((err) => { console.warn(`[CrmImport] Lead lifecycle config unavailable for ${workspaceId}; using defaults:`, err.message); return null; });
   const stages = Array.isArray(config?.stages) ? config.stages : [];
   const map = new Map();
   for (const stage of stages) {

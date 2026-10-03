@@ -11,7 +11,7 @@ export async function updateSettings(req, res) {
 }
 
 export async function getInvoices(req, res) {
-  const invoices = await settingsService.getInvoices(req.params.workspaceId);
+  const invoices = await settingsService.getInvoices(req.params.workspaceId, { limit: req.query.limit, offset: req.query.offset });
   res.json(invoices);
 }
 

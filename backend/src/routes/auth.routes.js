@@ -448,7 +448,7 @@ router.get(
         wabaIds =
           await getUserWabas(
             longToken
-          ).catch(() => []);
+          ).catch((err) => { console.warn('[MetaOAuth] Listing WABAs failed:', err.message); return []; });
       }
 
       if (wabaIds.length === 0) {
@@ -467,7 +467,7 @@ router.get(
           await getWabaPhoneNumbers(
             wabaId,
             longToken
-          ).catch(() => []);
+          ).catch((err) => { console.warn(`[MetaOAuth] Listing numbers on WABA ${wabaId} failed:`, err.message); return []; });
 
         for (const num of numbers) {
           const existing =

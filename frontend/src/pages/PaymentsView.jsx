@@ -116,7 +116,7 @@ export default function PaymentsView({ initialTab } = {}) {
         if (activeRzpRef.current?.close) {
           activeRzpRef.current.close();
         }
-      } catch {}
+      } catch { /* checkout widget already torn down */ }
       if (typeof document !== 'undefined') {
         document.querySelectorAll('.razorpay-container').forEach(el => el.remove());
       }
@@ -137,7 +137,7 @@ export default function PaymentsView({ initialTab } = {}) {
   const loadSubscription = () => wFetch('/subscription')
     .then(r => r.ok ? r.json() : null)
     .then(d => { if (d) setSubscription(d); })
-    .catch(() => {});
+    .catch((err) => console.warn('[PaymentsView] Loading subscription failed:', err?.message || err));
 
   // Downgrades and cancellations take effect at the end of the paid period
   // (PATCH /subscription); "Renew now" pays an overdue/expired renewal from
@@ -153,7 +153,7 @@ export default function PaymentsView({ initialTab } = {}) {
       setCheckoutMessage(successMessage);
       loadSubscription();
       if (window._reloadWallet) window._reloadWallet();
-      wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch(() => {});
+      wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch((err) => console.warn('[PaymentsView] Reloading invoices failed:', err?.message || err));
     } catch (e) {
       setCheckoutError(e.message || 'Could not update the subscription');
     } finally {
@@ -198,14 +198,14 @@ export default function PaymentsView({ initialTab } = {}) {
           window.dispatchEvent(new CustomEvent('wallet:balance-updated', { detail: Number(data.balance) || 0 }));
         }
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[PaymentsView] Loading wallet failed:', err?.message || err));
     loadWallet();
     window._reloadWallet = loadWallet;
 
     // 2. Billing details, stored per workspace on the server. The old
     // browser-only copy is dropped: it never reached invoices and leaked to
     // whoever signed in next on the same machine.
-    try { localStorage.removeItem('ChatFlow Pro_billing_details'); } catch {}
+    try { localStorage.removeItem('ChatFlow Pro_billing_details'); } catch { /* storage blocked: nothing to clean up */ }
     wFetch('/subscription/billing-profile')
       .then(r => (r.ok ? r.json() : null))
       .then(p => {
@@ -215,7 +215,7 @@ export default function PaymentsView({ initialTab } = {}) {
         setBizAddress(p.address || '');
         setGstNum(p.taxId || '');
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[PaymentsView] Loading billing profile failed:', err?.message || err));
 
     loadAddons();
 
@@ -227,7 +227,7 @@ export default function PaymentsView({ initialTab } = {}) {
     wFetch('/subscription/plans')
       .then(r => r.ok ? r.json() : [])
       .then(data => setPlans(Array.isArray(data) ? data : []))
-      .catch(() => {});
+      .catch((err) => console.warn('[PaymentsView] Loading plans failed:', err?.message || err));
   }, []);
 
   // The Paid Messages Insights tab had state and a renderer but no loader, so
@@ -240,7 +240,7 @@ export default function PaymentsView({ initialTab } = {}) {
     setInsightsError('');
     wFetch('/analytics/paid-messages?days=7')
       .then(async r => {
-        if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `Request failed (${r.status})`);
+        if (!r.ok) throw new Error((await r.json().catch(() => null /* error body is optional */))?.error || `Request failed (${r.status})`);
         return r.json();
       })
       .then(data => setInsights(data))
@@ -432,7 +432,7 @@ export default function PaymentsView({ initialTab } = {}) {
   const loadAddons = () => wFetch('/subscription/addons')
     .then(r => (r.ok ? r.json() : null))
     .then(d => { if (d) setAddonState(d); })
-    .catch(() => {});
+    .catch((err) => console.warn('[PaymentsView] Loading add-ons failed:', err?.message || err));
 
   // A real purchase: the order is created server-side from the catalogue price,
   // and the add-on is only activated once the signature has been verified

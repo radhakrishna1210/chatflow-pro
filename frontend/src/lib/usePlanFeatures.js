@@ -15,7 +15,7 @@ export function usePlanFeatures() {
     wFetch('/subscription/features')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (alive && d?.features) setFeatures(d.features); })
-      .catch(() => {});
+      .catch((err) => console.warn('[PlanFeatures] Could not load plan features:', err.message));
     return () => { alive = false; };
   }, []);
   const allows = (flag) => features == null || features[flag] !== false;

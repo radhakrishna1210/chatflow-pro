@@ -384,7 +384,7 @@ function ConnectModal({ intg, onClose, onSave }) {
   };
 
   const copyUrl = () => {
-    navigator.clipboard.writeText(wUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2200); }).catch(() => {});
+    navigator.clipboard.writeText(wUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2200); }).catch(() => {}); // clipboard can be blocked; the URL stays on screen
   };
 
   return (

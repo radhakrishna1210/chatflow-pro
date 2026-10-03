@@ -61,7 +61,7 @@ export async function notifyWorkspaceGrouped(workspaceId, { key, type, title, bo
     // this is new information even though it reuses the row. Workspace-scoped
     // read state lives in NotificationRead, so clearing those rows is what
     // actually brings the badge back for everyone.
-    await prisma.notificationRead.deleteMany({ where: { notificationId: existing.id } }).catch(() => {});
+    await prisma.notificationRead.deleteMany({ where: { notificationId: existing.id } }).catch((err) => console.warn(`[Notifications] Could not reset read state of notification ${existing.id}:`, err.message));
     return prisma.notification.update({
       where: { id: existing.id },
       // createdAt moves with the update: the feed is ordered by it, so without

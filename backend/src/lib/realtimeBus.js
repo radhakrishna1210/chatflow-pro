@@ -221,7 +221,7 @@ export function subscribeRealtime(listener) {
 }
 
 export async function closeRealtimeBus() {
-  if (loading) await loading.catch(() => {});
+  if (loading) await loading.catch(() => {}); // a failed load already fell back to in-process delivery
   if (bus) await bus.close();
 }
 

@@ -48,16 +48,16 @@ export const TeamsAdmin = ({ isAdmin }) => {
     wFetch('/teams')
       .then(r => (r.ok ? r.json() : { data: [] }))
       .then(d => setTeams(d.data ?? []))
-      .catch(() => {});
+      .catch((e) => setErr(e?.message || 'Could not load teams'));
     wFetch('/teams/visibility')
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d) setVisibility(d.recordVisibility); })
-      .catch(() => {});
+      .catch((err) => console.warn('[TeamsAdmin] Loading record visibility failed:', err?.message || err));
   }, []);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    wFetch('/members').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setMembers(d); }).catch(() => {});
+    wFetch('/members').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setMembers(d); }).catch((err) => console.warn('[TeamsAdmin] Loading members failed:', err?.message || err));
   }, []);
 
   const send = async (path, options, onOk) => {

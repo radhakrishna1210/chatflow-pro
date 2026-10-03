@@ -127,7 +127,7 @@ export async function finalizeCall(callId) {
     const raw = await llmText(
       `Call transcript:\n${text}\n\nJSON:`,
       'Extract the caller\'s details from a phone transcript. Reply with ONLY JSON: {"name": string|null, "email": string|null, "summary": string}. summary is one sentence on what they wanted.',
-    ).catch(() => null);
+    ).catch((err) => { console.warn('[Voice] Transcript extraction failed:', err.message); return null; });
     try {
       const parsed = JSON.parse(String(raw).replace(/```(?:json)?/gi, '').trim());
       leadName = parsed.name || null;

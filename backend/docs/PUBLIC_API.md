@@ -68,6 +68,44 @@ lookup. Exceeding one returns `429` with a `Retry-After` header and
 | `POST /authentication/generate` | 30 / minute per key, and 5 per 10 minutes to any one phone number |
 | `POST /authentication/verify` | 120 / minute per key, and 20 per 10 minutes for any one phone number |
 
+### Connecting an application (OAuth 2.0 authorization code + PKCE)
+
+A registered application can obtain a scoped API key for a user's workspace
+through the standard authorization code flow instead of having the user copy a
+key by hand. Applications are registered by the operator
+(`node src/scripts/seedOAuthClients.js`); there is no self-service registration.
+The endpoints live under `https://<your-deployment>/api/v1/oauth`.
+
+1. Send the user's browser to `GET /oauth/authorize` with `response_type=code`,
+   `client_id`, `redirect_uri` (must exactly equal a registered URI), `scope`
+   (space-separated), `state`, and the PKCE parameters below.
+2. A workspace admin approves on the consent screen and the browser comes back to
+   `redirect_uri?code=…&state=…`. The code is single-use and expires after
+   2 minutes.
+3. Exchange it with `POST /oauth/token` (form-encoded or JSON):
+   `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`,
+   `client_secret` (confidential clients) and `code_verifier` (when PKCE was used).
+   The response is `{ "access_token": "cfp_…", "token_type": "Bearer", "scope": "…" }`;
+   send the token as `x-api-key`. It does not expire.
+4. `POST /oauth/revoke` with `client_id`, `client_secret` (confidential clients)
+   and `token` revokes a key that client was issued.
+
+**PKCE (RFC 7636).** Generate a random `code_verifier` (43–128 characters of
+`A-Z a-z 0-9 - . _ ~`) per authorization, and send
+`code_challenge=BASE64URL(SHA256(code_verifier))` (no padding) with
+`code_challenge_method=S256` to `/oauth/authorize`. Send the `code_verifier` to
+`/oauth/token`. Only `S256` is supported; `plain`, or a challenge without a
+method, is refused with `invalid_request`.
+
+| Client type | Secret | PKCE |
+|---|---|---|
+| Public (SPA, mobile, desktop — cannot keep a secret) | none | **required**; authorize without a challenge is refused, and the token request is authenticated by the `code_verifier` alone |
+| Confidential (server-side, holds `client_secret`) | required | optional, and recommended; once a challenge is sent, the matching verifier is required |
+
+A `code_verifier` sent for a code issued without a challenge is refused, so PKCE
+cannot be stripped from or bolted onto a flow mid-way. A wrong verifier returns
+`invalid_grant` without consuming the code.
+
 ---
 
 ## Base URLs

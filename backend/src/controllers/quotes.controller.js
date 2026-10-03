@@ -1,7 +1,7 @@
 import * as quotesService from '../services/quotes.service.js';
 
 export async function list(req, res) {
-  res.json(await quotesService.listQuotes(req.params.workspaceId, { status: req.query.status, dealId: req.query.dealId }, req.user));
+  res.json(await quotesService.listQuotes(req.params.workspaceId, { status: req.query.status, dealId: req.query.dealId, limit: req.query.limit, offset: req.query.offset }, req.user));
 }
 export async function get(req, res) {
   res.json(await quotesService.getQuote(req.params.workspaceId, req.params.id, req.user));

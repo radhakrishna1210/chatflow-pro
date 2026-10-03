@@ -178,7 +178,8 @@ export async function applyAddonPayment(workspaceId, order, paymentId, source = 
   const record = duplicate
     ? await prisma.workspaceAddon.findFirst({ where: { workspaceId, reference: paymentId } })
     : result;
-  const quantity = await prisma.workspaceAddon.count({ where: livePacksWhere(workspaceId, addon.key) }).catch(() => null);
+  const quantity = await prisma.workspaceAddon.count({ where: livePacksWhere(workspaceId, addon.key) })
+    .catch((err) => { console.warn(`[Addons] Could not count live ${addon.key} packs for ${workspaceId}:`, err.message); return null; });
   return { ok: true, addon: summary, quantity, currentPeriodEnd: record?.currentPeriodEnd ?? null };
 }
 

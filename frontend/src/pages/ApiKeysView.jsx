@@ -52,7 +52,7 @@ curl -X POST ${origin}/api/v1/public/messages \\
 const CopyBtn = ({ text }) => {
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    navigator.clipboard.writeText(text).catch(()=>{});
+    navigator.clipboard.writeText(text).catch(()=>{}); // clipboard can be blocked by the browser; the key stays visible to copy by hand
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -97,17 +97,17 @@ export default function ApiKeysView() {
   const [testVars, setTestVars] = useState([]);
 
   useEffect(() => {
-    wFetch('/api-keys').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setKeys(d)}).catch(()=>{});
+    wFetch('/api-keys').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setKeys(d)}).catch(err=>console.warn('[ApiKeysView] Loading API keys failed:', err?.message||err));
     // Authentication templates go through the dedicated Authentication API, not
     // this general "send a template message" playground, so they're excluded here.
-    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setTemplates(d.filter(t=>t.status!=='DELETED' && t.category!=='AUTHENTICATION'))}).catch(()=>{});
+    wFetch('/templates').then(r=>r.ok&&r.json()).then(d=>{if(Array.isArray(d))setTemplates(d.filter(t=>t.status!=='DELETED' && t.category!=='AUTHENTICATION'))}).catch(err=>console.warn('[ApiKeysView] Loading templates failed:', err?.message||err));
     wFetch('/api-keys/scopes').then(r=>r.ok&&r.json()).then(d=>{
       if (!Array.isArray(d)) return;
       setAllScopes(d);
       // Tick what the server would have granted anyway, so making an ordinary key
       // stays one click and nobody needs to know what a scope is.
       setPickedScopes(new Set(d.filter(x=>x.default).map(x=>x.id)));
-    }).catch(()=>{});
+    }).catch(err=>console.warn('[ApiKeysView] Loading API scopes failed:', err?.message||err));
   }, []);
 
   // Highest {{n}} across a template's components — the number of parameters
@@ -145,7 +145,7 @@ export default function ApiKeysView() {
     // falls back to DEFAULT_SCOPES rather than being sent an empty list it rejects.
     const body = { name: newName || 'New Key', environment: 'live' };
     if (pickedScopes.size) body.scopes = [...pickedScopes];
-    const res = await wFetch('/api-keys', { method:'POST', body:JSON.stringify(body) }).catch(()=>null);
+    const res = await wFetch('/api-keys', { method:'POST', body:JSON.stringify(body) }).catch(err=>{ console.warn('[ApiKeysView] Creating API key failed:', err?.message||err); return null; });
     if (res?.ok) {
       const k = await res.json();
       setKeys(p=>[...p,k]);
@@ -155,12 +155,12 @@ export default function ApiKeysView() {
   };
 
   const rotate = async id => {
-    await wFetch(`/api-keys/${id}/rotate`, { method:'POST' }).catch(()=>{});
+    await wFetch(`/api-keys/${id}/rotate`, { method:'POST' }).catch(err=>console.warn('[ApiKeysView] Rotating API key failed:', err?.message||err));
     setKeys(p => p.map(k => k.id===id ? { ...k, lastUsedAt:null } : k));
   };
 
   const revoke = async id => {
-    await wFetch(`/api-keys/${id}`, { method:'DELETE' }).catch(()=>{});
+    await wFetch(`/api-keys/${id}`, { method:'DELETE' }).catch(err=>console.warn('[ApiKeysView] Revoking API key failed:', err?.message||err));
     setKeys(p => p.filter(k => k.id!==id));
   };
 

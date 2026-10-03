@@ -22,46 +22,88 @@ import { redis } from '../lib/redis.js';
 // in development, and a limiter that fails open on an unreachable cache is a
 // limiter that is not there at all.
 
-const buckets = new Map();
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, b] of buckets) {
-    if (b.resetAt <= now) buckets.delete(key);
+// The in-memory fallback, with the same semantics as the Redis path: a fixed
+// window per key that starts at the first hit, an increment that returns the
+// new count in the same step (INCR), and a refund that never goes below zero
+// or touches a later window. Every operation is synchronous, so two requests
+// on one event loop can never interleave between the read and the write of a
+// counter. Memory is bounded: past `maxKeys` the expired windows are swept,
+// then the oldest windows are evicted (Map iteration order is insertion order,
+// and a key is re-inserted whenever its window restarts).
+export class MemoryRateStore {
+  constructor({ maxKeys = 50_000, now = Date.now } = {}) {
+    this.maxKeys = maxKeys;
+    this.now = now;
+    this.buckets = new Map();
   }
-}, 60_000).unref();
 
-function hitMemory(key, windowMs) {
-  const now = Date.now();
-  let bucket = buckets.get(key);
-  if (!bucket || bucket.resetAt <= now) {
-    bucket = { count: 0, resetAt: now + windowMs };
-    buckets.set(key, bucket);
+  get size() { return this.buckets.size; }
+
+  // Increment-and-return in one step. `windowId` identifies the window the
+  // hit landed in, so a later refund can be matched to it.
+  hit(key, windowMs) {
+    const now = this.now();
+    let bucket = this.buckets.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      if (bucket) this.buckets.delete(key);
+      else if (this.buckets.size >= this.maxKeys) this.evict(now);
+      bucket = { count: 0, resetAt: now + windowMs };
+      this.buckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    return { count: bucket.count, resetAt: bucket.resetAt, windowId: bucket.resetAt };
   }
-  bucket.count += 1;
-  return { count: bucket.count, resetAt: bucket.resetAt };
+
+  // Refund one hit. Without a matching `windowId` a refund that arrives after
+  // the window rolled over would spend down the next window's attempts.
+  unhit(key, windowId = null) {
+    const bucket = this.buckets.get(key);
+    if (!bucket || bucket.resetAt <= this.now() || bucket.count <= 0) return;
+    if (windowId !== null && bucket.resetAt !== windowId) return;
+    bucket.count -= 1;
+  }
+
+  peek(key) {
+    const bucket = this.buckets.get(key);
+    if (!bucket || bucket.resetAt <= this.now()) return null;
+    return { count: bucket.count, resetAt: bucket.resetAt };
+  }
+
+  sweep(now = this.now()) {
+    for (const [key, b] of this.buckets) {
+      if (b.resetAt <= now) this.buckets.delete(key);
+    }
+  }
+
+  evict(now) {
+    this.sweep(now);
+    // Still full of live windows (a flood of distinct addresses): drop the
+    // oldest tenth in one go so the sweep is not repeated on every new key.
+    if (this.buckets.size < this.maxKeys) return;
+    let drop = Math.max(1, Math.ceil(this.maxKeys / 10));
+    for (const key of this.buckets.keys()) {
+      this.buckets.delete(key);
+      drop -= 1;
+      if (drop === 0) break;
+    }
+  }
 }
 
-function unhitMemory(key) {
-  const bucket = buckets.get(key);
-  if (bucket && bucket.resetAt > Date.now() && bucket.count > 0) bucket.count -= 1;
-}
-
-function peekMemory(key) {
-  const bucket = buckets.get(key);
-  if (!bucket || bucket.resetAt <= Date.now()) return null;
-  return { count: bucket.count, resetAt: bucket.resetAt };
-}
+const memory = new MemoryRateStore();
+setInterval(() => memory.sweep(), 60_000).unref();
 
 // Redis is authoritative when reachable so the limit holds across restarts and
 // across every instance of the service. A failure here falls back to the
 // in-memory counter rather than letting the request through uncounted.
+//
+// INCR, the first-hit expiry and the TTL read go in one MULTI so a failure
+// cannot land between an increment and the read that follows it (which used
+// to count the attempt in Redis *and* again in memory).
 async function hitRedis(key, windowMs) {
   const ttlSec = Math.ceil(windowMs / 1000);
-  const [count] = await redis.multi().incr(key).expire(key, ttlSec, 'NX').exec()
+  const [count, , ttl] = await redis.multi().incr(key).expire(key, ttlSec, 'NX').pttl(key).exec()
     .then((replies) => replies.map(([err, value]) => { if (err) throw err; return value; }));
-  const ttl = await redis.pttl(key);
-  return { count: Number(count), resetAt: Date.now() + (ttl > 0 ? ttl : windowMs) };
+  return { count: Number(count), resetAt: Date.now() + (ttl > 0 ? ttl : windowMs), windowId: null };
 }
 
 // Never below zero, and never on a key that has already expired — a bare DECR
@@ -78,25 +120,31 @@ async function peekRedis(key) {
   return { count: Number(count), resetAt: Date.now() + (ttl > 0 ? ttl : 0) };
 }
 
+// The catches below are deliberately quiet: a Redis outage is already
+// reported by the connection's error listener, and the request is still
+// counted, in memory.
 async function hit(key, windowMs) {
   try {
     if (redis.status === 'ready') return await hitRedis(key, windowMs);
   } catch { /* fall through to memory */ }
-  return hitMemory(key, windowMs);
+  return memory.hit(key, windowMs);
 }
 
-async function unhit(key) {
+// `state` is the value hit() returned, so a refund goes back to the store and
+// the window that took the hit.
+async function unhit(key, state) {
+  if (state && state.windowId !== null) return memory.unhit(key, state.windowId);
   try {
     if (redis.status === 'ready') return await unhitRedis(key);
   } catch { /* fall through to memory */ }
-  return unhitMemory(key);
+  return memory.unhit(key);
 }
 
 async function peek(key) {
   try {
     if (redis.status === 'ready') return await peekRedis(key);
   } catch { /* fall through to memory */ }
-  return peekMemory(key);
+  return memory.peek(key);
 }
 
 // The bucket a request's client address falls into.
@@ -188,10 +236,13 @@ export function rateLimit({
     if (ipState && ipState.count >= max) return tooMany(res, ipState.resetAt);
     if (subState && subjectMax && subState.count >= subjectMax) return tooMany(res, subState.resetAt);
 
+    // The decision is always taken on the count the increment itself
+    // returned, never on the peek above: a parallel burst all passes the peek
+    // together, but each request gets its own distinct count back.
     if (!countFailuresOnly) {
-      const hits = await hit(ipKey, windowMs);
-      if (subjectKey) await hit(subjectKey, windowMs);
+      const [hits, subHits] = await Promise.all([hit(ipKey, windowMs), subjectKey ? hit(subjectKey, windowMs) : null]);
       if (hits.count > max) return tooMany(res, hits.resetAt);
+      if (subHits && subjectMax && subHits.count > subjectMax) return tooMany(res, subHits.resetAt);
       return next();
     }
 
@@ -201,9 +252,11 @@ export function rateLimit({
     // the response let a parallel burst all pass the check before any of its
     // failures had been recorded.
     const [ipHits, subHits] = await Promise.all([hit(ipKey, windowMs), subjectKey ? hit(subjectKey, windowMs) : null]);
+    // A failed refund only over-counts (fails closed), and Redis errors are
+    // already logged by the client, so these are best-effort.
     const refund = () => {
-      unhit(ipKey).catch(() => {});
-      if (subjectKey) unhit(subjectKey).catch(() => {});
+      unhit(ipKey, ipHits).catch(() => {});
+      if (subjectKey) unhit(subjectKey, subHits).catch(() => {});
     };
     if (ipHits.count > max) { refund(); return tooMany(res, ipHits.resetAt); }
     if (subHits && subjectMax && subHits.count > subjectMax) { refund(); return tooMany(res, subHits.resetAt); }

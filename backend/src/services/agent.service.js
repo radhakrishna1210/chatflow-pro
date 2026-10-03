@@ -292,7 +292,7 @@ export async function runTask(task, { actorUserId = null } = {}) {
         ...(err.denied || exhausted ? { activeKey: null } : {}),
         runAfter: new Date(Date.now() + 30 * 60_000),
       },
-    }).catch(() => {});
+    }).catch((err) => console.error(`[Agent] Could not release task ${task.id} after failure:`, err.message));
   }
 
   const run = await prisma.agentRun.create({

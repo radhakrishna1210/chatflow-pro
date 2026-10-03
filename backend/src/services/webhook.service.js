@@ -118,7 +118,7 @@ async function handleTemplateStatusUpdate(wabaId, value) {
   if (result.count > 0) {
     prisma.template.findMany({ where, select: { id: true, workspaceId: true } })
       .then((rows) => rows.forEach((t) => realtime.templateUpdated(t.workspaceId, t.id, { status: newStatus })))
-      .catch(() => {});
+      .catch((err) => console.warn('[Template] Could not announce the status change to open screens:', err.message));
   }
 
   if (result.count > 0 && templateName) {
@@ -129,21 +129,21 @@ async function handleTemplateStatusUpdate(wabaId, value) {
       seen.add(t.workspaceId);
       emitWebhook(t.workspaceId, 'template.status', { name: t.name, status: newStatus, event });
       if (newStatus === 'APPROVED') {
-        queueTemplateApprovedEmail(t.workspaceId, t.name).catch(() => {});
+        queueTemplateApprovedEmail(t.workspaceId, t.name).catch((err) => console.warn('[Inbound] Template-approved email could not be queued:', err.message));
         notifyWorkspace(t.workspaceId, {
           type: 'TEMPLATE_APPROVED',
           title: `Template "${t.name}" was approved`,
           body: 'It can now be used in campaigns.',
           link: 'templates',
-        }).catch(() => {});
+        }).catch((err) => console.warn('[Inbound] Template-approved notification failed:', err.message));
       } else if (newStatus === 'REJECTED') {
-        queueTemplateRejectedEmail(t.workspaceId, t.name).catch(() => {});
+        queueTemplateRejectedEmail(t.workspaceId, t.name).catch((err) => console.warn('[Inbound] Template-rejected email could not be queued:', err.message));
         notifyWorkspace(t.workspaceId, {
           type: 'TEMPLATE_REJECTED',
           title: `Template "${t.name}" was rejected`,
           body: 'Meta rejected this template. Edit it and resubmit for review.',
           link: 'templates',
-        }).catch(() => {});
+        }).catch((err) => console.warn('[Inbound] Template-rejected notification failed:', err.message));
       }
     }
   }
@@ -220,7 +220,7 @@ async function handleTemplateCategoryUpdate(wabaId, value) {
         : `This template is now billed as ${next} at \u20b9${after.toFixed(2)} per message.`,
       link: 'templates',
       meta: { templateId: t.id, previousCategory: previous || t.category, newCategory: next },
-    }).catch(() => {});
+    }).catch((err) => console.warn(`[Inbound] Category-change notification failed for ${t.id}:`, err.message));
   }
 }
 
@@ -490,7 +490,7 @@ async function handleInboundMessage(value, msg) {
   // them (debounced per contact). Never blocks or fails the inbound path.
   import('../queues/crmMaintenance.queue.js')
     .then((m) => m.enqueueContactRescore(workspaceId, contact.id))
-    .catch(() => {});
+    .catch((err) => console.warn(`[Inbound] Contact rescore could not be queued for ${contact.id}:`, err.message));
 
   // Media is downloaded and archived (Meta deletes it after ~30 days), and a
   // voice note is transcribed so everything below can answer what the customer
@@ -580,7 +580,7 @@ async function handleInboundMessage(value, msg) {
         body: `${contact.name || fromPhone} sent "${optOutKeyword}" and will no longer receive messages.`,
         link: 'settings',
         meta: { phoneNumber: fromPhone, keyword: optOutKeyword },
-      }).catch(() => {});
+      }).catch((err) => console.warn('[Inbound] Opt-out notification failed:', err.message));
     } catch (err) {
       console.error('[Inbound] Could not record opt-out:', err.message);
     }
@@ -656,8 +656,8 @@ async function handleInboundMessage(value, msg) {
 
       if (control.command === 'human') {
         // Asking for a person ends the flow whether or not one is running.
-        if (formOpen) await cancelOpenSubmission(conversation.id).catch(() => {});
-        if (runOpen) await cancelActiveRuns(workspaceId, conversation.id, 'Customer asked for a person').catch(() => {});
+        if (formOpen) await cancelOpenSubmission(conversation.id).catch((err) => console.error(`[Inbound] Could not cancel the open form for ${conversation.id}:`, err.message));
+        if (runOpen) await cancelActiveRuns(workspaceId, conversation.id, 'Customer asked for a person').catch((err) => console.error(`[Inbound] Could not cancel workflow runs for ${conversation.id}:`, err.message));
         await escalateToHuman({
           workspaceId, conversationId: conversation.id, contact,
           reason: 'The customer asked to speak to a person',
@@ -670,7 +670,7 @@ async function handleInboundMessage(value, msg) {
         // Any workflow parked on a delay is torn down either way, so it cannot
         // wake up hours later and carry on messaging someone who has left.
         if (runOpen) {
-          await cancelActiveRuns(workspaceId, conversation.id, `Customer sent "${control.matched}"`).catch(() => {});
+          await cancelActiveRuns(workspaceId, conversation.id, `Customer sent "${control.matched}"`).catch((err) => console.error(`[Inbound] Could not cancel workflow runs for ${conversation.id}:`, err.message));
         }
 
         // When a form is open it owns the acknowledgement: it is the only layer
@@ -808,7 +808,7 @@ async function handleInboundMessage(value, msg) {
     //     throws that away — which is how "where is my order" ended up being
     //     answered by the HELP trigger's greeting.
     if (!autoReplyText && !intentHint) {
-      const intent = await matchIntent(workspaceId, messageBody).catch(() => null);
+      const intent = await matchIntent(workspaceId, messageBody).catch((err) => { console.warn('[Inbound] Intent matching failed:', err.message); return null; });
       if (intent?.trigger) autoReplyText = intent.trigger.responseTemplate;
     }
   }
@@ -871,7 +871,7 @@ async function handleInboundMessage(value, msg) {
       conversationId: conversation.id,
       waNumberId: waNumber.id,
       intentHint,
-    }).catch(() => null);
+    }).catch((err) => { console.error(`[Inbound] AI agent reply failed for ${conversation.id}:`, err.message); return null; });
 
     // The agent had nothing to say. Handing the thread to a person is right
     // when an agent was *supposed* to answer and could not — the provider
@@ -1125,7 +1125,7 @@ async function handleStatusUpdate(status) {
       where: { id: recipient.campaignId },
     });
     if (campaign) {
-      const contact = await prisma.contact.findUnique({ where: { id: recipient.contactId } }).catch(() => null);
+      const contact = await prisma.contact.findUnique({ where: { id: recipient.contactId } }).catch((err) => { console.warn(`[Inbound] Could not load contact ${recipient.contactId} for failure handling:`, err.message); return null; });
       await handleRecipientFailure(campaign, { ...recipient, contact }, reason, code);
     }
   }

@@ -172,7 +172,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
         setNumbers(d);
         if (d.length === 1) setWaNumberId(d[0].id);
       }
-    }).catch(() => {});
+    }).catch((err) => console.warn('[TemplateModal] Loading WhatsApp numbers failed:', err?.message || err));
   }, []);
 
   // Show the image an existing template actually sends. Pulled as a blob
@@ -189,7 +189,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
         url = URL.createObjectURL(blob);
         setHeaderPreview(url);
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[TemplateModal] Loading header image preview failed:', err?.message || err));
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
   }, [isEdit, template?.headerAssetId]);
 
@@ -222,7 +222,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
               urls.push(u);
               return [i, u];
             })
-            .catch(() => null)
+            .catch((err) => { console.warn('[TemplateModal] Loading carousel card preview failed:', err?.message || err); return null; })
         : Promise.resolve(null)
     ))).then(pairs => {
       if (cancelled) return;

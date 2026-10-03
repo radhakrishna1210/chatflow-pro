@@ -69,7 +69,7 @@ export default function ContactDetailsPanel({ contactId, onClose, onContactUpdat
   useEffect(() => {
     wFetch('/segments').then(r => r.ok && r.json())
       .then(d => { if (Array.isArray(d)) setSegments(d); else if (Array.isArray(d?.data)) setSegments(d.data); })
-      .catch(() => {});
+      .catch((err) => console.warn('[ContactDetailsPanel] Loading segments failed:', err?.message || err));
   }, []);
 
   // Every write goes through the contacts API and then re-reads, so the panel
