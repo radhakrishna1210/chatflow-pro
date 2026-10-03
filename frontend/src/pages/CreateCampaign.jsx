@@ -1129,10 +1129,16 @@ const StepFallback = ({ retriesActive, onSaved }) => {
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [smsFrom, setSmsFrom]     = useState('');
   const [smsText, setSmsText]     = useState('');
+  // Indian SMS must go out under a DLT-registered template and entity.
+  const [dltTemplateId, setDltTemplateId] = useState('');
+  const [dltEntityId, setDltEntityId]     = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailText, setEmailText] = useState('');
   const [saved, setSaved] = useState(false);
   const canEnable = !retriesActive;
+  const isDltId = (v) => /^\d{19}$/.test(v.trim());
+  const smsReady = smsFrom.trim() && smsText.trim() && isDltId(dltTemplateId) && isDltId(dltEntityId);
+  const smsBlocked = smsEnabled && caps.sms && !smsReady;
 
   useEffect(() => {
     wFetch('/campaigns/fallback-capabilities').then(r => r.ok ? r.json() : null).then(d => { if (d) setCaps(d); }).catch(() => {});
@@ -1141,6 +1147,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
   const commit = () => {
     onSaved?.({
       smsEnabled: smsEnabled && caps.sms, smsFrom, smsText,
+      dltTemplateId: dltTemplateId.trim(), dltEntityId: dltEntityId.trim(),
       emailEnabled: emailEnabled && caps.email, emailSubject, emailText,
     });
     setSaved(true); setTimeout(() => setSaved(false), 1800);
@@ -1178,13 +1185,29 @@ const StepFallback = ({ retriesActive, onSaved }) => {
               </div>
             )}
             <div>
-              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>Sender Number</label>
-              <input value={smsFrom} onChange={e => setSmsFrom(e.target.value)} placeholder="e.g. +14155552671" style={fieldStyle} />
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>Sender ID (DLT header)</label>
+              <input value={smsFrom} onChange={e => setSmsFrom(e.target.value)} placeholder="e.g. SPNDAN" style={fieldStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>DLT Template ID</label>
+              <input value={dltTemplateId} onChange={e => setDltTemplateId(e.target.value)} inputMode="numeric" placeholder="19-digit id from your DLT portal" style={fieldStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>DLT Principal Entity ID</label>
+              <input value={dltEntityId} onChange={e => setDltEntityId(e.target.value)} inputMode="numeric" placeholder="19-digit entity id" style={fieldStyle} />
             </div>
             <div>
               <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: '5px' }}>SMS Message Text</label>
               <textarea value={smsText} onChange={e => setSmsText(e.target.value)} placeholder="Hello {{1}}..." style={{ ...fieldStyle, minHeight: '60px', resize: 'vertical' }} />
+              <div style={{ fontSize: '11px', color: 'var(--t3)', marginTop: '4px', lineHeight: 1.5 }}>
+                Must match the registered DLT template word for word; operators block anything else.
+              </div>
             </div>
+            {smsBlocked && (
+              <div style={{ fontSize: '11.5px', color: '#f87171', lineHeight: 1.5 }}>
+                Enter the sender ID, both 19-digit DLT ids and the registered text to use SMS fallback.
+              </div>
+            )}
           </div>
         </ChannelCard>
 
@@ -1203,7 +1226,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-        <Btn onClick={commit} disabled={!canEnable}>{saved ? 'Saved ✓' : 'Save Fallback Config'}</Btn>
+        <Btn onClick={commit} disabled={!canEnable || smsBlocked}>{saved ? 'Saved ✓' : 'Save Fallback Config'}</Btn>
       </div>
     </div>
   );

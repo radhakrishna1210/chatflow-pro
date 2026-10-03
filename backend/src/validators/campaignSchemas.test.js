@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { campaignSchemas } from './index.js';
 
+const DLT = { dltTemplateId: '1007161234567890123', dltEntityId: '1201161234567890123' };
 const base = { name: 'Diwali', templateId: 'cltemplate0000000000000001', numberId: 'clnumber00000000000000001' };
 
 test('the retry config the wizard sends is accepted; schedules derived by the server are stripped', () => {
@@ -20,8 +21,20 @@ test('a malformed retry config is refused', () => {
 
 test('fallback config is bounded', () => {
   assert.throws(() => campaignSchemas.create.parse({ ...base, fallbackConfig: { smsEnabled: true, smsText: 'x'.repeat(5000) } }));
-  const ok = campaignSchemas.create.parse({ ...base, fallbackConfig: { smsEnabled: true, smsFrom: '+15555550100', smsText: 'Hi {{1}}' } });
+  const ok = campaignSchemas.create.parse({ ...base, fallbackConfig: { smsEnabled: true, smsFrom: 'SPNDAN', smsText: 'Hi {{1}}', ...DLT } });
   assert.equal(ok.fallbackConfig.emailEnabled, false);
+});
+
+test('SMS fallback cannot be enabled without its DLT registration', () => {
+  const sms = { smsEnabled: true, smsFrom: 'SPNDAN', smsText: 'Hi {{1}}', ...DLT };
+  for (const missing of ['dltTemplateId', 'dltEntityId', 'smsFrom', 'smsText']) {
+    const r = campaignSchemas.create.safeParse({ ...base, fallbackConfig: { ...sms, [missing]: '' } });
+    assert.equal(r.success, false, missing);
+    assert.deepEqual(r.error.issues[0].path, ['fallbackConfig', missing]);
+  }
+  assert.equal(campaignSchemas.create.safeParse({ ...base, fallbackConfig: { ...sms, dltTemplateId: '12345' } }).success, false);
+  // Email-only fallback needs none of it.
+  assert.equal(campaignSchemas.update.safeParse({ fallbackConfig: { smsEnabled: false, emailEnabled: true } }).success, true);
 });
 
 test('reply flows and conversion tracking are refused until they exist, but null is tolerated', () => {

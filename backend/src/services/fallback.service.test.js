@@ -38,7 +38,8 @@ mock.module(here('./wallet.service.js'), {
 const { runFallbackForRecipient } = await import('./fallback.service.js');
 const { SMS_FALLBACK_RATE } = await import('../lib/messagePricing.js');
 
-const campaign = { id: 'c1', workspaceId: 'w1', name: 'Diwali', fallbackConfig: { smsEnabled: true, smsFrom: '+1555', smsText: 'Hi {{1}}' } };
+const DLT = { dltTemplateId: '1007161234567890123', dltEntityId: '1201161234567890123' };
+const campaign = { id: 'c1', workspaceId: 'w1', name: 'Diwali', fallbackConfig: { smsEnabled: true, smsFrom: 'SPNDAN', smsText: 'Hi {{1}}', ...DLT } };
 const recipient = { id: 'r1' };
 const contact = { id: 'k1', name: 'Asha', phoneNumber: '+919999999999' };
 
@@ -56,6 +57,23 @@ test('a fallback SMS is charged to the wallet once per recipient', async () => {
   assert.deepEqual(r.succeeded, ['sms']);
   assert.deepEqual(debits, [{ amount: SMS_FALLBACK_RATE, key: 'sms_fallback_r1' }]);
   assert.equal(smsSent[0].body, 'Hi Asha');
+});
+
+test('without a DLT template or entity id no SMS is sent and nothing is charged', async () => {
+  for (const missing of ['dltTemplateId', 'dltEntityId']) {
+    smsSent = []; debits = [];
+    const fallbackConfig = { ...campaign.fallbackConfig, [missing]: undefined };
+    const r = await runFallbackForRecipient({ ...campaign, fallbackConfig }, recipient, contact);
+    assert.equal(smsSent.length, 0);
+    assert.equal(debits.length, 0);
+    assert.deepEqual(r.succeeded, []);
+    assert.match(r.failed[0], /^sms: No DLT (template|entity) id configured/);
+  }
+});
+
+test('a sent SMS records the DLT template it went out under', async () => {
+  const r = await runFallbackForRecipient(campaign, recipient, contact);
+  assert.equal(r.attempts[0].dltTemplateId, DLT.dltTemplateId);
 });
 
 test('an opted-out contact gets no fallback and is not charged', async () => {
