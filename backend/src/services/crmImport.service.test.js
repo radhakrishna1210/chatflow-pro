@@ -17,6 +17,7 @@ const fakePrisma = {
   },
   contact: {
     findMany: async ({ where }) => contacts.filter((c) => where.phoneNumber.in.includes(c.phoneNumber)),
+    update: async ({ where, data }) => Object.assign(contacts.find((c) => c.id === where.id), data),
     createMany: async ({ data }) => {
       contactCreateManyCalls += 1;
       for (const d of data) contacts.push({ id: `c-${d.phoneNumber}`, ...d });
@@ -117,6 +118,7 @@ test('files over the row cap are refused before anything is written', async () =
 });
 
 test('rows are held to the workspace lead rules and every adjustment is reported (CF-154)', async () => {
+  contacts.push({ id: 'c-tagged', workspaceId: 'ws1', phoneNumber: '+916666666666', tags: ['newsletter'] });
   extraSections = {
     lead_sources: { sources: [{ key: 'REFERRAL', name: 'Referral', isActive: true }, { key: 'OTHER', name: 'Other', isActive: true }] },
     lead_tags: { tags: [{ name: 'VIP' }] },
@@ -126,9 +128,12 @@ test('rows are held to the workspace lead rules and every adjustment is reported
     'name,phone,status,source,tags,email',
     'A,+915555555555,Hot,referral,vip;whale,a@x.test',
     'B,+915555555556,NEW,Billboard,,',
+    'C,+916666666666,NEW,,VIP,c@x.test',
   ].join('\n')));
-  assert.equal(res.imported, 2);
-  const [a, b] = leads.slice(-2);
+  assert.equal(res.imported, 3);
+  const [a, b] = leads.slice(-3);
+  // An existing contact keeps its tags and gains the row's lead tags.
+  assert.deepEqual(contacts.find((c) => c.id === 'c-tagged').tags, ['newsletter', 'VIP']);
   assert.equal(a.status, 'NEW', 'an unknown status takes the default stage');
   assert.equal(a.source, 'REFERRAL');
   assert.deepEqual(contacts.find((c) => c.phoneNumber === '+915555555555').tags, ['VIP']);

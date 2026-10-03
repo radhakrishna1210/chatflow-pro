@@ -243,13 +243,17 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     }
     const existing = await prisma.contact.findMany({
       where: { workspaceId, phoneNumber: { in: [...canonicalOf.keys()] } },
-      select: { id: true, phoneNumber: true },
+      select: { id: true, phoneNumber: true, tags: true },
     });
     const contactIdByPhone = new Map();
+    const existingTags = new Map();
     for (const c of existing) {
       const phone = canonicalOf.get(c.phoneNumber);
       // The canonical row wins when a legacy duplicate also exists.
-      if (!contactIdByPhone.has(phone) || c.phoneNumber === phone) contactIdByPhone.set(phone, c.id);
+      if (!contactIdByPhone.has(phone) || c.phoneNumber === phone) {
+        contactIdByPhone.set(phone, c.id);
+        existingTags.set(c.id, c.tags || []);
+      }
     }
 
     const missing = chunk.filter((r) => !contactIdByPhone.has(r.phoneNumber));
@@ -257,7 +261,6 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
       // skipDuplicates: a contact created concurrently (inbound message, form)
       // is simply picked up by the re-read below.
       const created = await prisma.contact.createMany({
-        // Lead tags go on new contacts; an existing contact keeps its own.
         data: missing.map((r) => ({ workspaceId, name: r.name, phoneNumber: r.phoneNumber, email: r.email, tags: r.tags })),
         skipDuplicates: true,
       });
@@ -278,6 +281,16 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     const toCreate = chunk.filter((r) => contactIdByPhone.has(r.phoneNumber) && !isLead.has(contactIdByPhone.get(r.phoneNumber)));
     alreadyLeads += chunk.length - toCreate.length;
     if (toCreate.length === 0) continue;
+
+    // An existing contact that becomes a lead gets the row's lead tags added
+    // to its own (new contacts were created with them above).
+    for (const r of toCreate) {
+      const contactId = contactIdByPhone.get(r.phoneNumber);
+      const had = existingTags.get(contactId);
+      if (!had || r.tags.length === 0) continue;
+      const merged = [...new Set([...had, ...r.tags])];
+      if (merged.length !== had.length) await prisma.contact.update({ where: { id: contactId }, data: { tags: merged } });
+    }
 
     const leads = await prisma.lead.createManyAndReturn({
       data: toCreate.map((r) => ({
