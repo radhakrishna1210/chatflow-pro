@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -9,6 +9,13 @@ import { wFetch } from '../lib/api.js';
 import { notify } from '../components/Feedback.jsx';
 import { can } from '../lib/permissions.js';
 import { useRealtime, useThrottledCallback } from '../lib/realtime.js';
+import { LoadMore } from '../components/ListPager.jsx';
+import { readList, appendUnique, mergeNewestPage, prependOlder, oldestMessageId } from '../lib/paging.js';
+
+// Leads are listed a page at a time (CF-048); a refresh re-reads as many as
+// are on screen, up to the server's ceiling.
+const LEAD_PAGE = 100;
+const LEAD_MAX = 1000;
 
 const CATEGORY_COLORS = {
   HOT: { bg: 'rgba(239, 68, 68, 0.12)', bd: 'rgba(239, 68, 68, 0.3)', c: '#f87171', label: 'HOT 🔥' },
@@ -62,10 +69,23 @@ export default function CrmSalesInboxView() {
   const [leadSearch, setLeadSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('');
+  const [leadTotal, setLeadTotal] = useState(0);
+  const [loadingMoreLeads, setLoadingMoreLeads] = useState(false);
+  const selectedLeadIdRef = useRef(null);
+  selectedLeadIdRef.current = selectedLeadId;
+  const loadedLeadsRef = useRef(0);
+  const lastLeadQueryRef = useRef('');
 
   // Conversation & Messaging State
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  // The thread is its newest page; older pages load on request (hasMore).
+  const [hasEarlier, setHasEarlier] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const threadScrollRef = useRef(null);
+  const keepScrollRef = useRef(null);
   const [windowState, setWindowState] = useState(null);
   const [chatError, setChatError] = useState(null);
   const [messageText, setMessageText] = useState('');
@@ -211,29 +231,67 @@ export default function CrmSalesInboxView() {
   }, [waNumbers, campaignWaNumberId]);
 
   // 2. Fetch Leads for Individual Mode
+  const leadQuery = useCallback(() => {
+    const query = new URLSearchParams();
+    if (categoryFilter && categoryFilter !== 'ALL') query.set('category', categoryFilter);
+    if (statusFilter) query.set('status', statusFilter);
+    if (leadSearch) query.set('search', leadSearch);
+    if (inboxFilter && inboxFilter !== 'all') query.set('preset', inboxFilter);
+    return query;
+  }, [categoryFilter, statusFilter, leadSearch, inboxFilter]);
+
+  // (Re)reads the list from the top: the first page for a new query, or as
+  // many leads as are already on screen after an action, so "Load more"
+  // progress survives a refresh.
   const fetchLeads = useCallback(async () => {
     try {
-      const query = new URLSearchParams();
-      if (categoryFilter && categoryFilter !== 'ALL') query.set('category', categoryFilter);
-      if (statusFilter) query.set('status', statusFilter);
-      if (leadSearch) query.set('search', leadSearch);
-      if (inboxFilter && inboxFilter !== 'all') query.set('preset', inboxFilter);
+      const query = leadQuery();
+      const key = query.toString();
+      if (key !== lastLeadQueryRef.current) { lastLeadQueryRef.current = key; loadedLeadsRef.current = 0; }
+      query.set('limit', String(Math.min(Math.max(loadedLeadsRef.current, LEAD_PAGE), LEAD_MAX)));
+      query.set('offset', '0');
 
       const res = await wFetch(`/leads?${query.toString()}`);
       if (!res.ok) return;
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : data?.data || [];
+      const { items: list, total } = readList(await res.json());
+      if (lastLeadQueryRef.current !== key) return; // a newer query has started
+      loadedLeadsRef.current = list.length;
       setLeads(list);
+      setLeadTotal(total ?? list.length);
 
       if (list.length > 0) {
-        if (!selectedLeadId || !list.some((l) => l.id === selectedLeadId)) {
+        const selected = selectedLeadIdRef.current;
+        if (!selected || !list.some((l) => l.id === selected)) {
           setSelectedLeadId(list[0].id);
         }
       }
     } catch (err) {
       console.error('[CrmSalesInbox] Error fetching leads:', err);
     }
-  }, [categoryFilter, statusFilter, leadSearch, selectedLeadId, inboxFilter]);
+  }, [leadQuery]);
+
+  const loadMoreLeads = async () => {
+    if (loadingMoreLeads) return;
+    setLoadingMoreLeads(true);
+    try {
+      const query = leadQuery();
+      const key = query.toString();
+      query.set('limit', String(LEAD_PAGE));
+      query.set('offset', String(leads.length));
+      const res = await wFetch(`/leads?${query.toString()}`);
+      if (!res.ok) throw new Error(`Could not load more leads (${res.status})`);
+      const { items, total } = readList(await res.json());
+      if (lastLeadQueryRef.current !== key) return;
+      const next = appendUnique(leads, items);
+      loadedLeadsRef.current = next.length;
+      setLeads(next);
+      if (total !== null) setLeadTotal(total);
+    } catch (err) {
+      notify(err.message);
+    } finally {
+      setLoadingMoreLeads(false);
+    }
+  };
 
   useEffect(() => {
     if (activeTab === 'individual') {
@@ -288,12 +346,16 @@ export default function CrmSalesInboxView() {
           : null;
 
         if (match && match.contactId === leadData.contactId) {
+          const sameThread = match.id === conversationIdRef.current;
           setConversation(match);
           const msgsRes = await wFetch(`/conversations/${match.id}/messages`);
           if (msgsRes.ok) {
             const msgsData = await msgsRes.json();
             const list = Array.isArray(msgsData) ? msgsData : msgsData?.messages || msgsData?.data || [];
-            setMessages(list);
+            // Re-reading the open thread keeps the older pages already loaded.
+            const merged = sameThread ? mergeNewestPage(messagesRef.current, list) : { messages: list, keptOlder: false };
+            setMessages(merged.messages);
+            if (!merged.keptOlder) setHasEarlier(Boolean(msgsData?.hasMore));
             if (!Array.isArray(msgsData) && msgsData?.window) {
               setWindowState(msgsData.window);
             } else {
@@ -303,6 +365,7 @@ export default function CrmSalesInboxView() {
         } else {
           setConversation(null);
           setMessages([]);
+          setHasEarlier(false);
           setWindowState(null);
         }
       }
@@ -319,12 +382,44 @@ export default function CrmSalesInboxView() {
 
   const messagesEndRef = useRef(null);
 
+  // Loading earlier messages keeps the reader where they were instead of
+  // jumping to the bottom.
+  useLayoutEffect(() => {
+    const keep = keepScrollRef.current;
+    const el = threadScrollRef.current;
+    if (!keep || !el) return;
+    el.scrollTop = el.scrollHeight - keep.height + keep.top;
+  }, [messages]);
+
   // Auto-scroll to bottom of conversation
   useEffect(() => {
+    if (keepScrollRef.current) { keepScrollRef.current = null; return; }
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages.length, selectedLeadId]);
+
+  const loadEarlier = async () => {
+    const convId = conversation?.id;
+    const before = oldestMessageId(messages);
+    if (!convId || !before || loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      const res = await wFetch(`/conversations/${convId}/messages?before=${encodeURIComponent(before)}`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Could not load earlier messages (${res.status})`);
+      if (conversationIdRef.current !== convId) return;
+      const older = Array.isArray(data?.messages) ? data.messages : [];
+      const el = threadScrollRef.current;
+      if (el && older.length) keepScrollRef.current = { height: el.scrollHeight, top: el.scrollTop };
+      setMessages((prev) => prependOlder(prev, older));
+      setHasEarlier(Boolean(data?.hasMore));
+    } catch (err) {
+      setChatError(err.message);
+    } finally {
+      setLoadingEarlier(false);
+    }
+  };
 
   // The open conversation's messages & window state: refreshed by live events
   // (lib/realtime.js), polled only while the stream is down and the tab is
@@ -348,7 +443,10 @@ export default function CrmSalesInboxView() {
         const data = await res.json();
         const list = Array.isArray(data) ? data : data?.messages || data?.data || [];
         if (Array.isArray(list)) {
-          setMessages(list);
+          // The poll returns the newest page; older pages already loaded stay.
+          const merged = mergeNewestPage(messagesRef.current, list);
+          setMessages(merged.messages);
+          if (!merged.keptOlder && !Array.isArray(data)) setHasEarlier(Boolean(data?.hasMore));
         }
         if (!Array.isArray(data) && data?.window) {
           setWindowState(data.window);
@@ -946,6 +1044,8 @@ export default function CrmSalesInboxView() {
                   );
                 })
               )}
+              <LoadMore hasMore={leads.length < leadTotal} loading={loadingMoreLeads} onLoad={loadMoreLeads}
+                label="Load more leads" shown={leads.length} total={leadTotal} style={{ padding: '6px 0' }} />
             </div>
           </div>
 
@@ -1037,13 +1137,20 @@ export default function CrmSalesInboxView() {
                 )}
 
                 {/* MESSAGES TRAIL */}
-                <div style={{ flex: 1, minHeight: 0, padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg)' }}>
+                <div ref={threadScrollRef} style={{ flex: 1, minHeight: 0, padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, background: 'var(--bg)' }}>
                   {messages.length === 0 ? (
                     <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>
                       No message history with this lead yet. Send an approved template to initiate contact.
                     </div>
                   ) : (
                     <>
+                      {hasEarlier && (
+                        <div style={{ textAlign: 'center' }}>
+                          <Btn size="xs" variant="outline" onClick={loadEarlier} disabled={loadingEarlier}>
+                            {loadingEarlier ? 'Loading…' : 'Load earlier messages'}
+                          </Btn>
+                        </div>
+                      )}
                       {messages.map((m) => {
                         const isOutbound = m.direction === 'OUTBOUND';
                         return (

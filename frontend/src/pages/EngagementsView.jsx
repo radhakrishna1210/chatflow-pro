@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -128,6 +128,8 @@ export default function EngagementsView({ user, initialTab }) {
   // New Engagement Modal
   const [showLogModal, setShowLogModal] = useState(false);
   const [leadsList, setLeadsList] = useState([]);
+  const [leadPickerSearch, setLeadPickerSearch] = useState('');
+  const [leadPickerTotal, setLeadPickerTotal] = useState(0);
   const [selectedLeadId, setSelectedLeadId] = useState('');
   const [engagementType, setEngagementType] = useState('Call');
   const [engagementStatus, setEngagementStatus] = useState('Completed');
@@ -181,19 +183,34 @@ export default function EngagementsView({ user, initialTab }) {
     fetchEngagements();
   }, [fetchEngagements]);
 
-  // Pre-fetch leads for logging modal
+  // The lead picker searches on the server (CF-048): the leads list is paged,
+  // so a fixed first page left every other lead unreachable. Top-scored
+  // matches first; the chosen lead stays listed while the search changes.
+  const LEAD_PICKER_SIZE = 50;
+  const selectedLeadRef = useRef('');
+  selectedLeadRef.current = selectedLeadId;
   useEffect(() => {
-    wFetch('/leads?limit=100')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        const list = Array.isArray(data) ? data : data?.data || [];
-        setLeadsList(list);
-        if (list.length > 0 && !selectedLeadId) {
-          setSelectedLeadId(list[0].id);
-        }
-      })
-      .catch((err) => console.warn('[EngagementsView] Loading leads failed:', err?.message || err));
-  }, [selectedLeadId]);
+    if (!showLogModal) return undefined;
+    let cancelled = false;
+    const t = setTimeout(() => {
+      const qs = new URLSearchParams({ limit: String(LEAD_PICKER_SIZE), offset: '0' });
+      if (leadPickerSearch.trim()) qs.set('search', leadPickerSearch.trim());
+      wFetch(`/leads?${qs}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Could not load leads (${r.status})`))))
+        .then((data) => {
+          if (cancelled) return;
+          const list = Array.isArray(data) ? data : data?.data || [];
+          setLeadPickerTotal(Number.isFinite(data?.total) ? data.total : list.length);
+          setLeadsList((prev) => {
+            const chosen = prev.find((l) => l.id === selectedLeadRef.current);
+            return chosen && !list.some((l) => l.id === chosen.id) ? [chosen, ...list] : list;
+          });
+          if (list.length > 0 && !selectedLeadRef.current) setSelectedLeadId(list[0].id);
+        })
+        .catch((err) => console.warn('[EngagementsView] Loading leads failed:', err?.message || err));
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [showLogModal, leadPickerSearch]);
 
   // Select all checkbox handler
   const handleToggleSelectAll = () => {
@@ -668,6 +685,14 @@ export default function EngagementsView({ user, initialTab }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
               <FLabel required>Target Lead</FLabel>
+              <FInput value={leadPickerSearch} onChange={(e) => setLeadPickerSearch(e.target.value)}
+                placeholder="Search leads by name, phone or email…" />
+              {leadPickerTotal > LEAD_PICKER_SIZE && (
+                <div style={{ fontSize: 11, color: 'var(--t3)', margin: '4px 0 6px' }}>
+                  Showing the top {LEAD_PICKER_SIZE} of {leadPickerTotal.toLocaleString('en-IN')} matching leads — search to narrow it down.
+                </div>
+              )}
+              <div style={{ height: 6 }} />
               <FSelect value={selectedLeadId} onChange={(e) => setSelectedLeadId(e.target.value)}>
                 {leadsList.map((l) => (
                   <option key={l.id} value={l.id} style={{ background: '#1e293b', color: '#fff' }}>
