@@ -112,7 +112,9 @@ export async function metaTestCalls(req, res) {
 }
 
 export async function listWorkspaces(req, res) {
-  const workspaces = await adminService.listWorkspaces({ limit: req.query.limit, offset: req.query.offset });
+  const workspaces = await adminService.listWorkspaces({
+    limit: req.query.limit, offset: req.query.offset, search: req.query.search,
+  });
   res.json(workspaces);
 }
 

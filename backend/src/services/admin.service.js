@@ -249,9 +249,22 @@ export async function syncPoolFromWaba() {
 // limit/offset (CF-048); the default still covers a platform of normal size.
 const ADMIN_LIST = { defaultLimit: 1000, maxLimit: 5000 };
 
-export async function listWorkspaces(page = {}) {
+// `search` matches the workspace name or any member's name or email, so the
+// number-assignment picker can find a workspace on a platform larger than
+// one page instead of filtering only the page it was sent.
+export async function listWorkspaces({ search, ...page } = {}) {
+  const q = typeof search === 'string' ? search.trim().slice(0, 100) : '';
+  const contains = { contains: q, mode: 'insensitive' };
   const workspaces = await prisma.workspace.findMany({
     ...listWindow(page, ADMIN_LIST),
+    ...(q ? {
+      where: {
+        OR: [
+          { name: contains },
+          { members: { some: { user: { OR: [{ name: contains }, { email: contains }] } } } },
+        ],
+      },
+    } : {}),
     select: {
       id: true,
       name: true,
