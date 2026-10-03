@@ -10,6 +10,7 @@ import { countVariables, buildTextComponents, buildButtonComponents, contactVari
 import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
 import { assertWorkspaceMember } from './crmReferences.js';
+import { archiveOutboundMedia } from './inboundMedia.service.js';
 
 // Keyset cursor over (lastMessageAt desc, id desc), opaque to the client. A
 // page/skip offset shifts under the inbox's feet as new messages reorder it.
@@ -428,6 +429,10 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     include: { senderUser: { select: { id: true, name: true } } },
   });
   if (userId) markFirstResponseForConversation(workspaceId, conversationId).catch(() => {});
+  // Our own copy in file storage: Meta drops the media after ~30 days, and the
+  // thread should still be able to show what was sent. Not awaited — the send
+  // has happened either way.
+  archiveOutboundMedia({ workspaceId, messageId: message.id, buffer, mimeType }).catch(() => {});
 
   await prisma.conversation.update({
     where: { id: conversationId },

@@ -190,6 +190,60 @@ async function callGemini(prompt, system, { json = false } = {}) {
   return null;
 }
 
+// Speech-to-text for inbound voice notes, so a customer who speaks instead of
+// typing reaches the same automation (services/inboundMedia.service.js).
+//
+// Gemini takes the audio inline; WhatsApp voice notes are OGG/Opus, a format it
+// accepts. Inline requests are capped at ~20 MB, and a voice note is far below
+// that — anything larger is refused here rather than sent to fail.
+export const TRANSCRIPTION_MAX_BYTES = 15 * 1024 * 1024;
+const TRANSCRIPTION_TIMEOUT_MS = 30_000;
+const TRANSCRIPT_MAX_CHARS = 4000;
+const NO_SPEECH = '[no speech]';
+const TRANSCRIBE_PROMPT = 'Transcribe this voice message word for word, in the language it is spoken in. '
+  + 'Reply with the transcript only: no translation, no labels, no commentary. '
+  + `If there is no intelligible speech, reply with exactly ${NO_SPEECH}`;
+
+/**
+ * @returns {Promise<{ text: string|null, reason?: string }>} the transcript, or
+ *   null with why: not_configured | rate_limited | empty | too_large | no_speech | failed
+ */
+export async function transcribeAudio(buffer, mimeType) {
+  const ai = gemini();
+  if (!ai) return { text: null, reason: 'not_configured' };
+  if (!buffer?.length) return { text: null, reason: 'empty' };
+  if (buffer.length > TRANSCRIPTION_MAX_BYTES) return { text: null, reason: 'too_large' };
+  if (Date.now() < geminiCooldownUntil) return { text: null, reason: 'rate_limited' };
+
+  // "audio/ogg; codecs=opus" -> "audio/ogg"
+  const type = String(mimeType || 'audio/ogg').split(';')[0].trim().toLowerCase() || 'audio/ogg';
+  const contents = [{
+    role: 'user',
+    parts: [{ text: TRANSCRIBE_PROMPT }, { inlineData: { mimeType: type, data: buffer.toString('base64') } }],
+  }];
+  const models = [...new Set([env.GEMINI_MODEL, env.GEMINI_FALLBACK_MODEL].filter(Boolean))];
+  let lastErr = null;
+  for (const model of models) {
+    try {
+      const res = await ai.models.generateContent({
+        model,
+        contents,
+        config: { temperature: 0, httpOptions: { timeout: TRANSCRIPTION_TIMEOUT_MS } },
+      });
+      const text = String(res.text || '').trim();
+      lastFailure = null;
+      if (!text || text.toLowerCase() === NO_SPEECH) return { text: null, reason: 'no_speech' };
+      return { text: text.slice(0, TRANSCRIPT_MAX_CHARS) };
+    } catch (err) {
+      // Busy or retired, the fallback model is the next thing to try.
+      lastErr = err;
+    }
+  }
+  console.error('[llm] Voice transcription failed:', lastErr?.message);
+  noteGeminiFailure(lastErr);
+  return { text: null, reason: 'failed' };
+}
+
 async function callOllama(prompt, system) {
   if (!env.OLLAMA_URL) return null;
   try {

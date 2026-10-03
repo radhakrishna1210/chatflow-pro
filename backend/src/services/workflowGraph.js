@@ -15,9 +15,20 @@
 // The engine's real vocabulary, read from workflowEngine.service.js and
 // workflowCrm.service.js. Kept here as one table because "what can a workflow
 // do" was previously only discoverable by reading two switch statements.
+// What the `media` trigger can be narrowed to (inboundMessage.js#mediaTypeOf).
+export const MEDIA_KINDS = ['any', 'image', 'video', 'audio', 'document', 'sticker'];
+
 export const TRIGGERS = {
   keyword: { needsValue: true, describe: (v) => `someone messages "${v}"` },
   welcome: { needsValue: false, describe: () => 'a new contact messages for the first time' },
+  // A photo, video, document, sticker or voice note (value narrows the kind).
+  media: {
+    needsValue: false,
+    describe: (v) => ({
+      image: 'someone sends a photo', video: 'someone sends a video', audio: 'someone sends a voice note',
+      document: 'someone sends a document', sticker: 'someone sends a sticker',
+    })[String(v || '').toLowerCase()] ?? 'someone sends a photo, video, document or voice note',
+  },
   // `missed` is deliberately absent: nothing delivers a missed-call event to
   // the engine, so a workflow compiled onto it would never fire.
   lead_created: { needsValue: false, describe: () => 'a lead is created' },
@@ -90,6 +101,10 @@ export function validateGraph(raw) {
     fail(`A "${trigger.subtype}" trigger needs a value — for example the keyword to watch for.`);
   }
 
+  if (trigger.subtype === 'media' && trigger.value
+    && !MEDIA_KINDS.includes(String(trigger.value).trim().toLowerCase())) {
+    fail(`"${trigger.value}" is not a kind of media. One of: ${MEDIA_KINDS.join(', ')}.`);
+  }
   if (trigger.subtype === 'score_above' && !Number.isFinite(Number(trigger.value))) {
     fail('A score trigger needs a number.');
   }

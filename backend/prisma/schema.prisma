@@ -374,7 +374,12 @@ model TemplateAsset {
   id                String     @id @default(cuid())
   workspaceId       String
   mimeType          String
-  bytes             Bytes
+  // The image itself, for rows written while no object store is configured
+  // (and for every row from before one was). With S3_BUCKET set, new assets
+  // go to the bucket under `storageKey` and this stays null; the migration
+  // script copies existing rows across (scripts/migrate-uploads-to-object-storage.js).
+  bytes             Bytes?
+  storageKey        String?
   sizeBytes         Int
   // What the image was generated from, so the builder can show it and the user
   // can regenerate with the same intent. Null for a hand-uploaded file.
@@ -398,7 +403,14 @@ model Contact {
   id                 String              @id @default(cuid())
   workspaceId        String
   name               String
+  // An Instagram-only contact has no phone number; it is stored as
+  // "ig:<letters>" (services/instagramInbox.service.js#instagramPlaceholderPhone),
+  // which no phone validation accepts, so it is never sent a WhatsApp message.
   phoneNumber        String
+  // Instagram-scoped user id (IGSID) of a contact who messaged the connected
+  // Instagram account.
+  instagramUserId    String?
+  instagramUsername  String?
   email              String?
   tags               String[]
   optedOut           Boolean             @default(false)
@@ -419,6 +431,7 @@ model Contact {
   widgetSessions     WidgetSession[]
 
   @@unique([workspaceId, phoneNumber])
+  @@unique([workspaceId, instagramUserId])
   @@index([workspaceId, updatedAt])
   lead                Lead?
   quotes              Quote[]
@@ -573,6 +586,9 @@ model Conversation {
   id               String              @id @default(cuid())
   workspaceId      String
   contactId        String
+  // Which messaging channel the thread runs on. Instagram DMs have no WhatsApp
+  // number (waNumberId is null) and are answered through the Instagram API.
+  channel          ConversationChannel @default(WHATSAPP)
   waNumberId       String?
   status           ConversationStatus  @default(OPEN)
   unreadCount      Int                 @default(0)
@@ -612,7 +628,15 @@ model Conversation {
   // The inbox list: newest activity first, optionally by status.
   @@index([workspaceId, lastMessageAt])
   @@index([workspaceId, status])
+  // One Instagram thread per contact: enforced as a partial unique index
+  // (channel = 'INSTAGRAM') in the migration.
+  @@index([workspaceId, channel])
   tickets CrmTicket[]
+}
+
+enum ConversationChannel {
+  WHATSAPP
+  INSTAGRAM
 }
 
 // One customer's "Ask Anything" conversation with the AI agent attached to a
@@ -683,6 +707,15 @@ model Message {
   mediaMimeType       String?
   mediaFilename       String?
   mediaSha256         String?
+  // Our own copy of the media in file storage (lib/storage), so it outlives
+  // Meta's ~30-day media retention. Null when it was not archived (too large,
+  // or the download failed); the inbox then re-fetches by `mediaId`.
+  mediaStorageKey     String?
+  mediaSize           Int?
+  // Speech-to-text of an inbound voice note. When present it is also the
+  // message body and what the automation answered, so the inbox shows the
+  // customer's words; null when transcription is off, unavailable or failed.
+  transcript          String?
   // Latitude/longitude arrive as their own message type rather than as text.
   locationLat         Float?
   locationLng         Float?

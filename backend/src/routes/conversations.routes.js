@@ -11,6 +11,7 @@ router.use(authenticate, workspaceContext);
 router.get('/', conversationsController.list);
 router.post('/', conversationsController.createOrGet);
 router.get('/:id/messages', conversationsController.getMessages);
+router.get('/:id/messages/:messageId/media', conversationsController.media);
 router.get('/:id/context', conversationsController.context);
 router.post('/:id/suggest', conversationsController.suggest);
 router.get('/:id/notes', conversationsController.listNotes);
