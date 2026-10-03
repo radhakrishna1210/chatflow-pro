@@ -9,8 +9,8 @@ steps for this release are in [`DEPLOY.md`](../DEPLOY.md#4-upgrading-to-the-audi
 
 | Status | Issues |
 |---|---|
-| FIXED | 198 |
-| PARTIAL | 27 |
+| FIXED | 200 |
+| PARTIAL | 25 |
 | ALREADY-FIXED | 0 |
 | NOT-A-BUG | 1 |
 | NO CHANGE | 1 |
@@ -185,7 +185,7 @@ Notes for FIXED rows are the fixing commit's subject.
 | CF-162 | Low | CRM-Sequences | Sequence enrolment: concurrent enrol 500s mid-loop, segment enrol of >1000 leads fails, out-of-scope/foreign lead ids silently dropped, unenroll ignores the sequence id in the URL | **PARTIAL** | Concurrency-safe and batched enrolment, scoped unenroll; lead lookup still has no record-visibility scope | 0c59b89 |
 | CF-163 | Low | CRM-Tests | CRM tests call services directly or assert fabricated values, so they pass while the HTTP feature is broken | **PARTIAL** | HTTP-level and fixed-value tests added per CF; some CRM tests still call services directly | c924922 |
 | CF-164 | Low | Data model / Repo hygiene | Root-level schema, validator and service copies are merge scratch artefacts; backend/prisma/schema.prisma is canonical | **FIXED** | chore(repo): remove merge scratch and stray artefacts, guard dev DB scripts | 774fb79 |
-| CF-165 | Low | Deploy / Logging | Build and runtime quirks in render-build.js, ensure-prisma-client.js, logger and uploads | **PARTIAL** | SPA rebuilt per commit, hashed-asset caching, logger fixes; uploads still on ephemeral disk | 057564b |
+| CF-165 | Low | Deploy / Logging | Build and runtime quirks in render-build.js, ensure-prisma-client.js, logger and uploads | **FIXED** | SPA rebuilt per commit, hashed-asset caching, logger fixes; files now go through lib/storage (S3-compatible bucket — AWS S3, R2, Supabase, MinIO — via in-house SigV4, or local disk), with inbound/outbound media archived and served to the inbox, template images in the bucket, an idempotent migration script and a loud boot warning for disk on Render. Structured (pino) logging not adopted: logs go to stdout via console | 057564b 0312166 97a3b78 d5f8a67 |
 | CF-166 | Low | Docs | QA guide instructs testers to pause a regular campaign from the UI, which is impossible | **FIXED** | QA guide: pause/resume now applies to every running/scheduled campaign (fixed by CF-143) | aaa0d92 |
 | CF-167 | Low | Docs / AI agent and Copilot | AGENT_ROADMAP.md and ADVANCED_CRM_GAP_ANALYSIS.md give the Copilot "11 read tools"; the code has 9 read + 5 write | **FIXED** | Copilot documented as 9 read + 5 proposal-only write tools; stale UI-gap and compiler lines corrected | aaa0d92 |
 | CF-168 | Low | Docs / Audit history | Historical audit docs at the repo root (issue_sheet, STABILIZATION_REPORT*, BUGS*) claim "all 75 issues resolved" while several are regressed or were never fixed as described | **FIXED** | Historical reports moved to docs/archive/ with banners and a README; migrate dev instructions replaced | f3c513f |
@@ -244,7 +244,7 @@ Notes for FIXED rows are the fixing commit's subject.
 | CF-221 | Info | Docs / Redis | backend/docs/local-redis-setup.md says Redis backs only the campaign and email queues | **FIXED** | Redis doc lists every queue and Redis dependency | aaa0d92 |
 | CF-222 | Info | Docs / Testing | TESTING_WALKTHROUGH.md test count (277) disagrees with TEST_EVIDENCE.md (264) and the tree; `npm test` needs a live local DB | **FIXED** | Hard-coded test counts removed; DB-backed suites and .env.test explained | aaa0d92 |
 | CF-223 | Info | Frontend-Shell / Auth | Client decides super-admin from a `superAdmin` flag persisted in the localStorage `user` object — server re-verifies, so no security impact | **NOT-A-BUG** | Client flag is display-only; the server re-verifies super-admin on every request |  |
-| CF-224 | Info | Inbox | Media/voice/Instagram inbound: stored, never automated; unsupported types count as unread and reset the window | **PARTIAL** | Reactions/system events no longer count as unread or reset the window; voice/Instagram inbound automation not built | 3557f92 |
+| CF-224 | Info | Inbox | Media/voice/Instagram inbound: stored, never automated; unsupported types count as unread and reset the window | **FIXED** | Reactions/system events no longer count as unread or reset the window; voice notes (WhatsApp and Instagram) are transcribed with Gemini into the full automation, falling back to a new workflow 'media' trigger; Instagram DMs land in the inbox and run Quickflows, workflows, triggers, welcome/OOO and the AI agent, replying via Instagram within the 24h window, metered like automated WhatsApp replies. Instagram stays text-only (no templates/attachments) and its webhook is processed in-process, not queued; WhatsApp Calling API events are still not handled | 3557f92 97a3b78 def4eda |
 | CF-225 | Info | OAuth provider | The OAuth provider token and revoke endpoints are sound; notes: no PKCE, and `/oauth/revoke` is not scoped to keys the calling client issued | **PARTIAL** | Live consent re-check and revoke scoping; PKCE deferred | f9d0730 |
 | CF-226 | Info | Ops / Prisma client | prisma-schema-canonical test fails because the main checkout's generated client is stale | **FIXED** | test(prisma): make the stale-client failure name the blocks and the fix | 7cf4569 |
 | CF-227 | Info | Secrets | Secrets in the tree and in history: no live credentials found; test-fixture `backend/.env.test` recoverable from history; `.env.bak` (OPEN-009) not found; `dump.rdb` empty | **PARTIAL** | Stray artefacts removed and scripts guarded; git history not rewritten | 774fb79 |
