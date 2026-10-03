@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, wDownload } from '../lib/api.js';
@@ -9,6 +9,7 @@ import { Avatar } from '../components/Avatar.jsx';
 import { notify, confirmDialog } from '../components/Feedback.jsx';
 import { can } from '../lib/permissions.js';
 import { useRealtime, useThrottledCallback } from '../lib/realtime.js';
+import { mergeNewestPage, prependOlder, oldestMessageId } from '../lib/paging.js';
 
 const labelCfg = {
   urgent:   { bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.22)',   c:'#f87171' },
@@ -248,6 +249,12 @@ export default function InboxView() {
   const canSendTemplate = can('inbox.sendTemplate');
   const [convs, setConvs]       = useState([]);
   const [msgs, setMsgs]         = useState({});
+  const msgsRef = useRef(msgs);
+  msgsRef.current = msgs;
+  // A thread arrives as its newest page (CF-048); `earlier[id]` is whether
+  // older messages remain, loaded on request with ?before=.
+  const [earlier, setEarlier]   = useState({});
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   // WhatsApp's 24-hour customer service window, per conversation, as reported
   // by the server. Outside it only an approved template may be sent, so the
   // composer has to say so instead of letting the send fail at Meta.
@@ -280,6 +287,11 @@ export default function InboxView() {
   const [sending, setSending]   = useState(false);
   const [sendError, setSendError] = useState(null);
   const scrollRef = useRef(null);
+  // Keeps the reader's place when older messages are put above them, and
+  // only follows new messages while they are already at the bottom.
+  const keepScrollRef = useRef(null);
+  const nearBottomRef = useRef(true);
+  const scrolledForRef = useRef(null);
   // The details panel follows the selected conversation. On a narrow viewport
   // there is no room for a third column, so it becomes an overlay drawer that
   // opens on demand instead of permanently eating the chat width.
@@ -470,7 +482,13 @@ export default function InboxView() {
           // whether WhatsApp still permits a free-form reply. The array form is
           // still accepted so a stale cached bundle keeps working.
           const list = Array.isArray(d) ? d : d.messages;
-          if (Array.isArray(list)) setMsgs(p => ({ ...p, [activeId]: list }));
+          if (Array.isArray(list)) {
+            // A refresh brings back the newest page; older pages already
+            // loaded for this thread stay in front of it.
+            const merged = mergeNewestPage(msgsRef.current[activeId] || [], list);
+            setMsgs(p => ({ ...p, [activeId]: merged.messages }));
+            if (!merged.keptOlder) setEarlier(p => ({ ...p, [activeId]: !Array.isArray(d) && Boolean(d.hasMore) }));
+          }
           if (!Array.isArray(d) && d.window) setWindowState(p => ({ ...p, [activeId]: d.window }));
           if (!Array.isArray(d) && typeof d.botEnabled === 'boolean') setBotState(p => ({ ...p, [activeId]: d.botEnabled }));
         })
@@ -488,9 +506,43 @@ export default function InboxView() {
     return () => { clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
   }, [live, activeId]);
 
+  useLayoutEffect(() => {
+    const keep = keepScrollRef.current;
+    const el = scrollRef.current;
+    if (!keep || !el) return;
+    el.scrollTop = el.scrollHeight - keep.height + keep.top;
+  }, [msgs]);
+
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const el = scrollRef.current;
+    if (keepScrollRef.current) { keepScrollRef.current = null; return; }
+    if (!el) return;
+    // A newly opened thread starts at the bottom; an open one follows new
+    // messages only if the reader has not scrolled up into its history.
+    if (scrolledForRef.current !== activeId) { scrolledForRef.current = activeId; nearBottomRef.current = true; }
+    if (nearBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [activeId, msgs]);
+
+  const loadEarlier = async () => {
+    const convId = activeId;
+    const before = oldestMessageId(msgs[convId] || []);
+    if (!convId || !before || loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      const r = await wFetch(`/conversations/${convId}/messages?before=${encodeURIComponent(before)}`);
+      const d = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(d?.error || `Could not load earlier messages (${r.status})`);
+      const older = Array.isArray(d?.messages) ? d.messages : [];
+      const el = scrollRef.current;
+      if (activeIdRef.current === convId && el && older.length) keepScrollRef.current = { height: el.scrollHeight, top: el.scrollTop };
+      setMsgs(p => ({ ...p, [convId]: prependOlder(p[convId] || [], older) }));
+      setEarlier(p => ({ ...p, [convId]: Boolean(d?.hasMore) }));
+    } catch (e) {
+      notify(e.message || 'Could not load earlier messages');
+    } finally {
+      setLoadingEarlier(false);
+    }
+  };
 
   // Everything the side panel and the header need about the selected thread.
   // Refetched on selection rather than polled: none of it changes between
@@ -619,6 +671,7 @@ export default function InboxView() {
     const body = input.trim();
     setInput(''); setSendError(null); setSending(true);
     const temp = { id:`tmp${Date.now()}`, body, direction:'OUTBOUND', sentAt:new Date().toISOString(), senderUser:{ name: 'You' }, _pending: true };
+    nearBottomRef.current = true; // sending jumps to the newest message
     setMsgs(p => ({ ...p, [activeId]: [...(p[activeId] || []), temp] }));
     try {
       const res = await wFetch(`/conversations/${activeId}/messages`, {
@@ -658,6 +711,7 @@ export default function InboxView() {
       });
       const data = await res.json();
       if (!res.ok) { setSendError(data.error || `Could not send that template (${res.status})`); return; }
+      nearBottomRef.current = true; // sending jumps to the newest message
       setMsgs(p => ({ ...p, [activeId]: [...(p[activeId] || []), data] }));
       setTemplatePickerOpen(false);
     } catch (e) {
@@ -677,6 +731,7 @@ export default function InboxView() {
       id: `tmpf${Date.now()}`, body: file.name, direction: 'OUTBOUND', type: 'DOCUMENT',
       sentAt: new Date().toISOString(), senderUser: { name: 'You' }, _pending: true,
     };
+    nearBottomRef.current = true; // sending jumps to the newest message
     setMsgs(p => ({ ...p, [activeId]: [...(p[activeId] || []), temp] }));
     try {
       const form = new FormData();
@@ -921,10 +976,19 @@ export default function InboxView() {
             {tab === 'chat' ? (
               <>
                 {/* messages */}
-                <div ref={scrollRef} style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:10, background:'rgba(5,8,18,0.6)' }}>
+                <div ref={scrollRef}
+                  onScroll={(e) => { const el = e.currentTarget; nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }}
+                  style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:10, background:'rgba(5,8,18,0.6)' }}>
                   {msgsError && (
                     <div style={{ padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12 }}>
                       {msgsError} — retrying automatically.
+                    </div>
+                  )}
+                  {earlier[activeId] && activeMsgs.length > 0 && (
+                    <div style={{ textAlign:'center' }}>
+                      <Btn variant="outline" size="sm" onClick={loadEarlier} disabled={loadingEarlier}>
+                        {loadingEarlier ? 'Loading…' : 'Load earlier messages'}
+                      </Btn>
                     </div>
                   )}
                   {activeMsgs.length === 0 && !msgsError && (
