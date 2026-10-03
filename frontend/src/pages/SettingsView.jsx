@@ -10,6 +10,8 @@ import { TeamsAdmin } from '../components/TeamsAdmin.jsx';
 import { LeadCaptureSetting } from '../components/LeadCaptureSetting.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { notify, confirmDialog } from '../components/Feedback.jsx';
+import { LoadMore } from '../components/ListPager.jsx';
+import { useLoadMoreList } from '../lib/useLoadMoreList.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const labelStyle = { display:'block', fontSize:'11px', fontWeight:600, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 };
@@ -148,7 +150,11 @@ export default function SettingsView() {
   const [invoiceError, setInvoiceError] = useState(null);
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
   const [members, setMembers]   = useState([]);
-  const [invoices, setInvoices] = useState([]);
+  // Newest first, 50 at a time with "Load more" (CF-048).
+  const {
+    items: invoices, hasMore: moreInvoices, loadingMore: loadingMoreInvoices,
+    error: invoiceListError, reload: loadInvoices, loadMore: loadMoreInvoices,
+  } = useLoadMoreList(wFetch, '/settings/invoices', { size: 50 });
   const [webhookUrl, setWebhookUrl] = useState('');
   const [webhookError, setWebhookError] = useState(null);
   const [showToken, setShowToken]   = useState(false);
@@ -184,10 +190,7 @@ export default function SettingsView() {
     wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(err=>console.warn('[SettingsView] Loading members failed:', err?.message||err));
     if (canInvite) wFetch('/invitations').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setInvitations(d); }).catch(err=>console.warn('[SettingsView] Loading invitations failed:', err?.message||err));
     // A failed load must not look like "no invoices yet".
-    wFetch('/settings/invoices')
-      .then(r => { if (!r.ok) throw new Error(`Could not load invoices (${r.status})`); return r.json(); })
-      .then(d => { if (Array.isArray(d)) setInvoices(d); })
-      .catch(e => setInvoiceError(e.message || 'Could not load invoices'));
+    loadInvoices();
     wFetch('/analytics/chat?days=7').then(r=>r.ok&&r.json()).then(d=>{
       if (d && Array.isArray(d.dailyVolume)) {
         const todayIso = new Date().toISOString().split('T')[0];
@@ -757,7 +760,7 @@ export default function SettingsView() {
             </div>
             {canUpgrade && <Btn style={{ boxShadow:'var(--glow)' }}>Upgrade</Btn>}
           </div>
-          {invoiceError && <p style={{ fontSize:12, color:'#f87171', marginBottom:10 }}>{invoiceError}</p>}
+          {(invoiceError || invoiceListError) && <p style={{ fontSize:12, color:'#f87171', marginBottom:10 }}>{invoiceError || invoiceListError}</p>}
           {invoices.length === 0 ? (
             <p style={{ fontSize:13, color:'var(--t2)', textAlign:'center', padding:'16px 0' }}>No invoices yet.</p>
           ) : (
@@ -788,6 +791,7 @@ export default function SettingsView() {
               ))}
             </tbody>
           </table>
+          <LoadMore hasMore={moreInvoices} loading={loadingMoreInvoices} onLoad={loadMoreInvoices} label="Load older invoices" />
           </div>
           )}
         </SectionCard>

@@ -4,6 +4,8 @@ import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { can } from '../lib/permissions.js';
+import { LoadMore } from '../components/ListPager.jsx';
+import { useLoadMoreList } from '../lib/useLoadMoreList.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14 };
 
@@ -15,10 +17,11 @@ export default function SupportView() {
   const [message, setMessage] = useState('');
   const [status, setStatus] = useState('idle');
   const [err, setErr] = useState(null);
-  const [tickets, setTickets] = useState([]);
-
-  const load = () => wFetch('/support').then(r => r.ok ? r.json() : []).then(d => setTickets(Array.isArray(d) ? d : [])).catch((err) => console.warn('[SupportView] Loading support tickets failed:', err?.message || err));
-  useEffect(() => { load(); }, []);
+  // Newest first, 50 at a time (CF-048): the server pages this list, and a
+  // workspace with a long history used to see only its first page.
+  const { items: tickets, hasMore, loadingMore, error: listError, reload, loadMore } = useLoadMoreList(wFetch, '/support', { size: 50 });
+  const load = () => reload();
+  useEffect(() => { reload(); }, [reload]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -77,6 +80,7 @@ export default function SupportView() {
         </div>
 
         <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 12 }}>Your requests</h3>
+        {listError && <div style={{ padding: '10px 13px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 13, marginBottom: 12 }}>{listError}</div>}
         {tickets.length === 0 ? (
           <div style={{ ...card, padding: 28, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>No requests yet.</div>
         ) : (
@@ -95,6 +99,7 @@ export default function SupportView() {
                 </span>
               </div>
             ))}
+            <LoadMore hasMore={hasMore} loading={loadingMore} onLoad={loadMore} label="Load older requests" />
           </div>
         )}
       </div>

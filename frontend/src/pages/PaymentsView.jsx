@@ -6,6 +6,8 @@ import { wFetch, wDownload } from '../lib/api.js';
 import WalletStatusBanner from '../components/WalletStatusBanner.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { confirmDialog } from '../components/Feedback.jsx';
+import { LoadMore } from '../components/ListPager.jsx';
+import { useLoadMoreList } from '../lib/useLoadMoreList.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 
@@ -153,7 +155,7 @@ export default function PaymentsView({ initialTab } = {}) {
       setCheckoutMessage(successMessage);
       loadSubscription();
       if (window._reloadWallet) window._reloadWallet();
-      wFetch('/settings/invoices').then(r => (r.ok ? r.json() : [])).then(setInvoices).catch((err) => console.warn('[PaymentsView] Reloading invoices failed:', err?.message || err));
+      loadInvoices();
     } catch (e) {
       setCheckoutError(e.message || 'Could not update the subscription');
     } finally {
@@ -166,17 +168,15 @@ export default function PaymentsView({ initialTab } = {}) {
     runPlanAction('/subscription/renew', { method: 'POST' }, 'Subscription renewed from your wallet.');
 
   // Invoices list
-  const [invoices, setInvoices] = useState([]);
-  const [loadingInvoices, setLoadingInvoices] = useState(true);
+  // Newest first, 50 at a time with "Load more" (CF-048): one invoice per
+  // renewal and recharge, so the list only grows, and the server pages it.
+  // A failed load says so instead of rendering as "no invoices yet".
+  const {
+    items: invoices, hasMore: moreInvoices, loading: loadingInvoices, loadingMore: loadingMoreInvoices,
+    error: invoiceListError, reload: loadInvoices, loadMore: loadMoreInvoices,
+  } = useLoadMoreList(wFetch, '/settings/invoices', { size: 50 });
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
   const [invoiceError, setInvoiceError] = useState('');
-
-  // A failed load says so instead of rendering as "no invoices yet".
-  const loadInvoices = () => wFetch('/settings/invoices')
-    .then(r => { if (!r.ok) throw new Error(`Could not load invoices (${r.status}).`); return r.json(); })
-    .then(data => { setInvoices(Array.isArray(data) ? data : []); setInvoiceError(''); })
-    .catch(e => setInvoiceError(e.message || 'Could not load invoices.'))
-    .finally(() => setLoadingInvoices(false));
 
   // Billing cycle the plan catalog is priced in ('monthly' | 'quarterly')
   const [billingCycle, setBillingCycle] = useState('monthly');
@@ -1041,8 +1041,8 @@ export default function PaymentsView({ initialTab } = {}) {
 
   const renderInvoices = () => (
     <div style={{ ...card, overflowX: 'auto' }}>
-      {invoiceError && (
-        <p style={{ margin: 0, padding: '10px 20px', fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.06)' }}>{invoiceError}</p>
+      {(invoiceError || invoiceListError) && (
+        <p style={{ margin: 0, padding: '10px 20px', fontSize: 12, color: '#f87171', background: 'rgba(239,68,68,0.06)' }}>{invoiceError || invoiceListError}</p>
       )}
       <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 575 }}>
         <thead>
@@ -1097,6 +1097,9 @@ export default function PaymentsView({ initialTab } = {}) {
           ))}
         </tbody>
       </table>
+      {!loadingInvoices && (
+        <LoadMore hasMore={moreInvoices} loading={loadingMoreInvoices} onLoad={loadMoreInvoices} label="Load older invoices" />
+      )}
     </div>
   );
 
