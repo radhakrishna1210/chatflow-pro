@@ -271,6 +271,8 @@ export default function InboxView() {
   // (PATCH /:id/bot). This used to be a local toggle that saved nothing.
   const [botState, setBotState] = useState({});
   const [botBusy, setBotBusy]   = useState(false);
+  // Why automation is paused on a thread and when it resumes (human handoff).
+  const [pauseInfo, setPauseInfo] = useState({});
   // List state. Search and the view filters run on the server, a page at a
   // time, so a busy workspace's older threads are reachable.
   const [listLoading, setListLoading] = useState(true);
@@ -764,6 +766,19 @@ export default function InboxView() {
   const isInstagram = active?.channel === 'INSTAGRAM';
   const isBot = activeId ? botState[activeId] !== false : false;
 
+  // A paused thread says why and until when: a handoff lapses by itself once
+  // nobody has replied for a while, and a silent bot otherwise looks broken.
+  useEffect(() => {
+    if (!activeId || isBot) return undefined;
+    let stopped = false;
+    wFetch(`/conversations/${activeId}/automation`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!stopped && d) setPauseInfo(p => ({ ...p, [activeId]: d })); })
+      .catch(() => {});
+    return () => { stopped = true; };
+  }, [activeId, isBot, activeMsgs.length]);
+  const activePause = !isBot ? pauseInfo[activeId] : null;
+
   return (
     <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
       <div className="dash-page-head" style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', flexShrink:0, background:'var(--surf)' }}>
@@ -972,6 +987,28 @@ export default function InboxView() {
                 </div>
               ))}
             </div>
+
+            {tab === 'chat' && activeId && !isBot && (
+              <div role="status" style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', padding:'8px 16px', flexShrink:0, background:'rgba(245,158,11,.08)', borderBottom:'1px solid rgba(245,158,11,.25)', color:'#fbbf24', fontSize:12, lineHeight:1.5 }}>
+                <I n="user" s={13} c="#fbbf24" />
+                <span style={{ flex:'1 1 240px', minWidth:0 }}>
+                  Automation paused for this chat
+                  {activePause?.reasonText ? <> — {activePause.reasonText}</> : null}
+                  {' — '}
+                  {activePause?.expired
+                    ? "resumes with the customer's next message"
+                    : activePause?.resumesAt
+                      ? <>resumes {new Date(activePause.resumesAt).toLocaleString([], { dateStyle:'medium', timeStyle:'short' })}</>
+                      : 'resumes once nobody has replied here for a while'}
+                  {' or turn the bot back on.'}
+                </span>
+                {canManageThread && (
+                  <Btn variant="outline" size="sm" disabled={botBusy} style={{ flexShrink:0 }} onClick={() => setBot(true)}>
+                    Turn bot on
+                  </Btn>
+                )}
+              </div>
+            )}
 
             {tab === 'chat' ? (
               <>

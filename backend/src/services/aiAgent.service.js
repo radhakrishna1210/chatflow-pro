@@ -38,7 +38,13 @@ export const ESCALATION_RULES = [
 const defaultEscalationRules = () =>
   Object.fromEntries(ESCALATION_RULES.map((r) => [r.id, r.default]));
 
-const normaliseEscalationRules = (value) => {
+// The defaults are what the screen offers before anything is saved. They are
+// shown, not stored: getAgentConfig reports `escalationRulesSet` so the page
+// only sends the rules back once someone has actually chosen them — otherwise
+// every save (an undeploy included) persisted all three as switched on
+// (WF-IN-3). They take effect only while the agent is deployed
+// (intentRouting.service.js escalationRulesApply).
+export const normaliseEscalationRules = (value) => {
   const base = defaultEscalationRules();
   if (!value || typeof value !== 'object') return base;
   for (const rule of ESCALATION_RULES) {
@@ -143,6 +149,9 @@ export async function getAgentConfig(workspaceId) {
     ...ws,
     aiAgentLanguages: Array.isArray(ws.aiAgentLanguages) ? ws.aiAgentLanguages : ['English'],
     escalationRules: normaliseEscalationRules(ws.escalationRules),
+    // False until the workspace saves its own choice; the rules above are
+    // then only the defaults the screen suggests.
+    escalationRulesSet: ws.escalationRules != null,
     llmAvailable: llmAvailable(),
     knowledgeSourceCount,
     intentRuleCount,

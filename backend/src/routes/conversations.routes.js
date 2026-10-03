@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as conversationsController from '../controllers/conversations.controller.js';
+import { automationStatus } from '../controllers/automationPause.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { uploader, verifyFileContents, uploadRateLimit, ACCEPTS } from '../lib/uploadGuard.js';
@@ -22,6 +23,8 @@ router.patch('/:id/status', conversationsController.setStatus);
 // Whether the automation may answer this thread. Handing off is easy to
 // trigger and, without this, only resolving the conversation undid it.
 router.patch('/:id/bot', conversationsController.setBot);
+// Why automation is paused on this thread, and when it resumes by itself.
+router.get('/:id/automation', automationStatus);
 router.post('/:id/messages', conversationsController.sendMessage);
 // Approved templates only, and permitted whether or not the window is open —
 // this is the documented way back into a conversation that has gone quiet.

@@ -13,40 +13,91 @@ export const normalizePhone = (raw) => String(raw ?? '').replace(/\D/g, '');
 
 // The accepted opt-out phrases. Stored normalised (lowercase, single-spaced)
 // because that is exactly what normalizeMessage() produces.
+//
+// STOP and UNSUBSCRIBE only, as the whole message (WF-IN-6). The list used to
+// include "end", "quit", "cancel", "remove" and "no thanks" — ordinary replies
+// that permanently opted the contact out of the whole workspace, including a
+// tap on a workflow's own "No thanks" button and a "Remove" meant for a REMOVE
+// keyword workflow. Opting out is irreversible from the customer's side
+// without the START opt-in below, so it has to be unmistakable.
 const OPT_OUT_KEYWORDS = [
   'stop',
   'unsubscribe',
-  'end',
-  'quit',
-  'cancel',
-  'remove',
+  'stop all',
   'please stop',
-  'no thanks',
+  'unsubscribe me',
+  'stop messages',
+  'stop messaging me',
+  'stop promotions',
 ];
 
-// Longest first so "please stop" wins over "stop" when reporting which
-// keyword matched.
+// Longest first so "stop all" wins over "stop" when reporting which keyword
+// matched.
 const KEYWORDS_BY_LENGTH = [...OPT_OUT_KEYWORDS].sort((a, b) => b.length - a.length);
 
-// Some of these words mean two different things depending on where the
-// customer is in the conversation. Typed on their own, "cancel", "quit" and
-// "end" almost always mean "get me out of this form", not "never message me
-// again" — and QA found that answering a form question with "cancel"
-// unsubscribed the contact from the workspace outright.
-//
-// "stop", "unsubscribe" and friends are deliberately NOT in this set: they are
-// the phrases WhatsApp expects a business to honour as an opt-out, and a flow
-// being open is not a good enough reason to ignore one.
-const FLOW_CONTROL_KEYWORDS = new Set(['cancel', 'quit', 'end']);
+// Opting back in. Only a contact who is opted out is affected: for everyone
+// else "start" is an ordinary message (a workflow may use it as its keyword).
+const OPT_IN_KEYWORDS = ['start', 'subscribe', 'unstop', 'resubscribe', 'start messages'];
 
-// True when this opt-out keyword should be read as "leave the current flow"
-// while a form or workflow is mid-question.
-export function isFlowControlKeyword(keyword) {
-  return FLOW_CONTROL_KEYWORDS.has(String(keyword || '').toLowerCase());
+// Kept for callers of the old API: no opt-out keyword doubles as "leave the
+// flow" any more — the narrowed list above is all opt-out, and STOP while a
+// flow is open is handled by the inbound pipeline (it ends the flow first).
+export function isFlowControlKeyword() {
+  return false;
 }
 
 export function listOptOutKeywords() {
   return [...OPT_OUT_KEYWORDS];
+}
+
+export function listOptInKeywords() {
+  return [...OPT_IN_KEYWORDS];
+}
+
+/** "start" / "subscribe" as the whole message, else null. */
+export function matchOptInKeyword(text) {
+  const normalized = normalizeMessage(text);
+  if (!normalized) return null;
+  return OPT_IN_KEYWORDS.find((kw) => normalized === kw) ?? null;
+}
+
+// The confirmation sent when a contact opts back in.
+export const OPT_IN_CONFIRMATION = "You're subscribed again — you'll receive messages from us. Reply STOP at any time to opt out.";
+
+/**
+ * A contact who sent START / SUBSCRIBE: clears every opt-out record for the
+ * number (OptOut row and Contact.optedOut) and stamps the opt-in evidence
+ * (CF-070 fields). Returns whether anything was actually opted out before.
+ */
+export async function recordOptIn({ workspaceId, phoneNumber, contactId = null, keyword = null }) {
+  const digits = normalizePhone(phoneNumber);
+  if (!workspaceId || !digits) return { wasOptedOut: false };
+
+  const rows = await prisma.optOut.findMany({
+    where: { workspaceId, phoneNumber: digits, active: true },
+    select: { id: true },
+  });
+  if (rows.length > 0) {
+    await prisma.optOut.updateMany({
+      where: { workspaceId, id: { in: rows.map((r) => r.id) }, active: true },
+      data: { active: false, unblockedAt: new Date(), unblockedByUserId: null },
+    });
+  }
+
+  const stamp = {
+    optedOut: false,
+    optedOutAt: null,
+    optInAt: new Date(),
+    optInSource: 'whatsapp_start',
+    optInText: keyword ? `Customer sent "${String(keyword).toUpperCase()}"` : null,
+  };
+  const contactWas = contactId
+    ? await prisma.contact.findUnique({ where: { id: contactId }, select: { optedOut: true } })
+    : null;
+  if (contactId) await prisma.contact.update({ where: { id: contactId }, data: stamp });
+  else await prisma.contact.updateMany({ where: { workspaceId, phoneNumber: { in: phoneVariants(phoneNumber) } }, data: stamp });
+
+  return { wasOptedOut: rows.length > 0 || contactWas?.optedOut === true };
 }
 
 // Case-insensitive, punctuation-insensitive, whitespace-insensitive.

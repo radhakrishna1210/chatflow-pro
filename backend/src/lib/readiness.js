@@ -1,5 +1,7 @@
 import { prisma } from './prisma.js';
 import { redis } from './redis.js';
+import { webhookConsumerCount } from './webhookConsumers.js';
+import { isWebhookWorkerRunning } from '../workers/webhook.worker.js';
 
 // Readiness, as opposed to liveness (/health): can this instance do real work
 // right now? The server starts listening before its boot sequence finishes, so
@@ -36,12 +38,32 @@ async function checkRedis(timeoutMs) {
   if (reply !== 'PONG') throw new Error(`unexpected redis reply: ${reply}`);
 }
 
-export async function checkReadiness({ timeoutMs = 2000 } = {}) {
-  const [db, cache] = await Promise.allSettled([checkDatabase(timeoutMs), checkRedis(timeoutMs)]);
+// Production only: something must consume the `webhooks` queue, or inbound
+// messages (and every workflow they start) depend on the web process's inline
+// fallback (WF-IN-13). A worker in this process counts without asking Redis.
+// WEBHOOK_CONSUMER_REQUIRED=false reports a missing consumer without failing
+// readiness, for deployments that accept the inline fallback.
+async function checkWebhookConsumers(timeoutMs) {
+  if (isWebhookWorkerRunning()) return 'ok';
+  const count = await withTimeout(webhookConsumerCount(), timeoutMs, 'webhook consumer check');
+  if (count > 0) return 'ok';
+  return process.env.WEBHOOK_CONSUMER_REQUIRED === 'false' ? 'ok (none — processing inline)' : 'no consumer on the "webhooks" queue';
+}
+
+export async function checkReadiness({ timeoutMs = 2000, production = process.env.NODE_ENV === 'production' } = {}) {
+  const [db, cache, consumers] = await Promise.allSettled([
+    checkDatabase(timeoutMs),
+    checkRedis(timeoutMs),
+    production ? checkWebhookConsumers(timeoutMs) : Promise.resolve(null),
+  ]);
   const checks = {
     boot: booted ? 'ok' : 'starting',
     database: db.status === 'fulfilled' ? 'ok' : db.reason?.message || 'unavailable',
     redis: cache.status === 'fulfilled' ? 'ok' : cache.reason?.message || 'unavailable',
   };
-  return { ready: Object.values(checks).every((v) => v === 'ok'), checks };
+  if (production) {
+    checks.webhookConsumers = consumers.status === 'fulfilled' ? consumers.value : consumers.reason?.message || 'unavailable';
+  }
+  const ready = Object.values(checks).every((v) => v === 'ok' || String(v).startsWith('ok '));
+  return { ready, checks };
 }

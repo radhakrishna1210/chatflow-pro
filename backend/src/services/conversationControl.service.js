@@ -68,56 +68,113 @@ export function looksLike(word, term) {
 // messages: someone typing "I want to cancel my order" is raising a support
 // case, not asking to leave the form, so only a message that is essentially the
 // command itself counts.
+//
+// Matching is exact (after lower-casing, punctuation and politeness are
+// stripped). It used to forgive a typo in any single word, which read ordinary
+// answers as commands — "None" and "Gone" as "done", "Dona" as "done",
+// "operate" as "operator" — and each of those cancelled the workflow the
+// customer was answering, or handed the thread to a person (WF-IN-2/5).
 
-const CONTROL_COMMANDS = {
-  cancel:  ['cancel', 'stop', 'quit', 'exit', 'abort', 'nevermind', 'never mind', 'forget it'],
-  restart: ['restart', 'start over', 'start again', 'reset', 'begin again'],
+// Explicit requests: several words that only mean one thing. These are the
+// only commands honoured while a workflow is waiting for an answer, and the
+// only way to ask for a person when nothing is running.
+const EXPLICIT_COMMANDS = {
+  cancel:  ['stop this', 'cancel this', 'cancel it', 'stop it', 'exit this', 'quit this', 'end this',
+            'never mind', 'forget it', 'stop the flow', 'cancel the flow'],
+  restart: ['start over', 'start again', 'begin again'],
+  human:   ['talk to a human', 'speak to a human', 'talk to human', 'speak to human',
+            'talk to a person', 'speak to a person', 'talk to someone', 'speak to someone',
+            'talk to an agent', 'speak to an agent', 'talk to agent', 'speak to agent',
+            'talk to a representative', 'speak to a representative', 'connect me to an agent',
+            'connect me to a human', 'real person', 'human please', 'agent please'],
+};
+
+// Single words (and two short phrases) that are commands only when a form is
+// open or a run is parked on a delay — never while a run is waiting for an
+// answer (that answer might be exactly this word) and, for `human`, never with
+// nothing running (a workflow may use "AGENT" as its own keyword).
+const CONTEXTUAL_COMMANDS = {
+  cancel:  ['cancel', 'quit', 'exit', 'abort', 'nevermind'],
+  restart: ['restart', 'reset'],
   done:    ['done', 'finished', 'complete', 'thats all', 'that is all', 'no more'],
   goodbye: ['bye', 'goodbye', 'bye bye', 'see you', 'good bye', 'thanks bye'],
-  human:   ['human', 'agent', 'representative', 'operator', 'talk to a person', 'speak to a person',
-            'talk to someone', 'speak to someone', 'real person', 'customer care'],
+  human:   ['human', 'agent', 'representative', 'operator', 'customer care'],
   help:    ['help', 'menu', 'options', 'what can you do', 'commands'],
 };
 
 // The longest a message can be and still be read as a bare control word. Four
-// words covers "i want to stop" and "please start over" without catching prose.
+// words covers "i want to stop" and "please start over" without catching prose;
+// explicit phrases get a little more room ("i want to talk to a human").
 const MAX_CONTROL_WORDS = 4;
+const MAX_EXPLICIT_WORDS = 8;
 
 const FILLER = new Set(['i', 'id', 'want', 'wanna', 'to', 'please', 'pls', 'plz', 'just', 'can', 'you',
   'we', 'lets', 'let', 'us', 'me', 'now', 'the', 'this', 'it', 'ok', 'okay']);
 
-/**
- * Reads a message as a global control command.
- * @returns {null | { command: 'cancel'|'restart'|'done'|'goodbye'|'human'|'help', matched: string }}
- */
-export function detectControlCommand(message) {
-  const text = normalise(message);
-  if (!text) return null;
+// Politeness around an explicit phrase. Only stripped from the ends, so the
+// phrase itself ("stop this") keeps the words that make it explicit.
+const LEADING_POLITENESS = ['i want to', 'i wanna', 'i would like to', 'id like to', 'i need to', 'can i',
+  'could i', 'let me', 'please', 'pls', 'plz', 'ok', 'okay', 'can you', 'just'];
+const TRAILING_POLITENESS = ['please', 'pls', 'plz', 'now', 'thanks', 'thank you'];
 
-  const all = words(text);
-  if (all.length > MAX_CONTROL_WORDS) return null;
-
-  // Strip politeness so "please stop" and "i want to cancel" reduce to the verb.
-  const core = all.filter((w) => !FILLER.has(w));
-  if (core.length === 0) return null;
-  const stripped = core.join(' ');
-
-  for (const [command, phrases] of Object.entries(CONTROL_COMMANDS)) {
-    for (const phrase of phrases) {
-      if (stripped === phrase || text === phrase) return { command, matched: phrase };
+function stripPoliteness(text) {
+  let out = text;
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const p of LEADING_POLITENESS) {
+      if (out.startsWith(`${p} `)) { out = out.slice(p.length + 1); changed = true; }
+    }
+    for (const p of TRAILING_POLITENESS) {
+      if (out.endsWith(` ${p}`)) { out = out.slice(0, -(p.length + 1)); changed = true; }
     }
   }
+  return out;
+}
 
-  // Single-word messages get typo tolerance; multi-word ones do not, because a
-  // fuzzy match across a whole sentence is where false positives come from.
-  if (core.length === 1) {
-    for (const [command, phrases] of Object.entries(CONTROL_COMMANDS)) {
-      for (const phrase of phrases) {
-        if (!phrase.includes(' ') && looksLike(core[0], phrase)) return { command, matched: phrase };
-      }
+const findPhrase = (table, candidates) => {
+  for (const [command, phrases] of Object.entries(table)) {
+    for (const phrase of phrases) {
+      if (candidates.includes(phrase)) return { command, matched: phrase };
     }
   }
   return null;
+};
+
+/**
+ * Reads a message as a global control command.
+ *
+ * @param {string} message
+ * @param {object} [opts]
+ * @param {boolean} [opts.awaitingReply]  a workflow run is waiting for this
+ *   customer's answer: only explicit multi-word phrases count, and never one
+ *   that is itself an offered option.
+ * @param {string[]} [opts.options]  the options the customer was offered
+ *   (buttons, a list, a choice question). A reply equal to one is an answer.
+ * @returns {null | { command: 'cancel'|'restart'|'done'|'goodbye'|'human'|'help',
+ *   matched: string, explicit: boolean }}
+ */
+export function detectControlCommand(message, { awaitingReply = false, options = [] } = {}) {
+  const text = normalise(message);
+  if (!text) return null;
+
+  // Tapping (or typing) one of the choices we offered is an answer, whatever
+  // it says — a button titled "Agent" or "Cancel order" included.
+  const offered = (Array.isArray(options) ? options : []).map(normalise).filter(Boolean);
+  if (offered.includes(text)) return null;
+
+  const all = words(text);
+  if (all.length <= MAX_EXPLICIT_WORDS) {
+    const explicit = findPhrase(EXPLICIT_COMMANDS, [text, stripPoliteness(text)]);
+    if (explicit) return { ...explicit, explicit: true };
+  }
+  if (awaitingReply) return null;
+
+  if (all.length > MAX_CONTROL_WORDS) return null;
+  // Strip politeness so "please cancel" and "i want to cancel" reduce to the verb.
+  const core = all.filter((w) => !FILLER.has(w));
+  if (core.length === 0) return null;
+  const contextual = findPhrase(CONTEXTUAL_COMMANDS, [text, core.join(' ')]);
+  return contextual ? { ...contextual, explicit: false } : null;
 }
 
 // Commands that should tear down whatever flow is running. `done` ends the flow
@@ -131,6 +188,9 @@ export const CONTROL_REPLIES = {
   cancel:  'No problem — cancelled. Send me a message whenever you want to start again.',
   done:    "Great — all done. I've closed this off. Message me any time if you need anything else.",
   goodbye: 'Goodbye! Thanks for getting in touch — message us any time.',
+  // STOP while a flow is open ends the flow first (the customer may only mean
+  // "stop asking me this"); a second STOP is the opt-out.
+  stop:    "Okay — I've stopped this conversation. If you don't want any more messages from us, reply STOP again.",
 };
 
 // ── General conversational intents (BUG-03) ────────────────────────────────

@@ -3,7 +3,7 @@ import { matchIntent as scoreIntent, recordMatch } from './intent.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { notifyWorkspace } from './notification.service.js';
 import { realtime } from '../lib/realtimeBus.js';
-import { planAllows } from './planFeatures.service.js';
+import { HANDOFF_REASONS } from './automationPause.service.js';
 
 // Running intent rules against a real inbound message.
 //
@@ -36,9 +36,12 @@ export async function routeByIntent({ workspaceId, conversationId, contact, waNu
     return null;
   }
 
-  // Intent matching is part of the campaignAi plan feature; a workspace that
-  // turned it on and was then downgraded no longer routes by it.
-  if (!await planAllows(workspaceId, 'campaignAi')) return null;
+  // Deliberately not behind the campaignAi plan feature (WF-IN-14). These are
+  // the workspace's own lexical rules — no model is called here — and a rule
+  // whose action is "run this workflow" is how many workspaces start their
+  // workflows; gating them turned every intent route off on Free. What does
+  // need campaignAi is the model: the LLM classifier (aiAgent.matchIntent) and
+  // the agent's answer to an 'ai' route, both gated where they run.
 
   const rules = await prisma.intentRule.findMany({ where: { workspaceId, isActive: true } });
   if (rules.length === 0) return null;
@@ -71,6 +74,7 @@ export async function routeByIntent({ workspaceId, conversationId, contact, waNu
       await escalateToHuman({
         workspaceId, conversationId, contact,
         reason: `Matched the "${rule.name}" intent`,
+        reasonCode: `${HANDOFF_REASONS.INTENT_RULE}:${String(rule.name).slice(0, 60)}`,
         team: rule.actionTarget || null,
       });
       return { handled: true, rule, confidence };
@@ -123,7 +127,11 @@ export async function routeByIntent({ workspaceId, conversationId, contact, waNu
 // time, and nothing ever read them at runtime: the agent answered every message
 // itself and there was no path from automation to a person at all.
 
-export async function escalateToHuman({ workspaceId, conversationId, contact, reason, team = null }) {
+// `reasonCode` is what the inbox shows as the reason automation is paused
+// (automationPause.service.js HANDOFF_REASONS).
+export async function escalateToHuman({
+  workspaceId, conversationId, contact, reason, reasonCode = HANDOFF_REASONS.CUSTOMER_ASKED_HUMAN, team = null,
+}) {
   // OPEN and unassigned is what the inbox filters treat as "needs a human".
   // Clearing any assignee is deliberate: a thread the AI was handling may have
   // been auto-assigned, and escalation means it is up for grabs again.
@@ -136,6 +144,7 @@ export async function escalateToHuman({ workspaceId, conversationId, contact, re
       // inbound message ran the whole chain again and the bot talked over the
       // person who had just been handed the conversation.
       humanHandoffAt: new Date(),
+      handoffReason: String(reasonCode || HANDOFF_REASONS.CUSTOMER_ASKED_HUMAN).slice(0, 120),
       ...(team ? { label: String(team).slice(0, 60) } : {}),
     },
   }).then(() => realtime.conversationUpdated(workspaceId, conversationId, 'escalated'))
@@ -164,16 +173,32 @@ const ESCALATION_PATTERNS = {
   highIntent: /\b(buy now|place (an )?order|purchase|checkout|payment link|invoice me|how do i pay)\b/i,
 };
 
-export function escalationReason(messageBody, escalationRules) {
+const ESCALATION_LABELS = {
+  asksForHuman: 'The customer asked to speak to a person',
+  refund: 'The customer raised a refund or complaint',
+  negativeSentiment: 'The message reads as strongly negative',
+  highIntent: 'The customer is ready to buy',
+};
+
+/** @returns {null | { rule: string, reason: string, reasonCode: string }} */
+export function escalationMatch(messageBody, escalationRules) {
   const rules = escalationRules && typeof escalationRules === 'object' ? escalationRules : {};
-  const labels = {
-    asksForHuman: 'The customer asked to speak to a person',
-    refund: 'The customer raised a refund or complaint',
-    negativeSentiment: 'The message reads as strongly negative',
-    highIntent: 'The customer is ready to buy',
-  };
   for (const [id, pattern] of Object.entries(ESCALATION_PATTERNS)) {
-    if (rules[id] === true && pattern.test(messageBody)) return labels[id];
+    if (rules[id] === true && pattern.test(messageBody)) {
+      return { rule: id, reason: ESCALATION_LABELS[id], reasonCode: `${HANDOFF_REASONS.ESCALATION_RULE}:${id}` };
+    }
   }
   return null;
 }
+
+export function escalationReason(messageBody, escalationRules) {
+  return escalationMatch(messageBody, escalationRules)?.reason ?? null;
+}
+
+// The escalation rules belong to the AI agent ("when the agent steps back and
+// brings in a human"). They used to apply on any workspace that had ever saved
+// the AI Agent screen — which persisted them all switched on — with no agent
+// deployed, and ahead of the keyword triggers, so "this is useless" or
+// "refund" silently paused automation on the contact (WF-IN-3). They now apply
+// only while an agent is deployed.
+export const escalationRulesApply = (workspace) => workspace?.aiAgentEnabled === true;
