@@ -48,6 +48,7 @@ import { prisma } from './lib/prisma.js';
 import { loadPlatformSettings, startPlatformSettingsRefresh } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
 import { markReady, markNotReady } from './lib/readiness.js';
+import { storage, ephemeralDiskWarning } from './lib/storage/index.js';
 
 let campaignWorker = null;
 let emailWorker = null;
@@ -249,6 +250,18 @@ async function main() {
     console.error('[Worker] RUN_WORKERS=false in a worker-only process — nothing to run, exiting.');
     process.exit(1);
   }
+
+  // File storage. A half-configured bucket is refused outright (every media
+  // write would fail later, one message at a time); local disk on Render is
+  // allowed but announced loudly, since each deploy wipes it.
+  try {
+    console.log(`[Storage] Files are stored in ${storage.describe()}`);
+  } catch (err) {
+    console.error(`[Storage] ${err.message}`);
+    if (env.NODE_ENV === 'production') process.exit(1);
+  }
+  const storageWarning = ephemeralDiskWarning(process.env);
+  if (storageWarning) console.error(storageWarning);
 
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));

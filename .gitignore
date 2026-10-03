@@ -92,3 +92,6 @@ open-chrome-profile.mjs
 /merge_prisma.py
 /val_*.js
 /cfs_*.js
+
+# Local-disk file storage (lib/storage, STORAGE_DRIVER=disk). Runtime data.
+backend/uploads/
