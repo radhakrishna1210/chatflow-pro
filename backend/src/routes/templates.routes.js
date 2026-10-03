@@ -4,10 +4,15 @@ import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { validate, templateSchemas } from '../validators/index.js';
 import { uploader, verifyFileContents, uploadRateLimit, ACCEPTS } from '../lib/uploadGuard.js';
+import { realtimeOnWrite } from '../middleware/realtimeOnWrite.js';
+import { realtime } from '../lib/realtimeBus.js';
 
 const router = Router({ mergeParams: true });
 
 router.use(authenticate, workspaceContext);
+// Other open template screens refresh after a create, edit, delete, install…
+// (media uploads and AI drafts change no template).
+router.use(realtimeOnWrite(({ workspaceId, id }) => { if (id !== 'media' && id !== 'ai') realtime.templateUpdated(workspaceId); }));
 
 // Header samples go straight to Meta, so the ceiling matches its largest
 // accepted header (100 MB for a PDF); per-format limits are enforced in

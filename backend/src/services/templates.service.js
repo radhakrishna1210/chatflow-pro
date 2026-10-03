@@ -5,6 +5,7 @@ import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.j
 import { normalizeTemplateComponents, detectTemplateType, toMetaComponents, preserveInternalFields } from '../lib/templateStructure.js';
 import { storeAsset } from './templateImage.service.js';
 import { notifyWorkspace } from './notification.service.js';
+import { realtime } from '../lib/realtimeBus.js';
 
 // Throttle map so auto-checks don't spam Meta Graph API
 // Key: `${workspaceId}:${waNumberId || 'all'}` -> timestamp of last sync
@@ -186,6 +187,7 @@ export async function syncTemplatesFromMeta(workspaceId, waNumberId) {
   // (metaTemplateId set) are eligible — locally drafted templates that have not
   // been submitted yet must survive a sync.
   const removed = await removeTemplatesMissingFromMeta(workspaceId, waNumber.id, seenMetaIds);
+  if (metaTemplates.length > 0 || removed > 0) realtime.templateUpdated(workspaceId);
 
   return { total: metaTemplates.length, created, updated, removed };
 }

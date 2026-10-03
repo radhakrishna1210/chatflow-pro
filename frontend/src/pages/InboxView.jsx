@@ -7,6 +7,7 @@ import { useIsMobile } from '../lib/useMediaQuery.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { notify, confirmDialog } from '../components/Feedback.jsx';
+import { useRealtime, useThrottledCallback } from '../lib/realtime.js';
 
 const labelCfg = {
   urgent:   { bg:'rgba(239,68,68,.08)',   bd:'rgba(239,68,68,.22)',   c:'#f87171' },
@@ -163,8 +164,14 @@ const DeliveryTick = ({ status, error }) => {
 };
 
 const PAGE_SIZE = 30;
-const LIST_POLL_MS = 10_000;
-const MSG_POLL_MS = 5_000;
+// Updates arrive pushed (lib/realtime.js). These polls run only while the
+// live stream is down, which is why they can be this slow.
+const LIST_POLL_MS = 30_000;
+const MSG_POLL_MS = 15_000;
+// At most one refetch per window however busy the workspace is — a campaign
+// sending four messages a second must not turn into four list reloads.
+const LIST_REFRESH_MS = 3_000;
+const THREAD_REFRESH_MS = 800;
 // The filter chips, as the list endpoint's `view` parameter.
 const VIEW_PARAM = { Unassigned: 'unassigned', 'AI-handled': 'ai', Mine: 'mine' };
 
@@ -288,9 +295,33 @@ export default function InboxView() {
     return `/conversations?${p}`;
   }, [query, filter]);
 
-  // First page, then a poll that refreshes it. The poll pauses while the tab
-  // is hidden and catches up the moment it is shown again — every open tab
-  // used to query the full list every five seconds regardless.
+  // Live updates. Events name what changed; the list and the open thread are
+  // refetched (throttled) rather than patched, so what shows is always what
+  // the API returns for this user. `resync` follows a reconnect, when events
+  // may have been missed.
+  const listRefreshRef = useRef(null);
+  const msgsRefreshRef = useRef(null);
+  const activeIdRef = useRef(null);
+  const refreshList = useThrottledCallback(() => listRefreshRef.current?.(), LIST_REFRESH_MS);
+  const refreshThread = useThrottledCallback(() => msgsRefreshRef.current?.(), THREAD_REFRESH_MS);
+  const { live } = useRealtime((evt) => {
+    const isActive = Boolean(evt.data?.conversationId) && evt.data.conversationId === activeIdRef.current;
+    if (evt.type === 'message.created') {
+      refreshList();
+      if (isActive) refreshThread();
+    } else if (evt.type === 'message.status') {
+      if (isActive) refreshThread();
+    } else if (evt.type === 'conversation.updated') {
+      refreshList();
+      if (isActive && evt.data?.change !== 'read') { refreshThread(); loadContext(activeIdRef.current); }
+    } else if (evt.type === 'resync') {
+      refreshList();
+      refreshThread();
+    }
+  });
+
+  // First page. Refreshed by live events; polled only while the stream is
+  // down (below), and then only while the tab is visible.
   useEffect(() => {
     let stopped = false;
     pagesLoadedRef.current = 1;
@@ -325,11 +356,17 @@ export default function InboxView() {
         .finally(() => { if (!stopped && initial) setListLoading(false); });
 
     loadFirstPage(true);
-    const tick = () => { if (document.visibilityState === 'visible') loadFirstPage(false); };
+    listRefreshRef.current = () => loadFirstPage(false);
+    return () => { stopped = true; listRefreshRef.current = null; };
+  }, [listUrl, listReload]);
+
+  useEffect(() => {
+    if (live) return undefined;
+    const tick = () => { if (document.visibilityState === 'visible') listRefreshRef.current?.(); };
     const interval = setInterval(tick, LIST_POLL_MS);
     document.addEventListener('visibilitychange', tick);
-    return () => { stopped = true; clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
-  }, [listUrl, listReload]);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
+  }, [live]);
 
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return;
@@ -352,8 +389,10 @@ export default function InboxView() {
     }
   };
 
-  // The open thread, polled the same way: only while the tab is visible.
+  // The open thread: loaded on selection, refreshed by live events, polled
+  // only while the stream is down.
   useEffect(() => {
+    activeIdRef.current = activeId;
     if (!activeId) return;
     let stopped = false;
     setMsgsError(null);
@@ -377,11 +416,17 @@ export default function InboxView() {
         })
         .catch((e) => { if (!stopped) setMsgsError(e.message || 'Could not load messages'); });
     loadMsgs();
-    const tick = () => { if (document.visibilityState === 'visible') loadMsgs(); };
+    msgsRefreshRef.current = loadMsgs;
+    return () => { stopped = true; msgsRefreshRef.current = null; };
+  }, [activeId]);
+
+  useEffect(() => {
+    if (live || !activeId) return undefined;
+    const tick = () => { if (document.visibilityState === 'visible') msgsRefreshRef.current?.(); };
     const interval = setInterval(tick, MSG_POLL_MS);
     document.addEventListener('visibilitychange', tick);
-    return () => { stopped = true; clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
-  }, [activeId]);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', tick); };
+  }, [live, activeId]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;

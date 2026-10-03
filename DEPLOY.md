@@ -271,6 +271,57 @@ release. Do them in this order.
    `ENCRYPTION_KEYS_PREVIOUS`, `EXPOSE_ERROR_DETAIL` (leave unset on servers).
 9. **Render health check path** is now `/api/v1/health/ready` (in
    `render.yaml`; update it by hand on a dashboard-created service).
+10. **Live updates (Server-Sent Events).** The inbox, campaign and template
+    screens now get pushed updates from
+    `GET /api/v1/workspaces/:id/realtime/stream` and poll only while that
+    stream is down. Nothing is required to turn it on, but check:
+    - **Redis carries the events between processes** (pub/sub channel
+      `chatflow:realtime:v1` on `REDIS_URL`). Every process that writes
+      (web, `start:worker`, and both stacks if both serve users) must share
+      one `REDIS_URL` — the same rule as §1. Each web process opens one extra
+      Redis connection when its first stream opens, and every event is one
+      `PUBLISH`. Without Redis, events reach only browsers connected to the
+      process that made the change; screens then fall back to polling
+      (inbox list 30 s, thread 15 s, campaigns 30 s, templates 30–120 s).
+    - **VPS reverse proxy** (its config is not in this repo, and
+      `deploy-vps.sh` does not touch it). The app sends `X-Accel-Buffering: no` and
+      `Cache-Control: no-cache, no-transform`, plus a heartbeat comment
+      every 25 s, which keeps nginx's default `proxy_read_timeout` of 60 s
+      from cutting the stream. It is still safer to state this explicitly,
+      inside the `chatflow.mannmate.com` server block, before the general
+      `location /`:
+      ```nginx
+      location ~ ^/api/v1/workspaces/[^/]+/realtime/stream$ {
+          proxy_pass http://127.0.0.1:4400;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_buffering off;
+          proxy_cache off;
+          gzip off;
+          proxy_read_timeout 1h;
+          access_log off;   # the one-minute stream token is in the query string
+      }
+      ```
+      Then `nginx -t && systemctl reload nginx`. Serve the site over HTTP/2
+      (`listen 443 ssl http2;`); over HTTP/1.1 each open stream takes one of
+      the browser's six connections per host. Another proxy (Caddy, Apache)
+      needs the same: no response buffering, no compression on this path, a
+      read timeout above 25 s. Render needs nothing.
+    - **Optional variables** (`backend/.env.example`):
+      `REALTIME_ENABLED=false` turns the stream off everywhere (screens poll,
+      the token route answers 503); `REALTIME_MAX_STREAMS_PER_USER`
+      (default 5, per web process — a sixth closes that user's oldest);
+      `REALTIME_HEARTBEAT_MS` (default 25000; keep it below every proxy's
+      idle timeout).
+    - **Deploys and restarts** close every stream with a `reconnect` event;
+      browsers come back within about a second with a fresh token and
+      refetch what they show. A stream also ends after 15 minutes, which is
+      what bounds how long a removed member or revoked session keeps
+      receiving events. Events carry ids and statuses only, never message
+      text or phone numbers.
 
 ### User-visible permission changes
 

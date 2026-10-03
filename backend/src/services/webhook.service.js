@@ -17,6 +17,7 @@ import { parseInboundMessage, carriesCustomerText } from './inboundMessage.js';
 import { emitWebhook } from './outgoingWebhook.service.js';
 import { routeByIntent, escalateToHuman, escalationReason } from './intentRouting.service.js';
 import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPLIES } from './conversationControl.service.js';
+import { realtime } from '../lib/realtimeBus.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
 
@@ -112,6 +113,11 @@ async function handleTemplateStatusUpdate(wabaId, value) {
     data: { status: newStatus },
   });
   console.log(`[Template] Updated ${result.count} row(s) to ${newStatus}.`);
+  if (result.count > 0) {
+    prisma.template.findMany({ where, select: { id: true, workspaceId: true } })
+      .then((rows) => rows.forEach((t) => realtime.templateUpdated(t.workspaceId, t.id, { status: newStatus })))
+      .catch(() => {});
+  }
 
   if (result.count > 0 && templateName) {
     const affectedTemplates = await prisma.template.findMany({ where, select: { workspaceId: true, name: true } });
@@ -194,6 +200,7 @@ async function handleTemplateCategoryUpdate(wabaId, value) {
     },
   });
   console.log(`[Template] Re-categorised ${affected.length} row(s): ${previous || affected[0].category} -> ${next}`);
+  affected.forEach((t) => realtime.templateUpdated(t.workspaceId, t.id));
 
   const before = CATEGORY_RATES[previous || affected[0].category] ?? null;
   const after = CATEGORY_RATES[next];
@@ -455,6 +462,7 @@ async function handleInboundMessage(value, msg) {
     },
   });
   if (actionable) conversation.status = 'OPEN';
+  realtime.messageCreated(workspaceId, conversation.id, { direction: 'INBOUND' });
 
   // Immediately exit active sequence cadences with exitOnReply enabled
   if (!systemEvent) await prisma.sequenceEnrollment.updateMany({
@@ -990,7 +998,7 @@ async function handleStatusUpdate(status) {
     where: { metaMessageId },
     // The conversation carries the workspace — Message itself does not, and the
     // outgoing webhook has to be addressed to a workspace.
-    select: { id: true, campaignRecipientId: true, status: true, conversation: { select: { workspaceId: true } } },
+    select: { id: true, conversationId: true, campaignRecipientId: true, status: true, conversation: { select: { workspaceId: true } } },
   });
   if (!message) return;
 
@@ -1025,6 +1033,7 @@ async function handleStatusUpdate(status) {
     },
   });
 
+  if (transitioned > 0) realtime.messageStatus(message.conversation.workspaceId, message.conversationId, { messageId: message.id, status: mapped });
   emitWebhook(message.conversation.workspaceId, 'message.status', {
     messageId: metaMessageId,
     status: mapped,
@@ -1090,4 +1099,5 @@ async function handleStatusUpdate(status) {
       await handleRecipientFailure(campaign, { ...recipient, contact }, reason, code);
     }
   }
+  realtime.campaignUpdated(message.conversation.workspaceId, recipient.campaignId);
 }

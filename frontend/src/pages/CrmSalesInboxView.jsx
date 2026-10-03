@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { notify } from '../components/Feedback.jsx';
+import { useRealtime, useThrottledCallback } from '../lib/realtime.js';
 
 const CATEGORY_COLORS = {
   HOT: { bg: 'rgba(239, 68, 68, 0.12)', bd: 'rgba(239, 68, 68, 0.3)', c: '#f87171', label: 'HOT 🔥' },
@@ -317,7 +318,18 @@ export default function CrmSalesInboxView() {
     }
   }, [messages.length, selectedLeadId]);
 
-  // Periodic polling for active conversation messages & window state
+  // The open conversation's messages & window state: refreshed by live events
+  // (lib/realtime.js), polled only while the stream is down and the tab is
+  // visible.
+  const pollRef = useRef(null);
+  const conversationIdRef = useRef(null);
+  conversationIdRef.current = conversation?.id ?? null;
+  const refreshThread = useThrottledCallback(() => pollRef.current?.(), 800);
+  const { live } = useRealtime((evt) => {
+    if (evt.type === 'resync') refreshThread();
+    else if (evt.data?.conversationId && evt.data.conversationId === conversationIdRef.current
+      && (evt.type === 'message.created' || evt.type === 'message.status')) refreshThread();
+  });
   useEffect(() => {
     if (!conversation?.id || activeTab !== 'individual') return;
     let stopped = false;
@@ -337,9 +349,12 @@ export default function CrmSalesInboxView() {
         // silent background poll
       }
     };
-    const interval = setInterval(pollMessages, 4000);
-    return () => { stopped = true; clearInterval(interval); };
-  }, [conversation?.id, activeTab]);
+    pollRef.current = pollMessages;
+    if (live) return () => { stopped = true; pollRef.current = null; };
+    const tick = () => { if (document.visibilityState === 'visible') pollMessages(); };
+    const interval = setInterval(tick, 15000);
+    return () => { stopped = true; pollRef.current = null; clearInterval(interval); };
+  }, [conversation?.id, activeTab, live]);
 
   // 4. Fetch Segment Audience Review
   const fetchAudience = useCallback(async () => {

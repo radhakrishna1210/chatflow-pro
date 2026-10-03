@@ -16,6 +16,7 @@ import { claimRecipientCharge, markRecipientNotCharged, recordAttempt } from '..
 import { isOptedOut } from '../services/optout.service.js';
 import { notifyWorkspace } from '../services/notification.service.js';
 import { sendAuthenticationOtp } from '../authentication/authentication.service.js';
+import { realtime } from '../lib/realtimeBus.js';
 // Meta Cloud API Tier-1 numbers are limited to ~250 msgs/min. The old 60ms
 // delay (~1000/min) triggered rate-limit errors (code 131042). 250ms ≈ 240/min.
 const RATE_DELAY_MS = Math.max(env.CAMPAIGN_RATE_DELAY_MS, 250);
@@ -245,6 +246,7 @@ async function persistOutboundMessage(campaign, recipient, metaMessageId, body) 
       sentAt: new Date(),
     },
   });
+  realtime.messageCreated(campaign.workspaceId, convo.id, { direction: 'OUTBOUND' });
 }
 
 async function processRetryJob(job) {
@@ -477,6 +479,7 @@ async function failCampaign(campaignId, message) {
 
   const failed = await prisma.campaign.findUnique({ where: { id: campaignId } }).catch(() => null);
   if (!failed) return;
+  realtime.campaignUpdated(failed.workspaceId, failed.id, { status: 'FAILED' });
   await settleCampaignRefund(failed.id, 'Refund for failed campaign').catch((e) =>
     console.error(`[Campaign] Settlement failed for ${failed.id}:`, e.message));
 
@@ -617,6 +620,7 @@ export async function processCampaign(job) {
       processed += 1;
 
       const attempted = await sendClaimedRecipient(campaign, recipient, { phoneNumberId, accessToken, memo });
+      realtime.campaignUpdated(workspaceId, campaignId); // coalesced: about once a second
       if (attempted) await sleep(RATE_DELAY_MS);
     }
   }
@@ -652,6 +656,11 @@ export function startCampaignWorker() {
 
   worker.on('error', (err) => logRedisError('campaign-worker', err));
   worker.on('completed', (job) => console.log(`[CampaignWorker] Job ${job.id} completed`));
+  // Every way a job can move a campaign — started, finished, failed, a retry
+  // settled — ends in one of these, so open campaign screens hear about it.
+  for (const evt of ['active', 'completed', 'failed']) {
+    worker.on(evt, (job) => { if (job?.data?.workspaceId) realtime.campaignUpdated(job.data.workspaceId, job.data.campaignId); });
+  }
   worker.on('failed', async (job, err) => {
     console.error(`[CampaignWorker] Job ${job?.id} failed:`, err.message);
     // Only flag FAILED after the final attempt of a main send job. A retry
