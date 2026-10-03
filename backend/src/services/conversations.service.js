@@ -10,6 +10,7 @@ import { countVariables, buildTextComponents, buildButtonComponents, contactVari
 import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
 import { assertWorkspaceMember } from './crmReferences.js';
+import { realtime } from '../lib/realtimeBus.js';
 
 // Keyset cursor over (lastMessageAt desc, id desc), opaque to the client. A
 // page/skip offset shifts under the inbox's feet as new messages reorder it.
@@ -186,6 +187,7 @@ export async function getOrCreateConversation(workspaceId, { contactId, waNumber
       waNumber: true,
     },
   });
+  realtime.conversationUpdated(workspaceId, conversation.id, 'created');
 
   return conversation;
 }
@@ -197,6 +199,8 @@ export async function getMessages(workspaceId, conversationId) {
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
 
   await prisma.conversation.update({ where: { id: conversationId }, data: { unreadCount: 0 } });
+  // Only when it changed: an open thread refetches on this, and must not loop.
+  if (conversation.unreadCount > 0) realtime.conversationUpdated(workspaceId, conversationId, 'read');
 
   const messages = await prisma.message.findMany({
     where: { conversationId },
@@ -338,6 +342,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
       ...(userId ? { humanHandoffAt: new Date() } : {}),
     },
   });
+  realtime.messageCreated(workspaceId, conversationId, { messageId: message.id, direction: 'OUTBOUND' });
 
   return message;
 }
@@ -436,6 +441,7 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
       ...(userId ? { humanHandoffAt: new Date() } : {}),
     },
   });
+  realtime.messageCreated(workspaceId, conversationId, { messageId: message.id, direction: 'OUTBOUND' });
 
   return message;
 }
@@ -542,6 +548,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     where: { id: conversationId },
     data: { lastMessageAt: new Date() },
   });
+  realtime.messageCreated(workspaceId, conversationId, { messageId: message.id, direction: 'OUTBOUND' });
 
   // Deliberately does NOT touch lastInboundAt. A template does not reopen the
   // free-form window — only the customer replying does. Setting it here would
@@ -755,11 +762,13 @@ export async function assignConversation(workspaceId, conversationId, assignedTo
   const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
   if (assignedToUserId) await assertWorkspaceMember(workspaceId, assignedToUserId, 'Assignee');
-  return prisma.conversation.update({
+  const updated = await prisma.conversation.update({
     where: { id: conversationId },
     data: { assignedToUserId: assignedToUserId || null },
     include: { assignedTo: { select: { id: true, name: true } } },
   });
+  realtime.conversationUpdated(workspaceId, conversationId, 'assigned');
+  return updated;
 }
 
 // OPEN | PENDING | RESOLVED | CLOSED, as the schema's ConversationStatus enum
@@ -774,7 +783,7 @@ export async function setConversationStatus(workspaceId, conversationId, status)
   }
   const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
-  return prisma.conversation.update({
+  const updated = await prisma.conversation.update({
     where: { id: conversationId },
     data: {
       status: next,
@@ -783,6 +792,8 @@ export async function setConversationStatus(workspaceId, conversationId, status)
       ...(next === 'RESOLVED' ? { humanHandoffAt: null } : {}),
     },
   });
+  realtime.conversationUpdated(workspaceId, conversationId, 'status');
+  return updated;
 }
 
 // Hands a conversation back to the automation, or takes it away from it.
@@ -800,6 +811,7 @@ export async function setBotEnabled(workspaceId, conversationId, enabled) {
     where: { id: conversationId },
     data: { humanHandoffAt: enabled ? null : new Date() },
   });
+  realtime.conversationUpdated(workspaceId, conversationId, 'bot');
   return {
     botEnabled: updated.humanHandoffAt === null,
     humanHandoffAt: updated.humanHandoffAt,

@@ -151,7 +151,10 @@ test('every workspace-scoped router runs authenticate + workspaceContext before 
     const rel = imports.get(name);
     assert.ok(rel, `no import for ${name}`);
     const src = fs.readFileSync(path.resolve(routesDir, rel), 'utf8');
-    const guard = src.search(/^router\.use\(\s*authenticate\s*,\s*workspaceContext\b/m);
+    // authenticateSessionOrStream (realtime.routes.js) is authenticate() for
+    // every path but the event stream, which EventSource opens with a stream
+    // token instead of a header (services/realtime.service.js).
+    const guard = src.search(/^router\.use\(\s*(authenticate|authenticateSessionOrStream)\s*,\s*workspaceContext\b/m);
     const firstRoute = src.search(/^router\.(get|post|put|patch|delete|all)\(/m);
     if (guard === -1 || (firstRoute !== -1 && firstRoute < guard)) unguarded.push(`${prefix} (${rel})`);
   }

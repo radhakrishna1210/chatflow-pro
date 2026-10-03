@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { isAccessTokenRevoked } from '../lib/tokenDenylist.js';
+import { authenticate } from '../middleware/authenticate.js';
 import { subscribeRealtime } from '../lib/realtimeBus.js';
 import { roleAtLeast } from '../middleware/roleCapabilities.js';
 
@@ -83,6 +84,13 @@ export async function authenticateStreamToken(req, res, next) {
     exp: payload.exp ?? null,
   };
   next();
+}
+
+// The guard for the realtime router: the stream path takes a stream token and
+// nothing else; every other path takes the ordinary Bearer session.
+export function authenticateSessionOrStream(req, res, next) {
+  if (req.method === 'GET' && req.path === '/stream') return authenticateStreamToken(req, res, next);
+  return authenticate(req, res, next);
 }
 
 // Who may hear what. Every screen these events refresh is readable by every

@@ -315,3 +315,34 @@ test('a failed status on a SENT message is recorded and handed to retry handling
   assert.equal(db.messages.find((m) => m.id === 'msg_out').status, 'FAILED');
   assert.equal(failures.length, 1);
 });
+
+// ── Live updates ────────────────────────────────────────────────────────────
+
+const { subscribeRealtime } = await import('../lib/realtimeBus.js');
+
+test('an inbound message and a delivery receipt are pushed to the workspace\'s open screens', async () => {
+  const events = [];
+  const off = subscribeRealtime((e) => events.push(e));
+  try {
+    seedCampaign();
+    db.conversations.push({ id: 'conv_1', workspaceId: 'ws_A', contactId: 'ct_1', waNumberId: 'wa_A', status: 'OPEN', humanHandoffAt: null, unreadCount: 0 });
+    await processWebhook(inbound({ type: 'text', text: { body: 'hello' } }));
+    await processWebhook(statusEvent('wamid.campaign.1', 'delivered'));
+    // A redelivered receipt changes nothing, so it announces nothing.
+    await processWebhook(statusEvent('wamid.campaign.1', 'delivered'));
+  } finally {
+    off();
+  }
+
+  const created = events.filter((e) => e.type === 'message.created' && e.data.direction === 'INBOUND');
+  assert.equal(created.length, 1);
+  assert.equal(created[0].ws, 'ws_A');
+  assert.equal(created[0].data.conversationId, 'conv_1');
+
+  const statuses = events.filter((e) => e.type === 'message.status');
+  assert.equal(statuses.length, 1);
+  assert.equal(statuses[0].ws, 'ws_A');
+  assert.deepEqual({ messageId: statuses[0].data.messageId, status: statuses[0].data.status }, { messageId: 'msg_out', status: 'DELIVERED' });
+  // Ids and statuses only — never the message text.
+  assert.doesNotMatch(JSON.stringify(events), /hello/);
+});

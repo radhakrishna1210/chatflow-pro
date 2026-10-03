@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { keywordMatches } from './automation.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
+import { realtime } from '../lib/realtimeBus.js';
 import { evaluateCondition, skipCount, renderTemplate, tidy, CONDITION_SUBTYPES } from './workflowConditions.js';
 import { INTERACTIVE_LIMITS } from '../lib/meta.js';
 // One limit for the save-time validator and the runtime.
@@ -370,6 +371,7 @@ async function actionAgent(run, node) {
       humanHandoffAt: new Date(),
     },
   });
+  realtime.conversationUpdated(run.workspaceId, run.conversationId, 'assigned');
 
   const exact = matched ? '' : ` (no member matched "${node.value}", used ${assignee.user.name})`;
   return { result: 'ok', detail: `Assigned to ${assignee.user.name}${exact}` };

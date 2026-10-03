@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { matchIntent as scoreIntent, recordMatch } from './intent.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { notifyWorkspace } from './notification.service.js';
+import { realtime } from '../lib/realtimeBus.js';
 
 // Running intent rules against a real inbound message.
 //
@@ -132,7 +133,8 @@ export async function escalateToHuman({ workspaceId, conversationId, contact, re
       humanHandoffAt: new Date(),
       ...(team ? { label: String(team).slice(0, 60) } : {}),
     },
-  }).catch((err) => console.error('[Escalation] Could not flag the conversation:', err.message));
+  }).then(() => realtime.conversationUpdated(workspaceId, conversationId, 'escalated'))
+    .catch((err) => console.error('[Escalation] Could not flag the conversation:', err.message));
 
   await notifyWorkspace(workspaceId, {
     type: 'HANDOFF_REQUESTED',

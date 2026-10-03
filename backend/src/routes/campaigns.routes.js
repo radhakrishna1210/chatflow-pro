@@ -4,10 +4,14 @@ import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate, campaignSchemas } from '../validators/index.js';
+import { realtimeOnWrite } from '../middleware/realtimeOnWrite.js';
+import { realtime } from '../lib/realtimeBus.js';
 
 const router = Router({ mergeParams: true });
 
 router.use(authenticate, workspaceContext);
+// Other open campaign screens refresh after a create, edit, launch, pause, cancel…
+router.use(realtimeOnWrite(({ workspaceId, id }) => { if (id !== 'estimate') realtime.campaignUpdated(workspaceId, id); }));
 
 // Building and sending campaigns is core workspace work, not administration:
 // a member who can add contacts can also campaign to them. Admin-only

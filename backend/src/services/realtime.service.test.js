@@ -285,6 +285,8 @@ test('over HTTP: token, stream, membership check, and a published event arriving
   assert.equal(tokenRes.headers.get('cache-control'), 'no-store');
   const { token } = await tokenRes.json();
 
+  // A stream token opens the stream and nothing else — not even a new token.
+  assert.equal((await fetch(`${base}/wsA/realtime/token?token=${encodeURIComponent(token)}`)).status, 401);
   // The token is bound to wsA.
   assert.equal((await fetch(`${base}/wsB/realtime/stream?token=${encodeURIComponent(token)}`)).status, 403);
 
