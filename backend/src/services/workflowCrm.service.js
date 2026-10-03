@@ -94,22 +94,25 @@ async function actionLeadStatus(run, node) {
     return { result: 'skipped', detail: `"${node.value}" is not a settable lead status` };
   }
 
-  const lead = await prisma.lead.findFirst({ where: { id: run.leadId, workspaceId: run.workspaceId }, select: { status: true, customFields: true } });
-  if (!lead) return { result: 'skipped', detail: 'Lead no longer exists' };
-  if ((lead.customFields?.statusKey || lead.status) === status) return { result: 'ok', detail: `Already ${status}` };
-
-  // Same lifecycle rules as a status set in the CRM: a stage the workspace
-  // has removed from its lead lifecycle is not written, and a built-in status
-  // clears a custom stage key that would otherwise keep overriding it.
-  const { loadLeadIntakeRules, leadStatusWrite } = await import('./leadIntake.service.js');
-  let write;
+  // Same lifecycle rules as a status set in the CRM (a stage the workspace has
+  // removed is not written; a built-in status clears a custom stage key), and
+  // the change raises lead_status_changed like any other status write — one
+  // level deeper than the event that started this run, so workflows that set
+  // each other's statuses stop at MAX_CHAIN_DEPTH instead of looping.
+  const { applyLeadStatus, currentChainDepth } = await import('./crmEvents.service.js');
+  const depth = currentChainDepth() ?? Number(run.chainDepth ?? 0);
+  let outcome;
   try {
-    write = leadStatusWrite(await loadLeadIntakeRules(run.workspaceId), status, lead.customFields, { strict: true });
+    outcome = await applyLeadStatus(run.workspaceId, run.leadId, status, { depth });
   } catch (err) {
     if (err.status !== 400) throw err;
     return { result: 'skipped', detail: err.message };
   }
-  await prisma.lead.update({ where: { id: run.leadId }, data: write.data });
+  if (!outcome.changed) {
+    return outcome.already
+      ? { result: 'ok', detail: `Already ${status}` }
+      : { result: 'skipped', detail: outcome.reason };
+  }
   return { result: 'ok', detail: `Lead status set to ${status}` };
 }
 

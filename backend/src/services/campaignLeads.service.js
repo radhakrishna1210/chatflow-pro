@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
-import { emitCrmEvent } from './workflowCrm.service.js';
+import { emitCrmEvent } from './crmEvents.service.js';
 import { loadLeadIntakeRules, prepareLeadIntake } from './leadIntake.service.js';
 
 

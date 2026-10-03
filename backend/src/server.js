@@ -43,6 +43,7 @@ import { closeRealtimeStreams } from './services/realtime.service.js';
 import { closeRealtimeBus } from './lib/realtimeBus.js';
 import { emailQueue } from './queues/email.queue.js';
 import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
+import { startScheduleWatchdog, stopScheduleWatchdog } from './queues/scheduleWatchdog.js';
 import { workflowQueue } from './queues/workflow.queue.js';
 import { sequenceQueue } from './queues/sequence.queue.js';
 import { webhookQueue } from './queues/webhook.queue.js';
@@ -453,6 +454,18 @@ async function main() {
     } catch (err) {
       console.error('[Billing] Failed to schedule the daily cycle-reset job:', err.message);
     }
+
+    // The schedules above live only in Redis. If Redis loses its data while
+    // this process runs, the watchdog re-adds them within minutes and
+    // re-queues campaign work from the database, instead of every recovery
+    // sweep staying gone until the next deploy.
+    startScheduleWatchdog({
+      onRestore: async () => {
+        const recovered = await recoverScheduledCampaigns();
+        const retries = await recoverPendingRetries();
+        if (recovered || retries) console.log(`[Recovery] After a Redis wipe: re-queued ${recovered} scheduled campaign(s), ${retries} pending retry job(s)`);
+      },
+    });
   }
 
   // A production web process that queues webhooks needs a worker somewhere to
@@ -507,6 +520,7 @@ async function shutdown(signal) {
   console.log(`[Server] ${signal} received — shutting down gracefully`);
   markNotReady();
   stopCampaignSends();
+  stopScheduleWatchdog();
   const timeout = setTimeout(() => {
     console.error('[Server] Shutdown timed out — forcing exit');
     process.exit(1);

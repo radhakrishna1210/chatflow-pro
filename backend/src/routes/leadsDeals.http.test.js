@@ -25,6 +25,14 @@ test.before(async () => {
   mock.module('../services/workflowCrm.service.js', {
     namedExports: { emitCrmEvent: (_ws, event, payload) => events.push({ event, payload }) },
   });
+  mock.module('../services/crmEvents.service.js', {
+    namedExports: {
+      emitCrmEvent: (_ws, event, payload) => events.push({ event, payload }),
+      emitCrmEvents: (_ws, event, payloads) => payloads.forEach((payload) => events.push({ event, payload })),
+      applyLeadStatus: async () => ({ changed: false }),
+      currentChainDepth: () => undefined,
+    },
+  });
   mock.module('../services/dealHealth.service.js', {
     namedExports: { computeDealHealth: async () => null, computeWorkspaceDealHealth: async () => new Map() },
   });
@@ -55,7 +63,9 @@ test('converting creates the deal and its first history row and marks the lead c
   assert.equal(lead.convertedDealId, deal.id);
   assert.ok(lead.convertedAt instanceof Date);
   assert.deepEqual(store.rows('dealStageHistory').map((h) => [h.fromStage, h.toStage]), [[null, 'QUALIFICATION']]);
-  assert.deepEqual(events.map((e) => e.event), ['lead_status_changed']);
+  // The new deal entering its first stage is a stage change for workflows too.
+  assert.deepEqual(events.map((e) => e.event), ['lead_status_changed', 'deal_stage_changed']);
+  assert.deepEqual(events[1].payload, { dealId: deal.id, leadId: 'L', contactId: 'C', stage: 'QUALIFICATION', previousStage: null });
 });
 
 test('two concurrent converts create exactly one deal; the loser gets 409', async () => {
@@ -64,7 +74,7 @@ test('two concurrent converts create exactly one deal; the loser gets 409', asyn
   assert.equal(store.rows('deal').length, 1);
   assert.equal(store.rows('lead')[0].convertedDealId, store.rows('deal')[0].id);
   assert.equal(store.rows('dealStageHistory').length, 1);
-  assert.equal(events.length, 1, 'only the winner tells workflows');
+  assert.equal(events.length, 2, 'only the winner tells workflows (its status change and the deal\'s first stage)');
 });
 
 test('converting an already-converted lead is refused with 409', async () => {

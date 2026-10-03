@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { forEachChunk } from '../lib/paging.js';
 import { computeLeadScore } from './leadScoring.service.js';
-import { emitCrmEvent } from './workflowCrm.service.js';
+import { emitCrmEvent } from './crmEvents.service.js';
 
 const DAY_MS = 86_400_000;
 
@@ -139,9 +139,19 @@ export function evaluateLeadCategory(signals) {
 }
 
 /**
- * Computes and persists lead category for a specific lead in a workspace.
+ * Computes and persists lead score and category for a specific lead.
+ *
+ * This is the one place a lead's score is rewritten, so it is also the one
+ * place lead_score_changed is raised (with the previous score, so a
+ * score_above trigger fires on the crossing). Callers used to compare the
+ * score before and after themselves, which missed every rescore that went
+ * through here first: the inbound reply path rescored silently, and the
+ * debounced rescore a minute later saw no change.
+ *
+ * `emitEvents: false` writes without telling workflows — for an import
+ * follow-up, whose leads start at score 0 and must not each fire score_above.
  */
-export async function computeLeadCategory(workspaceId, leadId) {
+export async function computeLeadCategory(workspaceId, leadId, { emitEvents = true } = {}) {
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, workspaceId },
     include: {
@@ -188,7 +198,7 @@ export async function computeLeadCategory(workspaceId, leadId) {
     inboundMessageCount: inboundCount,
     daysSinceLastInbound,
     hasOpenConversation: Boolean(openConversation),
-    optedOut: lead.contact.optedOut,
+    optedOut: Boolean(lead.contact?.optedOut),
   });
 
   // Persist updated score & category
@@ -208,7 +218,16 @@ export async function computeLeadCategory(workspaceId, leadId) {
     },
   });
 
-  if (lead.category !== category) {
+  if (emitEvents && lead.score !== score) {
+    emitCrmEvent(workspaceId, 'lead_score_changed', {
+      leadId,
+      contactId: lead.contactId,
+      score,
+      previousScore: lead.score,
+    });
+  }
+
+  if (emitEvents && lead.category !== category) {
     emitCrmEvent(workspaceId, 'lead_category_changed', {
       leadId,
       contactId: lead.contactId,

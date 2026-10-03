@@ -41,6 +41,7 @@ let quotes;
 test.before(async () => {
   mock.module('../lib/prisma.js', { namedExports: { prisma: fakePrisma } });
   mock.module('./workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
+  mock.module('./crmEvents.service.js', { namedExports: { emitCrmEvent: () => {}, emitCrmEvents: () => {}, applyLeadStatus: async () => ({ changed: false }), currentChainDepth: () => undefined } });
   mock.module('./leadSegmentation.service.js', {
     namedExports: {
       computeLeadCategory: async (_ws, leadId) => {

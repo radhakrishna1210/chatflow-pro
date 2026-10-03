@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { validateSteps } from './sequenceEngine.service.js';
+import { validateSteps, isInstagramOnlyContact } from './sequenceEngine.service.js';
 import { getOptedOutPhoneSet, normalizePhone } from './optout.service.js';
 import { scopeFilter, withScope } from './recordScope.service.js';
 
@@ -70,8 +70,41 @@ export async function getSequence(workspaceId, id, user = null) {
   return { ...sequence, enrollments };
 }
 
+// Template steps name a template by id; it must belong to this workspace and
+// not be deleted. Publishing is the point where the sequence starts contacting
+// people, so it also requires every template to be approved by Meta — a step
+// that can only fail is refused up front, naming it, rather than discovered
+// one enrollment at a time.
+export async function assertTemplateSteps(workspaceId, steps, { requireApproved = false } = {}) {
+  const wanted = steps
+    .map((step, i) => ({ step, at: i + 1 }))
+    .filter(({ step }) => step.kind === 'TEMPLATE');
+  if (wanted.length === 0) return steps;
+  const ids = [...new Set(wanted.map(({ step }) => step.templateId))];
+  const templates = await prisma.template.findMany({
+    where: { workspaceId, id: { in: ids }, status: { not: 'DELETED' } },
+    select: { id: true, name: true, status: true },
+  });
+  const byId = new Map(templates.map((t) => [t.id, t]));
+  for (const { step, at } of wanted) {
+    const template = byId.get(step.templateId);
+    if (!template) {
+      const e = new Error(`Step ${at}: the template no longer exists in this workspace`); e.status = 400; throw e;
+    }
+    if (requireApproved && template.status !== 'APPROVED') {
+      const e = new Error(`Step ${at}: "${template.name}" is ${String(template.status).toLowerCase()} — only a template Meta has approved can be sent`);
+      e.status = 400; throw e;
+    }
+  }
+  // The name travels with the step, so the builder and the history can show
+  // it without another lookup.
+  return steps.map((step) => (step.kind === 'TEMPLATE' && byId.has(step.templateId)
+    ? { ...step, templateName: byId.get(step.templateId).name }
+    : step));
+}
+
 export async function createSequence(workspaceId, body, userId) {
-  const steps = validateSteps(body.steps);
+  const steps = await assertTemplateSteps(workspaceId, validateSteps(body.steps));
   return prisma.sequence.create({
     data: {
       workspaceId,
@@ -94,7 +127,9 @@ export async function updateSequence(workspaceId, id, updates) {
   if (updates.steps !== undefined) {
     // Editing steps is allowed at any time, but only affects future
     // enrolments: existing ones carry their own snapshot.
-    data.steps = validateSteps(updates.steps);
+    data.steps = await assertTemplateSteps(workspaceId, validateSteps(updates.steps), {
+      requireApproved: sequence.status === 'PUBLISHED',
+    });
   }
 
   return prisma.sequence.update({ where: { id }, data, include: SEQUENCE_INCLUDE });
@@ -118,7 +153,9 @@ export async function changeSequenceStatus(workspaceId, id, status) {
 
   // Publishing re-validates: a draft may have been saved with placeholder
   // steps, and publishing is the point where it starts contacting people.
-  if (status === 'PUBLISHED') validateSteps(sequence.steps);
+  if (status === 'PUBLISHED') {
+    await assertTemplateSteps(workspaceId, validateSteps(sequence.steps), { requireApproved: true });
+  }
 
   return prisma.sequence.update({ where: { id }, data: { status }, include: SEQUENCE_INCLUDE });
 }
@@ -227,6 +264,8 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
     if (alreadyIn.has(contact.id)) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Already in this sequence' }); continue; }
     if (contact.optedOut) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Opted out' }); continue; }
     if (blockedNumbers.has(normalizePhone(contact.phoneNumber))) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Number is blocked' }); continue; }
+    // Sequences send on WhatsApp; an Instagram-only contact has no number.
+    if (isInstagramOnlyContact(contact)) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Instagram-only contact — sequences send on WhatsApp' }); continue; }
 
     toCreate.push({
       workspaceId,

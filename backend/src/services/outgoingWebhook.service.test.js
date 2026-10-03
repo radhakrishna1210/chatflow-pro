@@ -124,5 +124,55 @@ test('a saved category selection matches the events it stands for', async () => 
   workspace.webhookEvents = ['messages', 'deliveries'];
   assert.equal((await svc.dispatchWebhook('ws_1', 'message.received', {})).queued, true);
   assert.equal((await svc.dispatchWebhook('ws_1', 'message.status', {})).queued, true);
-  assert.equal((await svc.dispatchWebhook('ws_1', 'campaign.completed', {})).queued, false);
+});
+
+// WF-EV-7: the categories (messages, reactions, deliveries, reads, referrals)
+// only describe message traffic. Choosing some used to turn off every other
+// event too, which no category can select back.
+test('a category selection filters message traffic only; other events still arrive', async () => {
+  reset();
+  workspace.webhookEvents = ['messages'];
+  assert.equal((await svc.dispatchWebhook('ws_1', 'message.received', {})).queued, true);
+  assert.equal((await svc.dispatchWebhook('ws_1', 'message.status', {})).queued, false, 'deliveries/reads were not selected');
+  for (const event of ['campaign.completed', 'template.status', 'contact.created', 'optout.created', 'custom.event']) {
+    assert.equal((await svc.dispatchWebhook('ws_1', event, {})).queued, true, event);
+  }
+});
+
+test('a selection naming events explicitly is honoured exactly', () => {
+  const ws = { webhookUrl: 'https://hooks.example.com/x' };
+  assert.equal(svc.wantsEvent({ ...ws, webhookEvents: ['contact.created'] }, 'contact.created'), true);
+  assert.equal(svc.wantsEvent({ ...ws, webhookEvents: ['contact.created'] }, 'campaign.completed'), false);
+  assert.equal(svc.wantsEvent({ ...ws, webhookEvents: ['contact.created', 'messages'] }, 'message.received'), true);
+  assert.equal(svc.wantsEvent({ ...ws, webhookEvents: [] }, 'optout.created'), true);
+  assert.equal(svc.wantsEvent({ webhookUrl: '', webhookEvents: null }, 'contact.created'), false);
+});
+
+// WF-EV-7: contact.created was offered but never raised.
+test('contact.created carries the new contact and where it came from', async () => {
+  reset();
+  svc.emitContactCreated('ws_1', { id: 'c1', name: 'Asha', phoneNumber: '+919800000000', email: null, tags: ['vip'], createdAt: new Date('2026-10-03T10:00:00Z') }, { source: 'manual' });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].name, 'contact.created');
+  const body = JSON.parse(queued[0].data.body);
+  assert.deepEqual(body.data, { id: 'c1', name: 'Asha', phoneNumber: '+919800000000', email: null, tags: ['vip'], createdAt: '2026-10-03T10:00:00.000Z', source: 'manual' });
+});
+
+test('a bulk contact.created reads the workspace once and queues one event per contact', async () => {
+  reset();
+  let reads = 0;
+  const real = prisma.workspace.findUnique;
+  prisma.workspace.findUnique = async () => { reads += 1; return workspace; };
+  try {
+    const out = await svc.dispatchWebhooks('ws_1', 'contact.created', [{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+    assert.equal(out.queued, 3);
+    assert.equal(reads, 1);
+    assert.equal(new Set(queued.map((q) => q.opts.jobId)).size, 3, 'each has its own delivery id');
+  } finally {
+    prisma.workspace.findUnique = real;
+  }
+  reset();
+  workspace.webhookUrl = '';
+  assert.equal((await svc.dispatchWebhooks('ws_1', 'contact.created', [{ id: 'a' }])).queued, 0);
 });

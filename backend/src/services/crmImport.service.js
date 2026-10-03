@@ -260,11 +260,19 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
     if (missing.length) {
       // skipDuplicates: a contact created concurrently (inbound message, form)
       // is simply picked up by the re-read below.
-      const created = await prisma.contact.createMany({
+      const created = await prisma.contact.createManyAndReturn({
         data: missing.map((r) => ({ workspaceId, name: r.name, phoneNumber: r.phoneNumber, email: r.email, tags: r.tags })),
         skipDuplicates: true,
+        select: { id: true, name: true, phoneNumber: true, email: true, tags: true, createdAt: true },
       });
-      contactsCreated += created.count;
+      contactsCreated += created.length;
+      // contact.created for the rows this import inserted (not the ones a
+      // concurrent inbound message created first).
+      if (created.length) {
+        import('./outgoingWebhook.service.js')
+          .then((m) => m.emitContactsCreated(workspaceId, created, { source: 'lead_import' }))
+          .catch((err) => console.warn('[Webhook:out] contact.created not sent:', err.message));
+      }
       const fresh = await prisma.contact.findMany({
         where: { workspaceId, phoneNumber: { in: missing.map((r) => r.phoneNumber) } },
         select: { id: true, phoneNumber: true },

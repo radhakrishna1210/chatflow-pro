@@ -43,6 +43,7 @@ test.before(async () => {
   });
   mock.module('./recordScope.service.js', { namedExports: unscopedRecordScope });
   mock.module('./workflowCrm.service.js', { namedExports: { emitCrmEvent: () => {} } });
+  mock.module('./crmEvents.service.js', { namedExports: { emitCrmEvent: () => {}, emitCrmEvents: () => {}, applyLeadStatus: async () => ({ changed: false }), currentChainDepth: () => undefined } });
   ({ listDeals, createDeal } = await import('./deals.service.js'));
   ({ getForecast } = await import('./forecast.service.js'));
 });

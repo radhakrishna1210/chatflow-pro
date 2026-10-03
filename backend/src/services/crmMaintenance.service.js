@@ -1,6 +1,5 @@
 import { prisma } from '../lib/prisma.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
-import { emitCrmEvent } from './workflowCrm.service.js';
 import { evaluateAndAssignLead } from './leadDistribution.service.js';
 
 // Background upkeep for CRM values that depend on the passage of time.
@@ -17,21 +16,15 @@ const SWEEP_BATCH = 200;
 // whatever is left is picked up the next night (oldest first).
 const SWEEP_MAX_LEADS = 20_000;
 
-// Recomputes score and category for one lead, emitting the same events the
-// manual "Recalculate" path does when the values move.
-export async function refreshLeadScoring(workspaceId, leadId) {
-  const before = await prisma.lead.findFirst({
-    where: { id: leadId, workspaceId },
-    select: { id: true, contactId: true, score: true },
-  });
-  if (!before) return null;
-  const updated = await computeLeadCategory(workspaceId, leadId);
-  if (updated.score !== before.score) {
-    emitCrmEvent(workspaceId, 'lead_score_changed', {
-      leadId, contactId: before.contactId, score: updated.score, previousScore: before.score,
-    });
+// Recomputes score and category for one lead. computeLeadCategory raises
+// lead_score_changed itself when the score moves; `quiet` suppresses that.
+export async function refreshLeadScoring(workspaceId, leadId, { quiet = false } = {}) {
+  try {
+    return await computeLeadCategory(workspaceId, leadId, { emitEvents: !quiet });
+  } catch (err) {
+    if (err.status === 404) return null;
+    throw err;
   }
-  return updated;
 }
 
 // Called (debounced) after an inbound message: the contact's lead, if any,
@@ -44,15 +37,18 @@ export async function refreshLeadScoringForContact(workspaceId, contactId) {
 }
 
 // Imported leads are written in bulk without a score or category; this fills
-// both in and, for leads imported without an owner, applies distribution rules
-// (which may match on category or score, hence the order).
+// both in — quietly: every imported lead starts at score 0, so its first score
+// would read as a crossing and fire score_above for the whole file, which the
+// import deliberately avoids for lead_created too — and, for leads imported
+// without an owner, applies distribution rules (which may match on category or
+// score, hence the order).
 export async function processImportFollowUp(workspaceId, leadIds = [], { distribute = true } = {}) {
   let scored = 0;
   let assigned = 0;
   let failed = 0;
   for (const leadId of Array.isArray(leadIds) ? leadIds : []) {
     try {
-      const lead = await refreshLeadScoring(workspaceId, leadId);
+      const lead = await refreshLeadScoring(workspaceId, leadId, { quiet: true });
       if (!lead) continue;
       scored += 1;
       if (distribute && !lead.ownerUserId) {

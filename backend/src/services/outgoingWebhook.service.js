@@ -66,15 +66,28 @@ const EVENT_CATEGORIES = {
   reads: ['message.status'],
 };
 
-// Which workspaces want this event. `webhookEvents` null means "everything",
-// matching what the settings UI implies when nothing is selected.
-function wantsEvent(workspace, event) {
+// The events some category covers. The categories only describe message
+// traffic, so every other event (campaign.completed, template.status,
+// contact.created, optout.created, custom.event) has no switch of its own.
+const CATEGORISED_EVENTS = new Set(Object.values(EVENT_CATEGORIES).flat());
+
+// Which workspaces want this event. `webhookEvents` null or empty means
+// "everything", matching what the settings UI implies when nothing is
+// selected.
+//
+// A selection of categories filters message traffic only. It used to filter
+// everything, so choosing "messages" silently turned off campaign, template,
+// contact and opt-out events, which no category can select back. A selection
+// that names events explicitly is honoured exactly.
+export function wantsEvent(workspace, event) {
   if (!workspace?.webhookUrl) return false;
   const selected = workspace.webhookEvents;
   if (selected == null) return true;
   if (!Array.isArray(selected)) return true;
-  return selected.length === 0
-    || selected.some((s) => s === event || EVENT_CATEGORIES[s]?.includes(event));
+  if (selected.length === 0) return true;
+  if (selected.some((s) => s === event || EVENT_CATEGORIES[s]?.includes(event))) return true;
+  const namesEvents = selected.some((s) => !EVENT_CATEGORIES[s]);
+  return !namesEvents && !CATEGORISED_EVENTS.has(event);
 }
 
 // The URL was vetted when it was saved, but DNS can change since: every
@@ -213,5 +226,54 @@ export async function dispatchWebhook(workspaceId, event, data) {
 export function emitWebhook(workspaceId, event, data) {
   dispatchWebhook(workspaceId, event, data).catch((err) => {
     console.error(`[Webhook:out] ${event} dispatch error:`, err.message);
+  });
+}
+
+// One event per item, for bulk paths (an import): the workspace's target is
+// read once, not once per row. Never throws.
+export async function dispatchWebhooks(workspaceId, event, items = []) {
+  if (!WEBHOOK_EVENTS.includes(event) || !items.length) return { queued: 0 };
+  const workspace = await loadTarget(workspaceId);
+  if (!wantsEvent(workspace, event)) return { queued: 0, reason: 'not_subscribed' };
+  let queued = 0;
+  for (const data of items) {
+    const deliveryId = randomUUID();
+    const body = JSON.stringify({ id: deliveryId, event, workspaceId, sentAt: new Date().toISOString(), data });
+    const job = { workspaceId, event, deliveryId, body };
+    try {
+      await enqueue(job);
+      queued += 1;
+    } catch (err) {
+      console.warn(`[Webhook:out] Delivery queue unavailable (${err.message}) — ${items.length - queued} ${event} event(s) not sent.`);
+      break;
+    }
+  }
+  return { queued };
+}
+
+// The payload of contact.created: what a receiving CRM needs to create its
+// own record, and where the contact came from.
+export const contactCreatedPayload = (contact, source) => ({
+  id: contact.id,
+  name: contact.name ?? null,
+  phoneNumber: contact.phoneNumber ?? null,
+  email: contact.email ?? null,
+  tags: Array.isArray(contact.tags) ? contact.tags : [],
+  createdAt: contact.createdAt ? new Date(contact.createdAt).toISOString() : new Date().toISOString(),
+  source,
+});
+
+// contact.created was offered to customers but nothing ever raised it. Every
+// path that creates a contact calls one of these (fire-and-forget).
+export function emitContactCreated(workspaceId, contact, { source = 'manual' } = {}) {
+  if (!contact?.id) return;
+  emitWebhook(workspaceId, 'contact.created', contactCreatedPayload(contact, source));
+}
+
+export function emitContactsCreated(workspaceId, contacts = [], { source = 'import' } = {}) {
+  const rows = (contacts ?? []).filter((c) => c?.id);
+  if (rows.length === 0) return;
+  dispatchWebhooks(workspaceId, 'contact.created', rows.map((c) => contactCreatedPayload(c, source))).catch((err) => {
+    console.error('[Webhook:out] contact.created dispatch error:', err.message);
   });
 }

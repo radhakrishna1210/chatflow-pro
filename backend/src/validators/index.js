@@ -513,6 +513,7 @@ const sequenceStep = z.preprocess((val) => {
   let kind = rawKind;
   if (rawKind === 'SEND_MESSAGE' || rawKind === 'EMAIL' || rawKind === 'SMS') kind = 'MESSAGE';
   if (rawKind === 'FIELD_UPDATE') kind = 'UPDATE_FIELD';
+  if (rawKind === 'SEND_TEMPLATE') kind = 'TEMPLATE';
 
   const body = val.body ?? val.content ?? val.message;
   const title = val.title ?? val.name;
@@ -532,6 +533,14 @@ const sequenceStep = z.preprocess((val) => {
   z.object({
     kind: z.literal('MESSAGE'),
     body: z.string().trim().min(1, 'Message text is required for a Send Message step').max(4096),
+  }).passthrough(),
+  // An approved WhatsApp template — the only send that reaches a contact once
+  // the 24-hour window has closed. Params fill {{1}}, {{2}}, ... in order.
+  z.object({
+    kind: z.literal('TEMPLATE'),
+    templateId: z.string().trim().min(1, 'Choose a template for a Send Template step').max(64),
+    templateName: z.string().trim().max(200).optional(),
+    params: z.array(z.union([z.string().max(1024), z.number()])).max(20).optional().default([]),
   }).passthrough(),
   z.object({
     kind: z.literal('WAIT'),
