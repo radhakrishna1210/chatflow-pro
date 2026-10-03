@@ -89,8 +89,10 @@ async function actionTask(run, node) {
 async function actionLeadStatus(run, node) {
   if (!run.leadId) return { result: 'skipped', detail: 'This run has no lead' };
   const status = norm(node.value);
-  const allowed = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'];
-  if (!allowed.includes(status)) {
+  // CONVERTED is reached only through the conversion flow. Any other key —
+  // built-in or one of the workspace's own lifecycle stages — is checked
+  // against the lifecycle by leadStatusWrite below.
+  if (!status || status === 'CONVERTED') {
     return { result: 'skipped', detail: `"${node.value}" is not a settable lead status` };
   }
 
@@ -171,6 +173,55 @@ export async function runCrmAction(run, node) {
   }
 }
 
+// Steps that need a conversation with the customer.
+const CUSTOMER_FACING = new Set(['message', 'buttons', 'template', 'wait_reply', 'agent']);
+
+// The contact's most recent WhatsApp conversation, or a new one on the
+// workspace's primary active number. A template step then reaches the contact
+// whenever it runs; a free-form step only inside the 24-hour window, and fails
+// with that reason outside it. Null when the contact has no phone number or the
+// workspace has no number to start a thread on.
+export async function crmConversation(workspaceId, contactId) {
+  if (!workspaceId || !contactId) return null;
+  const existing = await prisma.conversation.findFirst({
+    where: { workspaceId, contactId, channel: 'WHATSAPP', waNumberId: { not: null } },
+    orderBy: { lastMessageAt: 'desc' },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId },
+    select: { id: true, phoneNumber: true },
+  });
+  if (!contact?.phoneNumber) return null;
+
+  // The number new threads start on: a connected one Meta still accepts,
+  // oldest first (the workspace's first number is its primary).
+  const number = await prisma.waNumber.findFirst({
+    where: { workspaceId, status: { in: ['ACTIVE', 'CONNECTED'] }, unreachableSince: null },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  }) ?? await prisma.waNumber.findFirst({
+    where: { workspaceId, status: { in: ['ACTIVE', 'CONNECTED'] } },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  if (!number) return null;
+
+  const where = { workspaceId, contactId, waNumberId: number.id };
+  try {
+    const created = await prisma.conversation.create({ data: { ...where, status: 'OPEN' }, select: { id: true } });
+    console.log(`[Workflow] Started WhatsApp conversation ${created.id} for contact ${contactId} (CRM workflow)`);
+    return created.id;
+  } catch (err) {
+    // Another writer (an inbound message, a parallel event) created it first.
+    const raced = await prisma.conversation.findFirst({ where, select: { id: true } });
+    if (raced) return raced.id;
+    throw err;
+  }
+}
+
 /**
  * Fires CRM workflows for an event.
  *
@@ -191,13 +242,32 @@ export async function runWorkflowsForCrmEvent(workspaceId, event, payload = {}, 
   });
   if (matching.length === 0) return [];
 
-  const { startRun, advanceRun } = await import('./workflowEngine.service.js');
+  const { startRun } = await import('./workflowEngine.service.js');
   const runs = [];
+
+  // A CRM change has no conversation of its own, and a run without one used to
+  // "skip" every message, template, buttons and handoff step and still report
+  // COMPLETED — nothing ever reached the lead. The contact's WhatsApp thread is
+  // found (or started on the workspace's number) once per event, and only for
+  // workflows that talk to the customer.
+  let conversationId;
+  const conversationFor = async () => {
+    if (conversationId === undefined) {
+      conversationId = await crmConversation(workspaceId, payload.contactId).catch((err) => {
+        console.warn(`[Workflow] Could not resolve a WhatsApp conversation for contact ${payload.contactId}:`, err.message);
+        return null;
+      });
+    }
+    return conversationId;
+  };
 
   for (const workflow of matching) {
     try {
+      const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+      const talks = payload.contactId && nodes.some((n) => CUSTOMER_FACING.has(n?.subtype));
       const run = await startRun(workflow, {
         workspaceId,
+        conversationId: talks ? await conversationFor() : null,
         contactId: payload.contactId ?? null,
         leadId: payload.leadId ?? null,
         dealId: payload.dealId ?? null,
