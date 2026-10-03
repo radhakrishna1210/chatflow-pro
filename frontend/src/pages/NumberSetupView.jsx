@@ -264,6 +264,26 @@ export default function NumberSetupView() {
   const [assigning, setAssigning]         = useState(false);
   const [assignError, setAssignError]     = useState(null);
 
+  // The workspace picker searches on the server (CF-048): /admin/workspaces
+  // is paged, so filtering whatever page came back could not find a
+  // workspace past it.
+  const WS_PICKER_SIZE = 50;
+  useEffect(() => {
+    if (!assignOpen) return undefined;
+    let cancelled = false;
+    setWsLoading(true);
+    const t = setTimeout(() => {
+      const qs = new URLSearchParams({ limit: String(WS_PICKER_SIZE), offset: '0' });
+      if (wsSearch.trim()) qs.set('search', wsSearch.trim());
+      adminFetch(`/workspaces?${qs}`)
+        .then(r => (r.ok ? r.json() : Promise.reject(new Error(`Could not load workspaces (${r.status})`))))
+        .then(d => { if (!cancelled) setWorkspaces(Array.isArray(d) ? d : []); })
+        .catch((err) => { if (!cancelled) { setWorkspaces([]); setAssignError(err.message); } })
+        .finally(() => { if (!cancelled) setWsLoading(false); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [assignOpen, wsSearch]);
+
   const load = () =>
     wFetch('/whatsapp/numbers').then(r => r.ok && r.json()).then(d => {
       // The page used to keep only numbers[0], so a workspace on a plan that
@@ -342,12 +362,7 @@ export default function NumberSetupView() {
   };
 
   const openAssignDialog = (entry) => {
-    setAssignOpen(entry); setAssignError(null); setWsSearch('');
-    setWsLoading(true);
-    adminFetch('/workspaces')
-      .then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setWorkspaces(d); })
-      .catch((err) => console.warn('[NumberSetupView] Loading workspaces failed:', err?.message || err))
-      .finally(() => setWsLoading(false));
+    setAssignOpen(entry); setAssignError(null); setWsSearch(''); setWorkspaces([]);
   };
 
   const assignToWorkspace = async (workspaceId) => {
@@ -914,14 +929,13 @@ export default function NumberSetupView() {
             ) : workspaces.length === 0 ? (
               <p style={{ fontSize:12, color:'var(--t3)', padding:'14px 4px' }}>No workspaces found.</p>
             ) : (
-              workspaces
-                .filter(w => {
-                  if (!wsSearch.trim()) return true;
-                  const q = wsSearch.toLowerCase();
-                  return w.name.toLowerCase().includes(q)
-                    || w.owner?.name?.toLowerCase().includes(q)
-                    || w.owner?.email?.toLowerCase().includes(q);
-                })
+              <>
+              {workspaces.length >= WS_PICKER_SIZE && (
+                <p style={{ fontSize:11, color:'var(--t3)', padding:'0 4px 4px' }}>
+                  Showing the newest {WS_PICKER_SIZE} matches — search by name, owner or email to find others.
+                </p>
+              )}
+              {workspaces
                 .map(w => (
                   <div key={w.id} style={{ padding:'10px 12px', borderRadius:8, border:'1px solid var(--bd)', display:'flex', alignItems:'center', gap:10 }}>
                     <div style={{ flex:1, minWidth:0 }}>
@@ -939,7 +953,8 @@ export default function NumberSetupView() {
                       {assigning ? 'Assigning…' : 'Assign'}
                     </button>
                   </div>
-                ))
+                ))}
+              </>
             )}
           </div>
         </Modal>

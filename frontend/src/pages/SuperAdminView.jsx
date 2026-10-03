@@ -8,6 +8,16 @@ import ApiManagementTab from './ApiManagementTab.jsx';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS } from '../lib/permissions.js';
 import { notify, confirmDialog, promptDialog } from '../components/Feedback.jsx';
+import { LoadMore } from '../components/ListPager.jsx';
+import { useLoadMoreList } from '../lib/useLoadMoreList.js';
+import { fetchAllPages } from '../lib/paging.js';
+
+// Platform workspace lists are paged by the server (CF-048: 1000 by default,
+// at most 5000 a request). Screens that need every workspace — the analytics
+// totals and sort, the workspace filter dropdowns — walk the pages
+// explicitly, up to this many rows, and say so if a platform outgrows it.
+const ADMIN_PAGE_MAX = 5000;
+const ADMIN_ALL_ROWS = 50000;
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14 };
 
@@ -791,11 +801,18 @@ function NumbersTab({ workspaces }) {
 function WorkspaceAnalyticsTab() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [truncated, setTruncated] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [sortKey, setSortKey] = useState('sent');
   const [sortDir, setSortDir] = useState('desc');
 
+  // The totals and the sort are platform-wide, so every page is read; one
+  // page used to be all there was, and the totals silently covered only it.
   useEffect(() => {
-    adminFetch('/platform/workspaces/analytics').then(r => r.ok ? r.json() : []).then(d => setRows(Array.isArray(d) ? d : [])).finally(() => setLoading(false));
+    fetchAllPages(adminFetch, '/platform/workspaces/analytics', { size: ADMIN_PAGE_MAX, maxRows: ADMIN_ALL_ROWS })
+      .then(({ rows: all, truncated: cut }) => { setRows(all); setTruncated(cut); })
+      .catch((e) => setLoadError(e.message || 'Could not load workspace analytics'))
+      .finally(() => setLoading(false));
   }, []);
 
   const sortValue = (w, key) => {
@@ -833,6 +850,12 @@ function WorkspaceAnalyticsTab() {
 
   return (
     <div>
+      {loadError && <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 13 }}>{loadError}</div>}
+      {truncated && (
+        <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.25)', color: '#fbbf24', fontSize: 12.5 }}>
+          Showing the newest {rows.length.toLocaleString()} workspaces; the totals and sort cover only these.
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 12, marginBottom: 20 }}>
         <StatCard label="Workspaces" value={rows.length} />
         <StatCard label="Total sent" value={totals.sent.toLocaleString()} />
@@ -1359,7 +1382,13 @@ export default function SuperAdminView({ tab }) {
   // API so the plan table never quotes a rate the server doesn't charge.
   const costRates = useMessageRates();
   const [stats, setStats] = useState(null);
-  const [workspaces, setWorkspaces] = useState([]);
+  // The workspaces table reads 200 at a time with "Load more"; the filter
+  // dropdowns on the other tabs get every workspace (id and name) instead.
+  const {
+    items: workspaces, hasMore: moreWorkspaces, loadingMore: loadingMoreWorkspaces,
+    error: workspacesError, reload: reloadWorkspaces, loadMore: loadMoreWorkspaces,
+  } = useLoadMoreList(adminFetch, '/platform/workspaces', { size: 200, max: ADMIN_PAGE_MAX });
+  const [pickerWorkspaces, setPickerWorkspaces] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [plans, setPlans] = useState([]);
   const [knownFeatures, setKnownFeatures] = useState([]);
@@ -1371,14 +1400,13 @@ export default function SuperAdminView({ tab }) {
   const load = async () => {
     setLoading(true); setErr(null);
     try {
-      const [s, w, t, p] = await Promise.all([
+      const [s, , t, p] = await Promise.all([
         adminFetch('/platform/stats').then(r => r.ok ? r.json() : null),
-        adminFetch('/platform/workspaces').then(r => r.ok ? r.json() : []),
+        reloadWorkspaces(),
         adminFetch('/platform/tickets').then(r => r.ok ? r.json() : []),
         adminFetch('/platform/plans').then(r => r.ok ? r.json() : null),
       ]);
       setStats(s?.totals || null);
-      setWorkspaces(Array.isArray(w) ? w : []);
       setTickets(Array.isArray(t) ? t : []);
       setPlans(Array.isArray(p?.plans) ? p.plans : []);
       setKnownFeatures(Array.isArray(p?.knownFeatures) ? p.knownFeatures : []);
@@ -1390,6 +1418,12 @@ export default function SuperAdminView({ tab }) {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    fetchAllPages(adminFetch, '/workspaces', { size: ADMIN_PAGE_MAX, maxRows: ADMIN_ALL_ROWS })
+      .then(({ rows }) => setPickerWorkspaces(rows))
+      .catch((e) => console.warn('[SuperAdminView] Loading the workspace list failed:', e?.message || e));
+  }, []);
 
   const toggleSuspend = async (ws) => {
     const suspend = !ws.suspended;
@@ -1477,13 +1511,13 @@ export default function SuperAdminView({ tab }) {
 
         {!loading && tab === 'analytics' && <WorkspaceAnalyticsTab />}
         {!loading && tab === 'revenue' && <RevenueTab />}
-        {!loading && tab === 'transactions' && <TransactionsTab workspaces={workspaces} />}
-        {!loading && tab === 'payments' && <PaymentsTab workspaces={workspaces} />}
-        {!loading && tab === 'campaigns' && <CampaignsTab workspaces={workspaces} />}
+        {!loading && tab === 'transactions' && <TransactionsTab workspaces={pickerWorkspaces} />}
+        {!loading && tab === 'payments' && <PaymentsTab workspaces={pickerWorkspaces} />}
+        {!loading && tab === 'campaigns' && <CampaignsTab workspaces={pickerWorkspaces} />}
         {!loading && tab === 'users' && <UsersTab />}
         {!loading && tab === 'api-management' && <ApiManagementTab />}
         {!loading && tab === 'audit' && <AuditTab />}
-        {!loading && tab === 'numbers' && <NumbersTab workspaces={workspaces} />}
+        {!loading && tab === 'numbers' && <NumbersTab workspaces={pickerWorkspaces} />}
 
         {!loading && tab === 'workspaces' && (
           <div style={{ ...card, overflowX: 'auto' }}>
@@ -1525,10 +1559,12 @@ export default function SuperAdminView({ tab }) {
                   </tr>
                 ))}
                 {workspaces.length === 0 && (
-                  <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>No workspaces.</td></tr>
+                  <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>{workspacesError || 'No workspaces.'}</td></tr>
                 )}
               </tbody>
             </table>
+            <LoadMore hasMore={moreWorkspaces} loading={loadingMoreWorkspaces} onLoad={loadMoreWorkspaces}
+              label="Load more workspaces" shown={workspaces.length} total={stats?.workspaces} />
           </div>
         )}
 
