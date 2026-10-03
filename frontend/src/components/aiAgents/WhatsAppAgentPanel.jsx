@@ -139,6 +139,7 @@ const WhatsAppAgentPanel = () => {
   const [safetyNote, setSafetyNote] = useState('');
   const [escThreshold, setEscThreshold] = useState(0.65);
   const [escRules, setEscRules] = useState({});
+  const [escRulesTouched, setEscRulesTouched] = useState(false);
 
   const [knowledge, setKnowledge] = useState('');
   const [uploadingDoc, setUploadingDoc] = useState(false);
@@ -173,6 +174,7 @@ const WhatsAppAgentPanel = () => {
     setLanguages(Array.isArray(d.aiAgentLanguages) && d.aiAgentLanguages.length ? d.aiAgentLanguages : ['English']);
     setEscThreshold(typeof d.escalationThreshold === 'number' ? d.escalationThreshold : 0.65);
     setEscRules(d.escalationRules || {});
+    setEscRulesTouched(false);
   }), []);
   useEffect(() => { load(); }, [load]);
 
@@ -205,9 +207,15 @@ const WhatsAppAgentPanel = () => {
 
   // One payload for every section: the page saves the whole agent, so moving
   // between sections can never lose an edit made in the one you left.
+  //
+  // Escalation rules go back only once the workspace has chosen them (saved
+  // before, or toggled here). The page shows defaults with three switched on,
+  // and sending those on every save — an undeploy included — stored them as
+  // the workspace's choice.
   const payload = () => JSON.stringify({
     name, systemPrompt, knowledge, purpose, instructions, safetyNote,
-    languages, escalationThreshold: escThreshold, escalationRules: escRules,
+    languages, escalationThreshold: escThreshold,
+    ...(escRulesTouched || cfg?.escalationRulesSet ? { escalationRules: escRules } : {}),
   });
 
   const save = async () => {
@@ -567,7 +575,7 @@ const WhatsAppAgentPanel = () => {
               )}
 
               <div style={{ padding:'11px 14px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:8, fontSize:11.5, color:'var(--t3)', lineHeight:1.6 }}>
-                Reply order on inbound messages: <strong style={{ color:'var(--t2)' }}>active campaign AI chat</strong> → form in progress → workflow → keyword trigger → intent match → welcome/out-of-office → <strong style={{ color:'var(--t2)' }}>this agent</strong>.
+                Reply order on inbound messages: <strong style={{ color:'var(--t2)' }}>active campaign AI chat</strong> → form in progress → workflow → keyword trigger → intent match → escalation rules → welcome/out-of-office → <strong style={{ color:'var(--t2)' }}>this agent</strong>.
               </div>
             </div>
           )}
@@ -578,8 +586,9 @@ const WhatsAppAgentPanel = () => {
                   produces no confidence score, so the stored threshold was
                   never read; only the rules below decide a handoff. */}
               <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.6 }}>
-                When a message matches any rule switched on below, the agent stops answering and hands the conversation to a
-                human in the shared inbox.
+                While the agent is deployed, a message that matches a rule switched on below — and that no workflow, keyword
+                trigger or intent rule answered — is handed to a human in the shared inbox. Automation on that chat pauses until a
+                person replies, and resumes by itself once nobody has replied there for 24 hours (HANDOFF_TTL_HOURS).
               </p>
 
               <div>
@@ -591,7 +600,7 @@ const WhatsAppAgentPanel = () => {
                         <div style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{rule.label}</div>
                         <div style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>{rule.hint}</div>
                       </div>
-                      <Toggle on={escRules[rule.id] === true} disabled={!canEdit} onToggle={() => setEscRules(r => ({ ...r, [rule.id]: !r[rule.id] }))} />
+                      <Toggle on={escRules[rule.id] === true} disabled={!canEdit} onToggle={() => { setEscRulesTouched(true); setEscRules(r => ({ ...r, [rule.id]: !r[rule.id] })); }} />
                     </div>
                   ))}
                 </div>
