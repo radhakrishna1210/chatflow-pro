@@ -528,7 +528,15 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
 // message told the agent to "send an approved template to reopen the
 // conversation" while no route existed to send one. Closing the window without
 // this is only half the rule.
-export async function sendTemplateMessage(workspaceId, conversationId, userId, { templateId, variables = [], contactId, phoneNumber } = {}) {
+//
+// `strictVariables` (automated senders — the workflow template step): every
+// {{n}} must come in `variables`, and a missing one is refused before any
+// credit is taken. Without it (the inbox, whose picker supplies no values) a
+// missing {{1}} is the contact's name and {{2}}+ the template's approval
+// samples, as before.
+export async function sendTemplateMessage(workspaceId, conversationId, userId, {
+  templateId, variables = [], contactId, phoneNumber, strictVariables = false,
+} = {}) {
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
     include: { contact: true, waNumber: true },
@@ -565,6 +573,27 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     e.status = 422; e.code = 'TEMPLATE_NOT_SENDABLE'; e.expose = true; throw e;
   }
 
+  const components = Array.isArray(template.components) ? template.components : [];
+  const required = components.reduce((max, c) => Math.max(max, countVariables(c?.text)), 0);
+  let supplied = (Array.isArray(variables) ? variables : []).map((v) => String(v ?? '').trim());
+  if (strictVariables) {
+    const missing = Array.from({ length: required }, (_, i) => i).filter((i) => !supplied[i]);
+    if (missing.length) {
+      const e = new Error(
+        `Template "${template.name}" needs a value for ${missing.map((i) => `{{${i + 1}}}`).join(', ')}. `
+        + 'Approval sample values are never sent to customers — supply the values with the send.',
+      );
+      e.status = 422; e.code = 'TEMPLATE_VARIABLES_MISSING'; e.expose = true; throw e;
+    }
+  } else if (required > 0 && supplied.filter(Boolean).length < required) {
+    const resolver = contactVariableResolver(conversation.contact, { samples: true });
+    const bodyComp = components.find((c) => /\{\{\d+\}\}/.test(c?.text || ''));
+    supplied = Array.from({ length: required }, (_, i) => String(supplied[i] || resolver(i, bodyComp) || 'there'));
+  }
+
+  const resolve = (i, component) => String(supplied[i] ?? '').trim()
+    || (strictVariables ? '' : contactVariableResolver(conversation.contact, { samples: true })(i, component));
+
   const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
 
   const credit = await consumeMessageCredit(workspaceId, {
@@ -574,36 +603,34 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
   if (!credit.ok) {
     const e = new Error('Message quota and wallet balance exhausted — recharge your wallet or upgrade your plan');
     e.status = 403;
+    e.code = credit.code ?? 'NO_CREDIT';
     throw e;
   }
 
-  const components = Array.isArray(template.components) ? template.components : [];
-  const required = components.reduce((max, c) => Math.max(max, countVariables(c?.text)), 0);
-  let supplied = (Array.isArray(variables) ? variables : []).map((v) => String(v ?? ''));
-  if (required > 0 && supplied.filter((v) => v.trim()).length < required) {
-    const resolver = contactVariableResolver(conversation.contact);
-    const bodyComp = components.find((c) => /\{\{\d+\}\}/.test(c?.text || ''));
-    supplied = Array.from({ length: required }, (_, i) => String(supplied[i] || resolver(i, bodyComp) || 'there'));
-  }
-
-  const resolve = (i, component) => String(supplied[i] ?? '').trim() || contactVariableResolver(conversation.contact)(i, component);
-
-  const payload = await buildTemplateSendPayload(template, {
-    workspaceId,
-    phoneNumberId: conversation.waNumber.metaPhoneNumberId,
-    accessToken,
-    resolve,
-  });
-
+  // Everything between taking the credit and Meta accepting the message hands
+  // it back on failure. Building the payload can throw too — media that is
+  // gone (CF-110 TEMPLATE_MEDIA_UNAVAILABLE), a carousel that fails
+  // validation, a header upload Meta refuses — and the credit (wallet money at
+  // the template's category rate) used to be kept for a message that never left.
   let result;
   try {
-    result = await sendWhatsAppMessage(
-      conversation.waNumber.metaPhoneNumberId, accessToken,
-      conversation.contact.phoneNumber, payload,
-    );
+    const payload = await buildTemplateSendPayload(template, {
+      workspaceId,
+      phoneNumberId: conversation.waNumber.metaPhoneNumberId,
+      accessToken,
+      resolve,
+    });
+    try {
+      result = await sendWhatsAppMessage(
+        conversation.waNumber.metaPhoneNumberId, accessToken,
+        conversation.contact.phoneNumber, payload,
+      );
+    } catch (err) {
+      throw describeSendFailure(err);
+    }
   } catch (err) {
     await releaseMessageCredit(workspaceId, { source: credit.source, amount: credit.amount ?? null }); // never throws; logs its own failures
-    throw describeSendFailure(err);
+    throw err;
   }
 
   const message = await prisma.message.create({

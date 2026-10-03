@@ -125,7 +125,8 @@ const textOf = (components, type) =>
 // the campaign-level snapshot keeps the template's own example values.
 export function buildCampaignContext({ campaign, template, contact = null, ctaLabel = null }) {
   const components = Array.isArray(template?.components) ? template.components : [];
-  const resolve = contactVariableResolver(contact);
+  // Must reproduce exactly what the campaign worker sent, samples included.
+  const resolve = contactVariableResolver(contact, { samples: true });
   const render = (type) => {
     const component = components.find(
       (c) => String(c?.type || '').toUpperCase() === type && typeof c?.text === 'string',
