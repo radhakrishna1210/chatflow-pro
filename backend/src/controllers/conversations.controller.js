@@ -1,4 +1,5 @@
 import * as conversationsService from '../services/conversations.service.js';
+import { getMessageMedia } from '../services/inboundMedia.service.js';
 
 export async function list(req, res) {
   const { page, limit, contactId, search, cursor, view } = req.query;
@@ -29,6 +30,29 @@ export async function createOrGet(req, res) {
 export async function getMessages(req, res) {
   const messages = await conversationsService.getMessages(req.params.workspaceId, req.params.id);
   res.json(messages);
+}
+
+// The bytes of a message's photo, voice note, video or document, from file
+// storage (or re-fetched from Meta when it was never archived). Streamed
+// through the API rather than linked: every route needs the bearer token, and
+// it keeps one code path for the disk and bucket drivers.
+export async function media(req, res) {
+  const file = await getMessageMedia(req.params.workspaceId, req.params.id, req.params.messageId);
+  const ascii = String(file.filename).replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  res.set('Content-Type', file.contentType);
+  // Customer-supplied files: only known media types render inline, and even
+  // those cannot run script on this origin.
+  res.set('Content-Disposition', `${file.inline ? 'inline' : 'attachment'}; filename="${ascii}"`);
+  res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Cache-Control', 'private, max-age=3600');
+  if (file.size) res.set('Content-Length', String(file.size));
+  if (file.buffer) { res.end(file.buffer); return; }
+  file.stream.on('error', (err) => {
+    console.error('[Conversations] media stream failed:', err.message);
+    res.destroy(err);
+  });
+  file.stream.pipe(res);
 }
 
 // An attachment on an open conversation. The file arrives as multipart, so the

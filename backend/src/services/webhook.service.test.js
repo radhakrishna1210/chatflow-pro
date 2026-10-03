@@ -25,6 +25,15 @@ mock.module('../queues/workflow.queue.js', {
     enqueueDelayedResponseCheck: async () => {},
   },
 });
+// The media step (download, archive, transcription) is its own unit
+// (inboundMedia.service.test.js); here only its outcome matters.
+let mediaOutcome = { transcript: null };
+const mediaCalls = [];
+mock.module('./inboundMedia.service.js', {
+  namedExports: {
+    processInboundMedia: async (args) => { mediaCalls.push(args); return mediaOutcome; },
+  },
+});
 const failures = [];
 mock.module('./retry.service.js', {
   namedExports: {
@@ -36,6 +45,7 @@ const { Prisma } = await import('@prisma/client');
 const { prisma } = await import('../lib/prisma.js');
 
 let db;
+let triggers = [];
 let seq = 0;
 const id = (p) => `${p}_${++seq}`;
 const clone = (v) => (v == null ? v : structuredClone(v));
@@ -52,6 +62,9 @@ function resetDb() {
   };
   sent.length = 0;
   failures.length = 0;
+  mediaCalls.length = 0;
+  mediaOutcome = { transcript: null };
+  triggers = [];
 }
 
 function applyData(target, data) {
@@ -146,6 +159,7 @@ prisma.campaignRecipient.updateMany = async ({ where, data }) => {
   rows.forEach((r) => applyData(r, data));
   return { count: rows.length };
 };
+prisma.automationTrigger.findMany = async () => clone(triggers);
 prisma.campaign.findUnique = async ({ where }) => clone(db.campaigns.find((c) => c.id === where.id) ?? null);
 prisma.campaign.update = async ({ where, data }) => clone(applyData(db.campaigns.find((c) => c.id === where.id), data));
 
@@ -345,4 +359,38 @@ test('an inbound message and a delivery receipt are pushed to the workspace\'s o
   assert.deepEqual({ messageId: statuses[0].data.messageId, status: statuses[0].data.status }, { messageId: 'msg_out', status: 'DELIVERED' });
   // Ids and statuses only — never the message text.
   assert.doesNotMatch(JSON.stringify(events), /hello/);
+});
+
+// ── Voice notes (CF-224) ────────────────────────────────────────────────────
+
+const VOICE = { type: 'audio', audio: { id: 'media_1', mime_type: 'audio/ogg; codecs=opus', voice: true } };
+
+test('a transcribed voice note is answered by the keyword trigger its words match', async () => {
+  triggers = [{ id: 'tr_1', keyword: 'PRICE', responseTemplate: 'Our prices start at 499.', isActive: true, createdAt: new Date() }];
+  mediaOutcome = { transcript: 'what is the price of the blue one' };
+  await processWebhook(inbound(VOICE));
+
+  assert.equal(mediaCalls.length, 1);
+  assert.equal(mediaCalls[0].parsed.type, 'AUDIO');
+  assert.equal(mediaCalls[0].messageId, db.messages.find((m) => m.direction === 'INBOUND').id);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].body, 'Our prices start at 499.');
+});
+
+test('an untranscribed voice note is not matched against keyword triggers', async () => {
+  // "[voice message]" is our placeholder, not the customer's words.
+  triggers = [{ id: 'tr_1', keyword: 'VOICE', responseTemplate: 'should not send', isActive: true, createdAt: new Date() }];
+  mediaOutcome = { transcript: null, reason: 'not_configured' };
+  await processWebhook(inbound(VOICE));
+
+  assert.equal(mediaCalls.length, 1);
+  assert.equal(sent.length, 0);
+  const stored = db.messages.find((m) => m.direction === 'INBOUND');
+  assert.equal(stored.type, 'AUDIO');
+  assert.equal(stored.body, '[voice message]');
+});
+
+test('a text message does not touch the media step', async () => {
+  await processWebhook(inbound({ type: 'text', text: { body: 'hello' } }));
+  assert.equal(mediaCalls.length, 0);
 });

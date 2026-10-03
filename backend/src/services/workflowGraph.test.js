@@ -164,3 +164,10 @@ test('a condition that skips past the end, or an unknown condition, is refused',
 test('buttons without options are refused', () => {
   assert.throws(() => validateGraph([trigger('welcome'), action('buttons', 'Just a question')]), /Option A/);
 });
+
+test('the media trigger validates its kind', () => {
+  assert.doesNotThrow(() => validateGraph([{ type: 'trigger', subtype: 'media', value: 'audio' }, { type: 'action', subtype: 'message', value: 'Got your voice note' }]));
+  assert.doesNotThrow(() => validateGraph([{ type: 'trigger', subtype: 'media', value: '' }, { type: 'action', subtype: 'message', value: 'Thanks' }]));
+  assert.throws(() => validateGraph([{ type: 'trigger', subtype: 'media', value: 'gif' }, { type: 'action', subtype: 'message', value: 'x' }]), /not a kind of media/);
+  assert.equal(TRIGGERS.media.describe('audio'), 'someone sends a voice note');
+});

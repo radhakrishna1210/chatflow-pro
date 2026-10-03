@@ -50,6 +50,17 @@ export async function deliverAutomatedReply({
     .filter(Boolean)
     .slice(0, INTERACTIVE_LIMITS.rowCount);
 
+  // An Instagram thread has no WhatsApp number. Its replies — a workflow step,
+  // a trigger, the agent — go out through Instagram with the same window,
+  // opt-out and metering rules (instagram.service.js#deliverInstagramReply).
+  if (!waNumberId && conversationId) {
+    const convo = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { channel: true } });
+    if (convo?.channel === 'INSTAGRAM') {
+      const { deliverInstagramReply } = await import('./instagram.service.js');
+      return deliverInstagramReply({ conversationId, body: text, options: choices, reason, recordFailure });
+    }
+  }
+
   const waNumber = waNumberId ? await prisma.waNumber.findUnique({ where: { id: waNumberId } }) : null;
   if (!waNumber) {
     console.warn(`[Outbound] No WaNumber ${waNumberId} — reply dropped.`);

@@ -13,7 +13,8 @@ import { isWithinBusinessHours, describeBusinessHours } from './businessHours.se
 import { matchOptOutKeyword, recordOptOut, isFlowControlKeyword } from './optout.service.js';
 import { captureReplyAsLead } from './campaignLeads.service.js';
 import { notifyWorkspace } from './notification.service.js';
-import { parseInboundMessage, carriesCustomerText } from './inboundMessage.js';
+import { parseInboundMessage, carriesCustomerText, mediaTypeOf } from './inboundMessage.js';
+import { processInboundMedia } from './inboundMedia.service.js';
 import { emitWebhook } from './outgoingWebhook.service.js';
 import { routeByIntent, escalateToHuman, escalationReason } from './intentRouting.service.js';
 import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPLIES } from './conversationControl.service.js';
@@ -263,7 +264,8 @@ async function handleInboundMessage(value, msg) {
     console.error(`[Inbound] PARSE FAILED — message ${msg?.id} (type=${msg?.type}) from=${fromPhone}: ${err.message}`);
     return;
   }
-  const messageBody = parsed.body;
+  // Reassigned once, when a voice note is transcribed (below).
+  let messageBody = parsed.body;
 
   // Tapping a template quick-reply delivers the payload the send attached to
   // that button (msg.button.payload); an interactive reply carries it as the
@@ -412,8 +414,9 @@ async function handleInboundMessage(value, msg) {
       console.error(`[Inbound] Campaign attribution lookup failed for ${msg.id}:`, error);
     }
   }
+  let stored;
   try {
-    await prisma.message.create({
+    stored = await prisma.message.create({
       data: {
         conversationId: conversation.id,
         body: messageBody,
@@ -488,6 +491,24 @@ async function handleInboundMessage(value, msg) {
     .then((m) => m.enqueueContactRescore(workspaceId, contact.id))
     .catch(() => {});
 
+  // Media is downloaded and archived (Meta deletes it after ~30 days), and a
+  // voice note is transcribed so everything below can answer what the customer
+  // said rather than ignore it (CF-224). Without a transcript the message is
+  // routed as an audio message: no keyword, intent or AI step reads it, and a
+  // workflow can still pick it up with the `media` trigger.
+  if (parsed.media?.mediaId) {
+    const media = await processInboundMedia({ workspaceId, messageId: stored.id, parsed, waNumber })
+      .catch((err) => {
+        console.error(`[Inbound] Media handling failed for ${msg.id}:`, err.message);
+        return { transcript: null };
+      });
+    if (media.transcript) {
+      parsed.transcript = media.transcript;
+      parsed.body = media.transcript;
+      messageBody = media.transcript;
+    }
+  }
+
   // Tell the customer's own system. This is the event an integration is most
   // likely to want, and until now nothing was ever dispatched.
   emitWebhook(workspaceId, 'message.received', {
@@ -501,6 +522,7 @@ async function handleInboundMessage(value, msg) {
       timestamp: sentAt.toISOString(),
       ...(parsed.media || {}),
       ...(parsed.location || {}),
+      ...(parsed.transcript ? { transcript: parsed.transcript } : {}),
     },
   });
 
@@ -710,8 +732,13 @@ async function handleInboundMessage(value, msg) {
     console.log(`[Automation] Checking active workflows for conversation ${conversation.id} (workspace ${workspaceId})`);
     const resumed = await resumeAwaitingRun(workspaceId, conversation.id, messageBody);
     if (resumed) console.log(`[Automation] Reply resumed waiting run ${resumed.id} → ${resumed.status}`);
+    // A photo or an untranscribed voice note is a `media` event: our
+    // placeholder text ("[photo]") must not match a keyword workflow, but a
+    // workflow can trigger on the media itself.
+    const mediaType = mediaTypeOf(parsed);
     const runs = resumed ? [resumed] : await runWorkflowsForInbound(workspaceId, {
-      event: 'message',
+      event: mediaType && !customerText ? 'media' : 'message',
+      mediaType,
       messageBody,
       isNewContact,
       conversationId: conversation.id,

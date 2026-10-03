@@ -1117,6 +1117,12 @@ const CANVAS_PAD = 28;
 // or stage cannot be mistyped into a value the server will reject.
 const LEAD_STATUS_CHOICES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'LOST'];
 const DEAL_STAGE_CHOICES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
+// The `media` trigger's kinds; '' is any media (backend workflowGraph.js MEDIA_KINDS).
+const MEDIA_TRIGGER_CHOICES = [
+  ['', 'Any media'], ['audio', 'Voice note / audio'], ['image', 'Photo'],
+  ['video', 'Video'], ['document', 'Document'], ['sticker', 'Sticker'],
+];
+
 const prettyEnum = (s) => String(s).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 
 // Steps needing no configuration at all.
@@ -1165,7 +1171,7 @@ const PALETTE = [
 ];
 
 const NODE_ICON = {
-  keyword: 'key', welcome: 'user',
+  keyword: 'key', welcome: 'user', media: 'file',
   message: 'send', buttons: 'check', delay: 'clock', tag: 'file', agent: 'users',
   wait_reply: 'msg', template: 'file',
 };
@@ -1347,6 +1353,10 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
           {isTrigger && <option value="" style={{ background:'#07090F' }}>Any status</option>}
           {LEAD_STATUS_CHOICES.map(v => <option key={v} value={v} style={{ background:'#07090F' }}>{prettyEnum(v)}</option>)}
         </select>
+      ) : step.subtype === 'media' ? (
+        <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
+          {MEDIA_TRIGGER_CHOICES.map(([v, label]) => <option key={v} value={v} style={{ background:'#07090F' }}>{label}</option>)}
+        </select>
       ) : step.subtype === 'deal_stage' ? (
         <select value={step.value || ''} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, flex:1, minWidth:180 }}>
           {isTrigger && <option value="" style={{ background:'#07090F' }}>Any stage</option>}
@@ -1439,6 +1449,7 @@ const stepLabel = (step) => {
   switch (step.subtype) {
     case 'keyword': return `Keyword: ${step.value}`;
     case 'welcome': return 'New contact';
+    case 'media': return `Media received${step.value ? `: ${(MEDIA_TRIGGER_CHOICES.find(([v]) => v === step.value) || [, step.value])[1]}` : ''}`;
     case 'missed':  return 'Missed call (no longer supported — choose another trigger)';
     case 'message': return `Send: "${step.value}"`;
     case 'buttons': {

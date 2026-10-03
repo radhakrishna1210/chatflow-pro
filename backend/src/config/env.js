@@ -193,6 +193,29 @@ const envSchema = z.object({
   EMAIL_FROM_NAME: z.string().default('Spandan'),
   EMAIL_FROM: z.string().optional(),
   APP_URL: z.string().url().optional(),
+
+  // File storage (lib/storage). Unset, files go to local disk, which Render
+  // wipes on every deploy. Setting S3_BUCKET selects the S3-compatible driver:
+  // AWS S3, Cloudflare R2 (S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com,
+  // S3_REGION=auto), Supabase Storage (S3_ENDPOINT=https://<ref>.supabase.co/storage/v1/s3)
+  // or MinIO. STORAGE_DRIVER pins one explicitly.
+  STORAGE_DRIVER: z.enum(['disk', 's3']).optional(),
+  STORAGE_DISK_ROOT: z.string().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().optional(),
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_SESSION_TOKEN: z.string().optional(),
+  S3_FORCE_PATH_STYLE: z.string().optional(),
+  // Prepended to every object key, so one bucket can serve several stacks.
+  S3_PREFIX: z.string().optional(),
+  // Inbound WhatsApp media larger than this is not archived (it stays
+  // re-fetchable from Meta for ~30 days). Meta's own ceiling is 100 MB.
+  MEDIA_ARCHIVE_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
+  // Voice notes are transcribed with Gemini (GEMINI_API_KEY) so they reach the
+  // same automation as typed text. "false" turns it off.
+  VOICE_TRANSCRIPTION: z.string().default('true').transform((v) => v !== 'false' && v !== '0'),
 });
 
 const parsed = envSchema.safeParse(process.env);

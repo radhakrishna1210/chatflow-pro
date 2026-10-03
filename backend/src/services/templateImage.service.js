@@ -11,8 +11,10 @@
 //   3. Sending    — a media id from POST /{phone-number-id}/media, supplied
 //                   again on every single send, expiring after ~30 days.
 //
-// The bytes are kept in TemplateAsset because (2) and (3) are not
-// interchangeable and (3) has to be re-mintable long after approval.
+// The bytes are kept because (2) and (3) are not interchangeable and (3) has
+// to be re-mintable long after approval: in the object store when one is
+// configured (TemplateAsset.storageKey), otherwise in TemplateAsset.bytes —
+// never on local disk alone, which a Render deploy wipes.
 
 import axios from 'axios';
 import { GoogleGenAI } from '@google/genai';
@@ -21,6 +23,8 @@ import { prisma } from '../lib/prisma.js';
 import { carouselCards, buildCardBodyComponent, buildCardButtonComponents } from '../lib/templateParams.js';
 import { uploadPhoneMedia } from '../lib/meta.js';
 import { assertSafeUrl, safeRequest } from '../lib/safeUrl.js';
+import { storage, keys } from '../lib/storage/index.js';
+import { randomUUID } from 'node:crypto';
 
 let _ai = null;
 let _aiKey = null;
@@ -420,11 +424,44 @@ export async function generateHeaderImage({ imageIdea, body, category }) {
 }
 
 // Persists bytes so they can be re-sent long after the template is approved.
+//
+// To the object store when one is configured; otherwise into the row itself.
+// The disk driver is deliberately not used here: a header image is what every
+// future send of the template depends on, and on Render the disk is gone at the
+// next deploy, while Postgres is not. A bucket write that fails falls back to
+// the row for the same reason — the upload must not be lost.
 export async function storeAsset(workspaceId, { buffer, mimeType, prompt = null, source = 'upload' }) {
+  let storageKey = null;
+  if (storage.objectStore) {
+    const key = keys.templateAsset(workspaceId, randomUUID());
+    try {
+      await storage.put(key, buffer, { contentType: mimeType });
+      storageKey = key;
+    } catch (err) {
+      console.error(`[TemplateImage] Object storage write failed, keeping the image in the database: ${err.message}`);
+    }
+  }
   return prisma.templateAsset.create({
-    data: { workspaceId, mimeType, bytes: buffer, sizeBytes: buffer.length, prompt, source },
+    data: {
+      workspaceId, mimeType, sizeBytes: buffer.length, prompt, source,
+      ...(storageKey ? { storageKey, bytes: null } : { bytes: buffer }),
+    },
     select: { id: true, mimeType: true, sizeBytes: true, source: true, createdAt: true },
   });
+}
+
+// The stored image, wherever it lives. A row with a storage key whose object
+// has gone missing is reported as missing rather than sent empty.
+export async function readAssetBytes(asset) {
+  if (asset?.bytes) return Buffer.from(asset.bytes);
+  if (asset?.storageKey) {
+    const buffer = await storage.getBuffer(asset.storageKey);
+    if (buffer) return buffer;
+  }
+  const e = new Error('The stored image for this template is missing. Re-upload it.');
+  e.status = 422;
+  e.expose = true;
+  throw e;
 }
 
 export async function getAsset(workspaceId, assetId) {
@@ -488,7 +525,7 @@ export async function resolveSendableMediaId(asset, { phoneNumberId, accessToken
   const mediaId = await uploadPhoneMedia({
     phoneNumberId,
     accessToken,
-    buffer: Buffer.from(asset.bytes),
+    buffer: await readAssetBytes(asset),
     mimeType: asset.mimeType,
     fileName: `header_${asset.id}`,
   });
