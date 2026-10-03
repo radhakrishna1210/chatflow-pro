@@ -29,6 +29,8 @@ const EVENT_TYPES = [
   'conversation.updated',
   'campaign.updated',
   'template.updated',
+  // A workflow run started or changed status: { workflowId, runId, status }.
+  'workflow.run',
   'resync',
 ];
 
