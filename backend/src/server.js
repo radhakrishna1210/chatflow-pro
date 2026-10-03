@@ -51,6 +51,7 @@ import { prisma } from './lib/prisma.js';
 import { loadPlatformSettings, startPlatformSettingsRefresh } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
 import { markReady, markNotReady } from './lib/readiness.js';
+import { warnIfNoWebhookConsumer } from './lib/webhookConsumers.js';
 import { storage, ephemeralDiskWarning } from './lib/storage/index.js';
 
 let campaignWorker = null;
@@ -452,6 +453,13 @@ async function main() {
     } catch (err) {
       console.error('[Billing] Failed to schedule the daily cycle-reset job:', err.message);
     }
+  }
+
+  // A production web process that queues webhooks needs a worker somewhere to
+  // consume them (WF-IN-13). Checked after a short delay so this process's own
+  // worker, if it started one, has registered with Redis.
+  if (redisReady && env.NODE_ENV === 'production') {
+    setTimeout(() => { warnIfNoWebhookConsumer().catch(() => {}); }, 10_000).unref();
   }
 
   markReady();

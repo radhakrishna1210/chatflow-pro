@@ -3,7 +3,8 @@ import { env } from '../config/env.js';
 import { processWebhook } from '../services/webhook.service.js';
 import { splitWebhook } from '../services/webhookEvents.js';
 import { enqueueWebhook } from '../queues/webhook.queue.js';
-import { isWebhookWorkerRunning } from '../workers/webhook.worker.js';
+import { isWebhookWorkerRunning, processWebhookJob } from '../workers/webhook.worker.js';
+import { webhookQueueHasNoConsumer } from '../lib/webhookConsumers.js';
 
 function verifyTokenMatches(token) {
   const expected = Buffer.from(String(env.META_WEBHOOK_VERIFY_TOKEN || ''));
@@ -62,6 +63,27 @@ export async function receive(req, res) {
       });
     }
     return;
+  }
+
+  // Production, and no process anywhere consumes the queue (this one runs
+  // with RUN_WORKERS=false and no worker service reads the same Redis).
+  // Queueing would ACK Meta and lose the message — and every workflow it
+  // would start — without a trace (WF-IN-13). Process it here instead, under
+  // the same per-customer lock the worker uses, and only then answer, so a
+  // failure still gets Meta's redelivery.
+  if (!isWebhookWorkerRunning() && await webhookQueueHasNoConsumer()) {
+    console.error('[Webhook] No consumer on the "webhooks" queue — processing this event inline. '
+      + 'Start a worker (RUN_WORKERS=true) on the same REDIS_URL; see DEPLOY.md §4.');
+    try {
+      for (const unit of splitWebhook(req.body)) {
+        // eslint-disable-next-line no-await-in-loop
+        await processWebhookJob({ data: unit });
+      }
+    } catch (err) {
+      console.error('[Webhook] Inline processing failed — asking Meta to redeliver:', err);
+      return res.status(503).json({ error: 'Temporarily unavailable' });
+    }
+    return res.status(200).json({ status: 'ok' });
   }
 
   // Queue first, ACK second. If the event cannot be persisted, Meta gets a

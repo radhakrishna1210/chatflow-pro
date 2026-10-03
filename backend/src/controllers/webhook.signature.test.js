@@ -12,6 +12,9 @@ const queued = [];
 const processed = [];
 let enqueueImpl = async (body) => { queued.push(body); return 1; };
 let workerRunning = true;
+let noConsumer = false;
+let inlineFails = false;
+const inline = [];
 
 mock.module('../config/env.js', { namedExports: { env } });
 mock.module('../services/webhook.service.js', {
@@ -21,7 +24,18 @@ mock.module('../services/webhookEvents.js', {
   namedExports: { splitWebhook: (body) => [{ payload: body }] },
 });
 mock.module('../queues/webhook.queue.js', { namedExports: { enqueueWebhook: (body) => enqueueImpl(body) } });
-mock.module('../workers/webhook.worker.js', { namedExports: { isWebhookWorkerRunning: () => workerRunning } });
+mock.module('../workers/webhook.worker.js', {
+  namedExports: {
+    isWebhookWorkerRunning: () => workerRunning,
+    // The worker's job body (per-customer lock + processWebhook), run inline.
+    processWebhookJob: async (job) => {
+      if (inlineFails) throw new Error('db down');
+      inline.push(job.data);
+      processed.push(job.data.payload);
+    },
+  },
+});
+mock.module('../lib/webhookConsumers.js', { namedExports: { webhookQueueHasNoConsumer: async () => noConsumer } });
 
 const { receive } = await import('./webhook.controller.js');
 
@@ -49,6 +63,9 @@ test.beforeEach(() => {
   processed.length = 0;
   enqueueImpl = async (body) => { queued.push(body); return 1; };
   workerRunning = true;
+  noConsumer = false;
+  inlineFails = false;
+  inline.length = 0;
   env.NODE_ENV = 'production';
 });
 
@@ -93,7 +110,7 @@ test('if the event cannot be queued Meta gets a 503 so it redelivers', async () 
   assert.equal(res.statusCode, 503);
 });
 
-test('production never falls back to inline processing, even with no worker running', async () => {
+test('production without a worker in this process still queues while another process consumes the queue', async () => {
   workerRunning = false;
   const res = await post({ raw: RAW, signature: sign(RAW) });
   assert.equal(res.statusCode, 200);
@@ -112,4 +129,34 @@ test('development without a worker processes inline, still only after verificati
   assert.equal(ok.statusCode, 200);
   assert.equal(processed.length, 1);
   assert.equal(queued.length, 0);
+});
+
+// ── WF-IN-13: no consumer anywhere ──────────────────────────────────────────
+
+test('production with no consumer on the queue anywhere processes inline instead of queueing into a void', async () => {
+  workerRunning = false;
+  noConsumer = true;
+  const res = await post({ raw: RAW, signature: sign(RAW) });
+  assert.equal(res.statusCode, 200);
+  assert.equal(queued.length, 0, 'nothing is left in a queue nobody reads');
+  assert.equal(processed.length, 1);
+  assert.equal(inline.length, 1, 'through the worker job body, so the per-customer lock still applies');
+});
+
+test('inline processing that fails asks Meta to redeliver', async () => {
+  workerRunning = false;
+  noConsumer = true;
+  inlineFails = true;
+  const res = await post({ raw: RAW, signature: sign(RAW) });
+  assert.equal(res.statusCode, 503);
+  assert.equal(queued.length, 0);
+});
+
+test('a worker running in this process means queueing, without asking Redis about consumers', async () => {
+  workerRunning = true;
+  noConsumer = true; // would be wrong to consult: this process is the consumer
+  const res = await post({ raw: RAW, signature: sign(RAW) });
+  assert.equal(res.statusCode, 200);
+  assert.equal(queued.length, 1);
+  assert.equal(processed.length, 0);
 });
