@@ -196,21 +196,40 @@ export async function getOrCreateConversation(workspaceId, { contactId, waNumber
   return conversation;
 }
 
-export async function getMessages(workspaceId, conversationId, { limit } = {}) {
+export async function getMessages(workspaceId, conversationId, { limit, before } = {}) {
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
   });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
 
-  await prisma.conversation.update({ where: { id: conversationId }, data: { unreadCount: 0 } });
-  // Only when it changed: an open thread refetches on this, and must not loop.
-  if (conversation.unreadCount > 0) realtime.conversationUpdated(workspaceId, conversationId, 'read');
+  // `before` (a message id) asks for history older than that message — the
+  // inbox's "Load earlier messages". Reading history is not opening the
+  // thread, so it leaves the unread count alone.
+  let olderThan = null;
+  if (before) {
+    const pivot = await prisma.message.findFirst({
+      where: { id: String(before), conversationId },
+      select: { id: true, sentAt: true },
+    });
+    if (!pivot) { const e = new Error('Unknown message cursor'); e.status = 400; throw e; }
+    olderThan = {
+      OR: [
+        { sentAt: { lt: pivot.sentAt } },
+        { sentAt: pivot.sentAt, id: { lt: pivot.id } },
+      ],
+    };
+  } else {
+    await prisma.conversation.update({ where: { id: conversationId }, data: { unreadCount: 0 } });
+    // Only when it changed: an open thread refetches on this, and must not loop.
+    if (conversation.unreadCount > 0) realtime.conversationUpdated(workspaceId, conversationId, 'read');
+  }
 
-  // The newest `take` messages, still returned oldest-first. A years-long
-  // thread used to come back whole on every open and every poll (CF-048).
+  // The newest `take` messages (before the cursor, if any), still returned
+  // oldest-first. A years-long thread used to come back whole on every open
+  // and every poll (CF-048); `hasMore` says whether older ones remain.
   const { take } = listWindow({ limit }, { defaultLimit: 500, maxLimit: 2000 });
   const newest = await prisma.message.findMany({
-    where: { conversationId },
+    where: { conversationId, ...(olderThan ?? {}) },
     orderBy: [{ sentAt: 'desc' }, { id: 'desc' }],
     include: { senderUser: { select: { id: true, name: true } } },
     take: take + 1,
