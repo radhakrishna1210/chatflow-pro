@@ -356,6 +356,9 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
         data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [], ...(optIn || {}) },
       });
       createdHere = true;
+      import('./outgoingWebhook.service.js')
+        .then((m) => m.emitContactCreated?.(workspaceId, contact, { source: 'lead_form' }))
+        .catch((err) => console.warn('[Webhook:out] contact.created not sent:', err.message));
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       contact = await findContactByPhone(workspaceId, phoneNumber, { country });

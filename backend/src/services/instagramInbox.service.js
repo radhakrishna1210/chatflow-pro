@@ -138,6 +138,9 @@ async function ensureContact(workspaceId, igsid) {
         tags: ['instagram'],
       },
     });
+    import('./outgoingWebhook.service.js')
+      .then((m) => m.emitContactCreated?.(workspaceId, contact, { source: 'instagram' }))
+      .catch((err) => console.warn('[Webhook:out] contact.created not sent:', err.message));
     return { contact, isNew: true };
   } catch (err) {
     // Two DMs from a new sender racing each other: converge on the winner.

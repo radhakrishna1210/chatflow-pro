@@ -336,6 +336,9 @@ async function handleInboundMessage(value, msg) {
       contact = await prisma.contact.create({
         data: { workspaceId, name: displayName, phoneNumber: toE164(fromPhone, { international: true }) || fromPhone },
       });
+      import('./outgoingWebhook.service.js')
+        .then((m) => m.emitContactCreated?.(workspaceId, contact, { source: 'whatsapp' }))
+        .catch((err) => console.warn('[Webhook:out] contact.created not sent:', err.message));
     } catch (err) {
       if (err.code !== 'P2002') throw err;
       // Whichever spelling the winning writer used ("+91…" from the UI, bare
