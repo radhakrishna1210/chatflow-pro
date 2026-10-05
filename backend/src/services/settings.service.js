@@ -302,6 +302,7 @@ export async function testWebhook(workspaceId) {
       },
     });
 
+    console.log(`[Webhook:test] workspace ${workspaceId} → ${ws.webhookUrl} answered ${res.status}`);
     if (res.status >= 200 && res.status < 300) {
       return { ok: true, status: res.status, deliveryId };
     }
@@ -316,6 +317,7 @@ export async function testWebhook(workspaceId) {
     throw e;
   } catch (err) {
     if (err.status) throw err;
+    console.warn(`[Webhook:test] workspace ${workspaceId} → ${ws.webhookUrl} unreachable: ${err.code || err.message}`);
     const e = new Error(
       err.code === 'ECONNABORTED'
         ? 'Webhook request timed out'
