@@ -32,6 +32,7 @@ import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
 import { runBillingCycleSweep } from './services/subscription.service.js';
 import { syncIndex as syncSiteKnowledge } from './services/siteKnowledge.service.js';
+import { repairWebhookSubscriptions } from './services/whatsapp.service.js';
 import { campaignQueue } from './queues/campaign.queue.js';
 import { emailQueue } from './queues/email.queue.js';
 import { billingQueue, scheduleBillingCycleJob } from './queues/billing.queue.js';
@@ -268,6 +269,13 @@ async function main() {
   syncSiteKnowledge().catch((err) => {
     console.error('[siteKnowledge] initial index sync failed:', err.message);
   });
+
+  // Re-subscribe every connected number's WABA to our app so inbound messages
+  // reach the Inbox. Not awaited: one Graph call per number, and nothing at
+  // boot depends on it.
+  repairWebhookSubscriptions()
+    .then(({ checked, subscribed }) => console.log(`[whatsapp] Webhook subscriptions verified: ${subscribed}/${checked} number(s) subscribed.`))
+    .catch((err) => console.error('[whatsapp] Webhook subscription repair failed:', err.message));
 
   // Redis backs every queue, so production must not start without it — a
   // server that accepts campaign launches it can never process is worse than

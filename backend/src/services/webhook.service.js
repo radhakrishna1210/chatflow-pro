@@ -255,6 +255,10 @@ async function handleInboundMessage(value, msg) {
     return;
   }
   console.log(`[Inbound] matched waNumber id=${waNumber.id} workspace=${waNumber.workspaceId} — writing message to DB`);
+  // Declared up here because the campaign-attribution lookup below reads it;
+  // it used to be declared after that, which threw a TDZ ReferenceError the
+  // lookup's catch swallowed, so replies were never attributed to a campaign.
+  const workspaceId = waNumber.workspaceId;
 
   // Meta sends bare digits ("919876543210"); contacts may be stored with
   // "+" / spaces. Match on normalized digits so imported contacts are found.
@@ -406,8 +410,6 @@ async function handleInboundMessage(value, msg) {
       lastInboundAt: sentAt,
     },
   });
-
-  const workspaceId = waNumber.workspaceId;
 
   // Immediately exit active sequence cadences with exitOnReply enabled
   await prisma.sequenceEnrollment.updateMany({
