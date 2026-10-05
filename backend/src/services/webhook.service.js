@@ -301,6 +301,11 @@ async function handleInboundMessage(value, msg) {
       contact = await prisma.contact.create({
         data: { workspaceId: waNumber.workspaceId, name: displayName, phoneNumber: fromPhone },
       });
+      // Inside the try so only the write that won the race announces it.
+      emitWebhook(workspaceId, 'contact.created', {
+        contact: { id: contact.id, name: contact.name, phoneNumber: contact.phoneNumber, email: contact.email ?? null },
+        source: 'whatsapp_inbound',
+      });
     } catch (err) {
       if (err.code !== 'P2002') throw err;
       contact = await prisma.contact.findUnique({

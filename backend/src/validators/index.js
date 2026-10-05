@@ -368,7 +368,14 @@ const webhookUrl = z.string().trim().url('Must be a valid URL (e.g. https://your
 export const settingsSchemas = {
   update: z.object({
     webhookUrl: z.union([webhookUrl, z.literal('')]).optional(),
-    webhookEvents: z.array(z.enum(['messages', 'reactions', 'deliveries', 'reads', 'referrals'])).max(5).optional(),
+    // Must be the names outgoingWebhook.service.js actually dispatches. This
+    // used to accept Meta-style names ('messages', 'deliveries', ...) that no
+    // event is ever sent as, so saving any selection silently unsubscribed the
+    // workspace from everything.
+    webhookEvents: z.array(z.enum([
+      'message.received', 'message.status', 'campaign.completed', 'template.status',
+      'contact.created', 'optout.created', 'custom.event',
+    ])).max(7).nullable().optional(),
     notifyNewConversation: z.boolean().optional(),
     notifyTemplateApproved: z.boolean().optional(),
     notifyTemplateRejected: z.boolean().optional(),

@@ -2,6 +2,12 @@ import * as settingsService from '../services/settings.service.js';
 
 export async function getSettings(req, res) {
   const settings = await settingsService.getSettings(req.params.workspaceId);
+  // The verify token is the HMAC secret for outgoing deliveries; anyone holding
+  // it can forge events to the customer's endpoint. Only roles that can change
+  // the webhook need to see it.
+  if (!['CLIENT', 'ADMIN'].includes(req.user?.role) && req.user?.superAdmin !== true) {
+    delete settings.webhookVerifyToken;
+  }
   res.json(settings);
 }
 

@@ -145,6 +145,8 @@ export default function SettingsView() {
   const [invoices, setInvoices] = useState([]);
   const [webhookUrl, setWebhookUrl] = useState('');
   const [webhookError, setWebhookError] = useState(null);
+  const [webhookStatus, setWebhookStatus] = useState(null);
+  const [testingWebhook, setTestingWebhook] = useState(false);
   const [showToken, setShowToken]   = useState(false);
   const [notifs, setNotifs]    = useState(() => Object.fromEntries(NOTIF_OPTS.map(o=>[o.id,o.default])));
   const [emailNotifs, setEmailNotifs] = useState(() => Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id,o.default])));
@@ -193,11 +195,33 @@ export default function SettingsView() {
       setWebhookError('Enter a valid URL starting with http:// or https://');
       return;
     }
-    setWebhookError(null);
+    setWebhookError(null); setWebhookStatus(null);
     const r = await wFetch('/settings', { method:'PATCH', body:JSON.stringify({ webhookUrl: trimmed }) }).catch(()=>null);
-    if (r && !r.ok) {
-      const data = await r.json().catch(()=>({}));
+    if (!r) { setWebhookError('Could not reach the server'); return; }
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok) {
       setWebhookError(data.error || 'Could not save webhook URL');
+      return;
+    }
+    // The response carries the verify token minted on first save — without
+    // taking it the box stayed hidden until a full page reload.
+    setSettings(s => ({ ...s, ...data }));
+    setWebhookStatus({ ok: true, text: trimmed ? 'Webhook URL saved.' : 'Webhook removed.' });
+  };
+
+  // "Test" used to be a button with no handler, so pressing it did nothing at
+  // all — not even an error.
+  const testWebhook = async () => {
+    setTestingWebhook(true); setWebhookError(null); setWebhookStatus(null);
+    try {
+      const r = await wFetch('/settings/webhook/test', { method:'POST' });
+      const data = await r.json().catch(()=>({}));
+      if (r.ok) setWebhookStatus({ ok: true, text: `Test delivered — your endpoint answered ${data.status}.` });
+      else setWebhookError(data.error || `Test failed (${r.status})`);
+    } catch {
+      setWebhookError('Could not reach the server');
+    } finally {
+      setTestingWebhook(false);
     }
   };
 
@@ -489,9 +513,14 @@ export default function SettingsView() {
         <SectionCard icon="globe" title="Webhook">
           <div style={{ marginBottom:14 }}>
             <label style={{ fontSize:12, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6 }}>Webhook URL</label>
-            <FInput value={webhookUrl} onChange={e=>{ setWebhookUrl(e.target.value); setWebhookError(null); }} placeholder="https://your-server.com/webhook" disabled={!isAdmin}
+            <FInput value={webhookUrl} onChange={e=>{ setWebhookUrl(e.target.value); setWebhookError(null); setWebhookStatus(null); }} placeholder="https://your-server.com/webhook" disabled={!isAdmin}
               style={webhookError ? { borderColor:'#f87171' } : {}} />
             {webhookError && <p style={{ fontSize:11.5, color:'#f87171', marginTop:6 }}>{webhookError}</p>}
+            {webhookStatus && <p style={{ fontSize:11.5, color:'var(--green)', marginTop:6 }}>{webhookStatus.text}</p>}
+            <p style={{ fontSize:11.5, color:'var(--t3)', marginTop:6, lineHeight:1.5 }}>
+              Events are POSTed as JSON and signed: verify the <code>X-ChatFlow-Signature-256</code> header
+              (HMAC-SHA256 of the raw body, keyed with the Verify Token) and de-duplicate on <code>X-ChatFlow-Delivery</code>.
+            </p>
           </div>
           {settings.webhookVerifyToken && (
             <div style={{ marginBottom:14 }}>
@@ -509,7 +538,9 @@ export default function SettingsView() {
           {isAdmin && (
             <div style={{ display:'flex', gap:8 }}>
               <Btn onClick={saveWebhook}>Save</Btn>
-              <Btn variant="outline">Test</Btn>
+              <Btn variant="outline" onClick={testWebhook} disabled={testingWebhook || !settings.webhookUrl}>
+                {testingWebhook ? 'Testing…' : 'Test'}
+              </Btn>
             </div>
           )}
         </SectionCard>
