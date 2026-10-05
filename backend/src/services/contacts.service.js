@@ -169,13 +169,19 @@ export async function createContact(workspaceId, { name, phoneNumber, email, tag
   // unknown key is refused rather than quietly stored and never displayed.
   const { validateCustomFields } = await import('./customFields.service.js');
   const custom = await validateCustomFields(workspaceId, customFields);
-  return prisma.contact.create({
+  const contact = await prisma.contact.create({
     data: {
       workspaceId, name: name || normalized, phoneNumber: normalized,
       email: email || null, tags,
       ...(custom === undefined ? {} : { customFields: custom }),
     },
   });
+  const { emitWebhook } = await import('./outgoingWebhook.service.js');
+  emitWebhook(workspaceId, 'contact.created', {
+    contact: { id: contact.id, name: contact.name, phoneNumber: contact.phoneNumber, email: contact.email },
+    source: 'manual',
+  });
+  return contact;
 }
 
 export async function importContacts(workspaceId, csvBuffer) {

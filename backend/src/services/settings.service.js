@@ -120,7 +120,20 @@ export async function updateSettings(workspaceId, updates) {
     if (updates[key] !== undefined) data[key] = updates[key];
   }
   assertBranding(data);
+  if (data.webhookUrl) {
+    const { assertDeliverableUrl } = await import('./outgoingWebhook.service.js');
+    data.webhookUrl = String(data.webhookUrl).trim();
+    await assertDeliverableUrl(data.webhookUrl);
+  }
+  if (data.webhookUrl === '') data.webhookUrl = null;
   await prisma.workspace.update({ where: { id: workspaceId }, data });
+  if (data.webhookUrl) {
+    // The receiver needs the secret the moment a URL exists, so it is minted
+    // here rather than on the first event.
+    const { ensureVerifyToken } = await import('./outgoingWebhook.service.js');
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { webhookVerifyToken: true } });
+    await ensureVerifyToken(workspaceId, ws?.webhookVerifyToken);
+  }
   // Return the same shape GET does, so a save and a reload can never disagree
   // about what the workspace now looks like.
   return getSettings(workspaceId);
@@ -259,8 +272,10 @@ export async function testWebhook(workspaceId) {
   // unsigned {event:'test'} body, so a receiver that verified signatures — the
   // thing the test is meant to prove works — rejected the test and accepted
   // production traffic, or vice versa.
-  const { signPayload } = await import('./outgoingWebhook.service.js');
+  const { signPayload, assertDeliverableUrl, ensureVerifyToken } = await import('./outgoingWebhook.service.js');
   const { randomUUID } = await import('crypto');
+  await assertDeliverableUrl(ws.webhookUrl);
+  const secret = await ensureVerifyToken(workspaceId, ws.webhookVerifyToken);
   const deliveryId = randomUUID();
   const body = JSON.stringify({
     id: deliveryId,
@@ -274,20 +289,30 @@ export async function testWebhook(workspaceId) {
     const res = await axios.post(ws.webhookUrl, body, {
       timeout: 8000,
       validateStatus: () => true,
+      // Same as real deliveries (outgoingWebhook.service.js). The test used to
+      // follow redirects while production did not, so an http:// URL that
+      // redirects to https:// passed the test and then failed every event.
+      maxRedirects: 0,
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': 'ChatFlowPro-Webhook/1',
         'X-ChatFlow-Event': 'test',
         'X-ChatFlow-Delivery': deliveryId,
-        'X-ChatFlow-Signature-256': signPayload(body, ws.webhookVerifyToken),
+        'X-ChatFlow-Signature-256': signPayload(body, secret),
       },
     });
 
     if (res.status >= 200 && res.status < 300) {
-      return { ok: true, status: res.status };
+      return { ok: true, status: res.status, deliveryId };
     }
-    const e = new Error(`Webhook endpoint responded with status ${res.status}`);
+    const hint = res.status >= 300 && res.status < 400
+      ? ` (redirect to ${res.headers?.location || 'another URL'} — redirects are not followed, save the final URL)`
+      : res.status === 401 || res.status === 403
+        ? ' (your endpoint rejected the request — check it verifies X-ChatFlow-Signature-256 with the Verify Token shown here)'
+        : '';
+    const e = new Error(`Webhook endpoint responded with status ${res.status}${hint}`);
     e.status = 502;
+    e.expose = true;
     throw e;
   } catch (err) {
     if (err.status) throw err;
@@ -297,6 +322,7 @@ export async function testWebhook(workspaceId) {
         : `Could not reach webhook URL (${err.code || err.message})`
     );
     e.status = 502;
+    e.expose = true;
     throw e;
   }
 }
