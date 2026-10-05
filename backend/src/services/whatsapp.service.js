@@ -448,11 +448,45 @@ export async function checkSubscription(workspaceId, numberId) {
   const n = await prisma.waNumber.findFirst({ where: { id: numberId, workspaceId } });
   if (!n) { const e = new Error('Number not found'); e.status = 404; throw e; }
   const apps = await getSubscribedApps(n.wabaId, decrypt(n.encryptedAccessToken));
-  const subscribed = apps.some((a) => String(a.whatsapp_business_api_data?.id || a.id) === String(env.META_APP_ID)) || apps.length > 0;
+  // Our app specifically. Any *other* app on the WABA (a previous BSP, a test
+  // app) used to count as "subscribed" here, so the screen showed green while
+  // no webhook ever reached us.
+  const subscribed = env.META_APP_ID
+    ? apps.some((a) => String(a.whatsapp_business_api_data?.id || a.id) === String(env.META_APP_ID))
+    : apps.length > 0;
   if (subscribed !== n.appSubscribed) {
     await prisma.waNumber.update({ where: { id: n.id }, data: { appSubscribed: subscribed } }).catch(() => {});
   }
   return { subscribed, wabaId: n.wabaId };
+}
+
+// Boot-time self-heal for numbers that are connected but receive no webhooks:
+// rows recorded against the wrong WABA by the old pool onboarding (see
+// onboardFromPool), numbers assigned by an admin (which never subscribed), and
+// any whose subscription failed at connect time. Subscribing is idempotent on
+// Meta's side, so running it for every number is safe.
+export async function repairWebhookSubscriptions() {
+  const numbers = await prisma.waNumber.findMany({
+    select: { id: true, wabaId: true, metaPhoneNumberId: true, encryptedAccessToken: true },
+  });
+  let subscribed = 0;
+  for (const n of numbers) {
+    let wabaId = n.wabaId;
+    const pool = await prisma.numberPool.findFirst({
+      where: { phoneNumberId: n.metaPhoneNumberId },
+      select: { wabaId: true },
+    }).catch(() => null);
+    if (pool?.wabaId && pool.wabaId !== wabaId) {
+      console.warn(`[whatsapp] WaNumber ${n.id} recorded WABA ${wabaId} but its number lives on ${pool.wabaId} — correcting.`);
+      wabaId = pool.wabaId;
+      await prisma.waNumber.update({ where: { id: n.id }, data: { wabaId } }).catch(() => {});
+    }
+    if (!wabaId) continue;
+    let token = null;
+    try { token = n.encryptedAccessToken ? decrypt(n.encryptedAccessToken) : null; } catch { token = null; }
+    if (await ensureWabaSubscribed(n.id, wabaId, token)) subscribed += 1;
+  }
+  return { checked: numbers.length, subscribed };
 }
 
 export async function listPool() {
@@ -471,16 +505,12 @@ export async function onboardFromPool(workspaceId, poolEntryId) {
     throw err;
   }
 
-  // Attempt to create an isolated sub-WABA for this workspace
-  let wabaId = entry.wabaId;
-  try {
-    const { data } = await systemClient.post(`/${env.META_BUSINESS_ID}/owned_whatsapp_business_accounts`, {
-      name: `Workspace ${workspaceId}`,
-    });
-    if (data?.id) wabaId = data.id;
-  } catch {
-    // Fallback to shared WABA — non-fatal
-  }
+  // The number lives on the pool entry's WABA, and that is the WABA Meta sends
+  // its webhooks from. This used to create a fresh, empty sub-WABA here and
+  // record (and subscribe) that one instead — but the phone number was never
+  // moved onto it, so the real WABA stayed unsubscribed and every inbound
+  // message for the number was silently never delivered to the Inbox.
+  const wabaId = entry.wabaId;
 
   // Atomic: mark pool entry ASSIGNED + create WaNumber record
   const [number] = await prisma.$transaction([

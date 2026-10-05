@@ -1,7 +1,7 @@
 import twilio from 'twilio';
 import { prisma } from '../lib/prisma.js';
-import { encrypt } from '../lib/encryption.js';
-import { getWabaPhoneNumbers, requestOtp, verifyOtp, systemClient } from '../lib/meta.js';
+import { encrypt, decrypt } from '../lib/encryption.js';
+import { getWabaPhoneNumbers, requestOtp, verifyOtp, systemClient, subscribeAppToWaba } from '../lib/meta.js';
 import { deleteWaNumbers } from './whatsapp.service.js';
 import { env } from '../config/env.js';
 import { normalizeOverageRates } from '../lib/messagePricing.js';
@@ -297,6 +297,18 @@ export async function assignToWorkspace(poolEntryId, workspaceId) {
       data:  { status: 'ASSIGNED', assignedTo: workspaceId },
     }),
   ]);
+
+  // Without this Meta delivers no webhooks for the number — the workspace can
+  // send, but customer replies never reach its Inbox. Non-fatal, like the
+  // other connect paths: the number still works for outbound.
+  if (entry.wabaId) {
+    try {
+      await subscribeAppToWaba(entry.wabaId, entry.encryptedAccessToken ? decrypt(entry.encryptedAccessToken) : undefined);
+      await prisma.waNumber.update({ where: { id: number.id }, data: { appSubscribed: true } }).catch(() => {});
+    } catch (err) {
+      console.error(`[admin] subscribeAppToWaba(${entry.wabaId}) failed — webhooks will NOT arrive:`, err.response?.data?.error?.message || err.message);
+    }
+  }
 
   return { ok: true, number: { id: number.id, phoneNumber: number.phoneNumber }, workspace: { id: workspace.id, name: workspace.name } };
 }
