@@ -34,6 +34,15 @@ const RETRY_DELAYS_MS = [0, 2_000, 10_000, 60_000, 300_000];
 
 const isRetryable = (status) => !status || status >= 500 || status === 408 || status === 429;
 
+// The workspace lookup runs against the Supabase pooler, which intermittently
+// refuses connections (P1001). It used to be `.catch(() => null)`, which turned
+// a dropped connection into a silent "not subscribed" and lost the event. Retry
+// only the connection-level failures; anything else is a real error.
+const LOOKUP_RETRY_DELAYS_MS = [0, 1_000, 3_000];
+const TRANSIENT_DB_CODES = new Set(['P1001', 'P1002', 'P1008', 'P1017', 'P2024']);
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // Signature scheme mirrors Meta's, so anyone who has already written a receiver
 // for the inbound Meta webhook can reuse it: HMAC-SHA256 over the exact body,
 // hex, prefixed with the algorithm.
@@ -92,14 +101,28 @@ export async function assertDeliverableUrl(url) {
   }
 }
 
+// The settings validator used to accept only Meta-style names ('messages',
+// 'deliveries', ...), so workspaces that saved a selection before it was fixed
+// still store them. Matched literally, none of them equals a dispatched event
+// and those workspaces silently received nothing. Honour what they meant.
+const LEGACY_EVENT_ALIASES = Object.freeze({
+  messages: ['message.received'],
+  // Reactions and click-to-WhatsApp referrals arrive as inbound messages.
+  reactions: ['message.received'],
+  referrals: ['message.received'],
+  deliveries: ['message.status'],
+  reads: ['message.status'],
+});
+
 // Which workspaces want this event. `webhookEvents` null means "everything",
 // matching what the settings UI implies when nothing is selected.
-function wantsEvent(workspace, event) {
+export function wantsEvent(workspace, event) {
   if (!workspace?.webhookUrl) return false;
   const selected = workspace.webhookEvents;
   if (selected == null) return true;
   if (!Array.isArray(selected)) return true;
-  return selected.length === 0 || selected.includes(event);
+  if (selected.length === 0) return true;
+  return selected.some((name) => name === event || LEGACY_EVENT_ALIASES[name]?.includes(event));
 }
 
 async function deliverOnce(url, body, headers, timeoutMs = 10_000) {
@@ -117,23 +140,63 @@ async function deliverOnce(url, body, headers, timeoutMs = 10_000) {
   }
 }
 
+async function loadWebhookConfig(workspaceId, retryDelaysMs) {
+  for (let attempt = 0; ; attempt += 1) {
+    if (retryDelaysMs[attempt] > 0) await sleep(retryDelaysMs[attempt]);
+    try {
+      return await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { webhookUrl: true, webhookEvents: true, webhookVerifyToken: true },
+      });
+    } catch (err) {
+      const transient = TRANSIENT_DB_CODES.has(err.code);
+      const last = attempt >= retryDelaysMs.length - 1;
+      console.error(
+        `[Webhook:out] workspace lookup failed for ${workspaceId} ` +
+        `(attempt ${attempt + 1}/${retryDelaysMs.length}, code=${err.code ?? 'none'}): ${err.message}`
+      );
+      if (!transient || last) throw err;
+    }
+  }
+}
+
 /**
  * Sends one event to a workspace's configured endpoint, retrying transient
  * failures. Never throws: a customer's broken endpoint must not fail the
- * operation that produced the event.
+ * operation that produced the event. Every path that does not deliver logs why.
+ *
+ * `opts` exists for tests: { retryDelaysMs, lookupRetryDelaysMs }.
  */
-export async function dispatchWebhook(workspaceId, event, data) {
+export async function dispatchWebhook(workspaceId, event, data, opts = {}) {
+  const retryDelaysMs = opts.retryDelaysMs ?? RETRY_DELAYS_MS;
+  const lookupRetryDelaysMs = opts.lookupRetryDelaysMs ?? LOOKUP_RETRY_DELAYS_MS;
+
   if (!WEBHOOK_EVENTS.includes(event)) {
     console.warn(`[Webhook:out] Unknown event "${event}" — not sent.`);
     return { delivered: false, reason: 'unknown_event' };
   }
 
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { webhookUrl: true, webhookEvents: true, webhookVerifyToken: true },
-  }).catch(() => null);
+  let workspace;
+  try {
+    workspace = await loadWebhookConfig(workspaceId, lookupRetryDelaysMs);
+  } catch (err) {
+    console.error(`[Webhook:out] ${event} NOT sent for ${workspaceId} — workspace lookup failed: ${err.message}`);
+    return { delivered: false, reason: 'workspace_lookup_failed', error: err.message, code: err.code };
+  }
 
-  if (!wantsEvent(workspace, event)) return { delivered: false, reason: 'not_subscribed' };
+  if (!workspace) {
+    console.warn(`[Webhook:out] ${event} skipped — workspace ${workspaceId} not found.`);
+    return { delivered: false, reason: 'workspace_not_found' };
+  }
+
+  if (!wantsEvent(workspace, event)) {
+    console.warn(
+      `[Webhook:out] ${event} skipped for ${workspaceId} — ` +
+      `url=${Boolean(workspace.webhookUrl)} ` +
+      `events=${JSON.stringify(workspace.webhookEvents ?? null)}`
+    );
+    return { delivered: false, reason: 'not_subscribed' };
+  }
 
   try {
     await assertDeliverableUrl(workspace.webhookUrl);
@@ -156,17 +219,17 @@ export async function dispatchWebhook(workspaceId, event, data) {
     'X-ChatFlow-Signature-256': signPayload(body, secret),
   };
 
-  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt += 1) {
-    if (RETRY_DELAYS_MS[attempt] > 0) {
-      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
-    }
+  let lastResult = null;
+  for (let attempt = 0; attempt < retryDelaysMs.length; attempt += 1) {
+    if (retryDelaysMs[attempt] > 0) await sleep(retryDelaysMs[attempt]);
     const result = await deliverOnce(workspace.webhookUrl, body, headers);
+    lastResult = result;
     if (result.ok) {
       // Logged on every success, not only retried ones: a silent first-attempt
       // success left no trace at all, so "is my webhook working?" had no answer
       // in the server logs.
       console.log(`[Webhook:out] ${event} delivered (${result.status}) on attempt ${attempt + 1} — delivery ${deliveryId}`);
-      return { delivered: true, attempts: attempt + 1, deliveryId };
+      return { delivered: true, attempts: attempt + 1, status: result.status, deliveryId };
     }
     if (result.status >= 300 && result.status < 400) {
       // Redirects are not followed (a redirect would replay a signed body to a
@@ -184,8 +247,8 @@ export async function dispatchWebhook(workspaceId, event, data) {
     console.warn(`[Webhook:out] ${event} attempt ${attempt + 1} failed (${result.status ?? result.error}) — will retry.`);
   }
 
-  console.error(`[Webhook:out] ${event} to ${workspace.webhookUrl} failed after ${RETRY_DELAYS_MS.length} attempts.`);
-  return { delivered: false, attempts: RETRY_DELAYS_MS.length, deliveryId };
+  console.error(`[Webhook:out] ${event} to ${workspace.webhookUrl} failed after ${retryDelaysMs.length} attempts.`);
+  return { delivered: false, attempts: retryDelaysMs.length, status: lastResult?.status ?? null, deliveryId };
 }
 
 // Fire-and-forget wrapper for call sites in request/webhook paths, where the
