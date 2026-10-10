@@ -3109,7 +3109,8 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     // The design set lists them as first-class destinations, so they get their
     // own routes and sidebar entries — pointing at the existing, already-wired
     // implementation rather than a second copy of it.
-    if (page === 'ai-agent' || page === 'ai-chatbots') return <AiAgentsView user={user} initialTab={initialSubTab} />;
+    if (page === 'ai-agent') return <AutomationView initialTab="wa-agent" />;
+    if (page === 'ai-chatbots') return <AiAgentsView user={user} initialTab={initialSubTab} />;
     if (page === 'intent-matching') return <AutomationView initialTab="ai-intent" />;
     if (page === 'crm-overview') return <CrmDashboardView user={user} />;
     if (page === 'contacts')   return <ContactsView />;
