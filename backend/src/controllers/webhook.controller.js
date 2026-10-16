@@ -7,7 +7,19 @@ export function verify(req, res) {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === env.META_WEBHOOK_VERIFY_TOKEN) {
+  // Safe diagnostic logging — never logs the actual token value.
+  const envToken = env.META_WEBHOOK_VERIFY_TOKEN;
+  console.log(
+    '[Webhook] GET /meta verify — ' +
+    `mode=${mode ?? 'MISSING'} ` +
+    `challenge_present=${!!challenge} ` +
+    `received_token_len=${token?.length ?? 0} ` +
+    `env_token_set=${!!envToken} ` +
+    `env_token_len=${envToken?.length ?? 0} ` +
+    `match=${mode === 'subscribe' && token === envToken}`
+  );
+
+  if (mode === 'subscribe' && token === envToken) {
     return res.status(200).send(challenge);
   }
   res.status(403).json({ error: 'Verification failed' });

@@ -123,3 +123,20 @@ export function reopenWindow(req, res) {
 export function simulateInbound(req, res) {
   return handle(res, () => conversationsService.simulateInboundMessage(req.params.workspaceId, req.params.id, req.body || {}), 'Failed to simulate inbound message');
 }
+
+export async function streamMedia(req, res) {
+  try {
+    const { buffer, mimeType } = await conversationsService.getMessageMediaStream(
+      req.params.workspaceId,
+      req.params.id,
+      req.params.messageId,
+    );
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.send(buffer);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to fetch media' });
+  }
+}
+

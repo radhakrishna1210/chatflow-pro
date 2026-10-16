@@ -768,11 +768,12 @@ export async function reopenWindow(workspaceId, conversationId) {
 
 /**
  * Simulate an inbound WhatsApp message from the contact for testing/dev environments.
+ * Supports simulating audio voice notes with automatic speech-to-text.
  */
-export async function simulateInboundMessage(workspaceId, conversationId, { body = 'Hii' } = {}) {
+export async function simulateInboundMessage(workspaceId, conversationId, { body = 'Hii', type = 'TEXT', mediaId, buffer, mimeType } = {}) {
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
-    include: { contact: true },
+    include: { contact: true, waNumber: true },
   });
   if (!conversation) {
     const e = new Error('Conversation not found');
@@ -780,15 +781,26 @@ export async function simulateInboundMessage(workspaceId, conversationId, { body
     throw e;
   }
   const now = new Date();
+  let resolvedBody = String(body || 'Hii').trim();
+  const isAudio = type === 'AUDIO';
+
+  if (isAudio && buffer) {
+    const { transcribeAudioBuffer } = await import('./stt.service.js');
+    const stt = await transcribeAudioBuffer(buffer, mimeType || 'audio/ogg').catch(() => null);
+    if (stt) resolvedBody = stt;
+  }
+
   const message = await prisma.message.create({
     data: {
       conversationId,
-      body: String(body || 'Hii').trim(),
+      body: resolvedBody,
       direction: 'INBOUND',
-      type: 'TEXT',
+      type: isAudio ? 'AUDIO' : (type || 'TEXT'),
       status: 'DELIVERED',
       statusAt: now,
       sentAt: now,
+      mediaId: mediaId || (isAudio ? 'sim_media_audio' : null),
+      mediaMimeType: isAudio ? (mimeType || 'audio/ogg') : null,
     },
   });
   await prisma.conversation.update({
@@ -801,3 +813,35 @@ export async function simulateInboundMessage(workspaceId, conversationId, { body
   });
   return { success: true, message, window: windowStateFrom(now) };
 }
+
+/**
+ * Streams / downloads binary media for an existing conversation message.
+ */
+export async function getMessageMediaStream(workspaceId, conversationId, messageId) {
+  const message = await prisma.message.findFirst({
+    where: { id: messageId, conversationId },
+    include: {
+      conversation: {
+        include: { waNumber: true },
+      },
+    },
+  });
+  if (!message) {
+    const e = new Error('Message not found');
+    e.status = 404;
+    throw e;
+  }
+  if (!message.mediaId) {
+    const e = new Error('Message has no media attachment');
+    e.status = 404;
+    throw e;
+  }
+
+  const { downloadMediaBuffer } = await import('../lib/meta.js');
+  const accessToken = message.conversation?.waNumber?.encryptedAccessToken
+    ? decrypt(message.conversation.waNumber.encryptedAccessToken)
+    : null;
+
+  return downloadMediaBuffer(message.mediaId, accessToken);
+}
+

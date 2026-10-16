@@ -101,11 +101,11 @@ export async function assertDeliverableUrl(url) {
   }
 }
 
-// The settings validator used to accept only Meta-style names ('messages',
-// 'deliveries', ...), so workspaces that saved a selection before it was fixed
-// still store them. Matched literally, none of them equals a dispatched event
-// and those workspaces silently received nothing. Honour what they meant.
-const LEGACY_EVENT_ALIASES = Object.freeze({
+// The settings API (validators/index.js, settingsSchemas.update) only accepts
+// Meta-style subscription names, so that is what workspaces actually store.
+// Matching them literally against the event names above meant any workspace
+// that ticked "messages" in Settings silently received nothing at all.
+const SETTINGS_EVENT_ALIASES = Object.freeze({
   messages: ['message.received'],
   // Reactions and click-to-WhatsApp referrals arrive as inbound messages.
   reactions: ['message.received'],
@@ -122,7 +122,7 @@ export function wantsEvent(workspace, event) {
   if (selected == null) return true;
   if (!Array.isArray(selected)) return true;
   if (selected.length === 0) return true;
-  return selected.some((name) => name === event || LEGACY_EVENT_ALIASES[name]?.includes(event));
+  return selected.some((name) => name === event || SETTINGS_EVENT_ALIASES[name]?.includes(event));
 }
 
 async function deliverOnce(url, body, headers, timeoutMs = 10_000) {
@@ -225,26 +225,18 @@ export async function dispatchWebhook(workspaceId, event, data, opts = {}) {
     const result = await deliverOnce(workspace.webhookUrl, body, headers);
     lastResult = result;
     if (result.ok) {
-      // Logged on every success, not only retried ones: a silent first-attempt
-      // success left no trace at all, so "is my webhook working?" had no answer
-      // in the server logs.
       console.log(`[Webhook:out] ${event} delivered (${result.status}) on attempt ${attempt + 1} — delivery ${deliveryId}`);
       return { delivered: true, attempts: attempt + 1, status: result.status, deliveryId };
     }
     if (result.status >= 300 && result.status < 400) {
-      // Redirects are not followed (a redirect would replay a signed body to a
-      // host the workspace never configured), so name it plainly — the usual
-      // cause is an http:// URL whose server redirects to https://.
       console.warn(`[Webhook:out] ${event} got redirect ${result.status} from ${workspace.webhookUrl} — save the final URL instead; not retrying.`);
       return { delivered: false, attempts: attempt + 1, status: result.status, deliveryId };
     }
     if (!isRetryable(result.status)) {
-      // A 4xx is the receiver saying "this request is wrong". Repeating it
-      // cannot help, so stop rather than spending four more attempts.
       console.warn(`[Webhook:out] ${event} rejected with ${result.status} — not retrying.`);
       return { delivered: false, attempts: attempt + 1, status: result.status, deliveryId };
     }
-    console.warn(`[Webhook:out] ${event} attempt ${attempt + 1} failed (${result.status ?? result.error}) — will retry.`);
+    console.warn(`[Webhook:out] ${event} attempt ${attempt + 1}/${retryDelaysMs.length} failed (${result.status ?? result.error}) — will retry.`);
   }
 
   console.error(`[Webhook:out] ${event} to ${workspace.webhookUrl} failed after ${retryDelaysMs.length} attempts.`);
