@@ -16,6 +16,8 @@ import { parseInboundMessage, carriesCustomerText } from './inboundMessage.js';
 import { emitWebhook } from './outgoingWebhook.service.js';
 import { routeByIntent, escalateToHuman, escalationReason } from './intentRouting.service.js';
 import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPLIES } from './conversationControl.service.js';
+import { decrypt } from '../lib/encryption.js';
+import { transcribeWhatsAppAudio } from './stt.service.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
 
@@ -239,15 +241,13 @@ async function handleInboundMessage(value, msg) {
     console.error(`[Inbound] PARSE FAILED — message ${msg?.id} (type=${msg?.type}) from=${fromPhone}: ${err.message}`);
     return;
   }
-  const messageBody = parsed.body;
-
   // Tapping a template quick-reply delivers the payload the send attached to
   // that button (msg.button.payload); an interactive reply carries it as the
   // reply's id. Campaigns stamp the recipient's id there, so a CTA tap names
   // the exact campaign message the customer is looking at.
   const buttonPayload = parsed.buttonPayload;
 
-  console.log(`[Inbound] from=${fromPhone} phone_number_id=${phoneNumberId} type=${parsed.type} body="${messageBody}"`);
+  console.log(`[Inbound] from=${fromPhone} phone_number_id=${phoneNumberId} type=${parsed.type} initial_body="${parsed.body}"`);
 
   const waNumber = await prisma.waNumber.findFirst({ where: { metaPhoneNumberId: phoneNumberId } });
   if (!waNumber) {
@@ -255,6 +255,34 @@ async function handleInboundMessage(value, msg) {
     return;
   }
   console.log(`[Inbound] matched waNumber id=${waNumber.id} workspace=${waNumber.workspaceId} — writing message to DB`);
+
+  // When the customer sends a voice note (audio message), transcribe and translate it to text
+  if (parsed.type === 'AUDIO' && parsed.media?.mediaId) {
+    try {
+      const accessToken = waNumber.encryptedAccessToken
+        ? decrypt(waNumber.encryptedAccessToken)
+        : null;
+
+      const stt = await transcribeWhatsAppAudio({
+        mediaId: parsed.media.mediaId,
+        accessToken,
+        mimeType: parsed.media.mediaMimeType,
+      });
+
+      if (stt?.text) {
+        console.log(`[Inbound STT] Voice note from ${fromPhone} (${msg.id}) transcribed: "${stt.text}"`);
+        parsed.transcription = stt.text;
+        parsed.body = stt.text;
+      } else {
+        console.log(`[Inbound STT] Voice note from ${fromPhone} (${msg.id}) produced no transcription.`);
+      }
+    } catch (sttErr) {
+      console.error(`[Inbound STT] Error transcribing voice note from ${fromPhone}:`, sttErr.message);
+    }
+  }
+
+  const messageBody = parsed.body;
+
   // Declared up here because the campaign-attribution lookup below reads it;
   // it used to be declared after that, which threw a TDZ ReferenceError the
   // lookup's catch swallowed, so replies were never attributed to a campaign.

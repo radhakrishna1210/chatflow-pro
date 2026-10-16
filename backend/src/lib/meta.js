@@ -180,6 +180,48 @@ export async function uploadPhoneMedia({ phoneNumberId, accessToken, buffer, mim
   }
 }
 
+// Downloads binary media (voice note, image, document) from Meta's media storage.
+// Two steps: retrieve the temporary download URL from Meta Graph API,
+// then fetch the raw bytes with authorization.
+export async function downloadMediaBuffer(mediaId, accessToken) {
+  const token = accessToken || env.META_SYSTEM_USER_TOKEN;
+  if (!token) throw new Error('No Meta access token available to download media');
+
+  try {
+    // 1. Get temporary media download URL from Meta
+    const { data: mediaInfo } = await axios.get(`${BASE}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 15000,
+    });
+    if (!mediaInfo?.url) {
+      throw new Error(`Meta media ${mediaId} returned no download URL`);
+    }
+
+    // 2. Fetch binary stream
+    const res = await axios.get(mediaInfo.url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': 'curl/7.64.1',
+      },
+      responseType: 'arraybuffer',
+      timeout: 30000,
+      maxContentLength: 50 * 1024 * 1024,
+    });
+
+    return {
+      buffer: Buffer.from(res.data),
+      mimeType: mediaInfo.mime_type || 'audio/ogg',
+      fileSize: mediaInfo.file_size,
+    };
+  } catch (err) {
+    if (err.status && !err.isAxiosError) throw err;
+    const msg = err.response?.data?.error?.message || err.message;
+    const e = new Error(`Failed to download Meta media ${mediaId}: ${msg}`);
+    e.status = err.response?.status || 502;
+    throw e;
+  }
+}
+
 function describeUploadError(err, what) {
   const m = err.response?.data?.error;
   const detail = m
