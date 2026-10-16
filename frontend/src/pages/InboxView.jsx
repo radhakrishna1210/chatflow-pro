@@ -717,11 +717,32 @@ export default function InboxView() {
                               <span style={{ fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.08em', color:'var(--t2)', textTransform:'uppercase' }}>
                                 {m.type === 'LOCATION' && m.locationLat != null
                                   ? `${m.locationLat.toFixed(4)}, ${m.locationLng.toFixed(4)}`
-                                  : (m.mediaFilename || m.type.toLowerCase())}
+                                  : m.type === 'AUDIO' ? 'Voice Note' : (m.mediaFilename || m.type.toLowerCase())}
                               </span>
                             </div>
                           )}
-                          <p style={{ fontSize:13, color:'var(--t1)', lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.body}</p>
+                          {m.type === 'AUDIO' && m.mediaId && (
+                            <div style={{ margin:'6px 0' }}>
+                              <audio
+                                controls
+                                preload="none"
+                                style={{ height:32, maxWidth:240, width:'100%' }}
+                                src={`/api/v1/workspaces/${active.workspaceId}/conversations/${active.id}/messages/${m.id}/media`}
+                              />
+                            </div>
+                          )}
+                          {m.type === 'AUDIO' ? (
+                            <div style={{ marginTop:4, padding:'4px 8px', borderRadius:6, background:'rgba(34,197,94,0.06)', border:'1px solid rgba(34,197,94,0.18)' }}>
+                              <span style={{ fontSize:10.5, color:'var(--green)', fontWeight:700, display:'block', marginBottom:2, letterSpacing:'.02em' }}>
+                                🎤 Transcribed Voice Note
+                              </span>
+                              <p style={{ fontSize:13, color:'var(--t1)', lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0 }}>
+                                {m.body}
+                              </p>
+                            </div>
+                          ) : (
+                            <p style={{ fontSize:13, color:'var(--t1)', lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.body}</p>
+                          )}
                           <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:5, marginTop:4 }}>
                             <span style={{ fontSize:10, color:'var(--t2)' }}>{fmtTime(m.sentAt)}</span>
                             {/* Delivery state, now recorded for every outbound

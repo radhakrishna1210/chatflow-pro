@@ -8,7 +8,7 @@
 
 // What to show in a message list for a media message that carries no caption.
 // The type is stored separately; this is only the human-readable stand-in.
-const PLACEHOLDER = {
+export const PLACEHOLDER = {
   IMAGE: '[photo]',
   VIDEO: '[video]',
   AUDIO: '[voice message]',
@@ -21,10 +21,11 @@ const PLACEHOLDER = {
 
 // Meta nests the media object under a key named after the type, and every one
 // of them carries the same id/mime_type/sha256 shape.
-const MEDIA_TYPES = {
+export const MEDIA_TYPES = {
   image: 'IMAGE',
   video: 'VIDEO',
   audio: 'AUDIO',
+  voice: 'AUDIO',
   document: 'DOCUMENT',
   sticker: 'STICKER',
 };
@@ -78,6 +79,7 @@ export function parseInboundMessage(msg) {
       mediaMimeType: node.mime_type ?? null,
       mediaFilename: node.filename ?? null,
       mediaSha256: node.sha256 ?? null,
+      voice: Boolean(node.voice || key === 'voice'),
     };
     return out;
   }
@@ -110,10 +112,20 @@ export function parseInboundMessage(msg) {
   return out;
 }
 
-// Only a message the customer typed should drive keyword triggers, intent
-// matching or an AI reply. Matching "STOP" against the placeholder text we
-// invented for a photo would be our own words triggering our own automation.
+// Only a message the customer typed (or spoke in a transcribed voice note)
+// should drive keyword triggers, intent matching or an AI reply.
+// Matching "STOP" against the placeholder text we invented for a photo
+// would be our own words triggering our own automation.
 export function carriesCustomerText(parsed) {
+  if (!parsed) return false;
+
+  // A voice note transcribed to text represents the customer's actual words
+  if (parsed.type === 'AUDIO') {
+    const text = String(parsed.body || '').trim();
+    const isTranscribed = Boolean(parsed.transcription) || (text && text !== PLACEHOLDER.AUDIO);
+    return Boolean(isTranscribed && text);
+  }
+
   return (parsed.type === 'TEXT' || parsed.type === 'BUTTON' || parsed.type === 'INTERACTIVE')
     && Boolean(parsed.body?.trim());
 }
