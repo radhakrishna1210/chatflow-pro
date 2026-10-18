@@ -26,6 +26,10 @@ PM2_APP="chatflow-backend"
 NODE22_BIN="/root/.nvm/versions/node/v22.23.2/bin"
 SYSTEM_NODE="/usr/bin/node"
 HEALTH_URL="http://127.0.0.1:4400/api/v1/health"
+# The VPS deploys from the HerbsMagic repo. radhakrishna1210/chatflow-pro is
+# the old source and must not be pulled from any more.
+DEPLOY_REPO="HerbsMagic/HM-Chatflow-whatsapp"
+DEPLOY_REPO_URL="https://github.com/$DEPLOY_REPO.git"
 BRANCH="${1:-}"
 
 log()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
@@ -41,6 +45,17 @@ PM2_BIN="$(command -v pm2 || true)"
 [ -n "$PM2_BIN" ] || die "pm2 not found on PATH."
 
 cd "$APP_DIR"
+
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+case "$ORIGIN_URL" in
+  *"$DEPLOY_REPO"|*"$DEPLOY_REPO.git") ;;
+  *) die "origin is '$ORIGIN_URL', expected $DEPLOY_REPO. Fix once with:
+    git -C $APP_DIR remote set-url origin $DEPLOY_REPO_URL" ;;
+esac
+
+# `main` in this repo is a dead branch at the first commit; deploying it would
+# replace the running app with an empty project. The live branch is master.
+[ "$BRANCH" = "main" ] && die "Refusing to deploy 'main' (dead branch). Use: ./deploy-vps.sh master"
 
 # --- Source ----------------------------------------------------------------
 log "Updating source"
