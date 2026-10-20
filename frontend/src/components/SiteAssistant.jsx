@@ -3,7 +3,7 @@ import { I } from './Icons.jsx';
 
 // ─── Website assistant ───────────────────────────────────────────────────────
 //
-// A floating chatbot that answers questions about Spandan from the site's
+// A floating chatbot that answers questions about Svann from the site's
 // own content. Mounted once in App.jsx, so it follows the visitor between the
 // landing page and the dashboard without losing the thread.
 //
@@ -22,12 +22,12 @@ const MONO = 'var(--mono)';
 // Shown on an empty thread. These are prompts, not canned answers — tapping
 // one just types it into the box and asks the server like any other question.
 const SUGGESTIONS = [
-  'What features does Spandan provide?',
+  'What features does Svann provide?',
   'What plans do you have?',
   'How do I create a campaign?',
 ];
 
-const GREETING = "Ask me anything about Spandan — features, plans, pricing, or how something works. I answer from this website's content.";
+const GREETING = "Ask me anything about Svann — features, plans, pricing, or how something works. I answer from this website's content.";
 
 function loadThread() {
   try {
@@ -213,7 +213,7 @@ export default function SiteAssistant() {
     return (
       <button
         onClick={() => setOpen(true)}
-        aria-label="Open the Spandan assistant"
+        aria-label="Open the Svann assistant"
         style={{
           position: 'fixed', right: 22, bottom: 22, zIndex: 900,
           width: 52, height: 52, borderRadius: '50%',
@@ -238,7 +238,7 @@ export default function SiteAssistant() {
       <section
         className="cfp-assistant"
         role="dialog"
-        aria-label="Spandan assistant"
+        aria-label="Svann assistant"
         style={{
           position: 'fixed', right: 22, bottom: 22, zIndex: 900,
           width: 386, maxWidth: 'calc(100vw - 32px)',
@@ -265,7 +265,7 @@ export default function SiteAssistant() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)', letterSpacing: '-.01em' }}>
-              Spandan Assistant
+              Svann Assistant
             </div>
             <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--t3)', letterSpacing: '.06em', textTransform: 'uppercase' }}>
               Answers from this website
@@ -329,7 +329,7 @@ export default function SiteAssistant() {
             onKeyDown={onKeyDown}
             rows={1}
             maxLength={1000}
-            placeholder="Ask about Spandan…"
+            placeholder="Ask about Svann…"
             aria-label="Your question"
             style={{
               flex: 1, resize: 'none', minHeight: 38, maxHeight: 110,

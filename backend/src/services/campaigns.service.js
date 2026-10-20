@@ -139,7 +139,7 @@ const buttonTrackingInfo = (components) => {
   return {
     mode: hasUrlButtons ? 'UNAVAILABLE' : 'WEBHOOK',
     reason: hasUrlButtons
-      ? 'This campaign uses WhatsApp URL buttons. WhatsApp opens those links directly and does not send ChatFlow a click webhook. Tracking requires a ChatFlow redirect URL to be approved in the template before it is sent.'
+      ? 'This campaign uses WhatsApp URL buttons. WhatsApp opens those links directly and does not send Svann a click webhook. Tracking requires a Svann redirect URL to be approved in the template before it is sent.'
       : null,
     buttons: definitions,
   };

@@ -40,7 +40,7 @@ export function RcFooter() {
           ))}
         </div>
         <div className="rc-foot-bottom">
-          <span>© {new Date().getFullYear()} Spandan · Official Meta WhatsApp Business API Partner</span>
+          <span>© {new Date().getFullYear()} Svann · Official Meta WhatsApp Business API Partner</span>
           <span>Guides, product journeys &amp; developer reference</span>
         </div>
       </div>

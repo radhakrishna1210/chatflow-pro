@@ -1,8 +1,8 @@
 :root {
-  /* ── Spandan palette ──────────────────────────────────────────────────
+  /* ── Svann palette ──────────────────────────────────────────────────
      Token *names* are unchanged from the previous theme so the ~2,800
      existing var() call sites across the app re-skin themselves. Only the
-     values moved. --green keeps its name but now carries the Spandan accent
+     values moved. --green keeps its name but now carries the Svann accent
      (cyan); --accent is the preferred alias for new code. */
   --bg:   #0a0b0e;
   /* Every card is built from `background: var(--surf)`, so the sheen that
@@ -18,7 +18,7 @@
   --bds: rgba(255,255,255,0.16);
   --t1:  #eef0f3;
   --t2:  #8b909b;
-  /* Spandan specifies #565c66 here, which measures 2.9:1 on a panel — below
+  /* Svann specifies #565c66 here, which measures 2.9:1 on a panel — below
      the 4.5:1 WCAG AA asks for, and --t3 is used for 330 labels most of which
      are set at 10-12px. Lifted within the same hue to 4.9:1. This is the one
      deliberate deviation from the mockups' literal values; the previous theme
@@ -26,7 +26,7 @@
   --t3:  #7a808c;
   --t3-faint: #565c66;   /* exact mockup shade — decorative/large text only */
 
-  /* Accent. Spandan leads with cyan, with violet and lime as the secondary
+  /* Accent. Svann leads with cyan, with violet and lime as the secondary
      and tertiary voices. */
   --cyan:  #35e8f2;
   --violet:#9d6bff;
@@ -36,7 +36,7 @@
   --wa-green:#25d366;        /* WhatsApp brand mark — stays green */
   /* Status green. The accent is cyan now, so a "Completed"/"Delivered" badge
      painted with --green would have lost the green-good/amber-warn/red-fail
-     convention that the badge sits inside. Spandan keeps a green in its own
+     convention that the badge sits inside. Svann keeps a green in its own
      palette for exactly this; status badges use it, accents do not. */
   --success:#25d366;
   --sbg: rgba(37,211,102,0.08);

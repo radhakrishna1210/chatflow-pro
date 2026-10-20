@@ -3,7 +3,7 @@ import { navigate } from '../../App.jsx';
 import { I } from '../Icons.jsx';
 import { JOURNEYS, CATEGORY_NAME, getCategory } from '../../data/resources.js';
 
-/* Interactive product journey player — Prev/Next through the real Spandan
+/* Interactive product journey player — Prev/Next through the real Svann
    flow. Each step shows the module it maps to, prerequisites, expected result
    and common errors. Goes beyond the Interakt reference: this communicates the
    actual product sequence, not just a list of articles. */

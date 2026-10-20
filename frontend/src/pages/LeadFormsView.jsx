@@ -108,7 +108,7 @@ function diagnose(fields) {
     blocking.push('Add a phone or email field — without one, a submission cannot identify anyone and no lead can be created.');
   } else if (!hasPhone) {
     warnings.push(
-      'This form collects an email but no phone number. A contact in ChatFlow is identified by phone, '
+      'This form collects an email but no phone number. A contact in Svann is identified by phone, '
       + 'so submissions will be stored and shown below as "Rejected", and no leads will be created. '
       + 'Add a phone field if you want this form to produce leads.',
     );

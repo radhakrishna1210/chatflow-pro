@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-test('Spandan website loads successfully', async ({ page }) => {
+test('Svann website loads successfully', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page).toHaveTitle(/Spandan/i);
+  await expect(page).toHaveTitle(/Svann/i);
 
-  console.log('Spandan loaded successfully');
+  console.log('Svann loaded successfully');
 });

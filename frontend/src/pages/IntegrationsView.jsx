@@ -112,13 +112,13 @@ const INTEGRATIONS = [
   {
     id: 'yampi', name: 'Yampi', pricing: 'free', category: 'e-Commerce Platform',
     description: 'Create/Update users and send automatic WhatsApp notifications upon different events from your Yampi store',
-    features: ['Order lifecycle notifications', 'Customer auto-creation in Spandan', 'Brazilian e-commerce native support'],
+    features: ['Order lifecycle notifications', 'Customer auto-creation in Svann', 'Brazilian e-commerce native support'],
     actions: ['Know More', 'Connect'],
     videoQuery: 'Yampi WhatsApp integration tutorial',
   },
   {
     id: 'facebook-lead', name: 'Facebook Lead Form', pricing: 'paid', category: 'Ads Platform',
-    description: 'As soon as a lead fills the form, add them in Interakt & send an automatic welcome notification',
+    description: 'As soon as a lead fills the form, add them in Svann & send an automatic welcome notification',
     features: ['Instant lead capture to contacts', 'Automated welcome WhatsApp message', 'Lead nurturing sequences'],
     actions: ['Connect'],
     videoQuery: 'Facebook Lead Form WhatsApp integration tutorial',
@@ -181,7 +181,7 @@ const INTEGRATIONS = [
   },
   {
     id: 'judge-me', name: 'Judge.me', pricing: 'paid', category: 'Product Review Platform',
-    description: 'Create/Update a Review on Judge.me when a customer completes a Feedback workflow on Interakt',
+    description: 'Create/Update a Review on Judge.me when a customer completes a Feedback workflow on Svann',
     features: ['WhatsApp feedback → Judge.me review', 'Automated review request campaigns', 'Photo review collection'],
     actions: ['Know More', 'Connect'],
     videoQuery: 'Judge.me review WhatsApp integration',
@@ -414,7 +414,7 @@ function ConnectModal({ intg, onClose, onSave }) {
               <div>
                 <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)', marginBottom: 6 }}>Authorize {cfg.provider}</p>
                 <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.65 }}>
-                  You'll be redirected to {cfg.provider} to grant Spandan access to your account. No passwords are stored — only an OAuth token.
+                  You'll be redirected to {cfg.provider} to grant Svann access to your account. No passwords are stored — only an OAuth token.
                 </p>
               </div>
               <div style={{ width: '100%', padding: '12px 16px', borderRadius: 10, background: 'rgba(53,232,242,0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, textAlign: 'left', alignItems: 'flex-start' }}>

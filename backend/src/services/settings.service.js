@@ -172,7 +172,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(number)} — Spandan</title>
+<title>${escapeHtml(number)} — Svann</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -207,7 +207,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
   <div class="sheet">
     <div class="head">
       <div>
-        <p class="brand">spandan</p>
+        <p class="brand">svann</p>
         <p class="muted">WhatsApp Business Platform</p>
       </div>
       <div class="num">
@@ -238,7 +238,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
       </thead>
       <tbody>
         <tr>
-          <td>${escapeHtml(invoice.description || 'Spandan services')}</td>
+          <td>${escapeHtml(invoice.description || 'Svann services')}</td>
           <td class="right">${escapeHtml(symbol)}${escapeHtml(amount)}</td>
         </tr>
       </tbody>
@@ -248,7 +248,7 @@ export async function getInvoiceDocument(workspaceId, invoiceId) {
     </table>
 
     <div class="foot">
-      <p>This invoice was generated automatically by Spandan on ${escapeHtml(new Date().toLocaleString('en-IN'))}.</p>
+      <p>This invoice was generated automatically by Svann on ${escapeHtml(new Date().toLocaleString('en-IN'))}.</p>
       <p>To save it as a PDF, open this file in your browser and choose Print → Save as PDF.</p>
     </div>
   </div>
@@ -282,7 +282,7 @@ export async function testWebhook(workspaceId) {
     event: 'test',
     workspaceId,
     sentAt: new Date().toISOString(),
-    data: { message: 'This is a test delivery from Spandan.' },
+    data: { message: 'This is a test delivery from Svann.' },
   });
 
   try {

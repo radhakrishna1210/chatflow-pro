@@ -1179,7 +1179,7 @@ export default function AuthenticationDashboard({ header }) {
             </div>
 
             <p style={{ margin: 0, fontSize: 11.5, color: 'var(--t3)', maxWidth: 260, textAlign: 'right' }}>
-              OTPs are generated and verified securely by ChatFlow.
+              OTPs are generated and verified securely by Svann.
             </p>
           </div>
 
