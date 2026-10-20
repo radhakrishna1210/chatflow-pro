@@ -75,12 +75,12 @@ export async function validateAuthorizeRequest({ clientId, redirectUri, response
 
   const client = await prisma.oAuthClient.findUnique({ where: { clientId: String(clientId) } });
   if (!client || client.disabledAt) {
-    throw new OAuthRenderError('Unknown application. This link was not issued by anything ChatFlow recognises.');
+    throw new OAuthRenderError('Unknown application. This link was not issued by anything Svann recognises.');
   }
 
   const registered = parseJsonArray(client.redirectUris);
   if (!redirectUri || !registered.includes(String(redirectUri))) {
-    throw new OAuthRenderError(`${client.name} asked to be sent somewhere ChatFlow has not registered for it. Nothing has been shared.`);
+    throw new OAuthRenderError(`${client.name} asked to be sent somewhere Svann has not registered for it. Nothing has been shared.`);
   }
 
   // Past this point the redirect URI is trusted, so failures can be reported there.
@@ -258,7 +258,7 @@ export async function exchangeAuthorizationCode({ code, clientId, clientSecret, 
     throw new OAuthRedirectError(
       'server_error',
       /limit/i.test(err.message || '')
-        ? 'This ChatFlow workspace has reached its API key limit. Revoke an unused key and try connecting again.'
+        ? 'This Svann workspace has reached its API key limit. Revoke an unused key and try connecting again.'
         : `Could not issue an API key: ${err.message}`,
     );
   }

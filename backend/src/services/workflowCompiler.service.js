@@ -198,7 +198,7 @@ export function describeGraph(nodes) {
   return `When ${when}, ${steps.join(', then ')}.`;
 }
 
-const SYSTEM = `You turn a description of an automation into a node graph for ChatFlow Pro.
+const SYSTEM = `You turn a description of an automation into a node graph for Svann.
 
 Reply with ONE JSON object, nothing else:
 {"name": "<short name>", "nodes": [ {"type":"trigger","subtype":"...","value":"..."}, {"type":"action","subtype":"...","value":"..."} ]}

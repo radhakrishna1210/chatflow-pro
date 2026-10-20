@@ -39,7 +39,7 @@ const RESULT_PREAMBLE =
 function buildSystemPrompt(user) {
   const userInfo = user ? `\n\nCurrent authenticated user talking to you:\n  Name: ${user.name || 'Staff'}\n  User ID: ${user.id}\n  Email: ${user.email || 'N/A'}\nWhen the user says "to me" or "my", refer to this user ID and name.` : '';
 
-  return `You are the CRM assistant inside ChatFlow Pro, helping a member of staff with their own workspace.${userInfo}
+  return `You are the CRM assistant inside Svann, helping a member of staff with their own workspace.${userInfo}
 
 You may call these tools:
 

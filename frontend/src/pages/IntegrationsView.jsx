@@ -118,7 +118,7 @@ const INTEGRATIONS = [
   },
   {
     id: 'facebook-lead', name: 'Facebook Lead Form', pricing: 'paid', category: 'Ads Platform',
-    description: 'As soon as a lead fills the form, add them in Interakt & send an automatic welcome notification',
+    description: 'As soon as a lead fills the form, add them in Svann & send an automatic welcome notification',
     features: ['Instant lead capture to contacts', 'Automated welcome WhatsApp message', 'Lead nurturing sequences'],
     actions: ['Connect'],
     videoQuery: 'Facebook Lead Form WhatsApp integration tutorial',
@@ -181,7 +181,7 @@ const INTEGRATIONS = [
   },
   {
     id: 'judge-me', name: 'Judge.me', pricing: 'paid', category: 'Product Review Platform',
-    description: 'Create/Update a Review on Judge.me when a customer completes a Feedback workflow on Interakt',
+    description: 'Create/Update a Review on Judge.me when a customer completes a Feedback workflow on Svann',
     features: ['WhatsApp feedback → Judge.me review', 'Automated review request campaigns', 'Photo review collection'],
     actions: ['Know More', 'Connect'],
     videoQuery: 'Judge.me review WhatsApp integration',
