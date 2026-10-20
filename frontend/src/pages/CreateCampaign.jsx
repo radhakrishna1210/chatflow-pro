@@ -1271,7 +1271,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
 
 // ─── Phone Preview ─────────────────────────────────────────────
 const PhonePreview = ({ template, templateBody, ctaLabel = '' }) => {
-  const [businessName, setBusinessName] = useState('Spandan');
+  const [businessName, setBusinessName] = useState('Svann');
   const [headerPreview, setHeaderPreview] = useState(null);
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 

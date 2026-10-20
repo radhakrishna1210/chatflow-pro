@@ -67,10 +67,10 @@ export default function ResourceCategory({ categoryId }) {
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
-    if (!category) { setMeta('Section not found — Spandan', 'The requested section could not be found.'); return; }
+    if (!category) { setMeta('Section not found — Svann', 'The requested section could not be found.'); return; }
     setMeta(
-      `${category.name} — Spandan Resource Center`,
-      `${category.overview} Guides, features and how-to for ${category.name} in Spandan.`
+      `${category.name} — Svann Resource Center`,
+      `${category.overview} Guides, features and how-to for ${category.name} in Svann.`
     );
   }, [categoryId]); // eslint-disable-line
 
@@ -110,7 +110,7 @@ export default function ResourceCategory({ categoryId }) {
             <div className="rc-cat-meta">
               <span><I n="file" s={13} c="var(--t3)" /> {resources.length} guide{resources.length === 1 ? '' : 's'}</span>
               {range && <span><I n="chart" s={13} c="var(--t3)" /> {range}</span>}
-              <span><I n="check" s={13} c="var(--t3)" /> Reflects the live Spandan product</span>
+              <span><I n="check" s={13} c="var(--t3)" /> Reflects the live Svann product</span>
             </div>
           </div>
         </header>
@@ -229,7 +229,7 @@ export default function ResourceCategory({ categoryId }) {
         <section className="rc-section">
           <div className="rc-cta-band">
             <h2>Put {category.name} into practice</h2>
-            <p>Open the module in Spandan, or keep exploring the library.</p>
+            <p>Open the module in Svann, or keep exploring the library.</p>
             <div className="rc-cta-actions" style={{ marginTop: 22 }}>
               <button className="rc-btn rc-btn-cta rc-btn-lg" onClick={() => navigate('/dashboard')}>
                 Open your dashboard <I n="arrow" s={14} c="#060A10" />

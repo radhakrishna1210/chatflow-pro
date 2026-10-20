@@ -1,9 +1,9 @@
 import { test } from '@playwright/test';
 
-test('Discover Spandan pages and UI', async ({ page }) => {
+test('Discover Svann pages and UI', async ({ page }) => {
   await page.goto('/');
 
-  console.log('\n===== SPANDAN DISCOVERY =====');
+  console.log('\n===== SVANN DISCOVERY =====');
 
   console.log('\n--- LINKS ---');
   const links = await page.locator('a').allTextContents();
