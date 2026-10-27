@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css"><link rel="stylesheet" href="step.css">
+<style>
+  #u { top: 620px; }
+  #fb { padding: 40px 34px; display: flex; flex-direction: column; gap: 20px; align-items: center; text-align: center; }
+  #fb .meta { width: 120px; height: 120px; border-radius: 34px; background: linear-gradient(135deg,#0866ff,#00c6ff); display: grid; place-items: center; color: #fff; font-size: 64px; font-weight: 800; }
+  #fb h3 { font-size: 46px; } #fb p { font-size: 28px; color: var(--t2); font-weight: 600; }
+  #cbtn { margin-top: 10px; } #cbtn .btn { font-size: 34px; }
+  #done { top: 1230px; left: 90px; right: 90px; }
+</style></head><body><div class="stage">
+  <div class="center" id="badge"><span class="chip">STEP 1 / 5</span></div>
+  <h1 class="center" id="title">Connect your <span class="hl">number.</span></h1>
+  <div class="ui" id="u"><div class="tb"><i></i><i></i><i></i><span>Meta embedded signup</span></div>
+    <div id="fb"><div class="meta">∞</div><h3>Continue with Meta</h3><p>Official WhatsApp Business API · your number stays yours</p><div id="cbtn"><span class="btn">Connect number</span></div></div></div>
+  <div class="ui" id="done"><div class="row">📱 +91 98200 ••• 41 <span class="ok">● Connected</span></div><div class="row" style="border:0">🔒 Token encrypted at rest <span class="ok">✓</span></div></div>
+  <div id="prog"></div>
+</div><script type="module">
+import { film, enter, pop, $ } from './lib/kit.js';
+import { progress } from './progress.js';
+const pr = progress(1, 6.0);
+film({ theme: 'day', duration: 6.0, draw(t) {
+  pr(t);
+  pop($('#badge'), t, -0.2); enter($('#title'), t, -0.1, { y: 40 });
+  enter($('#u'), t, 0.3, { y: 80 });
+  const press = t > 2.9 && t < 3.2; $('#cbtn .btn').style.transform = `scale(${press ? 0.93 : 1})`;
+  pop($('#done'), t, 3.5, { s: 0.8 });
+} });
+</script></body></html>

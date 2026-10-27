@@ -1,0 +1,37 @@
+[
+ {
+  "page": "s1-title",
+  "at": 0.0,
+  "dur": 4.6
+ },
+ {
+  "page": "s2-connect",
+  "at": 4.6,
+  "dur": 6.0
+ },
+ {
+  "page": "s3-template",
+  "at": 10.6,
+  "dur": 6.2
+ },
+ {
+  "page": "s4-audience",
+  "at": 16.8,
+  "dur": 5.8
+ },
+ {
+  "page": "s5-ai",
+  "at": 22.6,
+  "dur": 6.2
+ },
+ {
+  "page": "s6-launch",
+  "at": 28.8,
+  "dur": 7.0
+ },
+ {
+  "page": "s7-end",
+  "at": 35.8,
+  "dur": 7.0
+ }
+]

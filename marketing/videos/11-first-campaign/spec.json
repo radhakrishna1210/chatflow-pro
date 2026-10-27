@@ -1,0 +1,11 @@
+{ "title": "Your first campaign, start to finish", "size": [1080, 1920], "voice": "am_michael",
+  "music": [{ "src": "bed-bright", "at": 0, "in": 0, "out": 60, "volume": 0.17 }],
+  "scenes": [
+    { "page": "s1-title.html", "dur": 4.6, "vo": [[0.3, "Here's your first WhatsApp campaign, from start to finish."]], "sfx": [[0.1, "whoosh", 0.4]] },
+    { "page": "s2-connect.html", "dur": 6.0, "vo": [[0.2, "Step one. Connect your WhatsApp number, through Meta's official signup."]], "sfx": [[0.2, "tick", 0.6], [3.6, "success", 0.4]] },
+    { "page": "s3-template.html", "dur": 6.2, "vo": [[0.2, "Step two. Describe your message. AI writes it, and Meta approves it."]], "sfx": [[0.2, "tick", 0.6], [2.6, "pop", 0.4], [4.6, "success", 0.4]] },
+    { "page": "s4-audience.html", "dur": 5.8, "vo": [[0.2, "Step three. Import your contacts, and pick a segment."]], "sfx": [[0.2, "tick", 0.6], [1.6, "pop", 0.3], [3.4, "pop", 0.4]] },
+    { "page": "s5-ai.html", "dur": 6.2, "vo": [[0.2, "Step four. Switch on the AI agent, retries, and SMS fallback."]], "sfx": [[0.2, "tick", 0.6], [2.0, "tick", 0.7], [2.9, "tick", 0.7], [3.8, "tick", 0.7]] },
+    { "page": "s6-launch.html", "dur": 7.0, "vo": [[0.2, "Step five. Go live, and watch it deliver in real time."]], "sfx": [[0.2, "tick", 0.6], [2.4, "impact", 0.5], [2.5, "success", 0.5]] },
+    { "page": "s7-end.html", "dur": 7.0, "vo": [[0.3, "Five steps. No code. Start free with Spandan today."]], "sfx": [[0.1, "riser", 0.3], [1.2, "impact", 0.5]] }
+  ] }

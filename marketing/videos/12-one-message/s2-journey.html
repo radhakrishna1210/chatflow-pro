@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #head { top: 110px; font-size: 64px; }
+  #track { position: absolute; left: 150px; top: 300px; width: 8px; height: 1025px; border-radius: 4px; background: rgba(255,255,255,.12); }
+  #fill { position: absolute; inset: 0; border-radius: 4px; background: linear-gradient(#ffd23f, #ff3fb4, #7b5cff); transform-origin: top; box-shadow: 0 0 30px #ff3fb4; }
+  .st { position: absolute; left: 100px; right: 60px; height: 220px; display: flex; gap: 46px; }
+  .nd { width: 108px; height: 108px; border-radius: 50%; flex: none; display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 40px; background: #1d0a40; border: 4px solid rgba(255,255,255,.2); color: var(--t2); z-index: 2; }
+  .tx .k { font-family: var(--mono); font-weight: 600; font-size: 24px; letter-spacing: .2em; color: var(--t3); }
+  .tx h3 { font-size: 52px; margin-top: 4px; }
+  .tx p { font-size: 29px; color: var(--t2); font-weight: 600; margin-top: 8px; line-height: 1.35; max-width: 720px; }
+  #orb { position: absolute; left: 154px; width: 70px; height: 70px; margin: -35px 0 0 -35px; border-radius: 50%; background: radial-gradient(#fff, #ffd23f 40%, #ff3fb4 75%, transparent 76%); box-shadow: 0 0 50px #ff3fb4, 0 0 100px #ff7a59; z-index: 3; }
+.tbg .sun, .tbg .blob { opacity: .22 !important; }
+</style></head><body><div class="stage">
+  <h2 class="center" id="head">One message. <span class="hl">Six stops.</span></h2>
+  <div id="track"><div id="fill"></div></div>
+  <div id="sts"></div>
+  <div id="orb"></div>
+</div><script type="module">
+import { film, enter, p, ease, lerp, $, $$ } from './lib/kit.js';
+const S = [
+  ['01', 'SIGNAL', 'Sent at scale', 'Template-approved campaigns to thousands, with SMS & email fallback.'],
+  ['02', 'CONTEXT', 'Context rides along', 'The customer taps in carrying the exact offer they received.'],
+  ['03', 'INTELLIGENCE', 'AI that knows the offer', 'Answers from that offer. Never invents a discount or a date.'],
+  ['04', 'FLOW', 'Every reply routes itself', 'Intent matching picks the next step: qualify, nurture or convert.'],
+  ['05', 'HUMAN', 'Handoff when it counts', 'High intent lands in the shared inbox with the full story.'],
+  ['06', 'FEEDBACK', 'Smarter every time', 'Delivery, reads and outcomes flow into analytics.'],
+];
+const AT = [0.3, 7.1, 13.5, 19.8, 24.3, 30.0];
+const Y = i => 300 + i * 205;
+S.forEach(([n, k, h, b], i) => $('#sts').insertAdjacentHTML('beforeend', `<div class="st" style="top:${Y(i) - 54}px"><div class="nd">${n}</div><div class="tx"><div class="k">${k}</div><h3>${h}</h3><p>${b}</p></div></div>`));
+film({ theme: 'violet', duration: 38.0, draw(t) {
+  enter($('#head'), t, -0.3, { y: -20 });
+  let cur = -1; AT.forEach((a, i) => { if (t >= a - 0.4) cur = i; });
+  // the orb glides to the current station
+  const from = Math.max(0, cur - 1), k = cur < 0 ? 0 : ease.inOut(p(t, AT[cur] - 0.9, 0.9));
+  const y = cur <= 0 ? Y(0) : lerp(Y(from), Y(cur), k);
+  $('#orb').style.top = y + 'px';
+  $('#orb').style.transform = `scale(${1 + Math.sin(t * 5) * 0.08})`;
+  enter($('#orb'), t, -0.2, { y: 0, s: 0.2 });
+  $('#orb').style.top = y + 'px';
+  $('#fill').style.transform = `scaleY(${(y - 300) / 1025}`;
+  $$('.st').forEach((s, i) => {
+    enter(s, t, i === 0 ? -0.2 : AT[i] - 1.2, { x: 60, y: 0, d: 0.5 });
+    const on = i === cur, done = i < cur;
+    const nd = s.querySelector('.nd');
+    nd.style.background = on ? 'linear-gradient(135deg,#ffd23f,#ff3fb4)' : done ? '#3a1a6e' : '#1d0a40';
+    nd.style.color = on ? '#1a0630' : done ? '#ffd23f' : '';
+    nd.style.borderColor = on ? '#fff' : done ? 'rgba(255,210,63,.5)' : '';
+    nd.style.boxShadow = on ? '0 0 50px #ff3fb4' : 'none';
+    s.querySelector('.tx').style.opacity = String(on ? 1 : done ? 0.55 : 0.45);
+    s.querySelector('p').style.opacity = String(on ? 1 : done ? 0.8 : 0);
+    s.querySelector('.k').style.color = on ? 'var(--lime)' : '';
+  });
+} });
+</script></body></html>

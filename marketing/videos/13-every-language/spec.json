@@ -1,0 +1,10 @@
+{ "title": "Every language, same true answer", "size": [1080, 1920], "voice": "af_heart",
+  "music": [{ "src": "bed-flow", "at": 0, "in": 0, "out": 60, "volume": 0.2 }],
+  "scenes": [
+    { "page": "s1-hook.html", "dur": 5.4, "vo": [[0.3, "Your customers don't all speak English. Your AI agent shouldn't either."]], "sfx": [[0.1, "whoosh", 0.4], [2.6, "pop", 0.4]] },
+    { "page": "s2-english.html", "dur": 6.4, "vo": [[0.2, "Ask in English, and get an answer in English."]], "sfx": [[0.6, "pop", 0.4], [2.8, "pop", 0.4]] },
+    { "page": "s3-hindi.html", "dur": 6.4, "vo": [[0.2, "Ask in Hindi, and it answers in Hindi."]], "sfx": [[0.6, "pop", 0.4], [2.8, "pop", 0.4]] },
+    { "page": "s4-hinglish.html", "dur": 6.4, "vo": [[0.2, "Mix it up in Hinglish. It keeps right up."]], "sfx": [[0.6, "pop", 0.4], [2.8, "pop", 0.4]] },
+    { "page": "s5-tamil.html", "dur": 6.4, "vo": [[0.2, "Regional languages too. Always grounded in the same offer."]], "sfx": [[0.6, "pop", 0.4], [2.8, "pop", 0.4]] },
+    { "page": "s6-end.html", "dur": 7.4, "vo": [[0.3, "One offer. Every language. The same honest answer. That's Spandan."]], "sfx": [[0.1, "riser", 0.3], [1.4, "impact", 0.5], [2.6, "success", 0.4]] }
+  ] }

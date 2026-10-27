@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #eye { top: 440px; font-size: 32px; }
+  #title { top: 520px; font-size: 140px; padding: 0 60px; }
+  #env { top: 820px; font-size: 160px; }
+  #sub { top: 1040px; font-size: 46px; font-weight: 700; color: var(--t2); }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">The conversation reactor</div>
+  <h1 class="center" id="title">Follow <span class="hl">one message.</span></h1>
+  <div class="center" id="env">💬</div>
+  <div class="center" id="sub">From broadcast to booked sale</div>
+</div><script type="module">
+import { film, enter, pop, drawWords, $ } from './lib/kit.js';
+film({ theme: 'violet', duration: 4.4, draw(t) {
+  enter($('#eye'), t, -0.3, { y: 20 });
+  drawWords($('#title'), t, -0.3, { rate: 0.1 });
+  pop($('#env'), t, 1.4, { s: 0.2 }); $('#env').style.transform += ` translateY(${Math.sin(t * 3) * 14}px)`;
+  $('#env').style.filter = 'drop-shadow(0 0 40px #ff3fb4)';
+  enter($('#sub'), t, 2.0, { y: 20 });
+} });
+</script></body></html>

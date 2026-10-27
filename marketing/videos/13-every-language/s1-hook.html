@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 300px; font-size: 112px; padding: 0 60px; }
+  #cloud { position: absolute; left: 60px; right: 60px; top: 820px; height: 700px; }
+  #cloud span { position: absolute; font-family: var(--display); font-weight: 800; white-space: nowrap; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Your customers don’t all speak <span class="hl">English.</span></h1>
+  <div id="cloud"></div>
+  <h2 class="center" id="ai" style="top:1560px;font-size:76px">Your AI <span class="hl">shouldn’t either.</span></h2>
+</div><script type="module">
+import { film, enter, pop, drawWords, $, $$ } from './lib/kit.js';
+const W = [['नमस्ते', 120, 80, 0, '#c8ff5a'], ['Hello', 96, 620, 40, '#fff'], ['வணக்கம்', 84, 40, 260, '#5ef2c6'], ['Kaise ho?', 90, 600, 330, '#2ad4ff'], ['ನಮಸ್ಕಾರ', 70, 160, 500, 'rgba(255,255,255,.6)'], ['Hi! 👋', 100, 600, 540, '#c8ff5a']];
+W.forEach(([w, s, x, y, c]) => $('#cloud').insertAdjacentHTML('beforeend', `<span style="font-size:${s}px;left:${x}px;top:${y}px;color:${c}">${w}</span>`));
+film({ theme: 'ocean', duration: 5.4, draw(t) {
+  drawWords($('#title'), t, -0.3, { rate: 0.08 });
+  $$('#cloud span').forEach((s, i) => { pop(s, t, 1.6 + i * 0.25, { s: 0.3 }); s.style.transform += ` translateY(${Math.sin(t * 1.5 + i) * 12}px)`; });
+  enter($('#ai'), t, 2.8, { y: 40, blur: 8 });
+} });
+</script></body></html>

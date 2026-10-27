@@ -1,0 +1,42 @@
+[
+ {
+  "page": "s0-title",
+  "at": 0.0,
+  "dur": 4.6
+ },
+ {
+  "page": "u1-ecom",
+  "at": 4.6,
+  "dur": 5.6
+ },
+ {
+  "page": "u2-edu",
+  "at": 10.2,
+  "dur": 5.6
+ },
+ {
+  "page": "u3-clinic",
+  "at": 15.8,
+  "dur": 5.6
+ },
+ {
+  "page": "u4-realty",
+  "at": 21.4,
+  "dur": 5.6
+ },
+ {
+  "page": "u5-agency",
+  "at": 27.0,
+  "dur": 5.6
+ },
+ {
+  "page": "u6-travel",
+  "at": 32.6,
+  "dur": 5.6
+ },
+ {
+  "page": "s9-end",
+  "at": 38.2,
+  "dur": 7.2
+ }
+]

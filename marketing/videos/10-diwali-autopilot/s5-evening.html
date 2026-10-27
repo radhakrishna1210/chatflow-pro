@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 200px; font-size: 96px; padding: 0 60px; }
+  #split { position: absolute; left: 70px; right: 70px; top: 520px; display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+  .sp { padding: 40px 32px; text-align: center; }
+  .sp .n { font-family: var(--display); font-size: 120px; font-weight: 800; line-height: 1; }
+  .sp p { font-size: 32px; font-weight: 700; color: var(--t2); margin-top: 14px; }
+  #priya { left: 70px; right: 70px; top: 980px; padding: 36px; display: flex; gap: 28px; align-items: center; }
+  #priya .av { width: 130px; height: 130px; border-radius: 50%; background: var(--grad-id); display: grid; place-items: center; font-size: 64px; flex: none; }
+  #priya h3 { font-size: 48px; } #priya p { font-size: 30px; color: var(--t2); margin-top: 8px; font-weight: 600; }
+  #free { top: 1330px; font-size: 76px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">She steps in <span class="hl">only when needed.</span></h1>
+  <div id="split"><div class="sp card"><div class="n hl" id="a">0</div><p>handled by AI</p></div><div class="sp card"><div class="n" id="b">0</div><p>handed to Priya</p></div></div>
+  <div class="abs card" id="priya"><div class="av">👩🏽‍💼</div><div><h3>Priya, founder</h3><p>Closing the big orders. Not typing “yes, we ship to Pune” 400 times.</p></div></div>
+  <h2 class="center" id="free">Her evening? <span class="serif hl">Free.</span> 🪔</h2>
+</div><script type="module">
+import { film, enter, pop, count, $, $$ } from './lib/kit.js';
+film({ theme: 'saffron', duration: 7.0, draw(t) {
+  enter($('#title'), t, -0.25, { y: 40 });
+  $$('.sp').forEach((s, i) => pop(s, t, 0.4 + i * 0.3, { s: 0.8 }));
+  count($('#a'), t, 0.6, 1.8, 0, 1840); count($('#b'), t, 0.9, 1.6, 0, 62);
+  enter($('#priya'), t, 1.8, { y: 60 });
+  enter($('#free'), t, 3.0, { y: 40, blur: 8 });
+} });
+</script></body></html>

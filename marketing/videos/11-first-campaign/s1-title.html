@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #eye { top: 520px; font-size: 32px; }
+  #title { top: 600px; font-size: 126px; padding: 0 60px; }
+  #sub { top: 1060px; font-size: 48px; font-weight: 700; color: var(--t2); }
+  #steps { position: absolute; left: 0; right: 0; top: 1220px; display: flex; justify-content: center; gap: 18px; }
+  #steps span { width: 110px; height: 110px; border-radius: 32px; display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 52px; background: #fff; color: var(--t1); box-shadow: 0 20px 40px rgba(30,50,90,.14); }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">WhatsApp campaigns · made simple</div>
+  <h1 class="center" id="title">Your first campaign, <span class="hl">start to finish.</span></h1>
+  <div class="center" id="sub">5 steps. No code.</div>
+  <div id="steps"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+</div><script type="module">
+import { film, enter, pop, drawWords, $, $$ } from './lib/kit.js';
+film({ theme: 'day', duration: 4.6, draw(t) {
+  enter($('#eye'), t, -0.3, { y: 20 });
+  drawWords($('#title'), t, -0.3, { rate: 0.08 });
+  enter($('#sub'), t, 1.4, { y: 20 });
+  $$('#steps span').forEach((s, i) => pop(s, t, 1.8 + i * 0.15));
+} });
+</script></body></html>

@@ -4,6 +4,8 @@
 // moment and keeps no state between calls, so any frame can be drawn in any
 // order (OpenFilm's one rule).
 
+import { theme as paintTheme } from './themes.js';
+
 export const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 export const lerp = (a, b, x) => a + (b - a) * x;
 export const ease = {
@@ -103,20 +105,21 @@ export function drawBg(root, t) {
 
 export const bgHTML = (cls = '') => `<div class="bg ${cls}"><div class="grid"></div><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>`;
 
-const FONTS = ['500 1em "Space Grotesk"', '600 1em "Space Grotesk"', '700 1em "Space Grotesk"', '500 1em Manrope', '600 1em Manrope', '700 1em Manrope', '800 1em Manrope', '500 1em "JetBrains Mono"', '600 1em "JetBrains Mono"', '1em "Noto Color Emoji"'];
+const FONTS = ['700 1em "Bricolage Grotesque"', '800 1em "Bricolage Grotesque"', 'italic 600 1em Fraunces', '700 1em "Noto Sans Devanagari"', '600 1em "Noto Sans Devanagari"', '700 1em "Noto Sans Tamil"', '600 1em "Noto Sans Tamil"', '500 1em "Space Grotesk"', '600 1em "Space Grotesk"', '700 1em "Space Grotesk"', '500 1em Manrope', '600 1em Manrope', '700 1em Manrope', '800 1em Manrope', '500 1em "JetBrains Mono"', '600 1em "JetBrains Mono"', '1em "Noto Color Emoji"'];
 
 /**
  * Declare the page. `setup` runs once the fonts are in (measure layout there);
  * `draw(t)` paints a moment. The background drifts on its own.
  */
-export function film({ duration, setup, draw, bg = '' }) {
+export function film({ duration, setup, draw, bg = '', theme }) {
   const stage = document.querySelector('.stage');
-  if (stage && !stage.querySelector('.bg')) stage.insertAdjacentHTML('afterbegin', bgHTML(bg));
-  const ready = Promise.all(FONTS.map(f => document.fonts.load(f, 'A😀₹'))).then(() => setup && setup());
+  const themeDraw = theme ? paintTheme(theme) : null;
+  if (!theme && stage && !stage.querySelector('.bg')) stage.insertAdjacentHTML('afterbegin', bgHTML(bg));
+  const ready = Promise.all(FONTS.map(f => document.fonts.load(f, 'A😀₹कத'))).then(() => setup && setup());
   window.film = {
     duration,
     ready,
-    frame(t) { drawBg(document, t); draw(t); },
+    frame(t) { if (themeDraw) themeDraw(t); else drawBg(document, t); draw(t); },
   };
 }
 

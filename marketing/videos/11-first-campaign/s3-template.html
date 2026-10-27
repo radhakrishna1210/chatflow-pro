@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css"><link rel="stylesheet" href="step.css">
+<style>
+  #pr { top: 540px; } #pr .row { border: 0; font-size: 34px; } #pr .ai { width: 64px; height: 64px; border-radius: 18px; background: var(--grad-id); color: #fff; display: grid; place-items: center; flex: none; }
+  #tp { top: 720px; padding: 20px; }
+  #img { height: 330px; border-radius: 22px; background: linear-gradient(135deg, #19b36b, #0aa5c2); display: grid; place-items: center; color: #fff; font-family: var(--display); font-weight: 800; font-size: 76px; text-align: center; line-height: .95; }
+  #tx { font-size: 32px; line-height: 1.45; padding: 22px 10px 8px; color: var(--t1); font-weight: 600; }
+  #st { top: 1360px; } #st .chip { font-size: 36px; font-weight: 800; }
+</style></head><body><div class="stage">
+  <div class="center" id="badge"><span class="chip">STEP 2 / 5</span></div>
+  <h1 class="center" id="title">Describe it. <span class="hl">AI writes it.</span></h1>
+  <div class="ui" id="pr"><div class="row"><span class="ai">✦</span><span id="ptxt"></span></div></div>
+  <div class="ui" id="tp"><div id="img">WELCOME<br>OFFER · 15%</div><div id="tx">Hi {{1}} 👋 Welcome to Bloom &amp; Co! Here’s 15% off your first order — just for joining us.</div></div>
+  <div class="center" id="st"><span class="chip" id="stx">⏳ Submitted to Meta</span></div>
+  <div id="prog"></div>
+</div><script type="module">
+import { film, enter, pop, typeText, $ } from './lib/kit.js';
+import { progress } from './progress.js';
+const pr = progress(2, 6.2);
+film({ theme: 'day', duration: 6.2, draw(t) {
+  pr(t);
+  pop($('#badge'), t, -0.2); enter($('#title'), t, -0.1, { y: 40 });
+  enter($('#pr'), t, 0.2, { y: 30 });
+  typeText($('#ptxt'), 'Welcome message with 15% off', t, 0.5, 24);
+  pop($('#tp'), t, 2.4, { s: 0.85 });
+  pop($('#st'), t, 3.6);
+  const ok = t > 4.6; $('#stx').textContent = ok ? '✅ Approved by Meta' : '⏳ Submitted to Meta';
+  $('#stx').style.color = ok ? '#0f8a55' : '#b7791f';
+} });
+</script></body></html>

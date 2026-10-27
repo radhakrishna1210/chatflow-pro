@@ -81,7 +81,7 @@ def track(dur, bpm, chords, mood):
     for b in range(nbars):
         t0 = b * bar
         root, triad = chords[b % len(chords)]
-        intro = b < 2  # first two bars: no drums, so a hook can land on top
+        intro = b < (1 if mood in ('bright', 'festive') else 2)  # drumless intro bars, so a hook can land on top
         for q in range(4):
             tb = t0 + q * beat
             if not intro:
@@ -119,8 +119,20 @@ def track(dur, bpm, chords, mood):
                 m = seq[s % len(seq)] + 12
                 pn = int(0.3 * SR)
                 pt = np.arange(pn) / SR
-                x = np.sign(np.sin(2 * np.pi * note(m) * pt)) * 0.5 + np.sin(2 * np.pi * note(m) * pt)
-                x = lowpass(x * env(pn, 0.002, 0.09), 3000)
+                f0 = note(m)
+                if mood == 'festive':   # bells: inharmonic partials, long ring
+                    pn = int(0.9 * SR); pt = np.arange(pn) / SR
+                    x = sum(np.sin(2 * np.pi * f0 * h * pt) / (1 + j) for j, h in enumerate((1, 2.76, 5.4, 8.93)))
+                    x = x * env(pn, 0.001, 0.35)
+                    add(out, x, tb, 0.035)
+                    continue
+                if mood == 'synth':     # detuned saw arp
+                    x = saw(f0, pt) + saw(f0 * 1.007, pt)
+                elif mood == 'bright':  # marimba-ish
+                    x = np.sin(2 * np.pi * f0 * pt) + 0.4 * np.sin(2 * np.pi * f0 * 4 * pt)
+                else:
+                    x = np.sign(np.sin(2 * np.pi * f0 * pt)) * 0.5 + np.sin(2 * np.pi * f0 * pt)
+                x = lowpass(x * env(pn, 0.002, 0.09 if mood != 'bright' else 0.14), 3000 if mood != 'synth' else 2200)
                 add(out, x, tb, 0.05 if mood != 'calm' else 0.035)
     out = out[: int(dur * SR)]
     # fade in / out
@@ -217,6 +229,11 @@ def main(out):
         'bed-tense.wav': (60, 92, [Am, Am, F, E], 'tense'),     # the pain, before the turn
         'bed-lift.wav': (60, 112, [F, C, G, Am], 'drive'),      # the turn, after it
         'bed-calm.wav': (240, 100, [C, G, Am, F], 'calm'),      # the product tour
+        # series 2
+        'bed-festive.wav': (60, 108, [(50, [62, 66, 69]), (55, [62, 67, 71]), (57, [61, 64, 69]), (50, [62, 66, 69])], 'festive'),
+        'bed-bright.wav': (60, 124, [C, (53, [57, 60, 65]), Am, G], 'bright'),
+        'bed-synth.wav': (60, 104, [Am, F, C, E], 'synth'),
+        'bed-flow.wav': (60, 96, [F, C, Dm, G], 'bright'),
     }
     for name, (dur, bpm, ch, mood) in beds.items():
         sf.write(os.path.join(out, name), track(dur, bpm, ch, mood), SR)
