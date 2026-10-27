@@ -34,6 +34,16 @@ There are no on-screen polls or pauses, and each uses its own palette, display f
 | 13 | **Every language, same true answer**: English, Hindi, Hinglish, Tamil | Ocean teal, flowing wave lines | 38s |
 | 14 | **One platform, every business**: e-commerce, education, clinics, real estate, agencies, travel | Sunrise peach & coral, bokeh | 45s |
 
+### Series 3: five more complete films, five more looks
+
+| # | Film | Look | Length |
+|---|---|---|---|
+| 15 | **She left. WhatsApp brought her back.**: abandoned cart → unopened email → one WhatsApp message → order recovered | Editorial paper, ink and mint, ruled page | 34s |
+| 16 | **Every rupee, accounted for**: reserve, settle, refund, Meta's rate with no markup | Black velvet and gold leaf, Playfair Display | 35s |
+| 17 | **Forms people actually finish**: WhatsApp forms with quick replies and validation | Pop-art yellow, hard black shadows, Unbounded | 31s |
+| 18 | **Test it before they see it**: Test Lab answers with sources, then answer analytics | Cyber black, neon lime, scanlines | 34s |
+| 19 | **Ten clients. One login.**: a workspace per client, scoped roles, one agency login | Deep forest green and cream, falling leaves | 36s |
+
 The product tour covers: connecting a number (embedded signup / pool), the AI template studio and Meta approval,
 contacts and segments with STOP handling, the 11-step campaign builder, the Campaign AI agent (grounded answers,
 Hinglish, human handoff), intent matching, workflows with run history, WhatsApp forms, the shared inbox and agency
@@ -60,6 +70,11 @@ demo link, since the video promises one.
 - **11** · Your first WhatsApp campaign in 5 steps, no code ✅ Save this for later. #WhatsAppBusiness #SmallBusinessIndia
 - **12** · Follow one WhatsApp message through all six stops, from broadcast to booked sale 💬 #MarketingAutomation #WhatsAppAPI
 - **13** · English, हिन्दी, Hinglish, தமிழ் — one offer, the same honest answer in every language 🌏 #AIChatbot #Vernacular
+- **15** · She added it to cart, then closed the tab. One WhatsApp message brought her back 🛍️ #CartRecovery #Ecommerce
+- **16** · Every rupee, accounted for. Reserve, settle, refund, and zero markup on Meta's rate 💰 #WhatsAppBusiness #Transparency
+- **17** · Nobody finishes your 12-field form. Ask on WhatsApp instead, one question at a time ✅ #LeadGeneration #Edtech
+- **18** · Would you launch an AI without testing it? 🧪 See every answer and where it came from. #AIChatbot #CustomerExperience
+- **19** · Agencies: ten clients, ten numbers, one login 🗂️ #AgencyLife #WhatsAppMarketing
 - **14** · Shops, schools, clinics, realtors, agencies, travel: one WhatsApp platform for all of them. Which one are you? #WhatsAppBusiness #CustomerEngagement
 
 ## Editing and re-rendering

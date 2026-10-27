@@ -152,7 +152,8 @@ footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line);
       <div><h2 id="reels-h">Reels</h2><p>Vertical, 30–50 seconds, made for Instagram, Shorts and WhatsApp Status.</p>
         <label class="pause-toggle"><input type="checkbox" id="pause-on" checked> Pause for questions</label></div>
       <div class="tabs" role="tablist" aria-label="Reel sets">
-        <button class="tab" role="tab" id="tab-series2" aria-selected="true">New series</button>
+        <button class="tab" role="tab" id="tab-series3" aria-selected="true">Series 3</button>
+        <button class="tab" role="tab" id="tab-series2" aria-selected="false">Series 2</button>
         <button class="tab" role="tab" id="tab-marketing" aria-selected="false">Marketing</button>
         <button class="tab" role="tab" id="tab-pain" aria-selected="false">Business pain points</button>
       </div>
@@ -196,6 +197,11 @@ const REELS = [
   { id: '12', set: 'series2', title: 'Follow one message', desc: 'One WhatsApp message through all six stops, from broadcast to analytics. Synthwave violet.', stops: [] },
   { id: '13', set: 'series2', title: 'Every language, same true answer', desc: 'English, Hindi, Hinglish and Tamil, all grounded in the same offer. Ocean teal.', stops: [] },
   { id: '14', set: 'series2', title: 'One platform, every business', desc: 'E-commerce, education, clinics, real estate, agencies and travel. Sunrise peach & coral.', stops: [] },
+  { id: '15', set: 'series3', title: 'She left. WhatsApp brought her back.', desc: 'An abandoned cart, an unopened email, and one WhatsApp message that recovers the order. Editorial paper & mint.', stops: [] },
+  { id: '16', set: 'series3', title: 'Every rupee, accounted for', desc: 'Reserve at launch, settle on completion, refund what never went out, at Meta’s rate. Black & gold.', stops: [] },
+  { id: '17', set: 'series3', title: 'Forms people actually finish', desc: 'Swap the 12-field web form for one question at a time on WhatsApp, with validation. Pop-art yellow.', stops: [] },
+  { id: '18', set: 'series3', title: 'Test it before they see it', desc: 'The Test Lab shows every AI answer and its source, then analytics show the gaps. Cyber neon.', stops: [] },
+  { id: '19', set: 'series3', title: 'Ten clients. One login.', desc: 'A workspace per client, roles that keep data apart, and one login for the agency. Forest green.', stops: [] },
 ].map(r => ({ ...r, file: `v/${r.id}.mp4`, poster: `v/${r.id}.jpg` }));
 
 const ALL_STOPS = [TOUR, ...REELS].flatMap(f => f.stops);
@@ -317,7 +323,7 @@ const tourVideo = player(document.getElementById('tour-screen'), TOUR, t => {
 chapterList.children[0].classList.add('on');
 
 // ---- reels
-let set = 'series2', current = REELS.find(r => r.set === 'series2');
+let set = 'series3', current = REELS.find(r => r.set === 'series3');
 const shelf = document.getElementById('shelf');
 function showReel(r) {
   current = r;
