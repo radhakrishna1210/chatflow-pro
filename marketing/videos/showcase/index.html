@@ -99,6 +99,8 @@ section.block { margin-top: 44px; }
 .reel-pick[aria-current="true"] { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan); }
 .reel-pick .done { font-family: var(--mono); font-size: 11px; color: var(--wa); }
 .now h3 { font-size: 22px; margin-top: 14px; }
+.pause-toggle { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; font-weight: 700; color: var(--t2); cursor: pointer; }
+.pause-toggle input { accent-color: #35e8f2; width: 16px; height: 16px; }
 .now p { color: var(--t2); font-size: 14px; margin: 6px 0 0; }
 
 footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--t3); font-size: 13px; }
@@ -147,9 +149,11 @@ footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line);
 
   <section class="block" aria-labelledby="reels-h">
     <div class="block-head">
-      <div><h2 id="reels-h">Reels</h2><p>Vertical, 30–40 seconds, made for Instagram, Shorts and WhatsApp Status.</p></div>
+      <div><h2 id="reels-h">Reels</h2><p>Vertical, 30–50 seconds, made for Instagram, Shorts and WhatsApp Status.</p>
+        <label class="pause-toggle"><input type="checkbox" id="pause-on" checked> Pause for questions</label></div>
       <div class="tabs" role="tablist" aria-label="Reel sets">
-        <button class="tab" role="tab" id="tab-marketing" aria-selected="true">Marketing</button>
+        <button class="tab" role="tab" id="tab-series2" aria-selected="true">New series</button>
+        <button class="tab" role="tab" id="tab-marketing" aria-selected="false">Marketing</button>
         <button class="tab" role="tab" id="tab-pain" aria-selected="false">Business pain points</button>
       </div>
     </div>
@@ -163,7 +167,7 @@ footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line);
     </div>
   </section>
 
-  <footer><span>Spandan · WhatsApp Business API · Meta partner</span><span class="mono">Votes are shared with everyone who opens this page.</span></footer>
+  <footer><span>Spandan · WhatsApp Business API · Meta partner</span><span class="mono">Votes are shared with everyone who opens this page. Untick “Pause for questions” to watch straight through.</span></footer>
 </div>
 
 <script>
@@ -187,6 +191,11 @@ const REELS = [
   { id: '06', set: 'pain', title: 'Did the automation fire?', desc: 'A keyword rule that misses “my parcel hasn’t come”, and the fix.', stops: [{ id: 'keyword-catch', at: 5.2, kicker: 'Before you watch on', q: 'Would a “where is my order” keyword catch “my parcel hasn’t come yet”?', opts: ['Yes', 'No', 'Not sure'], answer: 1, right: 'Right. Exact keywords miss it; intent matching doesn’t.', wrong: 'It wouldn’t. The words don’t match, so the rule never fires.' }] },
   { id: '07', set: 'pain', title: 'The offer changed. The bot lied.', desc: '50% on Monday, 30% on Wednesday, an angry customer on Thursday.', stops: [{ id: 'offer-answer', at: 10.0, kicker: 'Quick check', q: 'A Monday customer asks if their 50% is still valid. What should the bot say?', opts: ['“The current offer is 30%.”', '“Yes, your 50% from Monday applies.”'], answer: 1, right: 'Exactly. Watch what a generic bot says instead.', wrong: 'That’s what a generic bot says, and the next scene shows how it goes.' }] },
   { id: '08', set: 'pain', title: 'The call nobody picked up', desc: 'A busy clinic desk, six rings, and a booking lost to next door.', stops: [{ id: 'missed-calls', at: 29.4, kicker: 'Clinic owners', q: 'How many calls did your front desk miss today?', opts: ['None', '1 to 3', '4 to 10', 'More than 10'] }] },
+  { id: '10', set: 'series2', title: 'Diwali sale on autopilot', desc: 'One founder, 10,000 customers: AI writes the Diwali campaign and answers every question. Saffron & gold.', stops: [] },
+  { id: '11', set: 'series2', title: 'Your first campaign, start to finish', desc: 'Connect, write, target, switch on AI, go live: the whole flow in five steps. Bright daylight.', stops: [] },
+  { id: '12', set: 'series2', title: 'Follow one message', desc: 'One WhatsApp message through all six stops, from broadcast to analytics. Synthwave violet.', stops: [] },
+  { id: '13', set: 'series2', title: 'Every language, same true answer', desc: 'English, Hindi, Hinglish and Tamil, all grounded in the same offer. Ocean teal.', stops: [] },
+  { id: '14', set: 'series2', title: 'One platform, every business', desc: 'E-commerce, education, clinics, real estate, agencies and travel. Sunrise peach & coral.', stops: [] },
 ].map(r => ({ ...r, file: `v/${r.id}.mp4`, poster: `v/${r.id}.jpg` }));
 
 const ALL_STOPS = [TOUR, ...REELS].flatMap(f => f.stops);
@@ -238,7 +247,7 @@ function player(screen, film, onTime) {
   let open = null;
   v.addEventListener('timeupdate', () => {
     onTime && onTime(v.currentTime);
-    if (open) return;
+    if (open || !document.getElementById('pause-on').checked) return;
     const s = film.stops.find(s => !done.has(s.id) && v.currentTime >= s.at && v.currentTime < s.at + 2.5);
     if (s) { done.add(s.id); v.pause(); open = ask(screen, s, () => { open = null; if (s.resume) v.currentTime = s.resume; v.play(); }); }
   });
@@ -308,7 +317,7 @@ const tourVideo = player(document.getElementById('tour-screen'), TOUR, t => {
 chapterList.children[0].classList.add('on');
 
 // ---- reels
-let set = 'marketing', current = REELS[0];
+let set = 'series2', current = REELS.find(r => r.set === 'series2');
 const shelf = document.getElementById('shelf');
 function showReel(r) {
   current = r;
@@ -324,19 +333,19 @@ function renderShelf() {
     b.type = 'button'; b.className = 'reel-pick';
     b.setAttribute('aria-current', String(r === current));
     const answered = r.stops.filter(s => mine[s.id] != null).length;
-    b.innerHTML = `<img alt="" loading="lazy" src="${r.poster}"><span class="meta"><b></b><span>${r.stops.length} question${r.stops.length > 1 ? 's' : ''}</span>${answered ? `<span class="done">✓ ${answered} answered</span>` : ''}</span>`;
+    b.innerHTML = `<img alt="" loading="lazy" src="${r.poster}"><span class="meta"><b></b><span>${r.stops.length ? `${r.stops.length} question${r.stops.length > 1 ? 's' : ''}` : 'Full film · plays straight through'}</span>${answered ? `<span class="done">✓ ${answered} answered</span>` : ''}</span>`;
     b.querySelector('b').textContent = r.title;
     b.addEventListener('click', () => showReel(r));
     shelf.appendChild(b);
   });
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-  set = t.id === 'tab-pain' ? 'pain' : 'marketing';
+  set = t.id.slice(4);
   document.querySelectorAll('.tab').forEach(o => o.setAttribute('aria-selected', String(o === t)));
   showReel(REELS.find(r => r.set === set));
 }));
 
-showReel(REELS[0]);
+showReel(current);
 updateScore();
 connect();
 </script>

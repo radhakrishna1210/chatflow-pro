@@ -20,6 +20,20 @@ question so viewers can tap an answer and see how everyone else voted.
 | 08 | **The call nobody picked up** (pain: missed calls at clinics) | 9:16 | 33s | "How many calls did you miss today? Comment a number" |
 | 09 | **Product tour** (full demo, every feature + USPs + pricing) | 16:9 | 3:24 | Chapter rail on screen · "Pause & guess" quiz in chapter 06 |
 
+### Series 2: complete stories, new colour schemes
+
+Each one runs start to finish, from hook to product to payoff, and ends on a branded end card with a short hold.
+There are no on-screen polls or pauses, and each uses its own palette, display face and animated background
+(`_shared/themes.css`, `_shared/themes.js`).
+
+| # | Film | Look | Length |
+|---|---|---|---|
+| 10 | **Diwali sale on autopilot**: one founder, AI-written festive campaign, AI answers every question | Saffron & gold, rising sparkles, rotating mandala | 42s |
+| 11 | **Your first campaign, start to finish**: connect → template → audience → AI on → go live | Bright daylight, light WhatsApp UI, confetti launch | 43s |
+| 12 | **Follow one message**: the six stops from broadcast to analytics | Synthwave violet, neon horizon grid and sun | 49s |
+| 13 | **Every language, same true answer**: English, Hindi, Hinglish, Tamil | Ocean teal, flowing wave lines | 38s |
+| 14 | **One platform, every business**: e-commerce, education, clinics, real estate, agencies, travel | Sunrise peach & coral, bokeh | 45s |
+
 The product tour covers: connecting a number (embedded signup / pool), the AI template studio and Meta approval,
 contacts and segments with STOP handling, the 11-step campaign builder, the Campaign AI agent (grounded answers,
 Hinglish, human handoff), intent matching, workflows with run history, WhatsApp forms, the shared inbox and agency
@@ -42,6 +56,11 @@ demo link, since the video promises one.
 - **06** · "It should've worked…" 😅 Tag the teammate who owns your automations. #Automation #WhatsAppBot
 - **07** · Monday 50% off. Wednesday 30%. Thursday, an angry screenshot. Would your bot pass this test? ✅ or ❌ #AIChatbot #D2CBrands
 - **08** · Clinic owners: how many calls did your front desk miss today? 📞 Comment a number. #ClinicManagement #HealthcareMarketing
+- **10** · Diwali sale, 10,000 customers, one founder 🪔 Watch the campaign run itself. Happy Diwali from Spandan ✨ #DiwaliSale #WhatsAppMarketing #D2CIndia
+- **11** · Your first WhatsApp campaign in 5 steps, no code ✅ Save this for later. #WhatsAppBusiness #SmallBusinessIndia
+- **12** · Follow one WhatsApp message through all six stops, from broadcast to booked sale 💬 #MarketingAutomation #WhatsAppAPI
+- **13** · English, हिन्दी, Hinglish, தமிழ் — one offer, the same honest answer in every language 🌏 #AIChatbot #Vernacular
+- **14** · Shops, schools, clinics, realtors, agencies, travel: one WhatsApp platform for all of them. Which one are you? #WhatsAppBusiness #CustomerEngagement
 
 ## Editing and re-rendering
 
