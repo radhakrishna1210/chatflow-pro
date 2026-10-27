@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 520px; font-size: 34px; }
+  #title { top: 600px; font-size: 128px; padding: 0 60px; }
+  #sub { top: 1180px; font-size: 64px; font-weight: 800; }
+  #bots { top: 1340px; font-size: 180px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">🧠 10-second quiz</div>
+  <h1 class="center" id="title">One of these bots just <span class="hl-bad">lied</span> to a customer.</h1>
+  <div class="center" id="sub">Can you spot it? 🕵️</div>
+  <div class="center" id="bots"><span id="b1">🤖</span> <span id="b2">🤖</span></div>
+</div><script type="module">
+import { film, enter, pop, drawWords, $ } from './lib/kit.js';
+film({ duration: 4.6, draw(t) {
+  enter($('#eye'), t, -0.3, { y: 20 });
+  drawWords($('#title'), t, -0.35, { rate: 0.06 });
+  const sh = t > 1.6 && t < 2.2 ? Math.sin(t * 70) * 8 : 0;
+  $$w();
+  function $$w() { const l = [...document.querySelectorAll('#title .hl-bad')]; l.forEach(w => w.style.transform += ` translateX(${sh}px)`); }
+  enter($('#sub'), t, 2.3, { y: 30 });
+  pop($('#b1'), t, 2.6); pop($('#b2'), t, 2.8);
+  $('#b1').style.display = $('#b2').style.display = 'inline-block';
+  $('#b1').style.transform += ` rotate(${Math.sin(t * 4) * 10}deg)`;
+  $('#b2').style.transform += ` rotate(${Math.cos(t * 4) * 10}deg)`;
+} });
+</script></body></html>

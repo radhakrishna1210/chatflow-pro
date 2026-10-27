@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #eye { top: 120px; font-size: 22px; } #title { top: 150px; font-size: 70px; }
+  #tbl { position: absolute; left: 230px; right: 230px; top: 300px; }
+  .r { display: grid; grid-template-columns: 1.5fr 1fr 1fr; padding: 22px 30px; font-size: 26px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,.06); align-items: center; }
+  .r.h { font-family: var(--mono); font-size: 18px; color: var(--t3); letter-spacing: .08em; }
+  .r .y { color: var(--wa); } .r .n { color: var(--t3); font-weight: 600; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">Why Spandan</div>
+  <h1 class="center" id="title">Not another <span class="hl">WhatsApp bot.</span></h1>
+  <div class="ui" id="tbl">
+    <div class="r h"><span>CAPABILITY</span><span style="color:var(--cyan)">SPANDAN</span><span>GENERIC BOT</span></div>
+    <div class="r"><span>Knows the campaign each customer got</span><span class="y">✓ Per message</span><span class="n">✗ One shared bot</span></div>
+    <div class="r"><span>Invents offers when unsure</span><span class="y">✓ Never</span><span class="n">⚠ Common risk</span></div>
+    <div class="r"><span>Confidence-based human handoff</span><span class="y">✓ Built in</span><span class="n">Manual</span></div>
+    <div class="r"><span>Test before deploy</span><span class="y">✓ Test Lab</span><span class="n">Rare</span></div>
+    <div class="r"><span>Billing you can audit</span><span class="y">✓ Ledger + refunds</span><span class="n">Opaque markup</span></div>
+  </div>
+</div><script type="module">
+import { film, enter, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const ch = chrome(11, 12.4);
+const at = [0.6, 2.4, 3.9, 5.4, 7.2, 9.2];
+film({ duration: 12.4, draw(t) {
+  ch(t);
+  enter($('#eye'), t, 0, { y: 10 }); enter($('#title'), t, 0.1, { y: 30 });
+  enter($('#tbl'), t, 0.4, { y: 40 });
+  $$('#tbl .r').forEach((r, i) => { enter(r, t, at[i], { x: -40, y: 0 }); const on = i && t > at[i] && (i === 5 || t < at[i + 1]); r.style.background = on ? 'rgba(53,232,242,.07)' : ''; });
+} });
+</script></body></html>

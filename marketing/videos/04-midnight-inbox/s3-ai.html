@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #title { top: 150px; font-size: 84px; padding: 0 60px; }
+  .phone { left: 220px; top: 470px; }
+  #badge { position: absolute; left: 50%; margin-left: -230px; top: 385px; z-index: 8; font-size: 30px; padding: 18px 26px; background: #0d1a1f; border-color: rgba(53,232,242,.5); }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">What if the campaign <span class="hl">answered for itself?</span></h1>
+  <div class="phone"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av">V</div><div><div class="wa-name">Vastra Studio</div><div class="wa-sub">Spandan AI · online</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+  <div class="chip" id="badge">🌙 11:48 PM · replied in 2s</div>
+</div><script type="module">
+import { film, enter, pop, drawWords, Chat, $ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: 0.3, side: 'in', time: '6:00 PM', tpl: { img: 'REPUBLIC DAY<br>DROP · 30% OFF', html: '🎉 <b>Republic Day Drop</b> — flat <b>30% off</b> the Linen Kurta set.', btns: ['🛍 Shop the drop', '✦ Ask Anything'] } },
+  { at: 2.2, side: 'out', time: '11:48 PM', html: 'Is COD available on the kurta set?' },
+  { at: 2.8, side: 'in', typing: true, until: 4.3 },
+  { at: 4.4, side: 'in', ai: true, time: '11:48 PM', html: 'Yes! Cash on delivery is available on the Linen Kurta set, and your Republic Day 30% still applies. Want the link with it pre-applied?' },
+]);
+film({ duration: 8.6, setup: () => chat.measure(), draw(t) {
+  drawWords($('#title'), t, -0.2, { rate: 0.07 });
+  enter($('.phone'), t, 0, { y: 260, d: 0.7 });
+  chat.draw(t);
+  pop($('#badge'), t, 4.9);
+} });
+</script></body></html>

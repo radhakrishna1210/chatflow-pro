@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #title { top: 130px; font-size: 84px; padding: 0 60px; }
+  .phone { left: 220px; top: 420px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Confirmed &amp; reminded, <span class="hl">on WhatsApp.</span></h1>
+  <div class="phone"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av">🏥</div><div><div class="wa-name">Glow Skin Clinic</div><div class="wa-sub">Business account</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+</div><script type="module">
+import { film, enter, drawWords, Chat, $ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: 0.6, side: 'in', time: '6:20 PM', tpl: { img: '✅ BOOKED', imgBg: 'linear-gradient(135deg,#25d366,#35e8f2)', html: '<b>Appointment confirmed</b><br>Skin consultation · Tue, 11:30 AM<br>Dr. Mehta · Glow Skin Clinic', btns: ['📅 Reschedule', '📍 Get directions'] } },
+  { at: 2.8, side: 'in', time: 'Tue 9:30 AM', tpl: { img: '⏰ IN 2 HOURS', imgBg: 'linear-gradient(135deg,#9d6bff,#35e8f2)', html: 'Reminder: your consultation is today at <b>11:30 AM</b>. Reply 1 to confirm.', btns: [] } },
+  { at: 4.4, side: 'out', time: 'Tue 9:31 AM', html: '1 👍' },
+]);
+film({ duration: 6.4, setup: () => chat.measure(), draw(t) {
+  drawWords($('#title'), t, -0.2, { rate: 0.06 });
+  enter($('.phone'), t, -0.1, { y: 240, d: 0.6 });
+  chat.draw(t);
+} });
+</script></body></html>

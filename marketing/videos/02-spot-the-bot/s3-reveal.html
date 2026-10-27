@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 180px; font-size: 32px; }
+  .ans { left: 70px; right: 70px; padding: 34px 34px 34px 130px; font-size: 36px; line-height: 1.4; font-weight: 600; }
+  .ans .k { position: absolute; left: 30px; top: 34px; width: 76px; height: 76px; border-radius: 22px; display: grid; place-items: center; font-family: var(--display); font-size: 42px; font-weight: 700; color: #06110f; }
+  #a { top: 300px; } #a .k { background: var(--amber); }
+  #b { top: 900px; } #b .k { background: var(--cyan); }
+  mark { background: none; color: inherit; border-radius: 8px; padding: 0 6px; }
+  .stamp { position: absolute; right: 30px; bottom: -40px; padding: 16px 30px; border-radius: 18px; font-family: var(--display); font-size: 44px; font-weight: 700; border: 5px solid; }
+  #sa { color: var(--red); border-color: var(--red); background: rgba(40,8,12,.92); }
+  #sb { color: var(--wa); border-color: var(--wa); background: rgba(5,30,16,.92); }
+  .why { margin-top: 22px; font-size: 28px; font-family: var(--mono); font-weight: 600; }
+  #wa { color: var(--red); } #wb { color: var(--wa); }
+  #brand { top: 1420px; font-size: 92px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">The answer</div>
+  <div class="abs card ans" id="a"><span class="k">A</span>Yes! 40% off <mark id="m1">everything, new arrivals included</mark> 🎉 Use code <mark id="m2">EXTRA10</mark> for 10% more!<div class="why" id="wa">✗ discount never offered · ✗ coupon doesn’t exist</div><div class="stamp" id="sa">INVENTED</div></div>
+  <div class="abs card ans" id="b"><span class="k">B</span>The 40% covers the Nike Air Zoom and ends Sunday. New arrivals and coupons aren’t part of this offer — want me to check with the team?<div class="why" id="wb">✓ only what the campaign said · ✓ offers a human</div><div class="stamp" id="sb">GROUNDED</div></div>
+  <h1 class="center" id="brand">Bot B is <span class="hl">Spandan.</span></h1>
+</div><script type="module">
+import { film, enter, pop, drawWords, p, $ } from './lib/kit.js';
+film({ duration: 7.4, draw(t) {
+  enter($('#eye'), t, -0.2, { y: 20 });
+  enter($('#a'), t, -0.2, { y: 30, d: 0.4 });
+  enter($('#b'), t, -0.1, { y: 30, d: 0.4 });
+  pop($('#sa'), t, 0.3, { rot: -14, s: 2.4 });
+  $('#sa').style.transform += ' rotate(-6deg)';
+  const r = p(t, 0.8, 0.5);
+  ['#m1', '#m2'].forEach(m => { $(m).style.background = `rgba(255,90,106,${0.35 * r})`; $(m).style.textDecoration = r > 0.5 ? 'line-through 3px rgba(255,90,106,.9)' : 'none'; });
+  enter($('#wa'), t, 1.4, { y: 10 });
+  $('#a').style.opacity = String(Math.min(+$('#a').style.opacity, 1 - 0.45 * p(t, 4.6, 0.5)));
+  pop($('#sb'), t, 4.9, { rot: 14, s: 2.4 });
+  $('#sb').style.transform += ' rotate(4deg)';
+  enter($('#wb'), t, 5.2, { y: 10 });
+  $('#b').style.borderColor = t > 4.9 ? 'rgba(37,211,102,.7)' : '';
+  $('#b').style.boxShadow = t > 4.9 ? '0 0 80px rgba(37,211,102,.3)' : '';
+  drawWords($('#brand'), t, 5.4, { rate: 0.08 });
+} });
+</script></body></html>

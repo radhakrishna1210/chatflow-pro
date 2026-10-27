@@ -1,0 +1,9 @@
+{ "title": "The midnight inbox", "size": [1080, 1920], "voice": "af_heart",
+  "music": [{ "src": "bed-tense", "at": 0, "in": 0, "out": 12.4, "volume": 0.22 }, { "src": "bed-lift", "at": 12.4, "in": 0, "out": 35, "volume": 0.2 }],
+  "scenes": [
+    { "page": "s1-clock.html", "dur": 5.8, "vo": [[0.3, "It's eleven forty-eight PM. Your sale went out at six. And you're still answering messages."]], "sfx": [[0.0, "impact", 0.5], [1.4, "ding", 0.35], [2.0, "ding", 0.35], [2.6, "ding", 0.35], [3.2, "ding", 0.35], [3.8, "ding", 0.35]] },
+    { "page": "s2-cooling.html", "dur": 6.6, "vo": [[0.2, "Every hour a question waits, a buyer cools off. By morning, they've bought somewhere else."]], "sfx": [[0.3, "tick", 0.7], [1.3, "tick", 0.7], [2.3, "tick", 0.7], [5.0, "buzz", 0.5]] },
+    { "page": "s3-ai.html", "dur": 8.6, "vo": [[0.2, "What if the campaign answered for itself? Spandan's AI agent replies instantly, from the exact campaign, and your knowledge base."]], "sfx": [[0.0, "riser", 0.4], [2.2, "pop", 0.5], [4.4, "pop", 0.5], [4.7, "success", 0.4]] },
+    { "page": "s4-handoff.html", "dur": 7.4, "vo": [[0.2, "And when a buyer's ready, or it gets tricky, it hands the chat to your team, with the full context."]], "sfx": [[0.4, "pop", 0.5], [2.6, "whoosh", 0.4], [3.2, "ding", 0.5]] },
+    { "page": "s5-cta.html", "dur": 6.6, "vo": [[0.3, "You sleep. Your campaign keeps selling. What time did you answer your last customer? Tell us below."]], "sfx": [[0.1, "impact", 0.5], [2.6, "pop", 0.6]] }
+  ] }

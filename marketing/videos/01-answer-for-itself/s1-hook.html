@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #dots { position: absolute; left: 140px; top: 1180px; width: 800px; display: grid; grid-template-columns: repeat(20, 1fr); gap: 14px; }
+  #dots i { display: block; aspect-ratio: 1; border-radius: 50%; background: rgba(255,255,255,0.08); }
+  #num { font-size: 250px; top: 640px; }
+  #lab { top: 930px; font-size: 54px; color: var(--t2); font-weight: 700; }
+  #eye { top: 470px; font-size: 34px; }
+  #then { top: 1660px; font-size: 64px; }
+</style></head>
+<body><div class="stage">
+  <div class="bg"><div class="grid"></div><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <div class="center eyebrow" id="eye">6:00 PM · campaign launched</div>
+  <h1 class="center" id="num"><span class="hl">0</span></h1>
+  <div class="center" id="lab">WhatsApp messages sent <span style="color:#53bdeb">✓✓</span></div>
+  <div id="dots"></div>
+  <h2 class="center" id="then">Then this happened… 👀</h2>
+</div>
+<script type="module">
+import { film, enter, count, p, ease, $, $$ } from './lib/kit.js';
+const dots = $('#dots');
+for (let i = 0; i < 200; i++) dots.appendChild(document.createElement('i'));
+film({ duration: 4.2, draw(t) {
+  enter($("#eye"), t, -0.3, { y: 20 });
+  enter($("#num"), t, -0.2, { s: 0.7, y: 0, d: 0.4 });
+  count($('#num span'), t, 0.25, 2.3, 0, 10000);
+  const punch = Math.exp(-Math.max(0, t - 2.6) * 7) * (t > 2.6 ? 1 : 0);
+  $('#num').style.transform += ` scale(${1 + punch * 0.12})`;
+  enter($("#lab"), t, -0.1, { y: 30 });
+  const lit = Math.floor(ease.out(p(t, 0.25, 2.3)) * 200);
+  $$('#dots i').forEach((d, i) => { d.style.background = i < lit ? (i % 7 ? 'var(--cyan)' : 'var(--lime)') : 'rgba(255,255,255,0.08)'; d.style.boxShadow = i < lit ? '0 0 12px rgba(53,232,242,0.6)' : 'none'; });
+  enter(dots, t, -0.2, { y: 40 });
+  enter($('#then'), t, 3.0, { y: 50, blur: 10 });
+} });
+</script></body></html>

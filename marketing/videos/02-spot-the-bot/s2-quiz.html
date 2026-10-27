@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #camp { left: 70px; right: 70px; top: 170px; padding: 30px 36px; }
+  #camp .eyebrow { font-size: 24px; } #camp p { font-size: 40px; font-weight: 700; margin-top: 10px; }
+  #q { right: 70px; top: 450px; max-width: 760px; padding: 26px 32px; border-radius: 30px; border-top-right-radius: 8px; background: #005c4b; font-size: 40px; font-weight: 600; }
+  #q small { display: block; font-size: 24px; color: rgba(255,255,255,.6); margin-bottom: 6px; font-weight: 700; }
+  .ans { left: 70px; right: 70px; padding: 30px 34px 34px 130px; font-size: 36px; line-height: 1.38; font-weight: 600; }
+  .ans .k { position: absolute; left: 30px; top: 30px; width: 76px; height: 76px; border-radius: 22px; display: grid; place-items: center; font-family: var(--display); font-size: 42px; font-weight: 700; color: #06110f; }
+  #a { top: 720px; } #a .k { background: var(--amber); }
+  #b { top: 1050px; } #b .k { background: var(--cyan); }
+  #cd { left: 0; right: 0; top: 1450px; display: flex; justify-content: center; align-items: center; gap: 40px; }
+  #cd svg { width: 170px; height: 170px; transform: rotate(-90deg); } #cd circle { fill: none; stroke-width: 14; } #num { z-index: 2; }
+  #num { position: absolute; width: 170px; text-align: center; font-family: var(--display); font-size: 80px; font-weight: 700; line-height: 170px; }
+  .ringwrap { position: relative; width: 170px; height: 170px; }
+</style></head><body><div class="stage">
+  <div class="abs card" id="camp"><div class="eyebrow">📣 The campaign said</div><p>Monsoon Flash Sale · <span class="hl">40% off Nike Air Zoom</span> · ends Sunday</p></div>
+  <div class="abs" id="q"><small>Customer</small>Is the 40% on new arrivals too? Any coupon? 🙏</div>
+  <div class="abs card ans" id="a"><span class="k">A</span>Yes! 40% off <b>everything</b>, new arrivals included 🎉 Use code <b>EXTRA10</b> for 10% more!</div>
+  <div class="abs card ans" id="b"><span class="k">B</span>The 40% covers the Nike Air Zoom and ends Sunday. New arrivals and coupons aren’t part of this offer — want me to check with the team?</div>
+  <div class="abs" id="cd"><div class="ringwrap"><span id="num">5</span><svg viewBox="0 0 170 170"><circle cx="85" cy="85" r="70" stroke="rgba(255,255,255,.12)"></circle><circle id="arc" cx="85" cy="85" r="70" stroke="#c4ff46" stroke-linecap="round"></circle></svg></div><span class="comment">💬 Comment A or B</span></div>
+</div><script type="module">
+import { film, enter, pop, ring, $ } from './lib/kit.js';
+film({ duration: 11, draw(t) {
+  enter($('#camp'), t, 0.1, { y: -40 });
+  pop($('#q'), t, 2.0, { s: 0.6 });
+  enter($('#a'), t, 3.5, { x: -160, y: 0 });
+  enter($('#b'), t, 4.3, { x: 160, y: 0 });
+  enter($('#cd'), t, 5.6, { y: 40 });
+  ring($('#arc'), t, 6.0, 5.0);
+  $('#num').textContent = String(Math.max(0, Math.ceil(5 - Math.max(0, t - 6.0))));
+  const pulse = 1 + Math.max(0, Math.sin((t - 6) * Math.PI * 2)) * 0.06 * (t > 6 ? 1 : 0);
+  $('#num').style.transform = `scale(${pulse})`;
+  ['#a', '#b'].forEach((s, i) => { const g = t > 6 ? Math.max(0, Math.sin((t - 6) * 2.4 + i * Math.PI)) : 0; $(s).style.boxShadow = `0 0 ${60 * g}px rgba(${i ? '53,232,242' : '255,181,71'},${0.35 * g})`; });
+} });
+</script></body></html>

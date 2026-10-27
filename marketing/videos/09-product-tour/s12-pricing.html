@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #eye { top: 120px; font-size: 22px; } #title { top: 150px; font-size: 70px; }
+  #free { top: 250px; } #free .chip { font-size: 24px; border-color: rgba(196,255,70,.5); }
+  #plans { position: absolute; left: 150px; right: 150px; top: 340px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; align-items: start; }
+  .pl { padding: 34px; position: relative; } .pl h3 { font-size: 34px; } .pl .pr { font-family: var(--display); font-size: 64px; font-weight: 700; margin-top: 10px; } .pl .pr small { font-size: 22px; color: var(--t3); }
+  .pl .nt { font-size: 18px; color: var(--t3); font-family: var(--mono); margin-top: 4px; }
+  .pl ul { list-style: none; margin-top: 20px; display: flex; flex-direction: column; gap: 10px; } .pl li { font-size: 20px; font-weight: 600; color: var(--t2); } .pl li::before { content: '✓  '; color: var(--cyan); }
+  #grow { border: 2px solid rgba(53,232,242,.6); box-shadow: 0 0 80px rgba(53,232,242,.2); }
+  .pop { position: absolute; top: -18px; right: 24px; padding: 6px 16px; border-radius: 999px; background: var(--grad-cta); color: var(--ink); font-weight: 800; font-size: 16px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">Pricing</div>
+  <h1 class="center" id="title">Simple plans. <span class="hl">No markup.</span></h1>
+  <div class="center" id="free"><span class="chip">🎁 Start free · no card needed</span></div>
+  <div id="plans">
+    <div class="pl card"><h3>Basic</h3><div class="pr">₹1,500<small>/mo</small></div><div class="nt">or ₹3,500 / quarter</div><ul><li>1 WhatsApp number</li><li>Up to 10 team members</li><li>10,000 messages / cycle</li><li>Campaigns, templates, inbox</li><li>Workflows &amp; auto-replies</li></ul></div>
+    <div class="pl card" id="grow"><span class="pop">MOST POPULAR</span><h3>Growth</h3><div class="pr hl">₹2,500<small>/mo</small></div><div class="nt">or ₹7,500 / quarter</div><ul><li>Unlimited numbers &amp; members</li><li>Unlimited messages</li><li>Campaign AI Agent</li><li>Intent matching &amp; smart replies</li><li>SMS &amp; email fallback</li><li>Voice AI &amp; Instagram flows</li></ul></div>
+    <div class="pl card"><h3>Enterprise</h3><div class="pr">Custom</div><div class="nt">talk to sales</div><ul><li>Everything in Growth</li><li>Custom volume</li><li>Dedicated manager</li><li>SSO &amp; audit logs</li><li>SLA</li></ul></div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const ch = chrome(12, 16.2);
+film({ duration: 16.2, draw(t) {
+  ch(t);
+  enter($('#eye'), t, 0, { y: 10 }); enter($('#title'), t, 0.1, { y: 30 });
+  pop($('#free'), t, 0.6);
+  $$('.pl').forEach((x, i) => enter(x, t, [2.2, 5.8, 13.6][i], { y: 60 }));
+  $$('#grow li').forEach((l, i) => enter(l, t, 6.6 + i * 0.75, { x: -10, y: 0 }));
+} });
+</script></body></html>

@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #chart { position: absolute; left: 0; right: 0; top: 0; height: 400px; }
+  #chart .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+  #chart .row div { padding: 16px 20px; } #chart .row .l { font-family: var(--mono); font-size: 13px; color: var(--t3); } #chart .row .v { font-family: var(--display); font-size: 34px; font-weight: 700; }
+  #bars { display: flex; align-items: flex-end; gap: 12px; height: 230px; padding: 18px 22px 0; }
+  #bars .g { flex: 1; display: flex; gap: 3px; align-items: flex-end; height: 100%; } #bars i { flex: 1; border-radius: 4px 4px 0 0; transform-origin: bottom; }
+  #led { position: absolute; left: 0; right: 0; top: 430px; padding: 0 0 8px; }
+  .lr { display: grid; grid-template-columns: 1.6fr 1fr 0.8fr; padding: 15px 22px; font-size: 19px; border-bottom: 1px solid rgba(255,255,255,.05); align-items: center; }
+  .lr .a { font-family: var(--mono); text-align: right; font-weight: 600; } .lr .s { font-family: var(--mono); font-size: 14px; color: var(--t3); }
+  #zero { position: absolute; right: 0; top: 380px; font-size: 20px; padding: 10px 18px; background: #0e1117; z-index: 3; border-color: rgba(196,255,70,.5); }
+</style></head><body><div class="stage">
+  <div class="left"><div class="eyebrow">Step 8 · Analytics &amp; billing</div><h1>Numbers you can <span class="hl">trust.</span></h1>
+    <p>Delivery tied back to spend, and a wallet ledger where every rupee is accounted for.</p>
+    <ul><li><b>📊</b>Sent · delivered · read · failed</li><li><b>🔒</b>Reserve at launch, settle on completion</li><li><b>↩</b>Never sent? Refunded.</li><li><b>₹</b>Meta’s rate, zero markup</li></ul></div>
+  <div class="right">
+    <div class="ui" id="chart"><div class="tb"><i></i><i></i><i></i><span>Analytics · last 7 campaigns</span></div>
+      <div class="row"><div><div class="l">SENT</div><div class="v" style="color:var(--cyan)" id="v1">0</div></div><div><div class="l">DELIVERED</div><div class="v" style="color:var(--violet)" id="v2">0%</div></div><div><div class="l">READ</div><div class="v" style="color:var(--lime)" id="v3">0%</div></div><div><div class="l">FAILED</div><div class="v" style="color:var(--red)" id="v4">0%</div></div></div>
+      <div id="bars"></div></div>
+    <div class="chip" id="zero">₹ Meta rate · 0% markup</div>
+    <div class="ui" id="led"><div class="tb"><i></i><i></i><i></i><span>Wallet ledger</span></div>
+      <div class="lr"><span>Diwali VIP Drop · reserve</span><span class="s">launch · 1,240 msgs</span><span class="a" style="color:var(--violet)">−₹1,054</span></div>
+      <div class="lr"><span>Opted-out &amp; unsendable</span><span class="s">skipped · 18</span><span class="a" style="color:var(--t3)">₹0</span></div>
+      <div class="lr"><span>Retries</span><span class="s">billed once</span><span class="a" style="color:var(--t3)">₹0</span></div>
+      <div class="lr" id="ref"><span>Settle · never went out</span><span class="s">completion · 22</span><span class="a" style="color:var(--wa)">+₹19</span></div></div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, count, p, ease, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const H = [[.9, .86, .7, .05], [.7, .68, .52, .03], [1, .97, .81, .04], [.6, .58, .41, .03], [.85, .82, .66, .04], [.75, .73, .6, .02], [.95, .93, .79, .03]];
+const col = ['#35e8f2', '#9d6bff', '#c4ff46', '#ff5a6a'];
+H.forEach(g => $('#bars').insertAdjacentHTML('beforeend', `<div class="g">${g.map((h, i) => `<i style="height:${h * 100}%;background:${col[i]}"></i>`).join('')}</div>`));
+const ch = chrome(9, 17.0);
+const pct = v => v.toFixed(1) + '%';
+film({ duration: 17.0, draw(t) {
+  ch(t);
+  enter($('.left .eyebrow'), t, 0, { y: 20 }); enter($('.left h1'), t, 0.15, { y: 30 }); enter($('.left p'), t, 1.4, { y: 20 });
+  $$('.left li').forEach((l, i) => enter(l, t, [1.4, 8.0, 11.0, 13.4][i], { x: -30, y: 0 }));
+  enter($('#chart'), t, 0.5, { y: 30 });
+  count($('#v1'), t, 1.0, 2, 0, 48210); count($('#v2'), t, 1.4, 2, 0, 98.2, pct); count($('#v3'), t, 2.0, 2, 0, 81.6, pct); count($('#v4'), t, 2.6, 2, 0, 1.8, pct);
+  $$('#bars .g').forEach((g, j) => [...g.children].forEach((b, i) => { b.style.transform = `scaleY(${ease.out(p(t, 1.2 + j * 0.15 + i * 0.12, 0.6))})`; }));
+  enter($('#led'), t, 6.6, { y: 40 });
+  $$('.lr').forEach((r, i) => enter(r, t, [7.8, 8.4, 9.0, 10.6][i], { x: 30, y: 0 }));
+  const g = p(t, 10.8, 0.4); $('#ref').style.background = `rgba(37,211,102,${0.1 * g})`;
+  pop($('#zero'), t, 13.6);
+} });
+</script></body></html>

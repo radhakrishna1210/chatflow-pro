@@ -1,0 +1,27 @@
+[
+ {
+  "page": "s1-clock",
+  "at": 0.0,
+  "dur": 5.8
+ },
+ {
+  "page": "s2-cooling",
+  "at": 5.8,
+  "dur": 6.6
+ },
+ {
+  "page": "s3-ai",
+  "at": 12.4,
+  "dur": 8.6
+ },
+ {
+  "page": "s4-handoff",
+  "at": 21.0,
+  "dur": 7.4
+ },
+ {
+  "page": "s5-cta",
+  "at": 28.4,
+  "dur": 6.6
+ }
+]

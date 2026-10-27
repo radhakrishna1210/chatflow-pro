@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #eye { top: 150px; font-size: 26px; }
+  #q { top: 200px; font-size: 64px; padding: 0 220px; }
+  #opts { position: absolute; left: 260px; right: 260px; top: 470px; display: flex; flex-direction: column; gap: 22px; }
+  .opt { font-size: 34px; padding: 22px 30px; } .opt .k { width: 60px; height: 60px; font-size: 30px; border-radius: 18px; }
+  #cd { position: absolute; left: 0; right: 0; top: 880px; display: flex; justify-content: center; align-items: center; gap: 28px; }
+  #cd .comment { font-size: 30px; padding: 16px 30px; }
+  .rw { position: relative; width: 100px; height: 100px; } .rw svg { width: 100px; height: 100px; transform: rotate(-90deg); } .rw circle { fill: none; stroke-width: 9; }
+  #num { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--display); font-size: 44px; font-weight: 700; z-index: 2; }
+  #why { top: 880px; font-size: 32px; font-weight: 800; color: var(--wa); }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">⏸ Pause &amp; guess</div>
+  <h1 class="center" id="q">You change an offer from 50% to 30% <span class="hl">after sending.</span> What does the AI tell someone who got 50%?</h1>
+  <div id="opts">
+    <div class="opt" id="a"><span class="k">A</span> “The current offer is 30%.”</div>
+    <div class="opt" id="b"><span class="k">B</span> “Your 50% from the message you received applies.”</div>
+    <div class="opt" id="c"><span class="k">C</span> “Sorry, I can’t help with offers.”</div>
+  </div>
+  <div id="cd"><div class="rw"><span id="num">3</span><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" stroke="rgba(255,255,255,.12)"></circle><circle id="arc" cx="50" cy="50" r="42" stroke="#c4ff46" stroke-linecap="round"></circle></svg></div><span class="comment">💬 Lock in A, B or C</span></div>
+  <div class="center" id="why">✓ B — answers stay true to the message each customer actually received</div>
+</div><script type="module">
+import { film, enter, pop, ring, drawWords, p, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const ch = chrome(6, 18.4);
+film({ duration: 18.4, draw(t) {
+  ch(t);
+  enter($('#eye'), t, 0, { y: 10 });
+  drawWords($('#q'), t, 0.3, { rate: 0.12 });
+  ['#a', '#b', '#c'].forEach((s, i) => enter($(s), t, 6.6 + i * 0.35, { x: -60, y: 0 }));
+  enter($('#cd'), t, 8.6, { y: 20, out: 12.3, outD: 0.3 });
+  ring($('#arc'), t, 9.4, 3.0);
+  $('#num').textContent = String(Math.max(0, Math.ceil(3 - Math.max(0, t - 9.4))));
+  const r = p(t, 12.4, 0.4);
+  ['#a', '#c'].forEach(s => { $(s).style.opacity = String(Math.min(+$(s).style.opacity, 1 - 0.6 * r)); });
+  $('#b').style.borderColor = r ? 'rgba(37,211,102,.8)' : ''; $('#b').style.boxShadow = `0 0 ${80 * r}px rgba(37,211,102,${0.35 * r})`;
+  $('#b .k').style.background = r ? 'var(--wa)' : ''; $('#b .k').style.color = r ? '#06110f' : '';
+  enter($('#why'), t, 12.8, { y: 20 });
+} });
+</script></body></html>

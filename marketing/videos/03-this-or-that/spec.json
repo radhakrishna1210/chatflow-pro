@@ -1,0 +1,228 @@
+{
+ "title": "This or That: WhatsApp edition",
+ "size": [
+  1080,
+  1920
+ ],
+ "voice": "af_heart",
+ "music": [
+  {
+   "src": "bed-drive",
+   "at": 0,
+   "in": 80,
+   "out": 118,
+   "volume": 0.2
+  }
+ ],
+ "scenes": [
+  {
+   "page": "s0-intro.html",
+   "dur": 3.6,
+   "vo": [
+    [
+     0.2,
+     "This, or that? WhatsApp marketing edition. Pick fast!"
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "impact",
+     0.6
+    ],
+    [
+     1.6,
+     "whoosh",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "r1.html",
+   "dur": 5.2,
+   "vo": [
+    [
+     0.25,
+     "Paying a markup on every message? Or Meta's rate, passed straight through?"
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.4
+    ],
+    [
+     0.3,
+     "pop",
+     0.4
+    ],
+    [
+     3.9,
+     "tick",
+     0.8
+    ],
+    [
+     4.0,
+     "ding",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "r2.html",
+   "dur": 5.2,
+   "vo": [
+    [
+     0.25,
+     "Paying for messages that failed? Or getting every unsent one refunded?"
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.4
+    ],
+    [
+     0.3,
+     "pop",
+     0.4
+    ],
+    [
+     3.9,
+     "tick",
+     0.8
+    ],
+    [
+     4.0,
+     "ding",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "r3.html",
+   "dur": 5.2,
+   "vo": [
+    [
+     0.25,
+     "One generic bot for everything? Or an AI that knows each campaign?"
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.4
+    ],
+    [
+     0.3,
+     "pop",
+     0.4
+    ],
+    [
+     3.9,
+     "tick",
+     0.8
+    ],
+    [
+     4.0,
+     "ding",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "r4.html",
+   "dur": 5.2,
+   "vo": [
+    [
+     0.25,
+     "Wondering if the automation fired? Or a run history that tells you?"
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.4
+    ],
+    [
+     0.3,
+     "pop",
+     0.4
+    ],
+    [
+     3.9,
+     "tick",
+     0.8
+    ],
+    [
+     4.0,
+     "ding",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "r5.html",
+   "dur": 5.2,
+   "vo": [
+    [
+     0.25,
+     "Customers saying stop, and still getting messages? Or stop meaning stop, for good?"
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.4
+    ],
+    [
+     0.3,
+     "pop",
+     0.4
+    ],
+    [
+     3.9,
+     "tick",
+     0.8
+    ],
+    [
+     4.0,
+     "ding",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s9-score.html",
+   "dur": 7.4,
+   "vo": [
+    [
+     0.3,
+     "Picked every one on the right? Comment your score. Then get all five, in one platform. Spandan."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "success",
+     0.5
+    ],
+    [
+     1.4,
+     "pop",
+     0.6
+    ],
+    [
+     4.6,
+     "impact",
+     0.5
+    ]
+   ]
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #a { top: 560px; font-size: 200px; } #or { top: 790px; font-size: 80px; color: var(--t3); } #b { top: 900px; font-size: 200px; }
+  #sub { top: 1210px; font-size: 44px; font-weight: 800; color: var(--t2); }
+  #fast { top: 1330px; } #fast .comment { font-size: 48px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="a"><span class="hl-bad">THIS</span> 👈</h1>
+  <h2 class="center" id="or">or</h2>
+  <h1 class="center" id="b">👉 <span class="hl">THAT</span></h1>
+  <div class="center" id="sub">WhatsApp marketing edition</div>
+  <div class="center" id="fast"><span class="comment">⚡ Pick fast. Keep score.</span></div>
+</div><script type="module">
+import { film, enter, pop, $ } from './lib/kit.js';
+film({ duration: 3.6, draw(t) {
+  enter($('#a'), t, -0.3, { x: -400, y: 0, d: 0.4 });
+  enter($('#or'), t, 0.1, { y: 0, s: 0.3 });
+  enter($('#b'), t, 0.25, { x: 400, y: 0, d: 0.4 });
+  enter($('#sub'), t, 1.0, { y: 20 });
+  pop($('#fast'), t, 1.7);
+} });
+</script></body></html>

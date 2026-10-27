@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 180px; font-size: 32px; }
+  #title { top: 240px; font-size: 96px; padding: 0 60px; }
+  #msg { left: 110px; right: 110px; top: 560px; padding: 30px 36px; border-radius: 30px; background: #005c4b; font-size: 42px; font-weight: 700; text-align: center; }
+  #ai { top: 760px; font-size: 90px; }
+  #bars { position: absolute; left: 110px; right: 110px; top: 920px; display: flex; flex-direction: column; gap: 26px; }
+  .b { padding: 24px 30px; }
+  .b .row { display: flex; justify-content: space-between; font-size: 34px; font-weight: 800; }
+  .b .tr { height: 16px; border-radius: 8px; background: rgba(255,255,255,.07); margin-top: 16px; overflow: hidden; }
+  .b .fl { height: 100%; border-radius: 8px; background: var(--grad-cta); transform-origin: left; }
+  #reply { left: 110px; right: 110px; top: 1420px; padding: 28px 34px; border-radius: 30px; border-top-left-radius: 8px; background: #202c33; font-size: 36px; font-weight: 600; box-shadow: 0 0 0 2px rgba(53,232,242,.5); }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">AI intent matching</div>
+  <h1 class="center" id="title">It gets what they <span class="hl">mean.</span></h1>
+  <div class="abs" id="msg">“my parcel hasn’t come yet 😡”</div>
+  <div class="center" id="ai">✦</div>
+  <div id="bars">
+    <div class="b card" id="b1"><div class="row"><span>📦 Order status</span><span class="v">0%</span></div><div class="tr"><div class="fl"></div></div></div>
+    <div class="b card" id="b2"><div class="row"><span>↩️ Returns</span><span class="v">0%</span></div><div class="tr"><div class="fl"></div></div></div>
+    <div class="b card" id="b3"><div class="row"><span>💳 Payments</span><span class="v">0%</span></div><div class="tr"><div class="fl"></div></div></div>
+  </div>
+  <div class="abs" id="reply">📦 Sorry for the wait! Your order #QK-2291 is out for delivery — track it here: qk.in/t/2291</div>
+</div><script type="module">
+import { film, enter, pop, p, ease, $ } from './lib/kit.js';
+const V = [86, 22, 9];
+film({ duration: 7.6, draw(t) {
+  enter($('#eye'), t, -0.2, { y: 20 }); enter($('#title'), t, -0.1, { y: 30 });
+  pop($('#msg'), t, 0.5, { s: 0.7 });
+  pop($('#ai'), t, 1.2); $('#ai').style.transform += ` rotate(${t * 90}deg)`;
+  V.forEach((v, i) => {
+    const b = $('#b' + (i + 1)); enter(b, t, 1.6 + i * 0.2, { y: 30 });
+    const k = ease.out(p(t, 2.0, 1.4));
+    b.querySelector('.fl').style.transform = `scaleX(${v / 100 * k})`;
+    b.querySelector('.v').textContent = Math.round(v * k) + '%';
+    if (i === 0) { const g = p(t, 3.6, 0.3); b.style.borderColor = g ? 'rgba(196,255,70,.7)' : ''; b.style.boxShadow = `0 0 ${70 * g}px rgba(196,255,70,${0.3 * g})`; }
+    else b.style.opacity = String(Math.min(+b.style.opacity, 1 - 0.5 * p(t, 3.6, 0.4)));
+  });
+  pop($('#reply'), t, 5.2, { s: 0.7 });
+} });
+</script></body></html>

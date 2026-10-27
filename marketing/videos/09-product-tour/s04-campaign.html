@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #wiz { position: absolute; left: 0; width: 380px; top: 0; padding: 18px 0; }
+  .st { display: flex; gap: 14px; align-items: center; padding: 10px 22px; font-size: 19px; font-weight: 700; color: var(--t3); }
+  .st .n { width: 32px; height: 32px; border-radius: 50%; border: 2px solid rgba(255,255,255,.15); display: grid; place-items: center; font-family: var(--mono); font-size: 14px; flex: none; }
+  #launch { position: absolute; left: 410px; right: 0; top: 0; padding: 28px; }
+  #launch h3 { font-size: 30px; } #launch .k { font-family: var(--mono); font-size: 15px; color: var(--t3); margin-top: 6px; }
+  #go { margin-top: 22px; font-size: 26px; padding: 18px 34px; }
+  #stats { position: absolute; left: 410px; right: 0; top: 280px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .sx { padding: 22px; } .sx .l { font-family: var(--mono); font-size: 15px; color: var(--t3); letter-spacing: .08em; } .sx .v { font-family: var(--display); font-size: 52px; font-weight: 700; margin-top: 6px; }
+  .sx .tr { height: 8px; border-radius: 4px; background: rgba(255,255,255,.07); margin-top: 12px; overflow: hidden; } .sx .tr i { display: block; height: 100%; transform-origin: left; }
+</style></head><body><div class="stage">
+  <div class="left"><div class="eyebrow">Step 4 · Campaigns</div><h1>Every step, <span class="hl">guided.</span></h1>
+    <p>An 11-step builder from goal to launch — with AI, retries and fallback built in, not bolted on.</p>
+    <ul><li><b>✦</b>Attach your AI agent per campaign</li><li><b>↻</b>Retries on a backoff you control</li><li><b>✉</b>SMS &amp; email fallback</li></ul></div>
+  <div class="right">
+    <div class="ui" id="wiz"></div>
+    <div class="ui" id="launch"><h3>Diwali VIP Drop</h3><div class="k">TEMPLATE diwali_vip_v2 · AUDIENCE VIP buyers · 1,240</div><span class="btn" id="go">🚀 Go live</span></div>
+    <div id="stats"></div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, count, p, ease, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const S = [['Goal', 3.3], ['Type & WhatsApp number', 3.8], ['Message template', 4.3], ['Audience', 4.9], ['Schedule', 5.8], ['AI Agent', 7.4], ['Reply flows', 8.4], ['Retries', 8.9], ['Conversion tracking', 9.6], ['Fallback channels', 11.0], ['Review & launch', 12.0]];
+S.forEach(([s], i) => $('#wiz').insertAdjacentHTML('beforeend', `<div class="st"><span class="n">${i}</span>${s}</div>`));
+const X = [['SENT', 1240, '#35e8f2'], ['DELIVERED', 1218, '#9d6bff'], ['READ', 1036, '#c4ff46'], ['FAILED', 22, '#ff5a6a']];
+X.forEach(([l]) => $('#stats').insertAdjacentHTML('beforeend', `<div class="sx card"><div class="l">${l}</div><div class="v">0</div><div class="tr"><i></i></div></div>`));
+const ch = chrome(4, 16.8);
+film({ duration: 16.8, draw(t) {
+  ch(t);
+  enter($('.left .eyebrow'), t, 0, { y: 20 }); enter($('.left h1'), t, 0.15, { y: 30 }); enter($('.left p'), t, 1.4, { y: 20 });
+  $$('.left li').forEach((l, i) => enter(l, t, [7.6, 9.2, 11.4][i], { x: -30, y: 0 }));
+  enter($('#wiz'), t, 0.4, { x: 40, y: 0 });
+  $$('.st').forEach((s, i) => { const on = t > S[i][1]; const cur = on && (i === S.length - 1 || t < S[i + 1][1]);
+    s.style.color = cur ? 'var(--t1)' : on ? 'var(--t2)' : ''; s.style.background = cur ? 'rgba(53,232,242,.08)' : '';
+    const n = s.querySelector('.n'); n.textContent = on && !cur ? '✓' : String(i); n.style.background = on && !cur ? 'var(--wa)' : cur ? 'var(--cyan)' : ''; n.style.color = on ? '#06110f' : ''; n.style.borderColor = on ? 'transparent' : ''; });
+  enter($('#launch'), t, 1.0, { y: 30 });
+  const pr = t > 12.4 && t < 12.8; $('#go').style.transform = `scale(${pr ? 0.94 : 1})`; $('#go').textContent = t > 12.8 ? '● Live · sending' : '🚀 Go live';
+  $$('.sx').forEach((s, i) => { enter(s, t, 12.8 + i * 0.1, { y: 30 }); count(s.querySelector('.v'), t, 13.0, 3.0, 0, X[i][1]); const b = s.querySelector('i'); b.style.background = X[i][2]; b.style.transform = `scaleX(${ease.out(p(t, 13.0, 3.0)) * X[i][1] / 1240}`; });
+} });
+</script></body></html>

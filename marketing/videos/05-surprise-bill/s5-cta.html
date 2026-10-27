@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #q { top: 300px; font-size: 104px; padding: 0 70px; }
+  #opts { position: absolute; left: 90px; right: 90px; top: 760px; display: flex; flex-direction: column; gap: 34px; }
+  .opt .k { background: rgba(255,90,106,.25); }
+  #cmt { top: 1180px; } #cmt .comment { font-size: 50px; }
+  #logo { top: 1400px; font-size: 64px; } #logo .mark { width: 92px; height: 92px; font-size: 54px; }
+  #foot { top: 1530px; font-size: 32px; color: var(--t3); font-family: var(--mono); font-weight: 600; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="q">Ever been <span class="hl-bad">surprised</span> by a messaging bill?</h1>
+  <div id="opts"><div class="opt"><span class="k">😤</span> YES — every month</div><div class="opt"><span class="k" style="background:rgba(53,232,242,.2)">😌</span> NO — lucky me</div></div>
+  <div class="center" id="cmt"><span class="comment">💬 Comment YES or NO</span></div>
+  <div class="center" id="logo"><span class="logo"><span class="mark">S</span>Spandan</span></div>
+  <div class="center" id="foot">Pay Meta’s rate · unsent = refunded</div>
+</div><script type="module">
+import { film, enter, pop, drawWords, $, $$ } from './lib/kit.js';
+film({ duration: 6, draw(t) {
+  drawWords($('#q'), t, -0.2, { rate: 0.07 });
+  $$('.opt').forEach((o, i) => enter(o, t, 0.6 + i * 0.4, { x: i ? 160 : -160, y: 0 }));
+  pop($('#cmt'), t, 2.4);
+  pop($('#logo'), t, 3.4); enter($('#foot'), t, 3.8, { y: 20 });
+} });
+</script></body></html>

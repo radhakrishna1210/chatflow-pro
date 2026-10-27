@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #a { top: 330px; font-size: 130px; } #b { top: 480px; font-size: 130px; }
+  #moon { top: 680px; font-size: 160px; }
+  #q { top: 940px; font-size: 56px; font-weight: 800; padding: 0 90px; line-height: 1.25; }
+  #cmt { top: 1140px; } #cmt .comment { font-size: 50px; }
+  #logo { top: 1380px; font-size: 64px; } #logo .mark { width: 92px; height: 92px; font-size: 54px; }
+  #foot { top: 1520px; font-size: 32px; color: var(--t3); font-family: var(--mono); font-weight: 600; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="a">You sleep.</h1>
+  <h1 class="center" id="b"><span class="hl">It sells.</span></h1>
+  <div class="center" id="moon">😴💸</div>
+  <div class="center" id="q">What time did you answer your last customer?</div>
+  <div class="center" id="cmt"><span class="comment">⏰ Comment the time 👇</span></div>
+  <div class="center" id="logo"><span class="logo"><span class="mark">S</span>Spandan</span></div>
+  <div class="center" id="foot">Campaign AI agent · free plan · no card</div>
+</div><script type="module">
+import { film, enter, pop, $ } from './lib/kit.js';
+film({ duration: 6.6, draw(t) {
+  enter($('#a'), t, -0.2, { y: 40 }); enter($('#b'), t, 0.6, { y: 40, s: 0.9 });
+  pop($('#moon'), t, 1.0); $('#moon').style.transform += ` translateY(${Math.sin(t * 2) * 12}px)`;
+  enter($('#q'), t, 2.2, { y: 30 });
+  pop($('#cmt'), t, 2.6);
+  pop($('#logo'), t, 3.8); enter($('#foot'), t, 4.2, { y: 20 });
+} });
+</script></body></html>

@@ -1,0 +1,9 @@
+{ "title": "The offer changed. The bot lied.", "size": [1080, 1920], "voice": "af_heart",
+  "music": [{ "src": "bed-tense", "at": 0, "in": 30, "out": 49, "volume": 0.22 }, { "src": "bed-lift", "at": 19, "in": 30, "out": 60, "volume": 0.2 }],
+  "scenes": [
+    { "page": "s1-monday.html", "dur": 4.6, "vo": [[0.2, "Monday. You send fifty percent off, to five thousand customers."]], "sfx": [[0.1, "whoosh", 0.4], [1.4, "impact", 0.5]] },
+    { "page": "s2-wednesday.html", "dur": 4.4, "vo": [[0.2, "Wednesday. You change the offer to thirty."]], "sfx": [[1.6, "tick", 0.8], [2.0, "impact", 0.5]] },
+    { "page": "s3-thursday.html", "dur": 10.0, "vo": [[0.2, "Thursday. A Monday customer asks about their fifty percent. A generic bot says thirty. Now you have an angry customer, and a screenshot."]], "sfx": [[0.6, "pop", 0.5], [2.8, "pop", 0.5], [5.4, "pop", 0.5], [5.7, "buzz", 0.5], [7.4, "impact", 0.5]] },
+    { "page": "s4-snapshot.html", "dur": 9.6, "vo": [[0.3, "Spandan saves the exact message each customer received, at send time. So their answer stays true, to what you promised them."]], "sfx": [[0.0, "riser", 0.4], [1.2, "cash", 0.3], [4.8, "pop", 0.5], [5.0, "success", 0.4]] },
+    { "page": "s5-cta.html", "dur": 5.4, "vo": [[0.3, "Would your bot pass this test? Comment below."]], "sfx": [[0.2, "impact", 0.5], [1.6, "pop", 0.6]] }
+  ] }

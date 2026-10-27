@@ -1,0 +1,9 @@
+{ "title": "The call nobody picked up", "size": [1080, 1920], "voice": "af_heart",
+  "music": [{ "src": "bed-tense", "at": 0, "in": 10, "out": 19.2, "volume": 0.22 }, { "src": "bed-lift", "at": 9.2, "in": 10, "out": 46, "volume": 0.2 }],
+  "scenes": [
+    { "page": "s1-ring.html", "dur": 5.0, "vo": [[0.2, "The reception desk is slammed. The phone rings. And rings."]], "sfx": [[0.2, "ding", 0.4], [1.2, "ding", 0.4], [2.2, "ding", 0.4], [3.2, "ding", 0.4], [4.2, "buzz", 0.4]] },
+    { "page": "s2-lost.html", "dur": 4.2, "vo": [[0.2, "They hang up, and book with the clinic next door."]], "sfx": [[0.3, "whoosh", 0.4], [2.2, "impact", 0.5]] },
+    { "page": "s3-voice.html", "dur": 11.0, "vo": [[0.2, "Spandan Voice AI answers every call, transcribes it, and turns it into a lead. With a handoff, when the caller needs a person."]], "sfx": [[0.1, "riser", 0.4], [0.9, "success", 0.4], [2.6, "pop", 0.4], [4.6, "pop", 0.4], [7.0, "ding", 0.5]] },
+    { "page": "s4-confirm.html", "dur": 6.4, "vo": [[0.2, "Then confirmations and reminders go out on WhatsApp, automatically."]], "sfx": [[0.6, "pop", 0.5], [2.8, "pop", 0.5]] },
+    { "page": "s5-cta.html", "dur": 6.0, "vo": [[0.3, "Clinic owners. How many calls did you miss today? Comment a number."]], "sfx": [[0.2, "impact", 0.5], [2.8, "pop", 0.6]] }
+  ] }

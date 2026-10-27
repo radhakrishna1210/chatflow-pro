@@ -1,0 +1,42 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 130px; font-size: 32px; }
+  #title { top: 190px; font-size: 92px; padding: 0 60px; }
+  #call { left: 70px; right: 70px; top: 420px; padding: 34px; }
+  #call .hd { display: flex; justify-content: space-between; align-items: center; }
+  #call .hd b { font-size: 34px; } #call .hd span { font-family: var(--mono); font-size: 26px; color: var(--wa); font-weight: 600; }
+  #wave { display: flex; gap: 8px; align-items: center; height: 120px; margin: 20px 0; }
+  #wave i { flex: 1; border-radius: 4px; background: var(--grad-cta); }
+  .ln { font-size: 30px; line-height: 1.4; margin-top: 16px; font-weight: 600; } .ln b { font-family: var(--mono); font-size: 22px; letter-spacing: .1em; display: block; color: var(--t3); }
+  .ln.ai b { color: var(--cyan); }
+  #lead { left: 70px; right: 70px; top: 1250px; padding: 34px; border-color: rgba(196,255,70,.5); }
+  #lead .k { font-family: var(--mono); font-size: 24px; color: var(--lime); font-weight: 600; letter-spacing: .1em; }
+  #lead h3 { font-size: 42px; margin-top: 10px; } #lead p { font-size: 28px; color: var(--t2); margin-top: 8px; font-weight: 600; }
+  #hand { top: 1600px; } #hand .comment { font-size: 38px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">Spandan Voice AI reception</div>
+  <h1 class="center" id="title">Every call, <span class="hl">answered.</span></h1>
+  <div class="abs card" id="call">
+    <div class="hd"><b>📞 +91 98•••• 2207</b><span>● LIVE · <span id="tm">00:00</span></span></div>
+    <div id="wave"></div>
+    <div class="ln" id="l1"><b>CALLER</b>Hi, I need a skin consultation tomorrow morning.</div>
+    <div class="ln ai" id="l2"><b>✦ VOICE AI</b>Of course! I’ve noted a morning consultation for you — our desk will confirm your slot on WhatsApp shortly.</div>
+  </div>
+  <div class="abs card" id="lead"><div class="k">✓ NEW LEAD · AUTO-CREATED</div><h3>Skin consultation · tomorrow AM</h3><p>Transcript attached · handed to the front desk</p></div>
+  <div class="center" id="hand"><span class="comment">🙋 Needs a person? Instant handoff.</span></div>
+</div><script type="module">
+import { film, enter, pop, typeText, $, $$ } from './lib/kit.js';
+for (let i = 0; i < 40; i++) $('#wave').appendChild(document.createElement('i'));
+const L1 = $('#l1').lastChild.textContent, L2 = $('#l2').lastChild.textContent;
+film({ duration: 11, draw(t) {
+  enter($('#eye'), t, -0.2, { y: 20 }); enter($('#title'), t, -0.1, { y: 30 });
+  enter($('#call'), t, 0.6, { y: 60 });
+  const s = Math.max(0, Math.floor(t - 0.9)); $('#tm').textContent = `00:${String(s).padStart(2, '0')}`;
+  const speaking = (t > 1.4 && t < 3.6) || (t > 4.0 && t < 7.0);
+  $$('#wave i').forEach((b, i) => { const h = speaking ? 20 + Math.abs(Math.sin(t * 9 + i * 0.7) * Math.cos(t * 4 + i * 1.3)) * 100 : 8; b.style.height = h + 'px'; });
+  enter($('#l1'), t, 1.4, { y: 10 }); typeText($('#l1').lastChild, L1, t, 1.4, 30, false);
+  enter($('#l2'), t, 4.0, { y: 10 }); typeText($('#l2').lastChild, L2, t, 4.0, 36, false);
+  pop($('#lead'), t, 7.0, { s: 0.7 });
+  pop($('#hand'), t, 8.4);
+} });
+</script></body></html>

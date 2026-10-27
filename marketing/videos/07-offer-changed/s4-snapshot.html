@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 120px; font-size: 32px; }
+  #title { top: 180px; font-size: 80px; padding: 0 60px; }
+  #snap { left: 70px; right: 70px; top: 400px; padding: 28px 34px; display: flex; gap: 26px; align-items: center; border-color: rgba(53,232,242,.5); }
+  #snap .ic { font-size: 70px; }
+  #snap h3 { font-size: 36px; } #snap p { font-family: var(--mono); font-size: 24px; color: var(--cyan); margin-top: 8px; font-weight: 600; }
+  .phone { left: 220px; top: 640px; height: 1180px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">Spandan · per-customer snapshot</div>
+  <h1 class="center" id="title">Answers stay true to <span class="hl">what you sent.</span></h1>
+  <div class="abs card" id="snap"><span class="ic">📸</span><div><h3>Saved at send time, per customer</h3><p>Mon 10:00 AM · “50% off, this week only”</p></div></div>
+  <div class="phone"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av">S</div><div><div class="wa-name">Summer Store</div><div class="wa-sub">Spandan AI · knows your message</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, drawWords, Chat, $ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: 2.0, side: 'out', time: 'Thu 3:12 PM', html: 'Is my 50% still valid? Checking out now' },
+  { at: 2.6, side: 'in', typing: true, until: 4.7 },
+  { at: 4.8, side: 'in', ai: true, time: 'Thu 3:12 PM', html: 'Yes! The 50% in the message you received on Monday applies to your order 🙌 It’s valid through this week.<div class="facts"><span>FROM YOUR MESSAGE · MON</span><span>50% OFF</span></div>' },
+  { at: 7.2, side: 'out', time: 'Thu 3:13 PM', html: 'Amazing, ordering now ❤️' },
+]);
+film({ duration: 9.6, setup: () => chat.measure(), draw(t) {
+  enter($('#eye'), t, -0.2, { y: 20 });
+  drawWords($('#title'), t, -0.1, { rate: 0.06 });
+  pop($('#snap'), t, 1.1, { s: 0.7 });
+  enter($('.phone'), t, 0.3, { y: 200, d: 0.6 });
+  chat.draw(t);
+} });
+</script></body></html>

@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #title { top: 150px; font-size: 70px; } #eye { top: 120px; font-size: 22px; }
+  #grid { position: absolute; left: 110px; right: 110px; top: 300px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+  .tile { padding: 28px; } .tile .ic { font-size: 46px; } .tile h3 { font-size: 32px; margin-top: 12px; } .tile p { font-size: 20px; color: var(--t2); margin-top: 8px; font-weight: 600; line-height: 1.4; }
+  #logos { position: absolute; left: 0; right: 0; top: 830px; display: flex; justify-content: center; gap: 16px; }
+  #logos .chip { font-size: 22px; padding: 12px 22px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">And there’s more</div>
+  <h1 class="center" id="title">One platform. <span class="hl">Every channel.</span></h1>
+  <div id="grid">
+    <div class="tile card"><div class="ic">📞</div><h3>Voice AI reception</h3><p>Calls answered, transcribed and turned into leads</p></div>
+    <div class="tile card"><div class="ic">📸</div><h3>Instagram quickflows</h3><p>DMs, comments &amp; story replies on autopilot</p></div>
+    <div class="tile card"><div class="ic">🔑</div><h3>API &amp; webhooks</h3><p>Scoped keys and signed outbound webhooks</p></div>
+    <div class="tile card"><div class="ic">🧪</div><h3>Test Lab</h3><p>Preview AI answers before customers see them</p></div>
+    <div class="tile card"><div class="ic">💬</div><h3>Website widget</h3><p>Turn site visitors into WhatsApp chats</p></div>
+    <div class="tile card"><div class="ic">🧩</div><h3>Integrations</h3><p>OAuth connections, credentials encrypted</p></div>
+  </div>
+  <div id="logos"><span class="chip">🛍 Shopify</span><span class="chip">🧡 HubSpot</span><span class="chip"># Slack</span><span class="chip">🐵 Mailchimp</span><span class="chip">G Google</span></div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const ch = chrome(10, 13.2);
+const at = [1.3, 3.7, 5.2, 6.4, 6.9, 7.4];
+film({ duration: 13.2, draw(t) {
+  ch(t);
+  enter($('#eye'), t, 0, { y: 10 }); enter($('#title'), t, 0.1, { y: 30 });
+  $$('.tile').forEach((x, i) => pop(x, t, at[i], { s: 0.8 }));
+  $$('#logos .chip').forEach((c, i) => pop(c, t, [9.0, 9.6, 10.2, 10.7, 11.5][i]));
+} });
+</script></body></html>

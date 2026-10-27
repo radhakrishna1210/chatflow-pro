@@ -1,0 +1,34 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 160px; font-size: 32px; }
+  #title { top: 230px; font-size: 92px; padding: 0 60px; }
+  #flow { position: absolute; left: 90px; right: 90px; top: 560px; display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .node { width: 100%; padding: 32px 36px; display: flex; gap: 28px; align-items: center; }
+  .node .ic { width: 100px; height: 100px; border-radius: 28px; display: grid; place-items: center; font-size: 52px; flex: none; background: rgba(255,255,255,.06); }
+  .node h3 { font-size: 44px; } .node p { font-size: 30px; color: var(--t2); font-weight: 600; margin-top: 6px; }
+  .wire { width: 6px; height: 70px; background: linear-gradient(var(--cyan), var(--violet)); transform-origin: top; border-radius: 3px; }
+  #n3 { border-color: rgba(53,232,242,.6); box-shadow: 0 0 70px rgba(53,232,242,.25); }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">How Spandan stays honest</div>
+  <h1 class="center" id="title">It can’t invent what it <span class="hl">wasn’t given.</span></h1>
+  <div id="flow">
+    <div class="node card" id="n1"><div class="ic">📨</div><div><h3>The exact message sent</h3><p>Saved per customer, at send time</p></div></div>
+    <div class="wire" id="w1"></div>
+    <div class="node card" id="n2"><div class="ic">📚</div><div><h3>+ Your knowledge base</h3><p>Policies, sizes, shipping, FAQs</p></div></div>
+    <div class="wire" id="w2"></div>
+    <div class="node card" id="n3"><div class="ic">✦</div><div><h3>Grounded answer</h3><p>Nothing else gets in</p></div></div>
+    <div class="wire" id="w3"></div>
+    <div class="node card" id="n4"><div class="ic">🙋</div><div><h3>Not there? Says so.</h3><p>…and hands off to a human</p></div></div>
+  </div>
+</div><script type="module">
+import { film, enter, drawWords, p, ease, $ } from './lib/kit.js';
+const at = [0.3, 2.8, 5.5, 8.2];
+film({ duration: 11.4, draw(t) {
+  enter($('#eye'), t, -0.2, { y: 20 });
+  drawWords($('#title'), t, 0, { rate: 0.07 });
+  at.forEach((a, i) => {
+    enter($('#n' + (i + 1)), t, a, { y: 50, s: 0.92 });
+    if (i) $('#w' + i).style.transform = `scaleY(${ease.out(p(t, a - 0.4, 0.4))})`;
+  });
+} });
+</script></body></html>

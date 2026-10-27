@@ -1,0 +1,56 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #intent { position: absolute; left: 0; right: 0; top: 0; padding: 20px 24px; display: flex; align-items: center; gap: 18px; font-size: 21px; font-weight: 700; }
+  #intent .m { padding: 10px 16px; border-radius: 14px; background: #005c4b; }
+  #intent .arrow { color: var(--t3); font-family: var(--mono); }
+  #intent .hit { padding: 10px 16px; border-radius: 14px; background: rgba(196,255,70,.14); color: var(--lime); }
+  #canvas { position: absolute; left: 0; right: 0; top: 120px; height: 470px; background-image: radial-gradient(rgba(255,255,255,.06) 1.5px, transparent 1.5px); background-size: 26px 26px; }
+  .nd { position: absolute; width: 200px; padding: 14px 16px; border-radius: 16px; background: #141821; border: 1px solid rgba(255,255,255,.12); }
+  .nd .k { font-family: var(--mono); font-size: 13px; letter-spacing: .1em; } .nd h4 { font-size: 21px; margin-top: 4px; font-family: var(--display); } .nd p { font-size: 15px; color: var(--t3); margin-top: 2px; }
+  svg#wires { position: absolute; inset: 0; width: 100%; height: 100%; } svg#wires path { fill: none; stroke: rgba(53,232,242,.5); stroke-width: 3; }
+  #dot { position: absolute; width: 22px; height: 22px; margin: -11px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 24px var(--lime); z-index: 3; }
+  #trace { position: absolute; left: 0; right: 0; top: 610px; padding: 16px 22px; font-family: var(--mono); font-size: 16px; color: var(--t2); line-height: 1.75; height: 150px; }
+  #form { position: absolute; right: 18px; top: 140px; width: 220px; padding: 16px; font-size: 16px; font-weight: 700; }
+  #form .q { padding: 9px 12px; border-radius: 10px; background: #202c33; margin-top: 8px; } #form .a { padding: 9px 12px; border-radius: 10px; background: #005c4b; margin: 8px 0 0 30px; }
+</style></head><body><div class="stage">
+  <div class="left"><div class="eyebrow">Step 6 · Automation</div><h1>Replies that <span class="hl">route themselves.</span></h1>
+    <p>Intent matching, visual workflows with run history, and forms over chat.</p>
+    <ul><li><b>✦</b>AI intent matching, no exact keywords</li><li><b>⇄</b>Triggers, AI, conditions &amp; delays</li><li><b>📋</b>Run history for every execution</li><li><b>📝</b>WhatsApp forms, one question at a time</li></ul></div>
+  <div class="right">
+    <div class="ui" id="intent"><span class="m">“my parcel hasn’t come”</span><span class="arrow">→ intent →</span><span class="hit">📦 Order status · 86%</span></div>
+    <div class="ui" id="canvas"><svg id="wires"></svg>
+      <div class="nd" style="left:20px;top:40px"><div class="k" style="color:var(--cyan)">TRIGGER</div><h4>New lead</h4><p>WhatsApp opt-in</p></div>
+      <div class="nd" style="left:245px;top:40px"><div class="k" style="color:var(--violet)">AI</div><h4>AI qualify</h4><p>intent + budget</p></div>
+      <div class="nd" style="left:470px;top:40px"><div class="k" style="color:var(--amber)">CONDITION</div><h4>Hot lead?</h4><p>score ≥ 70</p></div>
+      <div class="nd" style="left:470px;top:250px"><div class="k" style="color:var(--wa)">HUMAN</div><h4>Human handoff</h4><p>shared inbox</p></div>
+      <div class="nd" style="left:245px;top:250px"><div class="k" style="color:var(--lime)">GOAL</div><h4>Follow-up</h4><p>auto sequence</p></div>
+      <div id="dot"></div>
+      <div class="card" id="form"><div style="font-family:var(--mono);font-size:13px;color:var(--violet)">WHATSAPP FORM</div><div class="q">Your name?</div><div class="a">Kabir</div><div class="q">Budget?</div><div class="a">₹40–60k</div></div>
+    </div>
+    <div class="ui" id="trace"></div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, lerp, p, ease, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const N = $$('.nd'); const C = N.map(n => [parseFloat(n.style.left) + 100, parseFloat(n.style.top) + 45]);
+const order = [0, 1, 2, 3]; let d = '';
+[[0, 1], [1, 2], [2, 3], [2, 4]].forEach(([a, b]) => { d += `<path d="M${C[a][0]} ${C[a][1]} L${C[b][0]} ${C[b][1]}"/>`; });
+$('#wires').innerHTML = d;
+const T = ['› Lead replied “interested, size 9”', '› AI scored intent 82 · budget ok', '› Condition: 82 ≥ 70 → yes', '› Routed to Sales · high priority ✓', '› Run #4,812 logged · 1.4s'];
+const ch = chrome(7, 18.2);
+film({ duration: 18.2, draw(t) {
+  ch(t);
+  enter($('.left .eyebrow'), t, 0, { y: 20 }); enter($('.left h1'), t, 0.15, { y: 30 }); enter($('.left p'), t, 1.2, { y: 20 });
+  $$('.left li').forEach((l, i) => enter(l, t, [2.1, 6.6, 10.8, 13.4][i], { x: -30, y: 0 }));
+  enter($('#intent'), t, 2.0, { y: 20 });
+  enter($('#canvas'), t, 5.6, { y: 30 });
+  N.forEach((n, i) => pop(n, t, 6.0 + i * 0.6, { s: 0.7 }));
+  $$('#wires path').forEach((w, i) => { w.style.opacity = String(p(t, 6.6 + i * 0.6, 0.4)); });
+  const k = p(t, 9.4, 3.6) * 3; const seg = Math.min(2, Math.floor(k)); const f = ease.inOut(Math.min(1, k - seg));
+  const a = C[order[seg]], b = C[order[seg + 1]];
+  $('#dot').style.left = lerp(a[0], b[0], f) + 'px'; $('#dot').style.top = lerp(a[1], b[1], f) + 'px'; $('#dot').style.opacity = String(p(t, 9.2, 0.3));
+  $('#trace').innerHTML = T.filter((_, i) => t > 9.6 + i * 0.9).map(s => `<div>${s}</div>`).join('');
+  enter($('#trace'), t, 9.4, { y: 20 });
+  pop($('#form'), t, 13.6, { s: 0.8 });
+} });
+</script></body></html>

@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #tbl { position: absolute; left: 0; right: 0; top: 0; }
+  .tr { display: grid; grid-template-columns: 1.3fr 1.4fr 1fr 1fr; padding: 16px 24px; font-size: 20px; border-bottom: 1px solid rgba(255,255,255,.05); align-items: center; }
+  .tr.h { font-family: var(--mono); font-size: 15px; color: var(--t3); letter-spacing: .08em; }
+  .tr .ph { font-family: var(--mono); color: var(--t2); font-size: 18px; }
+  #segs { position: absolute; left: 0; right: 0; top: 520px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .sg { padding: 22px; } .sg .k { font-family: var(--mono); font-size: 15px; color: var(--t3); } .sg h3 { font-size: 28px; margin-top: 6px; } .sg .n { font-family: var(--display); font-size: 40px; font-weight: 700; margin-top: 8px; }
+  #csv { position: absolute; right: 20px; top: -60px; font-size: 20px; padding: 10px 18px; }
+</style></head><body><div class="stage">
+  <div class="left"><div class="eyebrow">Step 3 · Contacts</div><h1>Import once. <span class="hl">Target precisely.</span></h1>
+    <p>CSV import, tags and segments, so every campaign reaches the right people.</p>
+    <ul><li><b>⬆</b>CSV import in seconds</li><li><b>◎</b>Segments &amp; clusters</li><li><b>🛑</b>STOP = blocked for good</li></ul></div>
+  <div class="right">
+    <div class="chip" id="csv">⬆ contacts_diwali.csv · 5,220 rows</div>
+    <div class="ui" id="tbl"><div class="tb"><i></i><i></i><i></i><span>Contacts</span></div>
+      <div class="tr h"><span>NAME</span><span>PHONE</span><span>TAGS</span><span>STATUS</span></div>
+      <div class="tr"><b>Ritika Shah</b><span class="ph">+91 98•••• 4410</span><span class="pillx" style="background:rgba(196,255,70,.14);color:var(--lime)">VIP</span><span style="color:var(--wa)">● Opted in</span></div>
+      <div class="tr"><b>Aman Verma</b><span class="ph">+91 70•••• 1182</span><span class="pillx" style="background:rgba(53,232,242,.14);color:var(--cyan)">Cart</span><span style="color:var(--wa)">● Opted in</span></div>
+      <div class="tr"><b>Sneha Iyer</b><span class="ph">+91 99•••• 2071</span><span class="pillx" style="background:rgba(196,255,70,.14);color:var(--lime)">VIP</span><span style="color:var(--wa)">● Opted in</span></div>
+      <div class="tr" id="stop"><b>Rahul K.</b><span class="ph">+91 81•••• 5530</span><span class="pillx" style="background:rgba(255,255,255,.06);color:var(--t3)">—</span><span style="color:var(--red)">⛔ Replied STOP</span></div>
+      <div class="tr"><b>Kabir Mehta</b><span class="ph">+91 90•••• 7314</span><span class="pillx" style="background:rgba(157,107,255,.16);color:var(--violet)">Lead</span><span style="color:var(--wa)">● Opted in</span></div>
+    </div>
+    <div id="segs"><div class="sg card"><div class="k">SEGMENT</div><h3>VIP buyers</h3><div class="n hl">1,240</div></div><div class="sg card"><div class="k">SEGMENT</div><h3>Cart abandoners</h3><div class="n hl">860</div></div><div class="sg card"><div class="k">SEGMENT</div><h3>Diwali leads</h3><div class="n hl">3,120</div></div></div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const ch = chrome(3, 11.4);
+film({ duration: 11.4, draw(t) {
+  ch(t);
+  enter($('.left .eyebrow'), t, 0, { y: 20 }); enter($('.left h1'), t, 0.15, { y: 30 }); enter($('.left p'), t, 1.4, { y: 20 });
+  $$('.left li').forEach((l, i) => enter(l, t, [1.9, 3.5, 5.2][i], { x: -30, y: 0 }));
+  pop($('#csv'), t, 0.6);
+  enter($('#tbl'), t, 0.8, { y: 40 });
+  $$('#tbl .tr:not(.h)').forEach((r, i) => enter(r, t, 1.4 + i * 0.25, { x: 40, y: 0, d: 0.35 }));
+  $$('.sg').forEach((s, i) => pop(s, t, 3.6 + i * 0.3, { s: 0.8 }));
+  const k = t > 5.4 ? 1 : 0; $('#stop').style.background = k ? 'rgba(255,90,106,.12)' : ''; $('#stop').style.textDecoration = t > 7.8 ? 'line-through rgba(255,90,106,.6)' : '';
+} });
+</script></body></html>

@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #title { top: 260px; font-size: 104px; padding: 0 60px; }
+  #a, #b { top: 700px; width: 420px; padding: 40px 30px; text-align: center; }
+  #a { left: 80px; } #b { right: 80px; border-color: rgba(255,181,71,.5); }
+  .cl h3 { font-size: 40px; } .cl .em { font-size: 120px; } .cl p { font-family: var(--mono); font-size: 26px; color: var(--t2); margin-top: 14px; font-weight: 600; }
+  #walk { top: 1030px; left: 0; font-size: 110px; }
+  #slot { top: 1300px; font-size: 48px; font-weight: 800; color: var(--t2); padding: 0 100px; line-height: 1.3; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">They book <span class="hl-bad">next door.</span></h1>
+  <div class="abs card cl" id="a"><div class="em">🏥</div><h3>Your clinic</h3><p>11:30 slot · empty</p></div>
+  <div class="abs card cl" id="b"><div class="em">🏨</div><h3>Next door</h3><p>11:30 slot · booked ✓</p></div>
+  <div class="abs" id="walk">🚶</div>
+  <div class="center" id="slot">One missed call = one empty slot.</div>
+</div><script type="module">
+import { film, enter, lerp, ease, p, $ } from './lib/kit.js';
+film({ bg: 'bad', duration: 4.2, draw(t) {
+  enter($('#title'), t, -0.3, { y: 30 });
+  enter($('#a'), t, 0, { x: -200, y: 0 }); enter($('#b'), t, 0.2, { x: 200, y: 0 });
+  const k = ease.inOut(p(t, 0.6, 1.6));
+  $('#walk').style.transform = `translate(${lerp(260, 700, k)}px, ${Math.abs(Math.sin(t * 12)) * -14}px)`;
+  $('#walk').style.opacity = String(p(t, 0.5, 0.3));
+  enter($('#slot'), t, 2.4, { y: 20 });
+} });
+</script></body></html>

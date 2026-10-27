@@ -1,0 +1,9 @@
+{ "title": "Did the automation fire?", "size": [1080, 1920], "voice": "af_heart",
+  "music": [{ "src": "bed-tense", "at": 0, "in": 20, "out": 32.4, "volume": 0.22 }, { "src": "bed-lift", "at": 12.4, "in": 20, "out": 56, "volume": 0.2 }],
+  "scenes": [
+    { "page": "s1-built.html", "dur": 5.6, "vo": [[0.2, "You built the automation. When someone asks, where is my order, send the tracking link."]], "sfx": [[0.4, "pop", 0.5], [1.4, "pop", 0.5], [2.4, "pop", 0.5], [4.6, "whoosh", 0.4]] },
+    { "page": "s2-silence.html", "dur": 6.8, "vo": [[0.2, "Then a customer writes: my parcel hasn't come. No keyword match. No reply. Order cancelled."]], "sfx": [[0.4, "pop", 0.5], [3.4, "pop", 0.5], [4.6, "buzz", 0.5]] },
+    { "page": "s3-intent.html", "dur": 7.6, "vo": [[0.2, "Spandan's intent matching understands what they mean, not just the exact words, and routes it to the right reply."]], "sfx": [[0.0, "riser", 0.4], [0.5, "pop", 0.5], [3.6, "ding", 0.5], [5.2, "pop", 0.5]] },
+    { "page": "s4-history.html", "dur": 6.6, "vo": [[0.2, "And every workflow keeps a run history. So, did it fire? Always has an answer."]], "sfx": [[0.5, "tick", 0.7], [1.2, "tick", 0.7], [1.9, "tick", 0.7], [2.6, "tick", 0.7], [4.2, "success", 0.4]] },
+    { "page": "s5-cta.html", "dur": 5.4, "vo": [[0.3, "Tag the teammate who always says: it should have worked."]], "sfx": [[0.2, "impact", 0.5], [2.4, "pop", 0.6]] }
+  ] }

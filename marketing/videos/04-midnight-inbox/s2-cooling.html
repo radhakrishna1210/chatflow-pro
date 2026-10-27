@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #title { top: 200px; font-size: 100px; padding: 0 70px; }
+  #rows { position: absolute; left: 70px; right: 70px; top: 560px; display: flex; flex-direction: column; gap: 24px; }
+  .r { display: flex; align-items: center; gap: 26px; padding: 28px 32px; }
+  .r .who { font-size: 34px; font-weight: 800; } .r .q { font-size: 28px; color: var(--t2); margin-top: 4px; }
+  .r .wait { margin-left: auto; text-align: right; font-family: var(--mono); font-weight: 600; font-size: 30px; }
+  .r .temp { font-size: 64px; width: 80px; text-align: center; }
+  #lost { top: 1450px; font-size: 72px; padding: 0 60px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Every hour it waits, a buyer <span class="hl-bad">cools off.</span></h1>
+  <div id="rows"></div>
+  <h2 class="center" id="lost">By morning: <span class="hl-bad">bought elsewhere.</span></h2>
+</div><script type="module">
+import { film, enter, lerp, p, $, $$ } from './lib/kit.js';
+const R = [['Ritika', 'COD on the kurta set?', 0.2], ['Aman', 'Size L still there??', 1.4], ['Sneha', '30% on the dupatta?', 2.6], ['Kabir', 'Bulk price for 3?', 3.8]];
+R.forEach(([a, b]) => $('#rows').insertAdjacentHTML('beforeend', `<div class="r card"><span class="temp">🔥</span><div><div class="who">${a}</div><div class="q">${b}</div></div><span class="wait">0h 00m</span></div>`));
+film({ bg: 'bad', duration: 6.6, draw(t) {
+  enter($('#title'), t, -0.3, { y: 30 });
+  $$('.r').forEach((r, i) => {
+    enter(r, t, R[i][2] * 0.4, { x: 200, y: 0 });
+    const mins = Math.floor(lerp(20 + i * 35, 400 + i * 50, p(t, 0.3, 5.5)));
+    r.querySelector('.wait').textContent = `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
+    const cold = p(t, 1 + i * 0.6, 2.5);
+    r.querySelector('.temp').textContent = cold < 0.33 ? '🔥' : cold < 0.66 ? '😐' : '🧊';
+    r.querySelector('.wait').style.color = `rgb(${lerp(255, 120, cold)}, ${lerp(181, 200, cold)}, ${lerp(71, 255, cold)})`;
+  });
+  enter($('#lost'), t, 4.4, { y: 40, blur: 8 });
+} });
+</script></body></html>

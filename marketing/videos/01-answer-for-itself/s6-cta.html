@@ -1,0 +1,32 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #logo { top: 330px; font-size: 76px; } #logo .mark { width: 110px; height: 110px; font-size: 64px; }
+  #title { top: 540px; font-size: 96px; padding: 0 60px; }
+  #cmt { top: 1060px; } #cmt .comment { font-size: 64px; padding: 34px 60px; }
+  #sub { top: 1230px; font-size: 44px; font-weight: 700; color: var(--t2); }
+  #point { top: 1330px; font-size: 110px; }
+  #foot { top: 1600px; font-size: 34px; color: var(--t3); font-weight: 700; font-family: var(--mono); letter-spacing: 0.04em; }
+</style></head>
+<body><div class="stage">
+  <div class="bg"><div class="grid"></div><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <div class="center" id="logo"><span class="logo"><span class="mark">S</span>Spandan</span></div>
+  <h1 class="center" id="title">Send the campaign. <span class="hl">Let it handle the questions.</span></h1>
+  <div class="center" id="cmt"><span class="comment">💬 Comment “AGENT”</span></div>
+  <div class="center" id="sub">and get a live demo on WhatsApp</div>
+  <div class="center" id="point">👇</div>
+  <div class="center" id="foot">Free plan · no card · live in minutes</div>
+</div>
+<script type="module">
+import { film, enter, pop, drawWords, $ } from './lib/kit.js';
+film({ duration: 6.4, draw(t) {
+  pop($('#logo'), t, 0.1);
+  drawWords($('#title'), t, 0.4, { rate: 0.07 });
+  pop($('#cmt'), t, 1.5);
+  $('#cmt').style.transform += ` scale(${1 + Math.max(0, Math.sin((t - 2) * 4)) * 0.05})`;
+  enter($('#sub'), t, 2.0, { y: 20 });
+  enter($('#point'), t, 2.6, { y: -30 });
+  $('#point').style.transform += ` translateY(${Math.abs(Math.sin(t * 4)) * 26}px)`;
+  enter($('#foot'), t, 3.0, { y: 20 });
+} });
+</script></body></html>
