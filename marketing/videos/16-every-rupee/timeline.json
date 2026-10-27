@@ -1,0 +1,27 @@
+[
+ {
+  "page": "s1-title",
+  "at": 0.0,
+  "dur": 5.0
+ },
+ {
+  "page": "s2-ledger",
+  "at": 5.0,
+  "dur": 10.0
+ },
+ {
+  "page": "s3-refund",
+  "at": 15.0,
+  "dur": 6.4
+ },
+ {
+  "page": "s4-rate",
+  "at": 21.4,
+  "dur": 6.4
+ },
+ {
+  "page": "s5-end",
+  "at": 27.8,
+  "dur": 7.0
+ }
+]

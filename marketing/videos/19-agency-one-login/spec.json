@@ -1,0 +1,149 @@
+{
+ "title": "Ten clients. One login.",
+ "size": [
+  1080,
+  1920
+ ],
+ "voice": "am_liam",
+ "music": [
+  {
+   "src": "bed-flow",
+   "at": 0,
+   "in": 0,
+   "out": 60,
+   "volume": 0.17
+  }
+ ],
+ "scenes": [
+  {
+   "page": "s1-hook.html",
+   "dur": 5.8,
+   "vo": [
+    [
+     0.3,
+     "Ten clients. Ten WhatsApp numbers. And one very tired agency."
+    ]
+   ],
+   "sfx": [
+    [
+     0.2,
+     "pop",
+     0.3
+    ],
+    [
+     1.4,
+     "pop",
+     0.3
+    ],
+    [
+     3.0,
+     "buzz",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s2-workspaces.html",
+   "dur": 9.0,
+   "vo": [
+    [
+     0.3,
+     "With Spandan, every client gets their own workspace: their own numbers, wallet, contacts, and team."
+    ]
+   ],
+   "sfx": [
+    [
+     0.6,
+     "whoosh",
+     0.3
+    ],
+    [
+     2.2,
+     "pop",
+     0.3
+    ],
+    [
+     2.6,
+     "pop",
+     0.3
+    ],
+    [
+     3.0,
+     "pop",
+     0.3
+    ],
+    [
+     3.4,
+     "pop",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s3-roles.html",
+   "dur": 8.0,
+   "vo": [
+    [
+     0.3,
+     "Invite your client's team with their own role. They see their workspace, and nothing else."
+    ]
+   ],
+   "sfx": [
+    [
+     0.6,
+     "pop",
+     0.4
+    ],
+    [
+     3.6,
+     "success",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s4-report.html",
+   "dur": 6.0,
+   "vo": [
+    [
+     0.3,
+     "And you run all of it from one login."
+    ]
+   ],
+   "sfx": [
+    [
+     0.4,
+     "whoosh",
+     0.3
+    ],
+    [
+     1.2,
+     "pop",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s5-end.html",
+   "dur": 7.0,
+   "vo": [
+    [
+     0.3,
+     "Ten clients. One login. Spandan, for agencies."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "riser",
+     0.3
+    ],
+    [
+     1.4,
+     "impact",
+     0.5
+    ]
+   ]
+  }
+ ]
+}

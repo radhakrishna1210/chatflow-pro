@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  .blk { position: absolute; left: 90px; right: 90px; padding: 36px; }
+  #mail { top: 220px; } #ads { top: 960px; }
+  .blk .k { font-family: var(--mono); font-size: 24px; letter-spacing: .14em; color: var(--t3); font-weight: 600; }
+  .ml { display: flex; gap: 18px; align-items: center; padding: 20px 0; border-bottom: 1px solid rgba(23,20,15,.08); font-size: 30px; color: var(--t3); font-weight: 600; }
+  .ml b { color: var(--t2); }
+  .ad { margin-top: 20px; height: 300px; border-radius: 16px; background: linear-gradient(135deg, #e9dcc3, #d7c39b); display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 60px; color: #6b5a3a; }
+  .verdict { margin-top: 20px; font-family: var(--display); font-size: 58px; font-weight: 800; color: var(--violet); }
+</style></head><body><div class="stage">
+  <div class="blk card" id="mail"><div class="k">EMAIL · PROMOTIONS TAB</div>
+    <div class="ml">✉️ <b>Still thinking it over?</b> — Vastra Studio</div><div class="ml">✉️ <b>Your cart misses you</b> — Vastra Studio</div><div class="ml" style="border:0">✉️ 24 more unread…</div>
+    <div class="verdict" id="v1">Unopened. 📭</div></div>
+  <div class="blk card" id="ads"><div class="k">SPONSORED · FEED</div><div class="ad">Linen Kurta · ₹2,940</div><div class="verdict" id="v2">Scrolled past. 👋</div></div>
+</div><script type="module">
+import { film, enter, pop, $ } from './lib/kit.js';
+film({ theme: 'paper', duration: 5.6, draw(t) {
+  enter($('#mail'), t, -0.2, { y: 60 });
+  pop($('#v1'), t, 1.2);
+  enter($('#ads'), t, 2.2, { y: 60 });
+  const sc = t > 3.0 ? Math.min(1, (t - 3.0) / 0.6) : 0;
+  $('#ads .ad').style.transform = `translateY(${-sc * 30}px)`; $('#ads .ad').style.opacity = String(1 - sc * 0.6);
+  pop($('#v2'), t, 3.2);
+} });
+</script></body></html>

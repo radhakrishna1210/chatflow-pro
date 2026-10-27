@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 200px; font-size: 100px; padding: 0 60px; }
+  #sub { left: 110px; right: 110px; top: 560px; padding: 44px; }
+  #sub .h { display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 24px; font-weight: 600; }
+  #sub .h b { background: #111; color: #ffd93d; padding: 8px 16px; border-radius: 10px; font-family: var(--display); }
+  .fld { padding: 24px 0; border-bottom: 4px solid #111; } .fld:last-child { border: 0; }
+  .fld .k { font-family: var(--mono); font-size: 22px; font-weight: 600; color: #5a4d14; letter-spacing: .1em; } .fld .v { font-family: var(--display); font-weight: 800; font-size: 46px; margin-top: 6px; }
+  #team { top: 1300px; } #team .chip { font-size: 34px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">A complete submission. Every time.</h1>
+  <div class="abs card" id="sub"><div class="h"><span>SUBMISSION #1182</span><b>COMPLETE</b></div>
+    <div class="fld"><div class="k">NAME</div><div class="v">Kabir Mehta</div></div>
+    <div class="fld"><div class="k">COURSE</div><div class="v">Data Science</div></div>
+    <div class="fld"><div class="k">EMAIL</div><div class="v">kabir@gmail.com ✓</div></div></div>
+  <div class="center" id="team"><span class="chip">📥 Sent to your team’s inbox</span></div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+film({ theme: 'pop', duration: 6.4, draw(t) {
+  enter($('#title'), t, -0.3, { y: 40 });
+  pop($('#sub'), t, 0.2, { s: 0.8, rot: -4 });
+  $$('.fld').forEach((f, i) => enter(f, t, 0.8 + i * 0.4, { x: -40, y: 0 }));
+  pop($('#team'), t, 2.6);
+} });
+</script></body></html>

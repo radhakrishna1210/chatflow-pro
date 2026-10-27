@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 360px; font-size: 104px; padding: 0 60px; }
+  #warn { left: 140px; right: 140px; top: 960px; padding: 40px; font-family: var(--mono); font-size: 30px; line-height: 1.7; color: var(--t2); }
+  #warn b { color: #ff4d6d; }
+  #cur { display: inline-block; width: 18px; height: 34px; background: var(--lime); vertical-align: middle; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Would you launch an AI <span class="hl">without testing it?</span></h1>
+  <div class="abs card" id="warn"><div id="ln"></div></div>
+</div><script type="module">
+import { film, enter, drawWords, typeText, $ } from './lib/kit.js';
+const L = '> deploy agent --to customers\n> tests run: 0\n> confidence: ¯\\_(ツ)_/¯';
+film({ theme: 'cyber', duration: 5.6, draw(t) {
+  drawWords($('#title'), t, -0.3, { rate: 0.07 });
+  enter($('#warn'), t, 1.4, { y: 40 });
+  typeText($('#ln'), L.replace(/\\\\/g, '\\'), t, 1.7, 30);
+  $('#ln').innerHTML = $('#ln').innerHTML.replace(/\n/g, '<br>').replace('tests run: 0', 'tests run: <b>0</b>');
+  const g = t > 3.0 && t < 3.25; $('#title').style.transform = g ? 'translateX(8px)' : ''; $('#title').style.textShadow = g ? '-6px 0 #ff2e88, 6px 0 #2ef6ff' : '';
+} });
+</script></body></html>

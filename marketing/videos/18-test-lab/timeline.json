@@ -1,0 +1,22 @@
+[
+ {
+  "page": "s1-hook",
+  "at": 0.0,
+  "dur": 5.6
+ },
+ {
+  "page": "s2-lab",
+  "at": 5.6,
+  "dur": 14.0
+ },
+ {
+  "page": "s3-analytics",
+  "at": 19.6,
+  "dur": 8.0
+ },
+ {
+  "page": "s4-end",
+  "at": 27.6,
+  "dur": 6.6
+ }
+]

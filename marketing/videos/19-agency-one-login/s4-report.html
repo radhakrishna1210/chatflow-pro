@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 220px; font-size: 104px; line-height: 1.05; }
+  #title .serif { font-size: 132px; }
+  #tiles { position: absolute; left: 90px; right: 90px; top: 640px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .tl { padding: 34px; } .tl .l { font-family: var(--mono); font-size: 22px; color: var(--t3); letter-spacing: .12em; } .tl .v { font-family: 'Fraunces', serif; font-weight: 800; font-size: 76px; margin-top: 8px; }
+  #user { top: 1200px; } #user .chip { font-size: 34px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">All of it.<br><span class="serif hl">One login.</span></h1>
+  <div id="tiles"><div class="tl card"><div class="l">CLIENTS</div><div class="v hl">10</div></div><div class="tl card"><div class="l">LIVE CAMPAIGNS</div><div class="v" id="c">0</div></div><div class="tl card"><div class="l">MESSAGES · MONTH</div><div class="v" id="m">0</div></div><div class="tl card"><div class="l">CHATS BY AI</div><div class="v" id="a">0</div></div></div>
+  <div class="center" id="user"><span class="chip">👤 you@youragency.com · signed in once</span></div>
+</div><script type="module">
+import { film, enter, pop, count, $, $$ } from './lib/kit.js';
+film({ theme: 'forest', duration: 6.0, draw(t) {
+  enter($('#title'), t, -0.3, { y: 40 });
+  $$('.tl').forEach((x, i) => pop(x, t, 0.4 + i * 0.2, { s: 0.8 }));
+  count($('#c'), t, 0.8, 1.4, 0, 27); count($('#m'), t, 1.0, 1.6, 0, 184000, v => Math.round(v / 1000) + 'k'); count($('#a'), t, 1.2, 1.6, 0, 9420);
+  pop($('#user'), t, 2.4);
+} });
+</script></body></html>

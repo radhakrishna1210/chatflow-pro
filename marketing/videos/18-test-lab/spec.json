@@ -1,0 +1,132 @@
+{
+ "title": "Test it before they see it",
+ "size": [
+  1080,
+  1920
+ ],
+ "voice": "af_jessica",
+ "music": [
+  {
+   "src": "bed-synth",
+   "at": 0,
+   "in": 0,
+   "out": 60,
+   "volume": 0.18
+  }
+ ],
+ "scenes": [
+  {
+   "page": "s1-hook.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.3,
+     "Would you put an AI in front of your customers, without testing it first?"
+    ]
+   ],
+   "sfx": [
+    [
+     0.2,
+     "impact",
+     0.5
+    ],
+    [
+     3.0,
+     "buzz",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s2-lab.html",
+   "dur": 14.0,
+   "vo": [
+    [
+     0.3,
+     "Spandan's Test Lab runs real questions against your campaign's context. You see every answer, and exactly where it came from. And when the answer isn't there, you see it say so."
+    ]
+   ],
+   "sfx": [
+    [
+     0.6,
+     "tick",
+     0.6
+    ],
+    [
+     2.0,
+     "pop",
+     0.4
+    ],
+    [
+     4.2,
+     "pop",
+     0.4
+    ],
+    [
+     7.6,
+     "tick",
+     0.6
+    ],
+    [
+     9.0,
+     "pop",
+     0.4
+    ],
+    [
+     11.2,
+     "ding",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s3-analytics.html",
+   "dur": 8.0,
+   "vo": [
+    [
+     0.3,
+     "After launch, answer analytics show what was resolved, escalated, or missing, so you can fix the source."
+    ]
+   ],
+   "sfx": [
+    [
+     1.0,
+     "pop",
+     0.3
+    ],
+    [
+     1.6,
+     "pop",
+     0.3
+    ],
+    [
+     2.2,
+     "pop",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s4-end.html",
+   "dur": 6.6,
+   "vo": [
+    [
+     0.3,
+     "Test it, before they see it. Spandan."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "riser",
+     0.3
+    ],
+    [
+     1.2,
+     "impact",
+     0.5
+    ]
+   ]
+  }
+ ]
+}

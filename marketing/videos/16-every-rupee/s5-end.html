@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 340px; font-size: 120px; line-height: 1.02; }
+  #title .serif { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; }
+  #logo { top: 880px; font-size: 84px; } #logo .logo { font-family: 'Playfair Display', serif; } #logo .mark { width: 124px; height: 124px; font-size: 70px; background: var(--grad-cta); }
+  #btn { top: 1080px; } #btn .btn { font-size: 46px; padding: 28px 60px; font-family: 'Playfair Display', serif; }
+  #foot { top: 1240px; font-size: 30px; color: var(--t3); font-family: var(--mono); font-weight: 600; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Billing you can<br><span class="serif hl">actually audit.</span></h1>
+  <div class="center" id="logo"><span class="logo"><span class="mark">S</span>Spandan</span></div>
+  <div class="center" id="btn"><span class="btn">Start free →</span></div>
+  <div class="center" id="foot">Meta’s rate · unsent refunded · no card</div>
+</div><script type="module">
+import { film, enter, pop, $ } from './lib/kit.js';
+film({ theme: 'gold', duration: 7.0, draw(t) {
+  enter($('#title'), t, 0.1, { y: 50, blur: 10, d: 0.9 });
+  pop($('#logo'), t, 1.6);
+  pop($('#btn'), t, 2.2); $('#btn').style.transform += ` scale(${1 + Math.max(0, Math.sin((t - 2.6) * 3)) * 0.04})`;
+  enter($('#foot'), t, 2.6, { y: 20 });
+} });
+</script></body></html>

@@ -1,0 +1,27 @@
+[
+ {
+  "page": "s1-cart",
+  "at": 0.0,
+  "dur": 5.4
+ },
+ {
+  "page": "s2-ignored",
+  "at": 5.4,
+  "dur": 5.6
+ },
+ {
+  "page": "s3-whatsapp",
+  "at": 11.0,
+  "dur": 10.4
+ },
+ {
+  "page": "s4-order",
+  "at": 21.4,
+  "dur": 5.6
+ },
+ {
+  "page": "s5-end",
+  "at": 27.0,
+  "dur": 7.0
+ }
+]

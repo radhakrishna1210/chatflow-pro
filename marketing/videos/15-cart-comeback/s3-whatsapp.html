@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 130px; font-size: 84px; padding: 0 60px; }
+  .phone { left: 220px; top: 420px; height: 1260px; }
+  .bub { font-size: 26px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Then one message landed <span class="hl">where she reads.</span></h1>
+  <div class="phone light"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av" style="background:#0e9f7e;color:#fff">V</div><div><div class="wa-name">Vastra Studio</div><div class="wa-sub">Business account</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+</div><script type="module">
+import { film, enter, Chat, drawWords, $ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: 0.6, side: 'in', time: 'Wed 11:00 AM', tpl: { img: 'STILL<br>THINKING? 👀', imgBg: 'linear-gradient(135deg,#0e9f7e,#19c39c)', html: 'You left the <b>Linen Kurta set</b> in your cart. Size L is still in stock, and your <b>30% off</b> is waiting.', btns: ['🛍 Complete my order', '✦ Ask Anything'] } },
+  { at: 4.6, side: 'out', time: 'Wed 11:04 AM', html: 'Does the 30% still apply? 🙏' },
+  { at: 5.3, side: 'in', typing: true, until: 6.5 },
+  { at: 6.6, side: 'in', ai: true, time: 'Wed 11:04 AM', html: 'Yes! The 30% from this message applies to your Linen Kurta set. Here’s your checkout link with it pre-applied 👇<div class="facts"><span>OFFER 30%</span><span>SIZE L ✓</span></div>' },
+  { at: 8.6, side: 'out', time: 'Wed 11:05 AM', html: 'Done ✅ thank you!' },
+]);
+film({ theme: 'paper', duration: 10.4, setup: () => chat.measure(), draw(t) {
+  drawWords($('#title'), t, -0.2, { rate: 0.07 });
+  enter($('.phone'), t, 0, { y: 200, d: 0.6 });
+  chat.draw(t);
+} });
+</script></body></html>

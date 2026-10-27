@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #row { position: absolute; left: 60px; right: 60px; top: 520px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 20px; }
+  .bx { padding: 46px 20px; text-align: center; } .bx .l { font-family: var(--mono); font-size: 24px; color: var(--t3); letter-spacing: .12em; } .bx .v { font-family: "Playfair Display", serif; font-weight: 800; font-size: 120px; margin-top: 12px; }
+  #eq { font-family: 'Playfair Display', serif; font-size: 120px; color: var(--cyan); }
+  #mk { top: 980px; font-size: 170px; font-family: 'Playfair Display', serif; }
+  #mk2 { top: 1200px; font-size: 56px; font-family: 'Playfair Display', serif; font-style: italic; color: var(--t2); }
+</style></head><body><div class="stage">
+  <div id="row"><div class="bx card"><div class="l">META CHARGES</div><div class="v">1×</div></div><div id="eq">=</div><div class="bx card"><div class="l">YOU PAY</div><div class="v hl">1×</div></div></div>
+  <h1 class="center" id="mk"><span class="hl">₹0</span> markup.</h1>
+  <div class="center" id="mk2">Not now. Not ever.</div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+film({ theme: 'gold', duration: 6.4, draw(t) {
+  $$('.bx').forEach((b, i) => enter(b, t, -0.2 + i * 0.6, { x: i ? 120 : -120, y: 0 }));
+  pop($('#eq'), t, 1.2, { s: 0.2 });
+  pop($('#mk'), t, 2.6, { s: 1.8 });
+  enter($('#mk2'), t, 3.6, { y: 20 });
+} });
+</script></body></html>

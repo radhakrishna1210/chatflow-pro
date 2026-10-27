@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 260px; font-size: 128px; }
+  #rc { left: 150px; right: 150px; top: 540px; padding: 50px 46px; font-family: var(--mono); }
+  #rc .h { text-align: center; font-size: 26px; letter-spacing: .2em; color: var(--t3); padding-bottom: 26px; border-bottom: 3px dashed rgba(23,20,15,.15); }
+  .ln { display: flex; justify-content: space-between; font-size: 32px; padding: 22px 0; border-bottom: 2px dashed rgba(23,20,15,.1); }
+  .tot { display: flex; justify-content: space-between; font-size: 46px; font-weight: 600; padding-top: 26px; }
+  #tag { top: 1240px; } #tag .chip { font-size: 40px; background: #0e9f7e; color: #fff; border: 0; }
+  #check { top: 1400px; font-size: 140px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Order <span class="hl">placed.</span></h1>
+  <div class="abs card" id="rc"><div class="h">ORDER #VS-20418</div>
+    <div class="ln"><span>Linen Kurta set · L</span><span>₹4,200</span></div>
+    <div class="ln"><span>Cart offer · 30%</span><span style="color:#0e9f7e">−₹1,260</span></div>
+    <div class="tot"><span>Paid</span><span id="amt">₹0</span></div></div>
+  <div class="center" id="tag"><span class="chip">↩ Recovered from cart · via WhatsApp</span></div>
+  <div class="center" id="check">✅</div>
+</div><script type="module">
+import { film, enter, pop, count, $ } from './lib/kit.js';
+film({ theme: 'paper', duration: 5.6, draw(t) {
+  enter($('#title'), t, -0.25, { y: 40 });
+  enter($('#rc'), t, 0.1, { y: 80 });
+  count($('#amt'), t, 0.4, 1.0, 0, 2940, v => '₹' + Math.round(v).toLocaleString('en-IN'));
+  pop($('#tag'), t, 1.4);
+  pop($('#check'), t, 1.8, { s: 0.2 });
+} });
+</script></body></html>

@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #k { top: 400px; font-size: 34px; }
+  #amt { top: 480px; font-size: 230px; font-family: 'Playfair Display', serif; }
+  #why { top: 790px; font-size: 52px; font-family: 'Playfair Display', serif; font-style: italic; color: var(--t2); }
+  #wallet { left: 200px; right: 200px; top: 1020px; padding: 40px; text-align: center; }
+  #wallet .l { font-family: var(--mono); font-size: 24px; color: var(--t3); letter-spacing: .14em; }
+  #wallet .v { font-family: 'Playfair Display', serif; font-weight: 800; font-size: 96px; margin-top: 10px; }
+  #arc { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="k">Settled · 84 never went out</div>
+  <h1 class="center" id="amt"><span class="hl" id="a">+₹0</span></h1>
+  <div class="center" id="why">back to your wallet, automatically</div>
+  <div class="abs card" id="wallet"><div class="l">WALLET</div><div class="v" id="w">₹16,400</div></div>
+  <div id="spark"></div>
+</div><script type="module">
+import { film, enter, pop, count, $ } from './lib/kit.js';
+film({ theme: 'gold', duration: 6.4, draw(t) {
+  enter($('#k'), t, -0.2, { y: 20 });
+  enter($('#amt'), t, 0.2, { y: 40, s: 0.8 });
+  count($('#a'), t, 0.4, 1.2, 0, 72, v => '+₹' + Math.round(v));
+  enter($('#why'), t, 0.9, { y: 20 });
+  pop($('#wallet'), t, 1.4);
+  count($('#w'), t, 1.8, 1.0, 16400, 16472, v => '₹' + Math.round(v).toLocaleString('en-IN'));
+  $('#wallet').style.boxShadow = t > 1.8 ? '0 0 90px rgba(224,178,90,.35)' : '';
+} });
+</script></body></html>

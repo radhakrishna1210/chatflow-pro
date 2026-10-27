@@ -1,0 +1,27 @@
+[
+ {
+  "page": "s1-hook",
+  "at": 0.0,
+  "dur": 5.8
+ },
+ {
+  "page": "s2-workspaces",
+  "at": 5.8,
+  "dur": 9.0
+ },
+ {
+  "page": "s3-roles",
+  "at": 14.8,
+  "dur": 8.0
+ },
+ {
+  "page": "s4-report",
+  "at": 22.8,
+  "dur": 6.0
+ },
+ {
+  "page": "s5-end",
+  "at": 28.8,
+  "dur": 7.0
+ }
+]

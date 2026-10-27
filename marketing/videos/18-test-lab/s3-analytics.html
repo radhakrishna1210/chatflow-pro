@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #eye { top: 220px; font-size: 30px; }
+  #title { top: 280px; font-size: 96px; padding: 0 60px; }
+  #ch { left: 80px; right: 80px; top: 620px; padding: 44px; }
+  .r { margin-top: 30px; } .r:first-child { margin-top: 0; }
+  .r .row { display: flex; justify-content: space-between; font-size: 36px; font-weight: 800; }
+  .r .row span:last-child { font-family: var(--mono); }
+  .r .tr { height: 26px; border-radius: 4px; background: rgba(255,255,255,.06); margin-top: 12px; overflow: hidden; } .r .fl { height: 100%; transform-origin: left; }
+  #tip { left: 80px; right: 80px; top: 1230px; padding: 30px 36px; font-family: var(--mono); font-size: 26px; color: var(--t2); line-height: 1.6; border-color: rgba(255,200,60,.5) !important; }
+  #tip b { color: #ffc83c; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">After launch · answer analytics</div>
+  <h1 class="center" id="title">Know what it <span class="hl">couldn’t answer.</span></h1>
+  <div class="abs card" id="ch">
+    <div class="r"><div class="row"><span>✓ Resolved by AI</span><span id="v1">0%</span></div><div class="tr"><div class="fl" id="f1" style="background:var(--lime)"></div></div></div>
+    <div class="r"><div class="row"><span>🙋 Escalated to team</span><span id="v2">0%</span></div><div class="tr"><div class="fl" id="f2" style="background:var(--violet)"></div></div></div>
+    <div class="r"><div class="row"><span>⚠ Not in sources</span><span id="v3">0%</span></div><div class="tr"><div class="fl" id="f3" style="background:#ffc83c"></div></div></div></div>
+  <div class="abs card" id="tip"><b>TOP GAP ›</b> “Do you do cash on delivery?” asked 38× · add it to your knowledge base</div>
+</div><script type="module">
+import { film, enter, pop, p, ease, $ } from './lib/kit.js';
+const V = [82, 12, 6];
+film({ theme: 'cyber', duration: 8.0, draw(t) {
+  enter($('#eye'), t, -0.3, { y: 20 }); enter($('#title'), t, -0.2, { y: 30 });
+  enter($('#ch'), t, 0.4, { y: 60 });
+  V.forEach((v, i) => { const k = ease.out(p(t, 1.0 + i * 0.6, 1.0)); $('#f' + (i + 1)).style.transform = `scaleX(${v / 100 * k})`; $('#v' + (i + 1)).textContent = Math.round(v * k) + '%'; });
+  pop($('#tip'), t, 3.4, { s: 0.85 });
+} });
+</script></body></html>

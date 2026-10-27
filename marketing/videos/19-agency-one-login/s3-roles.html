@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 180px; font-size: 92px; padding: 0 60px; }
+  #inv { left: 90px; right: 90px; top: 480px; padding: 36px; }
+  #inv .k { font-family: var(--mono); font-size: 22px; color: var(--t3); letter-spacing: .14em; }
+  #inv .row { display: flex; gap: 20px; align-items: center; margin-top: 20px; font-size: 34px; font-weight: 700; }
+  #inv .em { flex: 1; padding: 18px 22px; border-radius: 14px; background: rgba(245,239,224,.06); font-family: var(--mono); font-size: 28px; }
+  .role { padding: 14px 24px; border-radius: 999px; font-size: 28px; font-weight: 800; }
+  #views { position: absolute; left: 90px; right: 90px; top: 860px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .vw { padding: 30px; } .vw h3 { font-size: 40px; } .vw ul { list-style: none; margin-top: 14px; display: flex; flex-direction: column; gap: 10px; } .vw li { font-size: 31px; font-weight: 700; color: var(--t2); }
+  .vw li.no { color: rgba(245,239,224,.3); text-decoration: line-through; }
+  #lock { top: 1500px; } #lock .chip { font-size: 32px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">They see theirs. <span class="hl">Nothing else.</span></h1>
+  <div class="abs card" id="inv"><div class="k">INVITE TO · BLOOM &amp; CO</div><div class="row"><span class="em" id="em"></span><span class="role" style="background:rgba(242,184,75,.18);color:var(--cyan)">CLIENT</span></div></div>
+  <div id="views">
+    <div class="vw card"><h3>🧑‍💼 Your agency</h3><ul><li>All 10 workspaces</li><li>Every wallet</li><li>Every campaign</li></ul></div>
+    <div class="vw card"><h3>🌸 Bloom’s team</h3><ul><li>Bloom &amp; Co only</li><li class="no">Glow Skin Clinic</li><li class="no">Upskill Academy</li></ul></div>
+  </div>
+  <div class="center" id="lock"><span class="chip">🔒 Data scoped to each workspace</span></div>
+</div><script type="module">
+import { film, enter, pop, typeText, $, $$ } from './lib/kit.js';
+film({ theme: 'forest', duration: 8.0, draw(t) {
+  enter($('#title'), t, -0.3, { y: 40 });
+  enter($('#inv'), t, 0.2, { y: 50 });
+  typeText($('#em'), 'riya@bloomandco.in', t, 0.6, 22);
+  $$('.vw').forEach((v, i) => enter(v, t, 2.2 + i * 0.5, { y: 50 }));
+  pop($('#lock'), t, 3.6);
+} });
+</script></body></html>

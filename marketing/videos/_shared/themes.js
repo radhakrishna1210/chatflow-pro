@@ -108,6 +108,91 @@ const THEMES = {
       bok.forEach(d => { const [x, y, sp, ph] = d._p; const yy = ((y - t * sp) % (H + 200) + H + 200) % (H + 200) - 100; d.style.transform = `translate(${x + Math.sin(t * 0.6 + ph) * 30}px, ${yy}px)`; d.style.opacity = String(0.4 + 0.6 * Math.abs(Math.sin(t * 0.8 + ph))); });
     };
   },
+
+  paper(root, W, H) {
+    root.appendChild(el('base', { background: '#f6f1e7' }));
+    const bs = blobs(root, [['#bdebdc', 700, 0.9, 0.1, 0.55], ['#ffd2c4', 600, 0.05, 0.6, 0.5], ['#fbe6b0', 600, 0.8, 0.92, 0.45]]);
+    const svg = document.createElementNS(NS, 'svg');
+    svg.innerHTML = `<defs><pattern id="rule" width="${W}" height="64" patternUnits="userSpaceOnUse"><line x1="0" y1="63" x2="${W}" y2="63" stroke="#17140f" stroke-opacity=".06" stroke-width="2"/></pattern></defs><rect width="100%" height="100%" fill="url(#rule)"/><line x1="96" y1="0" x2="96" y2="${H}" stroke="#ef5b45" stroke-opacity=".25" stroke-width="3"/>`;
+    root.appendChild(svg);
+    const r = rng(17);
+    const marks = Array.from({ length: 9 }, (_, i) => { const s = 60 + r() * 80; const d = el('pt', { width: s + 'px', height: s + 'px', border: `5px solid ${i % 2 ? '#0e9f7e' : '#ef5b45'}`, borderRadius: '48% 52% 45% 55%', opacity: 0.16 }); d._p = [r() * W, r() * H, r() * 6]; root.appendChild(d); return d; });
+    root.appendChild(el('grain', { opacity: 0.06, mixBlendMode: 'multiply', backgroundImage: 'radial-gradient(rgba(0,0,0,.5) 1px, transparent 1.2px)' }));
+    return t => {
+      driftBlobs(bs, t, W, H);
+      marks.forEach(d => { const [x, y, ph] = d._p; d.style.transform = `translate(${x + Math.sin(t * 0.4 + ph) * 30}px, ${y + Math.cos(t * 0.35 + ph) * 30}px) rotate(${t * 8 + ph * 40}deg)`; });
+    };
+  },
+
+  gold(root, W, H) {
+    root.appendChild(el('base', { background: 'radial-gradient(110% 70% at 50% 30%, #1d160b 0%, #0b0906 60%, #050403 100%)' }));
+    const bs = blobs(root, [['#c8953f', 700, 0.85, 0.05, 0.22], ['#8a5f22', 700, 0.1, 0.9, 0.22]]);
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const g = document.createElementNS(NS, 'g');
+    for (let i = -20; i < 40; i++) { const l = document.createElementNS(NS, 'line'); Object.entries({ x1: i * 90, y1: 0, x2: i * 90 - H * 0.6, y2: H, stroke: '#e7c26b', 'stroke-opacity': i % 5 ? 0.05 : 0.12, 'stroke-width': i % 5 ? 1.5 : 2.5 }).forEach(([k, v]) => l.setAttribute(k, v)); g.appendChild(l); }
+    svg.appendChild(g); root.appendChild(svg);
+    const r = rng(29);
+    const dust = Array.from({ length: 60 }, () => { const s = 2 + r() * 6; const d = el('pt', { width: s + 'px', height: s + 'px', background: '#f5dc96', boxShadow: `0 0 ${s * 3}px #e0b25a` }); d._p = [r() * W, r() * H, 8 + r() * 25, r() * 6]; root.appendChild(d); return d; });
+    root.appendChild(el('base', { background: 'radial-gradient(90% 70% at 50% 45%, transparent 55%, rgba(0,0,0,.65) 100%)' }));
+    return t => {
+      driftBlobs(bs, t, W, H);
+      g.setAttribute('transform', `translate(${(t * 18) % 90} 0)`);
+      dust.forEach(d => { const [x, y, sp, ph] = d._p; const yy = ((y - t * sp) % (H + 40) + H + 40) % (H + 40) - 20; d.style.transform = `translate(${x + Math.sin(t * 0.7 + ph) * 25}px, ${yy}px)`; d.style.opacity = String(0.2 + 0.8 * Math.abs(Math.sin(t * 1.3 + ph))); });
+    };
+  },
+
+  pop(root, W, H) {
+    root.appendChild(el('base', { background: '#ffd93d' }));
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const burst = document.createElementNS(NS, 'g');
+    const cx = W * 0.5, cy = H * 0.5, R = Math.max(W, H);
+    for (let k = 0; k < 24; k++) { const a0 = (k / 24) * Math.PI * 2, a1 = a0 + Math.PI / 24; const p = document.createElementNS(NS, 'path'); p.setAttribute('d', `M ${cx} ${cy} L ${cx + Math.cos(a0) * R} ${cy + Math.sin(a0) * R} L ${cx + Math.cos(a1) * R} ${cy + Math.sin(a1) * R} Z`); p.setAttribute('fill', '#ffcb05'); burst.appendChild(p); }
+    svg.appendChild(burst);
+    const dots = document.createElementNS(NS, 'g');
+    for (let y = 0; y < 11; y++) for (let x = 0; x < 11; x++) { const c = document.createElementNS(NS, 'circle'); const rr = Math.max(0, 12 - (x + y) * 0.6); if (!rr) continue; Object.entries({ cx: W - x * 32 - 20, cy: H - y * 32 - 20, r: rr, fill: '#111' }).forEach(([k, v]) => c.setAttribute(k, v)); dots.appendChild(c); }
+    const dots2 = dots.cloneNode(true); dots2.setAttribute('transform', `translate(${W} 0) scale(-1 1)`);
+    svg.appendChild(dots); svg.appendChild(dots2);
+    root.appendChild(svg);
+    const r = rng(41);
+    const cols = ['#ff2e88', '#2e5bff', '#111', '#fff'];
+    const bits = Array.from({ length: 10 }, (_, i) => { const s = 40 + r() * 50; const d = el('pt', { width: s + 'px', height: s + 'px', background: cols[i % 4], border: '5px solid #111', borderRadius: i % 3 ? '50%' : '10px', opacity: 0.9 }); d._p = [i % 2 ? W - 70 - r() * 60 : 10 + r() * 60, r() * H, r() * 6]; root.appendChild(d); return d; });
+    return t => {
+      burst.setAttribute('transform', `rotate(${t * 6} ${cx} ${cy})`);
+      bits.forEach(d => { const [x, y, ph] = d._p; d.style.transform = `translate(${x + Math.sin(t * 0.9 + ph) * 26}px, ${y + Math.cos(t * 0.8 + ph) * 26}px) rotate(${t * 30 + ph * 60}deg)`; });
+    };
+  },
+
+  cyber(root, W, H) {
+    root.appendChild(el('base', { background: 'radial-gradient(100% 60% at 50% 0%, #0b1f14 0%, #040706 60%)' }));
+    const bs = blobs(root, [['#b6ff2e', 600, 0.9, 0.08, 0.14], ['#2ef6ff', 600, 0.1, 0.85, 0.14]]);
+    const grid = el('base', { backgroundImage: 'linear-gradient(rgba(182,255,46,.07) 2px, transparent 2px), linear-gradient(90deg, rgba(182,255,46,.07) 2px, transparent 2px)', backgroundSize: '90px 90px' });
+    root.appendChild(grid);
+    const r = rng(53);
+    const cols = Array.from({ length: 16 }, () => { const d = el('pt', { borderRadius: 0, width: '3px', height: 120 + r() * 220 + 'px', background: 'linear-gradient(transparent, #b6ff2e)', opacity: 0.35 }); d._p = [Math.floor(r() * 12) * 90 + 44, r() * H, 120 + r() * 220]; root.appendChild(d); return d; });
+    root.appendChild(el('scan', {}));
+    const bar = el('bar', {}); root.appendChild(bar);
+    return t => {
+      driftBlobs(bs, t, W, H);
+      grid.style.backgroundPosition = `0 ${(t * 30) % 90}px`;
+      cols.forEach(d => { const [x, y, sp] = d._p; const yy = ((y + t * sp) % (H + 400)) - 300; d.style.transform = `translate(${x}px, ${yy}px)`; });
+      bar.style.transform = `translateY(${((t * 300) % (H + 400)) - 220}px)`;
+    };
+  },
+
+  forest(root, W, H) {
+    root.appendChild(el('base', { background: 'linear-gradient(170deg, #134a33 0%, #0c2419 55%, #07160f 100%)' }));
+    const bs = blobs(root, [['#c7e07a', 700, 0.85, 0.1, 0.18], ['#f2b84b', 600, 0.1, 0.75, 0.16], ['#2f8a5c', 800, 0.5, 0.45, 0.35]]);
+    const r = rng(61);
+    const cols = ['#2f8a5c', '#3fa36b', '#c7e07a', '#1f6b45'];
+    const leaves = Array.from({ length: 22 }, (_, i) => { const s = 50 + r() * 110; const d = el('leaf', { width: s + 'px', height: s * 0.55 + 'px', background: cols[i % 4], opacity: 0.16 + r() * 0.2 }); d._p = [r() * W, r() * H, 15 + r() * 35, r() * 6]; root.appendChild(d); return d; });
+    root.appendChild(el('grain', { opacity: 0.05 }));
+    return t => {
+      driftBlobs(bs, t, W, H);
+      leaves.forEach(d => { const [x, y, sp, ph] = d._p; const yy = ((y + t * sp) % (H + 200)) - 100; d.style.transform = `translate(${x + Math.sin(t * 0.7 + ph) * 60}px, ${yy}px) rotate(${Math.sin(t * 0.6 + ph) * 50 + ph * 60}deg)`; });
+    };
+  },
 };
 
 /** Paint theme `name` behind the stage; returns draw(t). */

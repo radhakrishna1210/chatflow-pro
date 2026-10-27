@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #coin { left: 390px; top: 360px; width: 300px; height: 300px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff1c2, #e0b25a 45%, #8a5f22 100%); display: grid; place-items: center; font-family: 'Playfair Display', serif; font-weight: 800; font-size: 170px; color: #5a3d12; box-shadow: 0 0 120px rgba(224,178,90,.45), inset 0 -12px 30px rgba(0,0,0,.35); }
+  #title { top: 780px; font-size: 150px; line-height: 1; }
+  #title .serif { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; font-size: 120px; }
+  #rule { position: absolute; left: 340px; right: 340px; top: 1200px; height: 3px; background: var(--grad-cta); transform-origin: center; }
+</style></head><body><div class="stage">
+  <div class="abs" id="coin">₹</div>
+  <h1 class="center" id="title"><span class="hl">Every rupee.</span><br><span class="serif" style="color:var(--t1)">Accounted for.</span></h1>
+  <div id="rule"></div>
+</div><script type="module">
+import { film, enter, pop, p, ease, $ } from './lib/kit.js';
+film({ theme: 'gold', duration: 5.0, draw(t) {
+  pop($('#coin'), t, -0.25, { s: 0.3 });
+  $('#coin').style.transform += ` rotateY(${Math.sin(t * 1.4) * 25}deg) translateY(${Math.sin(t * 2) * 10}px)`;
+  enter($('#title'), t, 0.2, { y: 50, blur: 10, d: 0.8 });
+  $('#rule').style.transform = `scaleX(${ease.out(p(t, 1.4, 0.8))})`;
+} });
+</script></body></html>

@@ -1,0 +1,134 @@
+{
+ "title": "She left. WhatsApp brought her back.",
+ "size": [
+  1080,
+  1920
+ ],
+ "voice": "af_sarah",
+ "music": [
+  {
+   "src": "bed-drive",
+   "at": 0,
+   "in": 0,
+   "out": 60,
+   "volume": 0.18
+  }
+ ],
+ "scenes": [
+  {
+   "page": "s1-cart.html",
+   "dur": 5.4,
+   "vo": [
+    [
+     0.3,
+     "She added it to her cart. Then she closed the tab."
+    ]
+   ],
+   "sfx": [
+    [
+     0.2,
+     "pop",
+     0.4
+    ],
+    [
+     2.6,
+     "impact",
+     0.5
+    ]
+   ]
+  },
+  {
+   "page": "s2-ignored.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.3,
+     "Your email sat unopened. Your ads got scrolled past."
+    ]
+   ],
+   "sfx": [
+    [
+     0.4,
+     "whoosh",
+     0.3
+    ],
+    [
+     2.6,
+     "whoosh",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s3-whatsapp.html",
+   "dur": 10.4,
+   "vo": [
+    [
+     0.3,
+     "Then one WhatsApp message landed where she actually reads. And when she asked a question, the AI answered from the exact offer."
+    ]
+   ],
+   "sfx": [
+    [
+     0.6,
+     "ding",
+     0.5
+    ],
+    [
+     4.6,
+     "pop",
+     0.4
+    ],
+    [
+     6.6,
+     "pop",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s4-order.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.3,
+     "Order placed. Recovered, in a single chat."
+    ]
+   ],
+   "sfx": [
+    [
+     0.4,
+     "cash",
+     0.6
+    ],
+    [
+     1.4,
+     "success",
+     0.5
+    ]
+   ]
+  },
+  {
+   "page": "s5-end.html",
+   "dur": 7.0,
+   "vo": [
+    [
+     0.3,
+     "Bring them back where they actually read. Start free with Spandan."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "riser",
+     0.3
+    ],
+    [
+     1.4,
+     "impact",
+     0.5
+    ]
+   ]
+  }
+ ]
+}

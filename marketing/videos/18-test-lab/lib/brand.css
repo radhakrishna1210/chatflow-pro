@@ -1,0 +1,92 @@
+/* Spandan brand for the films — the same tokens as frontend/src/index.css. */
+@font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url(fonts/space-grotesk-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 600; src: url(fonts/space-grotesk-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url(fonts/space-grotesk-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Manrope'; font-weight: 500; src: url(fonts/manrope-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Manrope'; font-weight: 600; src: url(fonts/manrope-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Manrope'; font-weight: 700; src: url(fonts/manrope-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Manrope'; font-weight: 800; src: url(fonts/manrope-latin-800-normal.woff2) format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 500; src: url(fonts/jetbrains-mono-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 600; src: url(fonts/jetbrains-mono-latin-600-normal.woff2) format('woff2'); }
+
+:root {
+  --bg: #0a0b0e;
+  --t1: #f4f6f8; --t2: #b4bac4; --t3: #7d8590;
+  --cyan: #35e8f2; --violet: #9d6bff; --lime: #c4ff46; --wa: #25d366;
+  --red: #ff5a6a; --amber: #ffb547;
+  --grad-cta: linear-gradient(135deg, #c4ff46, #35e8f2);
+  --grad-id: linear-gradient(135deg, #9d6bff, #35e8f2);
+  --grad-bad: linear-gradient(135deg, #ff5a6a, #ffb547);
+  --ink: #06110f;
+  --glass: linear-gradient(158deg, rgba(255,255,255,0.075), rgba(255,255,255,0.02));
+  --glass-bd: rgba(255,255,255,0.12);
+  --display: 'Space Grotesk', 'Noto Color Emoji', sans-serif;
+  --body: 'Manrope', 'Noto Color Emoji', sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--t1); font-family: var(--body); }
+.stage { position: absolute; inset: 0; overflow: hidden; }
+.abs { position: absolute; }
+.center { position: absolute; left: 0; right: 0; text-align: center; }
+
+/* Background: drifting orbs over a faint grid. */
+.bg { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(120% 80% at 50% 0%, #10141c 0%, var(--bg) 60%); }
+.bg .grid { position: absolute; inset: -200px; background-image: linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px); background-size: 80px 80px; }
+.bg .orb { position: absolute; border-radius: 50%; filter: blur(120px); opacity: 0.45; }
+.bg .o1 { width: 900px; height: 900px; background: #35e8f2; }
+.bg .o2 { width: 800px; height: 800px; background: #9d6bff; }
+.bg .o3 { width: 700px; height: 700px; background: #c4ff46; opacity: 0.18; }
+.bg.bad .o1 { background: #ff5a6a; } .bg.bad .o3 { background: #ffb547; }
+
+h1, h2, h3, .display { font-family: var(--display); letter-spacing: -0.03em; line-height: 1.02; font-weight: 700; }
+.hl { background: var(--grad-cta); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hl-id { background: var(--grad-id); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hl-bad { background: var(--grad-bad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.w { display: inline-block; white-space: pre; }
+
+.eyebrow { font-family: var(--mono); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--cyan); }
+.chip { display: inline-flex; align-items: center; gap: 12px; padding: 14px 26px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-bd); font-weight: 700; color: var(--t1); }
+.card { background: var(--glass); border: 1px solid var(--glass-bd); border-radius: 28px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.55); backdrop-filter: blur(18px); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 14px; padding: 26px 48px; border-radius: 999px; background: var(--grad-cta); color: var(--ink); font-weight: 800; font-family: var(--display); }
+.logo { display: inline-flex; align-items: center; gap: 18px; font-family: var(--display); font-weight: 700; letter-spacing: -0.03em; }
+.logo .mark { border-radius: 30%; background: var(--grad-id); display: grid; place-items: center; color: var(--ink); font-weight: 800; }
+
+/* WhatsApp phone, dark theme. */
+.phone { position: absolute; width: 640px; height: 1300px; border-radius: 76px; background: #05070a; border: 3px solid #2a2f37; box-shadow: 0 0 0 10px #12161c, 0 60px 120px rgba(0,0,0,0.7), 0 0 120px rgba(53,232,242,0.12); overflow: hidden; }
+.phone .notch { position: absolute; top: 18px; left: 50%; width: 170px; height: 40px; margin-left: -85px; border-radius: 30px; background: #000; z-index: 5; }
+.phone .wa-head { position: absolute; top: 0; left: 0; right: 0; height: 170px; padding: 76px 28px 0; background: #1f2c34; display: flex; align-items: center; gap: 18px; z-index: 4; }
+.phone .wa-av { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 28px; color: var(--ink); background: var(--grad-cta); flex: none; }
+.phone .wa-name { font-weight: 700; font-size: 28px; color: #e9edef; }
+.phone .wa-sub { font-size: 20px; color: #8696a0; margin-top: 2px; }
+.phone .wa-body { position: absolute; top: 170px; bottom: 100px; left: 0; right: 0; padding: 0 22px 18px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; background: #0b141a; background-image: radial-gradient(rgba(255,255,255,0.025) 2px, transparent 2px); background-size: 34px 34px; }
+.phone .wa-foot { position: absolute; bottom: 0; left: 0; right: 0; height: 100px; background: #1f2c34; display: flex; align-items: center; padding: 0 22px; gap: 16px; }
+.phone .wa-input { flex: 1; height: 62px; border-radius: 31px; background: #2a3942; color: #8696a0; font-size: 22px; display: flex; align-items: center; padding: 0 26px; }
+.phone .wa-send { width: 62px; height: 62px; border-radius: 50%; background: #00a884; }
+.slot { overflow: hidden; flex: none; }
+.slot > .inner { padding-top: 14px; display: flex; }
+.slot.out > .inner { justify-content: flex-end; }
+.bub { max-width: 82%; padding: 16px 20px 12px; border-radius: 22px; font-size: 25px; line-height: 1.38; color: #e9edef; transform-origin: bottom left; position: relative; }
+.slot.in .bub { background: #202c33; border-top-left-radius: 6px; }
+.slot.out .bub { background: #005c4b; border-top-right-radius: 6px; transform-origin: bottom right; }
+.bub .meta { display: block; text-align: right; font-size: 16px; color: rgba(233,237,239,0.55); margin-top: 4px; }
+.bub .meta .tk { color: #53bdeb; }
+.bub.ai { box-shadow: 0 0 0 2px rgba(53,232,242,0.55), 0 0 40px rgba(53,232,242,0.25); }
+.bub .tag { display: inline-block; font-family: var(--mono); font-size: 15px; font-weight: 600; letter-spacing: 0.08em; color: var(--cyan); margin-bottom: 6px; }
+.tpl { padding: 8px; max-width: 86%; }
+.tpl .img { height: 230px; border-radius: 16px; display: grid; place-items: center; font-family: var(--display); font-weight: 700; font-size: 44px; color: var(--ink); text-align: center; line-height: 1; }
+.tpl .txt { padding: 14px 12px 4px; }
+.tpl .btns { border-top: 1px solid rgba(255,255,255,0.08); margin: 10px -8px -8px; }
+.tpl .b { text-align: center; color: #53bdeb; font-weight: 700; padding: 16px; font-size: 24px; }
+.tpl .b + .b { border-top: 1px solid rgba(255,255,255,0.08); }
+.typing { display: flex; gap: 8px; padding: 20px 24px; }
+.typing i { width: 12px; height: 12px; border-radius: 50%; background: #8696a0; display: block; }
+.facts { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.facts span { font-family: var(--mono); font-size: 16px; padding: 6px 12px; border-radius: 10px; background: rgba(53,232,242,0.12); color: var(--cyan); border: 1px solid rgba(53,232,242,0.3); }
+
+/* Engagement devices: polls, comment prompts, countdowns. */
+.opt { display: flex; align-items: center; gap: 28px; padding: 30px 36px; border-radius: 28px; background: var(--glass); border: 2px solid var(--glass-bd); font-size: 44px; font-weight: 700; }
+.opt .k { width: 76px; height: 76px; border-radius: 22px; display: grid; place-items: center; font-family: var(--display); font-size: 40px; background: rgba(255,255,255,0.08); flex: none; }
+.comment { display: inline-flex; align-items: center; gap: 20px; padding: 24px 40px; border-radius: 999px; background: #fff; color: #0a0b0e; font-weight: 800; font-size: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.ring { position: absolute; }
+.ring circle { fill: none; stroke-width: 14; }

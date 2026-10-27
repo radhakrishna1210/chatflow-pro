@@ -66,3 +66,54 @@ body.theme-day .btn, body.theme-sunrise .btn { color: #fff; }
 .phone.light .bub .tag { color: #0f9d74; }
 .phone.light .facts span { background: rgba(15,157,116,.1); color: #0f7d5d; border-color: rgba(15,157,116,.3); }
 .phone.light .typing i { background: #8696a0; }
+
+/* ---- Series 3 ---- */
+@font-face { font-family: 'Unbounded'; font-weight: 600; src: url(fonts/unbounded-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Unbounded'; font-weight: 800; src: url(fonts/unbounded-latin-800-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Playfair Display'; font-weight: 600; src: url(fonts/playfair-display-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Playfair Display'; font-weight: 800; src: url(fonts/playfair-display-latin-800-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Playfair Display'; font-weight: 600; font-style: italic; src: url(fonts/playfair-display-latin-600-italic.woff2) format('woff2'); }
+@font-face { font-family: 'Fraunces'; font-weight: 700; src: url(fonts/fraunces-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Fraunces'; font-weight: 800; src: url(fonts/fraunces-latin-800-normal.woff2) format('woff2'); }
+
+/* Paper: an editorial page, ink and mint. */
+body.theme-paper { --bg: #f6f1e7; --t1: #17140f; --t2: #4b443a; --t3: #8a8173; --cyan: #0e9f7e; --lime: #19c39c; --violet: #ef5b45;
+  --grad-cta: linear-gradient(135deg, #0e9f7e, #19c39c); --grad-id: linear-gradient(135deg, #ef5b45, #f29a3a); --ink: #fff;
+  --glass: #fffdf8; --glass-bd: rgba(23,20,15,.14); --display: 'Fraunces', 'Noto Color Emoji', serif; }
+body.theme-paper h1, body.theme-paper h2, body.theme-paper h3, body.theme-paper .display { font-weight: 800; letter-spacing: -0.03em; }
+body.theme-paper .card { box-shadow: 0 2px 0 rgba(23,20,15,.06), 0 26px 50px rgba(60,45,20,.14); border-radius: 18px; backdrop-filter: none; }
+body.theme-paper .hl { background: none; color: #0e9f7e; -webkit-text-fill-color: #0e9f7e; font-style: italic; }
+body.theme-paper .comment, body.theme-paper .btn { background: #17140f; color: #f6f1e7; }
+
+/* Gold: black velvet and gold leaf. */
+body.theme-gold { --bg: #090806; --t1: #fbf4e4; --t2: #d8c9a6; --t3: #9a8a68; --cyan: #e7c26b; --lime: #f5dc96; --violet: #b8893a;
+  --grad-cta: linear-gradient(135deg, #f8e3a3, #e0b25a 50%, #a8772c); --grad-id: linear-gradient(135deg, #e0b25a, #7a5420); --ink: #1a1206;
+  --glass: linear-gradient(158deg, rgba(240,210,140,.09), rgba(240,210,140,.02)); --glass-bd: rgba(231,194,107,.35); --display: 'Playfair Display', 'Noto Color Emoji', serif; }
+body.theme-gold h1, body.theme-gold h2, body.theme-gold h3, body.theme-gold .display { font-weight: 800; letter-spacing: -0.015em; }
+body.theme-gold .serif { font-family: 'Playfair Display', serif; }
+
+/* Pop: loud yellow, black ink, hard shadows. */
+body.theme-pop { --bg: #ffd93d; --t1: #111111; --t2: #2b2b2b; --t3: #5a4d14; --cyan: #ff2e88; --lime: #2e5bff; --violet: #ff2e88;
+  --grad-cta: linear-gradient(135deg, #ff2e88, #ff2e88); --grad-id: linear-gradient(135deg, #2e5bff, #2e5bff); --ink: #fff;
+  --glass: #ffffff; --glass-bd: #111111; --display: 'Unbounded', 'Noto Color Emoji', sans-serif; }
+body.theme-pop h1, body.theme-pop h2, body.theme-pop h3, body.theme-pop .display { font-weight: 800; letter-spacing: -0.04em; line-height: 1.0; }
+body.theme-pop .card, body.theme-pop .chip, body.theme-pop .opt { border: 5px solid #111 !important; box-shadow: 12px 12px 0 #111; border-radius: 26px; backdrop-filter: none; }
+body.theme-pop .chip { box-shadow: 6px 6px 0 #111; }
+body.theme-pop .btn, body.theme-pop .comment { background: #111; color: #ffd93d; box-shadow: 8px 8px 0 #ff2e88; }
+body.theme-pop .eyebrow { color: #111; }
+
+/* Cyber: terminal black, neon lime and cyan. */
+body.theme-cyber { --bg: #040706; --t1: #eafff0; --t2: #9fd8b3; --t3: #5f8f73; --cyan: #b6ff2e; --lime: #b6ff2e; --violet: #2ef6ff;
+  --grad-cta: linear-gradient(135deg, #b6ff2e, #2ef6ff); --grad-id: linear-gradient(135deg, #2ef6ff, #b6ff2e); --ink: #031007;
+  --glass: linear-gradient(158deg, rgba(182,255,46,.08), rgba(46,246,255,.03)); --glass-bd: rgba(182,255,46,.35); --display: 'Unbounded', 'Noto Color Emoji', sans-serif; }
+body.theme-cyber h1, body.theme-cyber h2, body.theme-cyber h3, body.theme-cyber .display { font-weight: 800; letter-spacing: -0.04em; line-height: 1.04; }
+body.theme-cyber .card { border-radius: 10px; box-shadow: 0 0 0 1px rgba(182,255,46,.15), 0 0 60px rgba(182,255,46,.08); }
+.tbg .scan { position: absolute; inset: 0; background: repeating-linear-gradient(to bottom, rgba(255,255,255,.035) 0 2px, transparent 2px 5px); }
+.tbg .bar { position: absolute; left: 0; right: 0; height: 220px; background: linear-gradient(to bottom, transparent, rgba(182,255,46,.08), transparent); }
+
+/* Forest: deep greens, cream type, warm amber. */
+body.theme-forest { --bg: #0c2419; --t1: #f5efe0; --t2: #c9d6bd; --t3: #8ea88a; --cyan: #f2b84b; --lime: #c7e07a; --violet: #f2b84b;
+  --grad-cta: linear-gradient(135deg, #e9f2a6, #c7e07a 45%, #f2b84b); --grad-id: linear-gradient(135deg, #f2b84b, #c7e07a); --ink: #122a1c;
+  --glass: linear-gradient(158deg, rgba(245,239,224,.1), rgba(245,239,224,.03)); --glass-bd: rgba(245,239,224,.22); --display: 'Fraunces', 'Noto Color Emoji', serif; }
+body.theme-forest h1, body.theme-forest h2, body.theme-forest h3, body.theme-forest .display { font-weight: 800; letter-spacing: -0.025em; }
+.tbg .leaf { position: absolute; border-radius: 0 100% 0 100%; }

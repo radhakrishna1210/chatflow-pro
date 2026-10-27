@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #eye { top: 110px; font-size: 30px; }
+  #title { top: 160px; font-size: 92px; }
+  #ctx { left: 60px; right: 60px; top: 320px; padding: 24px 30px; font-family: var(--mono); font-size: 24px; color: var(--t2); line-height: 1.7; }
+  #ctx b { color: var(--lime); }
+  .t { position: absolute; left: 60px; right: 60px; padding: 28px 30px; }
+  .t .q { font-family: var(--mono); font-size: 28px; color: var(--violet); } .t .q::before { content: 'TEST › '; color: var(--t3); }
+  .t .a { font-size: 32px; font-weight: 700; margin-top: 12px; line-height: 1.35; }
+  .t .src { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; } .t .src span { font-family: var(--mono); font-size: 20px; padding: 6px 14px; border-radius: 6px; border: 1px solid rgba(182,255,46,.4); color: var(--lime); }
+  #t1 { top: 560px; } #t2 { top: 900px; } #t3 { top: 1240px; border-color: rgba(255,200,60,.6) !important; }
+  #t3 .src span { color: #ffc83c; border-color: rgba(255,200,60,.5); }
+  #pass { top: 1640px; } #pass .chip { font-family: var(--mono); font-size: 28px; color: var(--lime); }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">Spandan · Test Lab</div>
+  <h1 class="center" id="title">Test it. <span class="hl">See why.</span></h1>
+  <div class="abs card" id="ctx">CONTEXT LOADED › <b>Monsoon Flash Sale</b> · 40% off Nike Air Zoom · ends Sunday<br>KNOWLEDGE › sizes 6–11 · free shipping ₹999+ · 7-day returns</div>
+  <div class="t card" id="t1"><div class="q">Is size 9 in stock?</div><div class="a">Yes! Size 9 is available, at 40% off until Sunday 👟</div><div class="src"><span>↳ campaign snapshot</span><span>↳ knowledge: sizes</span></div></div>
+  <div class="t card" id="t2"><div class="q">Do you ship free?</div><div class="a">Yes, shipping is free on orders over ₹999.</div><div class="src"><span>↳ knowledge: shipping</span></div></div>
+  <div class="t card" id="t3"><div class="q">Can I pay in crypto?</div><div class="a">I don’t have that information. Want me to connect you with the team?</div><div class="src"><span>⚠ not in sources → says so + human handoff</span></div></div>
+  <div class="center" id="pass"><span class="chip">✓ 3/3 grounded · ready to deploy</span></div>
+</div><script type="module">
+import { film, enter, pop, typeText, $, $$ } from './lib/kit.js';
+const Q = ['Is size 9 in stock?', 'Do you ship free?', 'Can I pay in crypto?'], AT = [1.6, 4.0, 7.6];
+film({ theme: 'cyber', duration: 14.0, draw(t) {
+  enter($('#eye'), t, -0.3, { y: 20 }); enter($('#title'), t, -0.2, { y: 30 });
+  enter($('#ctx'), t, 0.4, { y: 30 });
+  ['#t1', '#t2', '#t3'].forEach((s, i) => {
+    enter($(s), t, AT[i], { x: 80, y: 0 });
+    typeText($(s + ' .q'), Q[i], t, AT[i] + 0.2, 30);
+    enter($(s + ' .a'), t, AT[i] + 1.0, { y: 10 });
+    enter($(s + ' .src'), t, AT[i] + 1.6, { y: 10 });
+  });
+  pop($('#pass'), t, 11.4);
+} });
+</script></body></html>

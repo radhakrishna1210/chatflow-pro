@@ -105,7 +105,7 @@ export function drawBg(root, t) {
 
 export const bgHTML = (cls = '') => `<div class="bg ${cls}"><div class="grid"></div><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>`;
 
-const FONTS = ['700 1em "Bricolage Grotesque"', '800 1em "Bricolage Grotesque"', 'italic 600 1em Fraunces', '700 1em "Noto Sans Devanagari"', '600 1em "Noto Sans Devanagari"', '700 1em "Noto Sans Tamil"', '600 1em "Noto Sans Tamil"', '500 1em "Space Grotesk"', '600 1em "Space Grotesk"', '700 1em "Space Grotesk"', '500 1em Manrope', '600 1em Manrope', '700 1em Manrope', '800 1em Manrope', '500 1em "JetBrains Mono"', '600 1em "JetBrains Mono"', '1em "Noto Color Emoji"'];
+const FONTS = ['800 1em Unbounded', '600 1em Unbounded', '800 1em "Playfair Display"', 'italic 600 1em "Playfair Display"', '800 1em Fraunces', '700 1em Fraunces', '700 1em "Bricolage Grotesque"', '800 1em "Bricolage Grotesque"', 'italic 600 1em Fraunces', '700 1em "Noto Sans Devanagari"', '600 1em "Noto Sans Devanagari"', '700 1em "Noto Sans Tamil"', '600 1em "Noto Sans Tamil"', '500 1em "Space Grotesk"', '600 1em "Space Grotesk"', '700 1em "Space Grotesk"', '500 1em Manrope', '600 1em Manrope', '700 1em Manrope', '800 1em Manrope', '500 1em "JetBrains Mono"', '600 1em "JetBrains Mono"', '1em "Noto Color Emoji"'];
 
 /**
  * Declare the page. `setup` runs once the fonts are in (measure layout there);
