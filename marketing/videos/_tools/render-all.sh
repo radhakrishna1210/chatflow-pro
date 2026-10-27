@@ -6,5 +6,5 @@ films=("$@"); [ ${#films[@]} -eq 0 ] && films=(0*/)
 for f in "${films[@]}"; do
   f=${f%/}
   echo "== $f"
-  (cd "$f" && npx -y openfilm@latest render --out "../renders/$f.mp4" 2>&1 | grep -v "npm notice" | tail -3)
+  (cd "$f" && npx -y openfilm@latest render --workers 3 --out "../renders/$f.mp4" 2>&1 | grep -v "npm notice" | tail -3)
 done
