@@ -41,6 +41,20 @@ export async function listSubmissions(req, res) {
   }
 }
 
+export async function exportSubmissions(req, res) {
+  try {
+    const { csv, filename, count } = await whatsappFormsService.exportSubmissionsCsv(req.params.workspaceId, req.params.id);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-Export-Count', String(count));
+    // A BOM so Excel shows ₹ and non-English names correctly.
+    res.send(`﻿${csv}`);
+  } catch (err) {
+    console.error('[WhatsAppForms] export error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to export submissions' });
+  }
+}
+
 export async function updateForm(req, res) {
   try {
     const workspaceId = req.params.workspaceId;

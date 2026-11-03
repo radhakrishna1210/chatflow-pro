@@ -368,7 +368,7 @@ const CSV_COLUMNS = [
 // every number in the file and break re-importing what was just exported.
 const PHONE_LIKE = /^\+[\d\s()-]+$/;
 
-function csvCell(value) {
+export function csvCell(value) {
   const raw = String(value ?? '');
   const risky = /^[=+\-@\t\r]/.test(raw) && !PHONE_LIKE.test(raw);
   return `"${(risky ? `'${raw}` : raw).replace(/"/g, '""')}"`;

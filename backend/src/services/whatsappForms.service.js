@@ -3,7 +3,12 @@ import { prisma } from '../lib/prisma.js';
 import { keywordMatches } from './automation.service.js';
 import { matchOption, detectControlCommand, interruptsFlow, CONTROL_REPLIES } from './conversationControl.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
-import { renderFormMessage } from '../lib/formMessage.js';
+import { renderFormMessage, closingTotal } from '../lib/formMessage.js';
+import { csvCell } from './contacts.service.js';
+
+// Where a submission's order total is kept inside `answers`. Question keys are
+// built from labels with leading underscores stripped, so none can collide.
+const TOTAL_KEY = '__total';
 
 const FIELD_TYPES = new Set(['text', 'email', 'phone', 'number', 'choice']);
 
@@ -136,11 +141,63 @@ export async function deleteForm(workspaceId, formId) {
 export async function listSubmissions(workspaceId, formId) {
   const form = await prisma.whatsappForm.findFirst({ where: { id: formId, workspaceId } });
   if (!form) { const e = new Error('Form not found'); e.status = 404; throw e; }
-  return prisma.whatsappFormSubmission.findMany({
+  const rows = await prisma.whatsappFormSubmission.findMany({
     where: { workspaceId, formId },
     orderBy: { createdAt: 'desc' },
     take: 200,
   });
+  return withCustomer(workspaceId, rows);
+}
+
+// Adds who filled the form (name, phone) and the saved order total to each
+// submission. Submissions keep only a contactId, so contacts are looked up in
+// one query, scoped to the workspace.
+async function withCustomer(workspaceId, rows) {
+  const ids = [...new Set(rows.map((r) => r.contactId).filter(Boolean))];
+  const contacts = ids.length
+    ? await prisma.contact.findMany({ where: { workspaceId, id: { in: ids } }, select: { id: true, name: true, phoneNumber: true } })
+    : [];
+  const byId = new Map(contacts.map((c) => [c.id, c]));
+  return rows.map((r) => {
+    const contact = byId.get(r.contactId);
+    const saved = r.answers?.[TOTAL_KEY];
+    return {
+      ...r,
+      contactName: contact?.name ?? null,
+      contactPhone: contact?.phoneNumber ?? null,
+      total: typeof saved === 'number' ? saved : null,
+    };
+  });
+}
+
+const SUBMISSION_EXPORT_LIMIT = 50_000;
+
+// Every submission of a form as CSV: When, Customer, Phone, one column per
+// question, Total, Status.
+export async function exportSubmissionsCsv(workspaceId, formId) {
+  const form = await prisma.whatsappForm.findFirst({ where: { id: formId, workspaceId } });
+  if (!form) { const e = new Error('Form not found'); e.status = 404; throw e; }
+  const fields = schemaOf(form);
+  const rows = await withCustomer(workspaceId, await prisma.whatsappFormSubmission.findMany({
+    where: { workspaceId, formId },
+    orderBy: { createdAt: 'desc' },
+    take: SUBMISSION_EXPORT_LIMIT,
+  }));
+
+  const header = ['When', 'Customer', 'Phone', ...fields.map((f) => f.label), 'Total', 'Status'];
+  const lines = [header.map(csvCell).join(',')];
+  for (const r of rows) {
+    lines.push([
+      new Date(r.createdAt).toISOString(),
+      r.contactName ?? '',
+      r.contactPhone ?? '',
+      ...fields.map((f) => r.answers?.[f.key] ?? ''),
+      r.total ?? '',
+      r.completed ? 'Complete' : `Stopped at Q${r.cursor + 1}`,
+    ].map(csvCell).join(','));
+  }
+  const safeName = String(form.name || 'form').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'form';
+  return { csv: lines.join('\r\n'), filename: `${safeName}_submissions.csv`, count: rows.length };
 }
 
 // ── Runtime: filling a form over WhatsApp ──────────────────────────────────
@@ -277,9 +334,14 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
     const nextCursor = open.cursor + 1;
     const done = nextCursor >= fields.length;
 
+    // The order total is saved with the submission when the form finishes, so
+    // a later price upload does not change what an old order cost.
+    const total = done ? closingTotal(open.form.completionMessage, { contact, fields, answers }) : null;
+    const saved = total === null ? answers : { ...answers, [TOTAL_KEY]: total };
+
     await prisma.whatsappFormSubmission.update({
       where: { id: open.id },
-      data: { answers, cursor: nextCursor, completed: done, ...(done ? { completedAt: new Date() } : {}) },
+      data: { answers: saved, cursor: nextCursor, completed: done, ...(done ? { completedAt: new Date() } : {}) },
     });
 
     if (done) {

@@ -104,17 +104,35 @@ function evaluate(src, lookup) {
 // 1250 → "1,250", 12.5 → "12.5" (Indian digit grouping, at most 2 decimals).
 const formatNumber = (n) => n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
-export function renderFormMessage(text, { contact = null, fields = [], answers = {} } = {}) {
-  const source = String(text ?? '');
-  if (!source.includes('{{')) return source;
-
-  const variables = answerVariables(fields, answers);
-  const lookup = (name) => {
+function lookupFor(contact, variables) {
+  return (name) => {
     if (name in variables) return variables[name];
     const lower = name.toLowerCase();
     if (lower in variables) return variables[lower];
     return renderTemplate(`{{${name}}}`, { contact, variables });
   };
+}
+
+// The order total: the value of the LAST {{= …}} in the closing message, which
+// is where a receipt puts its "Total to pay". Null when there is no
+// calculation or it cannot be worked out.
+export function closingTotal(text, { contact = null, fields = [], answers = {} } = {}) {
+  const expressions = [...String(text ?? '').matchAll(EXPRESSION)];
+  if (expressions.length === 0) return null;
+  const lookup = lookupFor(contact, answerVariables(fields, answers));
+  try {
+    return Math.round(evaluate(expressions[expressions.length - 1][1], lookup) * 100) / 100;
+  } catch {
+    return null;
+  }
+}
+
+export function renderFormMessage(text, { contact = null, fields = [], answers = {} } = {}) {
+  const source = String(text ?? '');
+  if (!source.includes('{{')) return source;
+
+  const variables = answerVariables(fields, answers);
+  const lookup = lookupFor(contact, variables);
 
   const withMath = source.replace(EXPRESSION, (_, expression) => {
     try {

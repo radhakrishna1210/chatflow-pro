@@ -13,6 +13,7 @@ router.use(authenticate, workspaceContext);
 router.get('/templates', whatsappFormsController.listTemplates);
 router.get('/', whatsappFormsController.listForms);
 router.get('/:id/submissions', whatsappFormsController.listSubmissions);
+router.get('/:id/submissions/export', whatsappFormsController.exportSubmissions);
 router.post('/', validate({ body: whatsappFormSchemas.create }), whatsappFormsController.createForm);
 router.patch('/:id', validate({ body: whatsappFormSchemas.update }), whatsappFormsController.updateForm);
 router.delete('/:id', whatsappFormsController.deleteForm);

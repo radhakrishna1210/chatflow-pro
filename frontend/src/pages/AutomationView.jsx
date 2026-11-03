@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
-import { apiFetch } from '../lib/api.js';
+import { apiFetch, wDownload } from '../lib/api.js';
 import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
@@ -3228,6 +3228,8 @@ const WhatsAppFormsTab = () => {
   const [saving, setSaving] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [submissions, setSubmissions] = useState([]);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   // 'create' mirrors the builder tab, 'list' the saved forms.
   const [view, setView] = useState('list');
   const [templates, setTemplates] = useState([]);
@@ -3339,6 +3341,20 @@ const WhatsAppFormsTab = () => {
     setViewing(f);
     const r = await wJson(`/whatsapp-forms/${f.id}/submissions`);
     setSubmissions(r.ok && Array.isArray(r.data) ? r.data : []);
+    setExportError('');
+  };
+
+  const exportSubmissions = async () => {
+    if (!viewing) return;
+    setExporting(true);
+    setExportError('');
+    try {
+      await wDownload(`/whatsapp-forms/${viewing.id}/submissions/export`, 'form_submissions.csv');
+    } catch (err) {
+      setExportError(err.message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (loading) return <Loading />;
@@ -3348,32 +3364,41 @@ const WhatsAppFormsTab = () => {
     const fields = Array.isArray(viewing.schema) ? viewing.schema : [];
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
           <IconBtn icon="arrowLeft" onClick={() => setViewing(null)} />
-          <div>
+          <div style={{ flex:1 }}>
             <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:18, color:'var(--t1)' }}>{viewing.name}</h2>
-            <p style={{ fontSize:13, color:'var(--t2)' }}>{submissions.length} submission{submissions.length === 1 ? '' : 's'}</p>
+            <p style={{ fontSize:13, color:'var(--t2)' }}>{submissions.length} submission{submissions.length === 1 ? '' : 's'}{submissions.length >= 200 ? ' (latest 200 shown, export has all)' : ''}</p>
           </div>
+          <Btn variant="outline" size="sm" disabled={exporting || submissions.length === 0} onClick={exportSubmissions}>
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </Btn>
         </div>
+        {exportError && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {exportError}</p>}
         <div style={{ ...card, overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left', minWidth:520 }}>
             <thead>
               <tr style={{ borderBottom:'1px solid var(--bd)' }}>
-                {['When', ...fields.map(f => f.label), 'Status'].map((h, i) => (
+                {['When', 'Customer', 'Phone', ...fields.map(f => f.label), 'Total', 'Status'].map((h, i) => (
                   <th key={i} style={{ padding:'12px 16px', fontSize:11, fontWeight:600, color:'var(--t3)', textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {submissions.length === 0 && (
-                <tr><td colSpan={fields.length + 2} style={{ padding:32, textAlign:'center', color:'var(--t2)', fontSize:13 }}>No submissions yet.</td></tr>
+                <tr><td colSpan={fields.length + 5} style={{ padding:32, textAlign:'center', color:'var(--t2)', fontSize:13 }}>No submissions yet.</td></tr>
               )}
               {submissions.map(s => (
                 <tr key={s.id} style={{ borderBottom:'1px solid var(--bd)' }}>
                   <td style={{ padding:'12px 16px', fontSize:12, color:'var(--t2)', whiteSpace:'nowrap' }}>{new Date(s.createdAt).toLocaleString()}</td>
+                  <td style={{ padding:'12px 16px', fontSize:12.5, color:'var(--t1)', whiteSpace:'nowrap' }}>{s.contactName || '—'}</td>
+                  <td style={{ padding:'12px 16px', fontSize:12, color:'var(--t2)', whiteSpace:'nowrap', fontFamily:'monospace' }}>{s.contactPhone || '—'}</td>
                   {fields.map(f => (
                     <td key={f.key} style={{ padding:'12px 16px', fontSize:12.5, color:'var(--t1)' }}>{s.answers?.[f.key] ?? '—'}</td>
                   ))}
+                  <td style={{ padding:'12px 16px', fontSize:12.5, color:'var(--t1)', fontWeight:600, whiteSpace:'nowrap' }}>
+                    {typeof s.total === 'number' ? `₹${s.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                  </td>
                   <td style={{ padding:'12px 16px' }}>
                     <Pill tone={s.completed ? 'green' : 'amber'}>{s.completed ? 'Complete' : `Q${s.cursor + 1}`}</Pill>
                   </td>
