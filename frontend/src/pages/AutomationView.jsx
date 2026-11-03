@@ -3344,12 +3344,21 @@ const WhatsAppFormsTab = () => {
     setExportError('');
   };
 
-  const exportSubmissions = async () => {
+  // range 'today' sends this browser's local midnight-to-midnight, so "today"
+  // is the viewer's day (IST in India), not the server's.
+  const exportSubmissions = async (range = 'all') => {
     if (!viewing) return;
-    setExporting(true);
+    setExporting(range);
     setExportError('');
+    let query = '';
+    if (range === 'today') {
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      const end = new Date(start); end.setDate(end.getDate() + 1);
+      const label = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+      query = `?from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}&label=${label}`;
+    }
     try {
-      await wDownload(`/whatsapp-forms/${viewing.id}/submissions/export`, 'form_submissions.csv');
+      await wDownload(`/whatsapp-forms/${viewing.id}/submissions/export${query}`, 'form_submissions.csv');
     } catch (err) {
       setExportError(err.message || 'Export failed');
     } finally {
@@ -3362,44 +3371,61 @@ const WhatsAppFormsTab = () => {
 
   if (viewing) {
     const fields = Array.isArray(viewing.schema) ? viewing.schema : [];
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayCount = submissions.filter(s => new Date(s.createdAt) >= todayStart).length;
+    const th = { padding:'12px 14px', fontSize:11, fontWeight:600, color:'var(--t3)', textTransform:'uppercase', verticalAlign:'bottom', lineHeight:1.35 };
+    // Customer stays pinned while the answers scroll, so every row says whose order it is.
+    const pinned = { position:'sticky', left:0, zIndex:1, background:'var(--surf)', boxShadow:'1px 0 0 var(--bd)' };
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
         <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
           <IconBtn icon="arrowLeft" onClick={() => setViewing(null)} />
           <div style={{ flex:1 }}>
             <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:18, color:'var(--t1)' }}>{viewing.name}</h2>
-            <p style={{ fontSize:13, color:'var(--t2)' }}>{submissions.length} submission{submissions.length === 1 ? '' : 's'}{submissions.length >= 200 ? ' (latest 200 shown, export has all)' : ''}</p>
+            <p style={{ fontSize:13, color:'var(--t2)' }}>
+              {submissions.length} submission{submissions.length === 1 ? '' : 's'} · {todayCount} today
+              {submissions.length >= 200 ? ' (latest 200 shown, export has all)' : ''}
+            </p>
           </div>
-          <Btn variant="outline" size="sm" disabled={exporting || submissions.length === 0} onClick={exportSubmissions}>
-            {exporting ? 'Exporting…' : 'Export CSV'}
+          <Btn variant="outline" size="sm" disabled={!!exporting || todayCount === 0} onClick={() => exportSubmissions('today')}>
+            {exporting === 'today' ? 'Exporting…' : "Export today's"}
+          </Btn>
+          <Btn variant="outline" size="sm" disabled={!!exporting || submissions.length === 0} onClick={() => exportSubmissions('all')}>
+            {exporting === 'all' ? 'Exporting…' : 'Export all'}
           </Btn>
         </div>
         {exportError && <p style={{ fontSize:12, color:'#f87171', margin:0 }}>⚠️ {exportError}</p>}
-        <div style={{ ...card, overflowX:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left', minWidth:520 }}>
+        <div className="cfp-hscroll" style={{ ...card, overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left' }}>
             <thead>
               <tr style={{ borderBottom:'1px solid var(--bd)' }}>
-                {['When', 'Customer', 'Phone', ...fields.map(f => f.label), 'Total', 'Status'].map((h, i) => (
-                  <th key={i} style={{ padding:'12px 16px', fontSize:11, fontWeight:600, color:'var(--t3)', textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
+                <th style={{ ...th, ...pinned, whiteSpace:'nowrap' }}>Customer</th>
+                <th style={{ ...th, whiteSpace:'nowrap' }}>Phone</th>
+                <th style={{ ...th, whiteSpace:'nowrap' }}>When</th>
+                {fields.map(f => (
+                  <th key={f.key} title={f.label} style={{ ...th, minWidth:110, maxWidth:170 }}>{f.label}</th>
                 ))}
+                <th style={{ ...th, whiteSpace:'nowrap' }}>Total</th>
+                <th style={{ ...th, whiteSpace:'nowrap' }}>Status</th>
               </tr>
             </thead>
             <tbody>
               {submissions.length === 0 && (
-                <tr><td colSpan={fields.length + 5} style={{ padding:32, textAlign:'center', color:'var(--t2)', fontSize:13 }}>No submissions yet.</td></tr>
+                <tr><td colSpan={fields.length + 5} style={{ padding:32, textAlign:'left', color:'var(--t2)', fontSize:13 }}>No submissions yet.</td></tr>
               )}
               {submissions.map(s => (
                 <tr key={s.id} style={{ borderBottom:'1px solid var(--bd)' }}>
-                  <td style={{ padding:'12px 16px', fontSize:12, color:'var(--t2)', whiteSpace:'nowrap' }}>{new Date(s.createdAt).toLocaleString()}</td>
-                  <td style={{ padding:'12px 16px', fontSize:12.5, color:'var(--t1)', whiteSpace:'nowrap' }}>{s.contactName || '—'}</td>
-                  <td style={{ padding:'12px 16px', fontSize:12, color:'var(--t2)', whiteSpace:'nowrap', fontFamily:'monospace' }}>{s.contactPhone || '—'}</td>
+                  <td style={{ padding:'12px 14px', fontSize:12.5, color:'var(--t1)', whiteSpace:'nowrap', fontWeight:600, ...pinned }}>{s.contactName || '—'}</td>
+                  <td style={{ padding:'12px 14px', fontSize:12, color:'var(--t2)', whiteSpace:'nowrap', fontFamily:'monospace' }}>{s.contactPhone || '—'}</td>
+                  <td style={{ padding:'12px 14px', fontSize:12, color:'var(--t2)', whiteSpace:'nowrap' }}>{new Date(s.createdAt).toLocaleString()}</td>
                   {fields.map(f => (
-                    <td key={f.key} style={{ padding:'12px 16px', fontSize:12.5, color:'var(--t1)' }}>{s.answers?.[f.key] ?? '—'}</td>
+                    <td key={f.key} style={{ padding:'12px 14px', fontSize:12.5, color:'var(--t1)', maxWidth:220 }}>{s.answers?.[f.key] ?? '—'}</td>
                   ))}
-                  <td style={{ padding:'12px 16px', fontSize:12.5, color:'var(--t1)', fontWeight:600, whiteSpace:'nowrap' }}>
-                    {typeof s.total === 'number' ? `₹${s.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                  <td style={{ padding:'12px 14px', fontSize:12.5, color:'var(--t1)', fontWeight:600, whiteSpace:'nowrap' }}
+                    title={s.totalEstimated ? "Worked out with the customer's current prices (this order was placed before totals were saved)" : undefined}>
+                    {typeof s.total === 'number' ? `₹${s.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}${s.totalEstimated ? '*' : ''}` : '—'}
                   </td>
-                  <td style={{ padding:'12px 16px' }}>
+                  <td style={{ padding:'12px 14px' }}>
                     <Pill tone={s.completed ? 'green' : 'amber'}>{s.completed ? 'Complete' : `Q${s.cursor + 1}`}</Pill>
                   </td>
                 </tr>

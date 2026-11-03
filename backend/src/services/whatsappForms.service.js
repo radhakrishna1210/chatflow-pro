@@ -146,43 +146,73 @@ export async function listSubmissions(workspaceId, formId) {
     orderBy: { createdAt: 'desc' },
     take: 200,
   });
-  return withCustomer(workspaceId, rows);
+  return withCustomer(workspaceId, rows, form);
 }
 
-// Adds who filled the form (name, phone) and the saved order total to each
+// Adds who filled the form (name, phone) and the order total to each
 // submission. Submissions keep only a contactId, so contacts are looked up in
 // one query, scoped to the workspace.
-async function withCustomer(workspaceId, rows) {
+//
+// The total is the one saved when the form finished. A completed submission
+// without one (finished before totals were saved, or before the closing
+// message had a calculation) gets it worked out now from the closing message
+// and the customer's current prices, flagged as `totalEstimated`.
+async function withCustomer(workspaceId, rows, form = null) {
   const ids = [...new Set(rows.map((r) => r.contactId).filter(Boolean))];
   const contacts = ids.length
-    ? await prisma.contact.findMany({ where: { workspaceId, id: { in: ids } }, select: { id: true, name: true, phoneNumber: true } })
+    ? await prisma.contact.findMany({
+      where: { workspaceId, id: { in: ids } },
+      select: { id: true, name: true, phoneNumber: true, email: true, customFields: true, attributes: true },
+    })
     : [];
   const byId = new Map(contacts.map((c) => [c.id, c]));
+  const fields = form ? schemaOf(form) : [];
   return rows.map((r) => {
     const contact = byId.get(r.contactId);
     const saved = r.answers?.[TOTAL_KEY];
+    let total = typeof saved === 'number' ? saved : null;
+    let totalEstimated = false;
+    if (total === null && r.completed && form) {
+      total = closingTotal(form.completionMessage, { contact, fields, answers: r.answers || {} });
+      totalEstimated = total !== null;
+    }
     return {
       ...r,
       contactName: contact?.name ?? null,
       contactPhone: contact?.phoneNumber ?? null,
-      total: typeof saved === 'number' ? saved : null,
+      total,
+      totalEstimated,
     };
   });
 }
 
 const SUBMISSION_EXPORT_LIMIT = 50_000;
 
-// Every submission of a form as CSV: When, Customer, Phone, one column per
-// question, Total, Status.
-export async function exportSubmissionsCsv(workspaceId, formId) {
+// Optional ISO date bound from the query string; a bad value is refused rather
+// than silently exporting everything.
+function parseBound(value, label) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) { const e = new Error(`${label} must be a date`); e.status = 400; throw e; }
+  return d;
+}
+
+// Submissions of a form as CSV: When, Customer, Phone, one column per question,
+// Total, Status. `from`/`to` narrow it to a time window, e.g. today: the browser
+// sends its own local midnight so "today" means the viewer's day, not the
+// server's.
+export async function exportSubmissionsCsv(workspaceId, formId, { from, to, label } = {}) {
   const form = await prisma.whatsappForm.findFirst({ where: { id: formId, workspaceId } });
   if (!form) { const e = new Error('Form not found'); e.status = 404; throw e; }
   const fields = schemaOf(form);
+  const gte = parseBound(from, 'from');
+  const lt = parseBound(to, 'to');
+  const createdAt = gte || lt ? { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } : undefined;
   const rows = await withCustomer(workspaceId, await prisma.whatsappFormSubmission.findMany({
-    where: { workspaceId, formId },
+    where: { workspaceId, formId, ...(createdAt ? { createdAt } : {}) },
     orderBy: { createdAt: 'desc' },
     take: SUBMISSION_EXPORT_LIMIT,
-  }));
+  }), form);
 
   const header = ['When', 'Customer', 'Phone', ...fields.map((f) => f.label), 'Total', 'Status'];
   const lines = [header.map(csvCell).join(',')];
@@ -197,7 +227,8 @@ export async function exportSubmissionsCsv(workspaceId, formId) {
     ].map(csvCell).join(','));
   }
   const safeName = String(form.name || 'form').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'form';
-  return { csv: lines.join('\r\n'), filename: `${safeName}_submissions.csv`, count: rows.length };
+  const suffix = typeof label === 'string' && /^[a-z0-9-]{1,20}$/i.test(label) ? `_${label}` : '';
+  return { csv: lines.join('\r\n'), filename: `${safeName}_submissions${suffix}.csv`, count: rows.length };
 }
 
 // ── Runtime: filling a form over WhatsApp ──────────────────────────────────

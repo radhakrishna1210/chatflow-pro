@@ -43,7 +43,8 @@ export async function listSubmissions(req, res) {
 
 export async function exportSubmissions(req, res) {
   try {
-    const { csv, filename, count } = await whatsappFormsService.exportSubmissionsCsv(req.params.workspaceId, req.params.id);
+    const { from, to, label } = req.query;
+    const { csv, filename, count } = await whatsappFormsService.exportSubmissionsCsv(req.params.workspaceId, req.params.id, { from, to, label });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('X-Export-Count', String(count));

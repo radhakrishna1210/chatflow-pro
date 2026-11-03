@@ -27,7 +27,7 @@ before(async () => {
         whatsappFormSubmission: {
           findFirst: async () => db.open,
           update: async (args) => { db.updates.push(args); return args; },
-          findMany: async () => db.submissions,
+          findMany: async (args) => { db.lastFind = args; return db.submissions; },
         },
         whatsappForm: {
           update: async () => ({}),
@@ -36,7 +36,7 @@ before(async () => {
         },
         contact: {
           findUnique: async () => contact,
-          findMany: async () => [{ id: 'c1', name: 'Harshal', phoneNumber: '+919322126234' }],
+          findMany: async () => [contact],
           update: async () => ({}),
         },
         workspaceCustomField: { findMany: async () => [] },
@@ -81,7 +81,32 @@ test('submissions list carries customer name, phone and total', async () => {
   assert.equal(rows[0].contactName, 'Harshal');
   assert.equal(rows[0].contactPhone, '+919322126234');
   assert.equal(rows[0].total, 480);
-  assert.equal(rows[1].total, null);
+  assert.equal(rows[0].totalEstimated, false);
+  assert.equal(rows[1].total, null); // not finished
+});
+
+test('a finished order without a saved total gets one worked out, flagged', async () => {
+  const before = db.submissions;
+  db.submissions = [{ id: 's3', contactId: 'c1', createdAt: new Date(), completed: true, cursor: 2, answers: { oyster_kg: '1', milky_kg: '2' } }];
+  const [row] = await service.listSubmissions('ws1', 'f1');
+  assert.equal(row.total, 465); // 1 × 165 + 2 × 150
+  assert.equal(row.totalEstimated, true);
+  db.submissions = before;
+});
+
+test('export can be narrowed to a time window (today)', async () => {
+  const from = '2026-11-02T18:30:00.000Z'; // midnight IST
+  const to = '2026-11-03T18:30:00.000Z';
+  const { filename } = await service.exportSubmissionsCsv('ws1', 'f1', { from, to, label: '2026-11-03' });
+  assert.deepEqual(db.lastFind.where.createdAt, { gte: new Date(from), lt: new Date(to) });
+  assert.equal(filename, 'mushroom_order_submissions_2026-11-03.csv');
+
+  await service.exportSubmissionsCsv('ws1', 'f1');
+  assert.equal(db.lastFind.where.createdAt, undefined);
+
+  await assert.rejects(service.exportSubmissionsCsv('ws1', 'f1', { from: 'yesterday-ish' }), /from must be a date/);
+  const { filename: odd } = await service.exportSubmissionsCsv('ws1', 'f1', { label: '../../etc' });
+  assert.equal(odd, 'mushroom_order_submissions.csv');
 });
 
 test('CSV export has customer, phone, answers, total and status', async () => {
