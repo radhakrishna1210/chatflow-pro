@@ -13,6 +13,8 @@
 // fit the model exactly, survive a resume for free, and are authorable in the
 // linear builder that already exists.
 
+import { toAttributeKey } from '../lib/contactAttributes.js';
+
 // What a condition can ask about. Each takes the step's `value` as its operand,
 // except the ones that ask about the contact itself.
 export const CONDITION_SUBTYPES = [
@@ -63,8 +65,10 @@ export function evaluateCondition(node, context = {}) {
   }
 }
 
-// Reads a value off the contact by name: a built-in column, or a custom field
-// defined by the workspace.
+// Reads a value off the contact by name: a built-in column, a custom field
+// defined by the workspace, or a column from an uploaded contact sheet
+// (Contact.attributes, e.g. {{oyster_price}}). Built-ins and custom fields win,
+// so existing workflows read exactly what they read before.
 function readContactValue(contact, key) {
   if (!contact || !key) return undefined;
   const builtin = {
@@ -82,7 +86,14 @@ function readContactValue(contact, key) {
   const lower = key.toLowerCase();
   if (lower in builtin) return builtin[lower];
   const custom = contact.customFields && typeof contact.customFields === 'object' ? contact.customFields : {};
-  return custom[key] ?? custom[lower];
+  const fromCustom = custom[key] ?? custom[lower];
+  if (fromCustom !== undefined && fromCustom !== null) return fromCustom;
+  // Sheet columns are stored under normalised keys ("Oyster Price" → oyster_price),
+  // so the token is normalised the same way. `attr.` is accepted as an explicit prefix.
+  const attrs = contact.attributes && typeof contact.attributes === 'object' && !Array.isArray(contact.attributes)
+    ? contact.attributes : {};
+  const attrKey = toAttributeKey(lower.startsWith('attr.') ? key.slice('attr.'.length) : key);
+  return attrKey ? attrs[attrKey] ?? fromCustom : fromCustom;
 }
 
 // How many following steps a false condition skips. Defaults to one, which is
