@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { keywordMatches } from './automation.service.js';
 import { matchOption, detectControlCommand, interruptsFlow, CONTROL_REPLIES } from './conversationControl.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
+import { renderFormMessage } from '../lib/formMessage.js';
 
 const FIELD_TYPES = new Set(['text', 'email', 'phone', 'number', 'choice']);
 
@@ -296,7 +297,9 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
         where: { id: open.formId },
         data: { submissions: { increment: 1 } },
       });
-      await reply(open.form.completionMessage);
+      // {{q1}}, {{name}}, sheet columns and {{= q1 * price}} totals; a message
+      // without "{{" is sent exactly as written.
+      await reply(renderFormMessage(open.form.completionMessage, { contact, fields, answers }));
     } else {
       await reply(promptFor(fields[nextCursor]));
     }

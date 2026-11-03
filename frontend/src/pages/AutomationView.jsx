@@ -3546,7 +3546,11 @@ const WhatsAppFormsTab = () => {
 
           <div>
             <label style={labelStyle}>Message after the last answer</label>
-            <input value={draft.completionMessage} onChange={e => setDraft(d => ({ ...d, completionMessage: e.target.value }))} style={inputStyle} />
+            <textarea value={draft.completionMessage} onChange={e => setDraft(d => ({ ...d, completionMessage: e.target.value }))}
+              rows={4} maxLength={1000} style={{ ...inputStyle, resize:'vertical', fontFamily:'inherit' }} />
+            <p style={{ fontSize:11, color:'var(--t3)', margin:'6px 0 0', lineHeight:1.5 }}>
+              Optional: use {'{{q1}}'}, {'{{q2}}'}… for answers, {'{{name}}'} or a column from your contact sheet, and {'{{= q1 * oyster_price}}'} to work out a total.
+            </p>
           </div>
 
           <div style={{ display:'flex', gap:8 }}>
