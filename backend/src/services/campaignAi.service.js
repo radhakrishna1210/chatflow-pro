@@ -124,7 +124,10 @@ const textOf = (components, type) =>
 // the campaign-level snapshot keeps the template's own example values.
 export function buildCampaignContext({ campaign, template, contact = null, ctaLabel = null }) {
   const components = Array.isArray(template?.components) ? template.components : [];
-  const resolve = contactVariableResolver(contact);
+  // The campaign's variable mapping, so the agent sees this customer's own
+  // values (their price), not the template sample. Without a contact the
+  // mapping falls back to samples anyway.
+  const resolve = contactVariableResolver(contact, contact ? campaign?.variableMapping : null);
   const render = (type) => {
     const component = components.find(
       (c) => String(c?.type || '').toUpperCase() === type && typeof c?.text === 'string',

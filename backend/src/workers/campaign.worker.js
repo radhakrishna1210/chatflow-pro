@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendWhatsAppMessage } from '../lib/meta.js';
 import { buildTemplateSendPayload } from '../services/templatePayload.service.js';
-import { contactVariableResolver } from '../lib/templateParams.js';
+import { contactVariableResolver, missingMappedValues, describeMissing } from '../lib/templateParams.js';
 import { campaignCtaComponent, buildCampaignContext } from '../services/campaignAi.service.js';
 import { env } from '../config/env.js';
 import { queueCampaignCompletedEmail, queueCampaignFailedEmail } from '../services/email.service.js';
@@ -41,6 +41,22 @@ async function skipOptedOutRecipient(campaignId, recipient) {
   });
   await prisma.campaign.update({ where: { id: campaignId }, data: { skipped: { increment: 1 } } });
   console.log(`[CampaignWorker] Skipped ${recipient.contact?.phoneNumber} — opted out`);
+}
+
+// A mapped variable (e.g. {{2}} = price) this contact no longer has a value
+// for. Launch already skips these; this catches a value removed after launch.
+// Skipped recipients are refunded by settleCampaignRefund.
+async function skipMissingValueRecipient(campaign, recipient) {
+  const gaps = missingMappedValues(campaign.template?.components, recipient.contact, campaign.variableMapping);
+  if (gaps.length === 0) return false;
+  const reason = describeMissing(gaps);
+  await prisma.campaignRecipient.update({
+    where: { id: recipient.id },
+    data: { status: 'SKIPPED', failReason: reason, lastFailureReason: reason, retryStatus: 'SKIPPED', nextRetryAt: null },
+  });
+  await prisma.campaign.update({ where: { id: campaign.id }, data: { skipped: { increment: 1 } } });
+  console.log(`[CampaignWorker] Skipped ${recipient.contact?.phoneNumber} — ${reason}`);
+  return true;
 }
 
 // Meta's raw errors are unreadable to a workspace admin ("Unsupported post
@@ -100,7 +116,7 @@ const buildTemplatePayload = async (template, contact, { phoneNumberId, accessTo
   return buildTemplateSendPayload(template, {
     phoneNumberId,
     accessToken,
-    resolve: contactVariableResolver(contact),
+    resolve: contactVariableResolver(contact, campaign?.variableMapping),
     extraComponents: ctaComponent ? [ctaComponent] : [],
     campaignId: campaign?.id ?? null,
   });
@@ -164,6 +180,10 @@ async function processRetryJob(job) {
   // The customer may have opted out between the original send and this retry.
   if (await isOptedOut(workspaceId, recipient.contact.phoneNumber)) {
     await skipOptedOutRecipient(campaignId, recipient);
+    await checkAndCompleteCampaign(campaignId);
+    return;
+  }
+  if (await skipMissingValueRecipient(campaign, recipient)) {
     await checkAndCompleteCampaign(campaignId);
     return;
   }
@@ -439,6 +459,7 @@ async function processCampaign(job) {
       await skipOptedOutRecipient(campaignId, recipient);
       continue;
     }
+    if (await skipMissingValueRecipient(campaign, recipient)) continue;
 
     // Declared outside the try so the catch below knows which kind of credit
     // to hand back when the send fails.

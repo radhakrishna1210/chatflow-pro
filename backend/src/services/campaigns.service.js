@@ -1,4 +1,6 @@
 import { prisma } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
+import { normalizeVariableMapping, missingMappedValues, describeMissing } from '../lib/templateParams.js';
 import { campaignQueue } from '../queues/campaign.queue.js';
 import { assertWithinLimit } from './subscription.service.js';
 import { normalizeRetryConfig, retryPolicySummary } from '../lib/retry.js';
@@ -239,7 +241,7 @@ export async function listCampaigns(workspaceId, { page = 1, limit = 20, type } 
   };
 }
 
-export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent, goal }, user = null) {
+export async function createCampaign(workspaceId, { name, templateId, numberId, whatsappNumberId, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent, goal, variableMapping }, user = null) {
   if (!name || !String(name).trim()) { const e = new Error('Campaign name is required'); e.status = 400; throw e; }
   // Plan's campaign cap (null = unlimited); reads the plan live so admin edits
   // in the Plans tab apply immediately.
@@ -275,13 +277,14 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
       trackingConfig: trackingConfig ?? undefined,
       goal: goal ?? undefined,
       fallbackConfig: fallbackConfig ?? undefined,
+      variableMapping: normalizeVariableMapping(variableMapping, { strict: true }) ?? undefined,
     },
   });
 }
 
 export async function updateCampaign(workspaceId, campaignId, {
   name, replyRules, retryConfig, trackingConfig, fallbackConfig, aiAgent, goal,
-  templateId, numberId, whatsappNumberId, scheduledAt,
+  templateId, numberId, whatsappNumberId, scheduledAt, variableMapping,
 }) {
   const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
@@ -343,6 +346,16 @@ export async function updateCampaign(workspaceId, campaignId, {
   if (trackingConfig !== undefined) data.trackingConfig = trackingConfig;
   if (goal !== undefined) data.goal = goal;
   if (fallbackConfig !== undefined) data.fallbackConfig = fallbackConfig;
+  if (variableMapping !== undefined) {
+    const next = normalizeVariableMapping(variableMapping, { strict: true });
+    const unchanged = JSON.stringify(next) === JSON.stringify(normalizeVariableMapping(campaign.variableMapping));
+    // Draft only, like the template: a scheduled campaign was costed against
+    // the recipients its mapping could fill. Re-sending the same mapping is fine.
+    if (!unchanged && campaign.status !== 'DRAFT') {
+      const e = new Error('Template variables can only be changed while the campaign is a draft'); e.status = 400; throw e;
+    }
+    if (!unchanged) data.variableMapping = next ?? Prisma.DbNull;
+  }
   const aiConfig = await resolveAiAgentConfig(workspaceId, aiAgent);
   if (aiConfig) Object.assign(data, aiConfig);
 
@@ -503,14 +516,18 @@ async function resolveTemplateCategory(workspaceId, templateId) {
   return template?.category ?? null;
 }
 
-async function priceAudience(workspaceId, contacts, templateCategory = null) {
+async function priceAudience(workspaceId, contacts, templateCategory = null, { components = null, variableMapping = null } = {}) {
   const workspace = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { walletBalance: true, costPerMessage: true },
   });
   if (!workspace) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
 
-  const { valid, duplicates, blocked, invalid } = await analyseAudience(workspaceId, contacts);
+  const analysed = await analyseAudience(workspaceId, contacts);
+  const { duplicates, blocked, invalid } = analysed;
+  // Contacts the mapping cannot fill (no price on the sheet) are skipped at
+  // launch and never charged, so they are not priced here either.
+  const { sendable: valid, missing } = splitMissingValues(analysed.valid, components, variableMapping);
   const costPerMessage = rateForCategory(templateCategory, workspace.costPerMessage);
   const totalCost = money(valid.length * costPerMessage);
   const walletBalance = Number(workspace.walletBalance);
@@ -528,15 +545,34 @@ async function priceAudience(workspaceId, contacts, templateCategory = null) {
     remainingBalance: money(walletBalance - totalCost),
     sufficientBalance: walletBalance >= totalCost,
     blockedNumbers: blocked.slice(0, 25).map((c) => ({ id: c.id, name: c.name, phoneNumber: c.phoneNumber })),
+    missingValueContacts: missing.length,
+    missingValues: missing.slice(0, 25).map(({ contact, reason }) => ({ id: contact.id, name: contact.name, phoneNumber: contact.phoneNumber, reason })),
     validContactIds: valid.map((c) => c.id),
   };
+}
+
+// Splits contacts into those every mapped variable can be filled for and
+// those it cannot, with the reason for each of the latter.
+function splitMissingValues(contacts, components, variableMapping) {
+  const list = Array.isArray(components) ? components : [];
+  if (!normalizeVariableMapping(variableMapping) || list.length === 0) return { sendable: contacts, missing: [] };
+  const sendable = [];
+  const missing = [];
+  for (const contact of contacts) {
+    const gaps = missingMappedValues(list, contact, variableMapping);
+    if (gaps.length) missing.push({ contact, reason: describeMissing(gaps) });
+    else sendable.push(contact);
+  }
+  return { sendable, missing };
 }
 
 // Pre-launch summary (Part 4 of the spec). Accepts either a list of contact
 // ids (the create-campaign wizard, before the campaign row exists) or an
 // existing draft campaign id.
-export async function estimateCampaignCost(workspaceId, { contactIds, campaignId, templateId } = {}) {
+export async function estimateCampaignCost(workspaceId, { contactIds, campaignId, templateId, variableMapping } = {}) {
   let contacts = [];
+  let components = null;
+  let mapping = variableMapping ?? null;
   // Pricing depends on the template's category. An existing campaign carries
   // its own template; the wizard estimates before the campaign row exists and
   // so passes the template it has selected.
@@ -545,10 +581,12 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
   if (campaignId) {
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, workspaceId },
-      select: { id: true, template: { select: { category: true } } },
+      select: { id: true, variableMapping: true, template: { select: { category: true, components: true } } },
     });
     if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
     category = campaign.template?.category ?? null;
+    components = campaign.template?.components ?? null;
+    if (variableMapping === undefined) mapping = campaign.variableMapping;
     const recipients = await prisma.campaignRecipient.findMany({
       where: { campaignId, status: 'PENDING' },
       include: { contact: true },
@@ -556,6 +594,10 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
     contacts = recipients.map((r) => r.contact).filter(Boolean);
   } else {
     category = await resolveTemplateCategory(workspaceId, templateId);
+    if (templateId && mapping) {
+      const template = await prisma.template.findFirst({ where: { id: templateId, workspaceId }, select: { components: true } });
+      components = template?.components ?? null;
+    }
     const ids = Array.isArray(contactIds) ? contactIds.filter(Boolean) : [];
     if (ids.length === 0) { const e = new Error('Select at least one contact to estimate a campaign'); e.status = 400; throw e; }
     if (ids.length > 10_000) { const e = new Error('A campaign can target at most 10,000 contacts at a time'); e.status = 400; throw e; }
@@ -566,12 +608,12 @@ export async function estimateCampaignCost(workspaceId, { contactIds, campaignId
     contacts = ids.map((cid) => byId.get(cid)).filter(Boolean);
     const missing = ids.length - contacts.length;
     if (missing > 0) {
-      const summary = await priceAudience(workspaceId, contacts, category);
+      const summary = await priceAudience(workspaceId, contacts, category, { components, variableMapping: mapping });
       return { ...summary, totalContacts: ids.length, invalidContacts: summary.invalidContacts + missing };
     }
   }
 
-  return priceAudience(workspaceId, contacts, category);
+  return priceAudience(workspaceId, contacts, category, { components, variableMapping: mapping });
 }
 
 // Meta refuses to send a template it has not approved, so a campaign built on
@@ -639,7 +681,12 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
   }
 
   const contacts = recipients.map((r) => r.contact).filter(Boolean);
-  const { valid, blocked, invalid } = await analyseAudience(workspaceId, contacts);
+  const analysed = await analyseAudience(workspaceId, contacts);
+  const { blocked, invalid } = analysed;
+  // A recipient the variable mapping cannot fill (the sheet had no price for
+  // them) is skipped here, before the charge, rather than sent the template's
+  // sample value.
+  const { sendable: valid, missing } = splitMissingValues(analysed.valid, campaign.template?.components, campaign.variableMapping);
   const sendableIds = new Set(valid.map((c) => c.id));
 
   // Opted-out and unsendable recipients are marked up front so they are never
@@ -660,11 +707,26 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
       // to tell "never billed" apart from "billed and attempted".
       data: { status: 'FAILED', failedAt: new Date(), failReason: 'Invalid phone number', retryStatus: 'INVALID_NUMBER' },
     });
+    // Grouped by reason so a 5,000-row sheet is a handful of writes.
+    const recipientByContact = new Map(recipients.map((r) => [r.contactId, r.id]));
+    const byReason = new Map();
+    for (const { contact, reason } of missing) {
+      if (!byReason.has(reason)) byReason.set(reason, []);
+      byReason.get(reason).push(recipientByContact.get(contact.id));
+    }
+    for (const [reason, ids] of byReason) {
+      await prisma.campaignRecipient.updateMany({
+        where: { id: { in: ids } },
+        data: { status: 'SKIPPED', failReason: reason, lastFailureReason: reason, retryStatus: 'SKIPPED' },
+      });
+    }
   }
 
   if (valid.length === 0) {
     const e = new Error(
-      blocked.length > 0
+      missing.length > 0 && missing.length >= blocked.length
+        ? `No recipient has a value for every template variable (${missing[0].reason.toLowerCase()}). Upload a sheet with that column filled in, or change the variable mapping.`
+        : blocked.length > 0
         ? 'Every recipient on this campaign has opted out — there is nobody left to send to.'
         : 'No recipient on this campaign has a valid phone number.'
     );
@@ -738,7 +800,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     walletAfter,
     // Baselines for the live counters the campaigns list reads. The worker
     // increments from here as it sends.
-    skipped: blocked.length,
+    skipped: blocked.length + missing.length,
     failed: invalid.length,
     ...(user?.id ? { createdByUserId: user.id } : {}),
     ...(normRetry !== undefined ? { retryConfig: normRetry } : {}),
@@ -788,7 +850,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
   notifyWorkspace(workspaceId, {
     type: 'CAMPAIGN_LAUNCHED',
     title: scheduledDate ? `Campaign "${campaign.name}" scheduled` : `Campaign "${campaign.name}" launched`,
-    body: `${valid.length} recipient${valid.length === 1 ? '' : 's'} · ₹${totalCost.toFixed(2)} deducted${blocked.length ? ` · ${blocked.length} skipped (opted out)` : ''}`,
+    body: `${valid.length} recipient${valid.length === 1 ? '' : 's'} · ₹${totalCost.toFixed(2)} deducted${blocked.length ? ` · ${blocked.length} skipped (opted out)` : ''}${missing.length ? ` · ${missing.length} skipped (missing variable value)` : ''}`,
     link: 'campaigns',
     meta: { campaignId },
   }).catch(() => {});

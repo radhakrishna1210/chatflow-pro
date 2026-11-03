@@ -32,6 +32,137 @@ const quickReplyButtons = (components) =>
 
 const ctaKey = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
+// ─── Template variables ────────────────────────────────────────
+// One slot per {{n}} in the header and body text. The campaign's
+// variableMapping says which contact value fills each one:
+//   { BODY: ['name', 'attr:price'] }  →  {{1}} = name, {{2}} = price column.
+const countVars = (text) => {
+  const nums = [...String(text || '').matchAll(/\{\{(\d+)\}\}/g)].map(m => parseInt(m[1], 10));
+  return nums.length ? Math.max(...nums) : 0;
+};
+
+const templateVariableSlots = (components) =>
+  getComponents(components)
+    .filter(c => ['HEADER', 'BODY'].includes(String(c?.type || '').toUpperCase()) && typeof c?.text === 'string')
+    .flatMap(c => {
+      const type = String(c.type).toUpperCase();
+      const examples = type === 'HEADER'
+        ? [].concat(c.example?.header_text ?? [])
+        : (Array.isArray(c.example?.body_text?.[0]) ? c.example.body_text[0] : (c.example?.body_text ?? []));
+      return Array.from({ length: countVars(c.text) }, (_, index) => ({ type, index, sample: examples[index] ?? '' }));
+    });
+
+// What the server does when a slot has no mapping: {{1}} of the body is the
+// name, everything else is the approved sample.
+const defaultSource = (slot) => (slot.type === 'BODY' && slot.index === 0 ? 'name' : 'sample');
+const slotSource = (mapping, slot) => mapping?.[slot.type]?.[slot.index] || defaultSource(slot);
+
+const readContactSource = (contact, source) => {
+  if (!contact) return null;
+  const text = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());
+  if (source === 'name') return text(contact.name) ?? 'there';
+  if (source === 'phone') return text(contact.phoneNumber);
+  if (source === 'email') return text(contact.email);
+  if (source.startsWith('attr:')) return text(contact.attributes?.[source.slice(5)]);
+  if (source.startsWith('field:')) return text(contact.customFields?.[source.slice(6)]);
+  return null;
+};
+
+// The preview text with this contact's values in place of {{n}}.
+const fillPreview = (text, type, slots, mapping, contact) =>
+  String(text || '').replace(/\{\{(\d+)\}\}/g, (match, n) => {
+    const slot = slots.find(s => s.type === type && s.index === Number(n) - 1);
+    if (!slot) return match;
+    const source = slotSource(mapping, slot);
+    if (source === 'sample') return slot.sample || match;
+    if (!contact) return slot.sample || match;
+    return readContactSource(contact, source) ?? `[no ${source.replace(/^(attr|field):/, '')}]`;
+  });
+
+const sourceLabel = (source) => {
+  if (source === 'name') return 'Contact name';
+  if (source === 'phone') return 'Phone number';
+  if (source === 'email') return 'Email';
+  if (source === 'sample') return 'Same for everyone (approved sample)';
+  return source.replace(/^(attr|field):/, '');
+};
+
+const VariableMapper = ({ template, mapping, setMapping, sources, previewContact, estimate }) => {
+  const slots = templateVariableSlots(template?.components);
+  if (slots.length === 0) return null;
+
+  const setSlot = (slot, value) => setMapping(prev => {
+    const next = { ...(prev || {}) };
+    const count = slots.filter(s => s.type === slot.type).length;
+    const list = Array.from({ length: count }, (_, i) => slotSource(prev, { type: slot.type, index: i }));
+    list[slot.index] = value;
+    next[slot.type] = list;
+    return next;
+  });
+
+  const attrs = sources?.attributes ?? [];
+  const fields = sources?.customFields ?? [];
+  const selectStyle = { flex: 1, minWidth: 0, padding: '8px 11px', borderRadius: 8, background: 'var(--surf)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 12.5, fontFamily: "'Manrope',sans-serif", outline: 'none' };
+  const missing = estimate?.missingValueContacts || 0;
+
+  return (
+    <div style={{ padding: '14px 16px', borderRadius: 10, border: '1px solid var(--bd)', background: 'rgba(255,255,255,0.02)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div>
+        <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', marginBottom: 3 }}>Personalise the message</p>
+        <p style={{ fontSize: 11.5, color: 'var(--t3)', lineHeight: 1.5 }}>
+          Choose what fills each variable for every customer. Extra columns in your uploaded sheet (like <code style={{ fontFamily: 'monospace' }}>price</code>) appear here.
+        </p>
+      </div>
+      {slots.map(slot => {
+        const value = slotSource(mapping, slot);
+        const known = ['name', 'phone', 'email', 'sample'].includes(value)
+          || attrs.some(a => `attr:${a.key}` === value) || fields.some(f => `field:${f.key}` === value);
+        const example = value === 'sample' ? slot.sample : readContactSource(previewContact, value);
+        return (
+          <div key={`${slot.type}-${slot.index}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ width: 86, flexShrink: 0, fontSize: 12, color: 'var(--t2)' }}>
+              <code style={{ fontFamily: 'monospace', color: 'var(--green)' }}>{`{{${slot.index + 1}}}`}</code>
+              {slot.type === 'HEADER' && <span style={{ color: 'var(--t3)' }}> header</span>}
+            </span>
+            <select value={value} onChange={e => setSlot(slot, e.target.value)} style={selectStyle}>
+              <option value="name">Contact name</option>
+              <option value="phone">Phone number</option>
+              <option value="email">Email</option>
+              {attrs.length > 0 && (
+                <optgroup label="Columns from your sheet">
+                  {attrs.map(a => <option key={a.key} value={`attr:${a.key}`}>{a.key} ({a.contacts} contact{a.contacts === 1 ? '' : 's'})</option>)}
+                </optgroup>
+              )}
+              {fields.length > 0 && (
+                <optgroup label="Custom fields">
+                  {fields.map(f => <option key={f.key} value={`field:${f.key}`}>{f.label}</option>)}
+                </optgroup>
+              )}
+              <option value="sample">Same for everyone{slot.sample ? ` (“${slot.sample}”)` : ''}</option>
+              {!known && <option value={value}>{sourceLabel(value)} (no longer on any contact)</option>}
+            </select>
+            <span style={{ width: '100%', paddingLeft: 96, fontSize: 11, color: example ? 'var(--t3)' : '#fbbf24' }}>
+              {previewContact || value === 'sample'
+                ? (example ? `e.g. ${example}` : `${previewContact?.name || 'This contact'} has no ${sourceLabel(value).toLowerCase()} and will be skipped`)
+                : 'Select contacts to see an example'}
+            </span>
+          </div>
+        );
+      })}
+      {missing > 0 && (
+        <div style={{ padding: '9px 12px', borderRadius: 8, background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)', color: '#fbbf24', fontSize: 12, lineHeight: 1.5 }}>
+          {missing} selected contact{missing === 1 ? ' has' : 's have'} no value for a variable and will be skipped (not charged).
+          {estimate.missingValues?.length > 0 && (
+            <span style={{ display: 'block', color: 'var(--t3)', marginTop: 4 }}>
+              {estimate.missingValues.slice(0, 5).map(m => `${m.name || m.phoneNumber}: ${m.reason}`).join(' · ')}{missing > 5 ? ' · …' : ''}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── constants & helpers ───────────────────────────────────────
 const card = {
   background: 'var(--surf)',
@@ -345,7 +476,7 @@ const Step2 = ({ templates, selectedTemplateId, setSelectedTemplateId, templateB
 };
 
 // ─── Step 3 ───────────────────────────────────────────────────
-const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds, setSelectedContactIds, toggleContact, onContactsReload, onNext }) => {
+const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds, setSelectedContactIds, toggleContact, onContactsReload, onCsvImported, mapper, onNext }) => {
   const [search, setSearch]       = useState('');
   const [manualName, setManualName]   = useState('');
   const [manualPhone, setManualPhone] = useState('');
@@ -362,12 +493,12 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
 
   const downloadSample = () => {
     const csvContent = [
-      'name,phoneNumber,email,tags',
-      'Aarav,+917410066251,aarav@example.com,test',
-      'Vivaan,+918983416795,vivaan@example.com,test',
-      'Krishna,+919226573383,krishna@example.com,test',
-      'Arjun,+918080178330,arjun@example.com,test',
-      'Rohan,+919604609921,rohan@example.com,test',
+      'name,phoneNumber,email,tags,price',
+      'Aarav,+917410066251,aarav@example.com,test,180',
+      'Vivaan,+918983416795,vivaan@example.com,test,165',
+      'Krishna,+919226573383,krishna@example.com,test,200',
+      'Arjun,+918080178330,arjun@example.com,test,175',
+      'Rohan,+919604609921,rohan@example.com,test,190',
     ].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -397,6 +528,7 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
       } else {
         const result = await res.json();
         setCsvResult(result);
+        onCsvImported?.(result);
         if (result.contacts && result.contacts.length > 0) {
           const ids = result.contacts.map(c => c.id);
           setSelectedContactIds?.(prev => {
@@ -553,7 +685,8 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
           )}
           {csvResult && (
             <div style={{ padding:'10px 13px', borderRadius:8, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)', fontSize:13, fontWeight:600 }}>
-              ✓ Imported {csvResult.imported} contact{csvResult.imported !== 1 ? 's' : ''} and added to audience.
+              ✓ Imported {csvResult.imported} contact{csvResult.imported !== 1 ? 's' : ''}{csvResult.updated ? `, updated ${csvResult.updated}` : ''} and added to audience.
+              {csvResult.attributeKeys?.length > 0 && ` Extra columns saved: ${csvResult.attributeKeys.join(', ')}.`}
             </div>
           )}
           <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={e => { setCsvFile(e.target.files[0]); setCsvResult(null); }} />
@@ -585,7 +718,7 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
               <>
                 <p style={{ fontSize:14, fontWeight:600, color:'var(--t1)', marginBottom:5 }}>Drop CSV here or click to browse</p>
                 <p style={{ fontSize:12, color:'var(--t2)' }}>
-                  Columns: <code style={{ color:'var(--green)', fontFamily:'monospace' }}>name</code>, <code style={{ color:'var(--green)', fontFamily:'monospace' }}>phoneNumber</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>email</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>tags</code>
+                  Columns: <code style={{ color:'var(--green)', fontFamily:'monospace' }}>name</code>, <code style={{ color:'var(--green)', fontFamily:'monospace' }}>phoneNumber</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>email</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>tags</code>, plus any of your own (e.g. <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>price</code>)
                 </p>
               </>
             )}
@@ -630,8 +763,11 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
                   <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>vip,customer</code>
                 </div>
               </li>
+              <li>
+                Any other column (e.g. <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>price</code>, <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>city</code>) is saved on the contact and can fill a template variable, so each customer gets their own value.
+              </li>
               <li>Duplicate phone numbers in the CSV will be skipped.</li>
-              <li>Existing contacts are matched using phone number.</li>
+              <li>Existing contacts are matched using phone number. Their extra columns are updated from the new sheet.</li>
               <li>Invalid rows will not be imported.</li>
             </ul>
           </div>
@@ -672,6 +808,8 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
         </div>
       )}
 
+      {mapper}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px', borderTop: '1px solid var(--bd)' }}>
         <span style={{ fontSize: '13px', color: total > 0 ? 'var(--green)' : 'var(--t2)', fontWeight: 500 }}>
           {total > 0 ? `${total} contact${total !== 1 ? 's' : ''} selected` : 'No contacts selected'}
@@ -700,6 +838,7 @@ const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, sum
     ['Duplicate Contacts',  estimate.duplicateContacts.toLocaleString(), estimate.duplicateContacts > 0 ? '#fbbf24' : null],
     ['Blocked (Opted Out)', estimate.blockedContacts.toLocaleString(), estimate.blockedContacts > 0 ? '#f87171' : null],
     ['Invalid Numbers',     estimate.invalidContacts.toLocaleString(), estimate.invalidContacts > 0 ? '#f87171' : null],
+    ...(estimate.missingValueContacts ? [['Missing Variable Value', estimate.missingValueContacts.toLocaleString(), '#fbbf24']] : []),
     ['Cost Per Message',    inr(estimate.costPerMessage), null],
     ['Total Campaign Cost', inr(estimate.totalCost), 'var(--t1)'],
     ['Wallet Balance',      inr(estimate.walletBalance), null],
@@ -1270,7 +1409,9 @@ const StepFallback = ({ retriesActive, onSaved }) => {
 };
 
 // ─── Phone Preview ─────────────────────────────────────────────
-const PhonePreview = ({ template, templateBody, ctaLabel = '' }) => {
+const PhonePreview = ({ template, templateBody: rawBody, ctaLabel = '', variableMapping = null, previewContact = null }) => {
+  const slots = templateVariableSlots(template?.components);
+  const templateBody = slots.length ? fillPreview(rawBody, 'BODY', slots, variableMapping, previewContact) : rawBody;
   const [businessName, setBusinessName] = useState('Spandan');
   const [headerPreview, setHeaderPreview] = useState(null);
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1532,6 +1673,9 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
   const [retryConfig, setRetryConfig]         = useState(null);
   const [trackingConfig, setTrackingConfig]   = useState(null);
   const [fallbackConfig, setFallbackConfig]   = useState(null);
+  // Which contact value fills each template variable; null = server default.
+  const [variableMapping, setVariableMapping] = useState(null);
+  const [variableSources, setVariableSources] = useState({ attributes: [], customFields: [] });
 
   const [numbers, setNumbers]     = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -1541,6 +1685,11 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
   const [estimate, setEstimate]         = useState(null);
   const [estimating, setEstimating]     = useState(false);
   const [estimateError, setEstimateError] = useState('');
+
+  const reloadVariableSources = useCallback(() => {
+    wFetch('/contacts/variable-sources').then(r => r.ok && r.json()).then(d => { if (d) setVariableSources(d); }).catch(() => {});
+  }, []);
+  useEffect(() => { reloadVariableSources(); }, [reloadVariableSources]);
 
   const reloadContacts = () => {
     wFetch('/contacts').then(r=>r.ok&&r.json()).then(d=>{ const list=Array.isArray(d)?d:d?.data; if(Array.isArray(list)) setContacts(list); }).catch(()=>{});
@@ -1604,6 +1753,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
         setRetryConfig(c.retryConfig ?? null);
         setTrackingConfig(c.trackingConfig ?? null);
         setFallbackConfig(c.fallbackConfig ?? null);
+        setVariableMapping(c.variableMapping ?? null);
         setRetriesActive(!!c.retryConfig?.enabled);
 
         if (c.aiAgentEnabled) {
@@ -1660,7 +1810,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
       try {
         // templateId drives per-category pricing (marketing/utility/auth), so
         // the quote matches what the launch will actually charge.
-        const res = await wFetch('/campaigns/estimate', { method: 'POST', body: JSON.stringify({ contactIds: ids, templateId: selectedTemplateId }) });
+        const res = await wFetch('/campaigns/estimate', { method: 'POST', body: JSON.stringify({ contactIds: ids, templateId: selectedTemplateId, variableMapping }) });
         const data = await res.json().catch(() => ({}));
         if (seq !== estimateSeq.current) return; // a newer selection won
         if (!res.ok) { setEstimateError(data.error || 'Could not calculate the campaign cost'); setEstimate(null); return; }
@@ -1674,7 +1824,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [selectedContactIds, selectedTemplateId]);
+  }, [selectedContactIds, selectedTemplateId, variableMapping]);
 
   const isLocked = n => {
     if (n === 2) return !step1Done;
@@ -1724,6 +1874,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
       replyRules, retryConfig, trackingConfig, fallbackConfig,
       aiAgent: aiAgentPayload,
       goal,
+      variableMapping,
       // Kept on the draft so a schedule survives being saved and reopened.
       // It is only an intention — launchCampaign takes its own copy.
       scheduledAt: scheduleType === 'custom' && scheduledAt ? new Date(scheduledAt).toISOString() : null,
@@ -1823,6 +1974,30 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
 
   const selectedNumber   = numbers.find(n => n.id === selectedNumberId);
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId);
+  // The first selected contact we have loaded, used to show real values in
+  // the preview and next to each variable.
+  const previewContact = contacts.find(c => selectedContactIds.has(c.id)) || null;
+  const variableSlots = templateVariableSlots(selectedTemplate?.components);
+
+  // A new sheet arrived: refresh the column list, and when it brought exactly
+  // one new column and exactly one variable is still "same for everyone",
+  // map that variable to it (the price-sheet case). Shown in the panel, so it
+  // is easy to change.
+  const handleCsvImported = (result) => {
+    reloadVariableSources();
+    const keys = result?.attributeKeys || [];
+    if (keys.length !== 1) return;
+    const open = variableSlots.filter(slot => slotSource(variableMapping, slot) === 'sample');
+    if (open.length !== 1) return;
+    const slot = open[0];
+    setVariableMapping(prev => {
+      const count = variableSlots.filter(s => s.type === slot.type).length;
+      const list = Array.from({ length: count }, (_, i) => slotSource(prev, { type: slot.type, index: i }));
+      list[slot.index] = `attr:${keys[0]}`;
+      return { ...(prev || {}), [slot.type]: list };
+    });
+  };
+  const chooseTemplate = (id) => { setSelectedTemplateId(id); setVariableMapping(null); };
 
   const summary = {
     campaignName,
@@ -1877,11 +2052,14 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
       ok: selectedContactIds.size > 0,
     },
     {
-      title: /\{\{\s*\d+\s*\}\}/.test(templateBody || '') ? 'Personalisation active' : 'No personalisation',
-      detail: /\{\{\s*\d+\s*\}\}/.test(templateBody || '')
+      title: estimate?.missingValueContacts ? `${estimate.missingValueContacts} contact(s) missing a variable value`
+        : /\{\{\s*\d+\s*\}\}/.test(templateBody || '') ? 'Personalisation active' : 'No personalisation',
+      detail: estimate?.missingValueContacts
+        ? 'They will be skipped and not charged. Upload a sheet with the missing column filled in to include them.'
+        : /\{\{\s*\d+\s*\}\}/.test(templateBody || '')
         ? 'The message uses at least one variable.'
         : 'Every recipient gets the identical text.',
-      ok: /\{\{\s*\d+\s*\}\}/.test(templateBody || ''),
+      ok: /\{\{\s*\d+\s*\}\}/.test(templateBody || '') && !estimate?.missingValueContacts,
     },
     {
       title: aiAgentEnabled ? 'Campaign AI attached' : 'Campaign AI off',
@@ -1979,7 +2157,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
               {s.n === 2 && (
                 <Step2
                   templates={selectedNumberId ? templates.filter(t => !t.waNumberId || t.waNumberId === selectedNumberId) : templates}
-                  selectedTemplateId={selectedTemplateId} setSelectedTemplateId={setSelectedTemplateId}
+                  selectedTemplateId={selectedTemplateId} setSelectedTemplateId={chooseTemplate}
                   templateBody={templateBody} setTemplateBody={setTemplateBody}
                   onNext={() => { setStep2Done(true); setOpenStep(3); }}
                 />
@@ -1990,6 +2168,16 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
                   contacts={contacts}
                   selectedContactIds={selectedContactIds} setSelectedContactIds={setSelectedContactIds} toggleContact={toggleContact}
                   onContactsReload={reloadContacts}
+                  onCsvImported={handleCsvImported}
+                  mapper={(
+                    <VariableMapper
+                      template={selectedTemplate}
+                      mapping={variableMapping} setMapping={setVariableMapping}
+                      sources={variableSources}
+                      previewContact={previewContact}
+                      estimate={estimate}
+                    />
+                  )}
                   onNext={() => { setStep3Done(true); setOpenStep(4); }}
                 />
               )}
@@ -2038,7 +2226,7 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
             moves under the steps and the whole thing becomes one scroll. */}
         <div style={{ width: mobile ? '100%' : '296px', borderLeft: mobile ? 'none' : '1px solid var(--bd)', borderTop: mobile ? '1px solid var(--bd)' : 'none', padding: mobile ? '18px 14px 28px' : '20px 18px', overflowY: mobile ? 'visible' : 'auto', flexShrink: 0, background: 'rgba(5,8,20,0.5)' }}>
           <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '13px', color: 'var(--t1)', marginBottom: '16px' }}>Message Preview</p>
-          <PhonePreview template={selectedTemplate} templateBody={templateBody} ctaLabel={aiAgentEnabled ? aiCtaLabel : ''} />
+          <PhonePreview template={selectedTemplate} templateBody={templateBody} ctaLabel={aiAgentEnabled ? aiCtaLabel : ''} variableMapping={variableMapping} previewContact={previewContact} />
         </div>
       </div>
       )}

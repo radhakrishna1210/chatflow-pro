@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { parse } from 'csv-parse/sync';
+import { attributesFromRow, isBuiltInColumn, toAttributeKey, mergeAttributes, normalizeAttributePatch } from '../lib/contactAttributes.js';
 import { assertWithinLimit } from './subscription.service.js';
 
 // Normalize to E.164-ish: strip everything but digits, keep a leading '+'.
@@ -157,7 +158,7 @@ export async function getContact(workspaceId, id) {
   };
 }
 
-export async function createContact(workspaceId, { name, phoneNumber, email, tags = [], customFields }) {
+export async function createContact(workspaceId, { name, phoneNumber, email, tags = [], customFields, attributes }) {
   if (!isValidPhone(phoneNumber)) {
     const e = new Error('phoneNumber must contain 7–15 digits'); e.status = 400; throw e;
   }
@@ -174,6 +175,7 @@ export async function createContact(workspaceId, { name, phoneNumber, email, tag
       workspaceId, name: name || normalized, phoneNumber: normalized,
       email: email || null, tags,
       ...(custom === undefined ? {} : { customFields: custom }),
+      ...(attributes === undefined ? {} : { attributes: mergeAttributes(null, normalizeAttributePatch(attributes)) }),
     },
   });
   const { emitWebhook } = await import('./outgoingWebhook.service.js');
@@ -187,31 +189,41 @@ export async function createContact(workspaceId, { name, phoneNumber, email, tag
 export async function importContacts(workspaceId, csvBuffer) {
   let records;
   try {
-    records = parse(csvBuffer, { columns: true, skip_empty_lines: true, trim: true });
+    records = parse(csvBuffer, { columns: true, skip_empty_lines: true, trim: true, bom: true });
   } catch (err) {
     const e = new Error(`Could not parse CSV: ${err.message}`); e.status = 400; throw e;
   }
 
+  // Any column beyond name/phone/email/tags (price, city, …) is kept on the
+  // contact as an attribute, so a campaign can put it into a template variable.
+  const headers = records.length ? Object.keys(records[0]) : [];
+  const attributeKeys = [...new Set(headers.filter((h) => !isBuiltInColumn(h)).map(toAttributeKey).filter(Boolean))];
+
   const seen = new Set();
   let invalid = 0;
   const data = [];
+  const attributesByPhone = new Map();
   for (const r of records) {
-    const rawPhone = r.phoneNumber || r.phone || r.Phone || r.PhoneNumber || '';
+    const rawPhone = r.phoneNumber || r.phone || r.Phone || r.PhoneNumber || r['Phone Number'] || r.phone_number || r.mobile || r.Mobile || '';
     if (!isValidPhone(rawPhone)) { if (String(rawPhone).trim()) invalid++; continue; }
     const phoneNumber = normalizePhone(rawPhone);
     if (seen.has(phoneNumber)) continue; // in-file duplicate
     seen.add(phoneNumber);
+    const attributes = attributesFromRow(r);
+    const hasAttributes = Object.keys(attributes).length > 0;
+    if (hasAttributes) attributesByPhone.set(phoneNumber, attributes);
     data.push({
       workspaceId,
       name: r.name || r.Name || phoneNumber,
       phoneNumber,
       email: (r.email || r.Email || '').trim() || null,
       tags: r.tags ? String(r.tags).split(',').map((t) => t.trim()).filter(Boolean) : [],
+      ...(hasAttributes ? { attributes } : {}),
     });
   }
 
   if (data.length === 0) {
-    return { imported: 0, duplicates: 0, invalid, totalRows: records.length, contacts: [] };
+    return { imported: 0, duplicates: 0, updated: 0, invalid, totalRows: records.length, attributeKeys, contacts: [] };
   }
 
   // Plan limit check (README §12.4): reject the whole import rather than
@@ -220,12 +232,12 @@ export async function importContacts(workspaceId, csvBuffer) {
   // Only phone numbers not already in this workspace actually count against
   // the limit — re-importing existing contacts (skipDuplicates below) is a
   // no-op either way.
-  const existingPhones = await prisma.contact.findMany({
+  const existing = await prisma.contact.findMany({
     where: { workspaceId, phoneNumber: { in: data.map((d) => d.phoneNumber) } },
-    select: { phoneNumber: true },
+    select: { id: true, phoneNumber: true, attributes: true },
   });
-  const existingSet = new Set(existingPhones.map((c) => c.phoneNumber));
-  const newCount = data.filter((d) => !existingSet.has(d.phoneNumber)).length;
+  const existingByPhone = new Map(existing.map((c) => [c.phoneNumber, c]));
+  const newCount = data.filter((d) => !existingByPhone.has(d.phoneNumber)).length;
   if (newCount > 0) {
     await assertWithinLimit(workspaceId, 'contact', {
       additional: newCount,
@@ -237,11 +249,47 @@ export async function importContacts(workspaceId, csvBuffer) {
   // (workspaceId, phoneNumber) unique constraint to drop existing contacts.
   const { count: imported } = await prisma.contact.createMany({ data, skipDuplicates: true });
   const duplicates = data.length - imported;
+
+  // Existing contacts keep their name, email and tags, but take the sheet's
+  // extra columns: re-uploading this week's price list must update the price,
+  // or the campaign would quote last week's.
+  const updates = existing
+    .filter((c) => attributesByPhone.has(c.phoneNumber))
+    .map((c) => prisma.contact.update({
+      where: { id: c.id },
+      data: { attributes: mergeAttributes(c.attributes, { set: attributesByPhone.get(c.phoneNumber) }) },
+    }));
+  for (let i = 0; i < updates.length; i += 200) {
+    await prisma.$transaction(updates.slice(i, i + 200));
+  }
+
   const matchedContacts = await prisma.contact.findMany({
     where: { workspaceId, phoneNumber: { in: data.map((d) => d.phoneNumber) } },
-    select: { id: true, name: true, phoneNumber: true },
+    select: { id: true, name: true, phoneNumber: true, attributes: true },
   });
-  return { imported, duplicates, invalid, totalRows: records.length, contacts: matchedContacts };
+  return { imported, duplicates, updated: updates.length, invalid, totalRows: records.length, attributeKeys, contacts: matchedContacts };
+}
+
+// Every attribute key in use in the workspace, plus its custom field
+// definitions — what a campaign can map a template variable to.
+export async function listVariableSources(workspaceId) {
+  const [rows, fields] = await Promise.all([
+    prisma.$queryRaw`
+      SELECT k AS key, COUNT(*)::int AS contacts
+      FROM "Contact",
+        jsonb_object_keys(CASE WHEN jsonb_typeof("attributes") = 'object' THEN "attributes" ELSE '{}'::jsonb END) AS k
+      WHERE "workspaceId" = ${workspaceId}
+      GROUP BY k ORDER BY k`,
+    prisma.workspaceCustomField.findMany({
+      where: { workspaceId },
+      select: { key: true, label: true, type: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    }),
+  ]);
+  return {
+    attributes: rows.map((r) => ({ key: r.key, contacts: Number(r.contacts) })),
+    customFields: fields,
+  };
 }
 
 export async function deleteContact(workspaceId, id) {
@@ -265,6 +313,10 @@ export async function updateContact(workspaceId, id, updates) {
     // Merged, not replaced: a form that edits one field must not wipe the rest.
     const patch = await validateCustomFields(workspaceId, data.customFields);
     data.customFields = { ...(contact.customFields || {}), ...(patch || {}) };
+  }
+  if (data.attributes !== undefined) {
+    // Merged like customFields; a null value removes that column.
+    data.attributes = mergeAttributes(contact.attributes, normalizeAttributePatch(data.attributes));
   }
   return prisma.contact.update({ where: { id }, data });
 }
@@ -326,6 +378,13 @@ export async function exportContactsCsv(workspaceId, filters = {}) {
     ...CSV_COLUMNS,
     ...customDefs.map((d) => [d.label, (c) => (c.customFields || {})[d.key] ?? '']),
   ];
+  // Extra CSV columns go back out under their own names, so an exported sheet
+  // can be edited (new prices) and imported again.
+  const taken = new Set(columns.map(([header]) => toAttributeKey(header)));
+  const attributeKeys = [...new Set(contacts.flatMap((c) => (
+    c.attributes && typeof c.attributes === 'object' && !Array.isArray(c.attributes) ? Object.keys(c.attributes) : []
+  )))].filter((k) => !taken.has(k)).sort();
+  columns.push(...attributeKeys.map((k) => [k, (c) => (c.attributes || {})[k] ?? '']));
 
   const lines = [columns.map(([header]) => csvCell(header)).join(',')];
   for (const c of contacts) {

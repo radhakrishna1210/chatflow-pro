@@ -56,15 +56,141 @@ export const buildTextComponents = (components, resolve) =>
 // Lives here rather than in the campaign worker because the campaign AI agent
 // has to reproduce the exact text a contact was sent — two copies of these
 // rules would eventually disagree about what the customer actually read.
-export const contactVariableResolver = (contact) => {
+//
+// A campaign can override that with a variable mapping (see below), which is
+// how "{{2}} = this customer's price from the uploaded sheet" works.
+export const contactVariableResolver = (contact, mapping = null) => {
   const name = (contact?.name || '').trim() || 'there';
-  return (index, component) => {
+  const legacy = (index, component) => {
     if (index === 0) return name;
     // A parameter Meta receives as an empty string fails the send, so an absent
     // example falls back to the name rather than to nothing.
-    return String(bodyExamples(component)[index] ?? '').trim() || name;
+    return String(componentExamples(component)[index] ?? '').trim() || name;
+  };
+  const map = normalizeVariableMapping(mapping);
+  if (!map) return legacy;
+
+  return (index, component) => {
+    const source = map[componentKey(component)]?.[index];
+    if (!source) return legacy(index, component);
+    if (source === 'sample') {
+      return String(componentExamples(component)[index] ?? '').trim() || name;
+    }
+    const value = readSource(contact, source);
+    // An unfillable mapped variable is caught before sending (see
+    // missingMappedValues); this fallback only guards a caller that skipped
+    // that check, so Meta never receives an empty parameter.
+    return value ?? legacy(index, component);
   };
 };
+
+// ── Variable mapping ───────────────────────────────────────────────────────
+//
+// Stored on Campaign.variableMapping as
+//   { BODY: ['name', 'attr:price'], HEADER: ['attr:city'] }
+// where position i fills {{i+1}} of that component. Each entry is one of:
+//   name | phone | email | sample | attr:<key> | field:<key>
+// `attr:` reads Contact.attributes (extra CSV columns), `field:` reads
+// Contact.customFields. A missing entry keeps the default behaviour above.
+
+const MAPPABLE_COMPONENTS = ['HEADER', 'BODY'];
+const SOURCE_PATTERN = /^(name|phone|email|sample|(attr|field):[a-z0-9_]{1,40})$/;
+
+const componentKey = (component) => String(component?.type || 'BODY').toUpperCase();
+
+// The approved sample values for a component: body_text for the body,
+// header_text for a text header.
+const componentExamples = (component) => {
+  if (componentKey(component) === 'HEADER') {
+    const rows = component?.example?.header_text;
+    return Array.isArray(rows) ? rows : rows ? [rows] : [];
+  }
+  return bodyExamples(component);
+};
+
+// Returns a clean mapping, or null when there is nothing to apply. Throws on
+// an entry it cannot understand so a bad save is refused instead of quietly
+// sending the wrong thing.
+export function normalizeVariableMapping(mapping, { strict = false } = {}) {
+  if (mapping == null || typeof mapping !== 'object' || Array.isArray(mapping)) {
+    if (strict && mapping != null) {
+      const e = new Error('variableMapping must be an object'); e.status = 400; throw e;
+    }
+    return null;
+  }
+  const out = {};
+  for (const [rawKey, list] of Object.entries(mapping)) {
+    const key = String(rawKey).toUpperCase();
+    if (!MAPPABLE_COMPONENTS.includes(key)) {
+      if (strict) { const e = new Error(`variableMapping: "${rawKey}" is not a component with variables`); e.status = 400; throw e; }
+      continue;
+    }
+    if (!Array.isArray(list)) {
+      if (strict) { const e = new Error(`variableMapping.${rawKey} must be a list`); e.status = 400; throw e; }
+      continue;
+    }
+    out[key] = list.slice(0, 20).map((entry) => {
+      if (entry == null || entry === '') return null;
+      const value = String(entry).trim();
+      if (!SOURCE_PATTERN.test(value)) {
+        if (strict) { const e = new Error(`variableMapping: "${value}" is not a valid source`); e.status = 400; throw e; }
+        return null;
+      }
+      return value;
+    });
+  }
+  return Object.values(out).some((list) => list.some(Boolean)) ? out : null;
+}
+
+// The value a source yields for one contact, or null when the contact has none.
+function readSource(contact, source) {
+  const text = (v) => {
+    if (v === undefined || v === null) return null;
+    const s = String(v).trim();
+    return s ? s : null;
+  };
+  if (source === 'name') return text(contact?.name) ?? 'there';
+  if (source === 'phone') return text(contact?.phoneNumber);
+  if (source === 'email') return text(contact?.email);
+  if (source.startsWith('attr:')) return text(contact?.attributes?.[source.slice(5)]);
+  if (source.startsWith('field:')) return text(contact?.customFields?.[source.slice(6)]);
+  return null;
+}
+
+// Human label for a source, used in skip reasons and the UI.
+export const describeSource = (source) => {
+  if (source === 'name') return 'name';
+  if (source === 'phone') return 'phone number';
+  if (source === 'email') return 'email';
+  if (source.startsWith('attr:')) return source.slice(5);
+  if (source.startsWith('field:')) return source.slice(6);
+  return source;
+};
+
+// The mapped variables this contact has no value for, e.g.
+//   [{ component: 'BODY', variable: 2, source: 'attr:price' }]
+// Empty when every variable can be filled. A recipient with a gap is skipped
+// rather than sent the template's sample value — a customer quoted somebody
+// else's price is worse than no message.
+export function missingMappedValues(components, contact, mapping) {
+  const map = normalizeVariableMapping(mapping);
+  if (!map) return [];
+  const missing = [];
+  for (const component of components || []) {
+    const key = componentKey(component);
+    const count = countVariables(component?.text);
+    if (!count || !map[key]) continue;
+    for (let i = 0; i < count; i += 1) {
+      const source = map[key][i];
+      if (!source || source === 'sample' || source === 'name') continue;
+      if (readSource(contact, source) === null) missing.push({ component: key, variable: i + 1, source });
+    }
+  }
+  return missing;
+}
+
+export const describeMissing = (missing) =>
+  `No value for {{${missing[0].variable}}} (${describeSource(missing[0].source)})`;
 
 // Renders a component's text the way the recipient sees it, with {{n}}
 // replaced by the same values the send used.

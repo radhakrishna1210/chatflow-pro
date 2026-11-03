@@ -97,6 +97,14 @@ const aiAgentConfig = z.object({
   ctaLabel: meaningfulText(z.string().trim().min(1).max(25), 'CTA label').optional(),
 }).strict();
 
+// Which contact value fills each template variable, by component:
+// { BODY: ['name', 'attr:price'] }. Entries are checked in full by
+// lib/templateParams.js#normalizeVariableMapping.
+const variableMapping = z.union([
+  z.record(z.array(z.union([z.string().max(60), z.null()])).max(20)),
+  z.null(),
+]);
+
 export const campaignSchemas = {
   create: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Campaign name'),
@@ -109,6 +117,7 @@ export const campaignSchemas = {
     fallbackConfig: z.any().optional(),
     aiAgent: aiAgentConfig.optional(),
     goal: z.enum(['sales', 'launch', 'reengage', 'nurture']).optional(),
+    variableMapping: variableMapping.optional(),
   }).passthrough().refine((v) => v.numberId || v.whatsappNumberId, { message: 'numberId is required' }),
   addRecipients: z.object({ contactIds: z.array(id).min(1, 'At least one contact is required').max(10_000) }),
   // Replacing an audience may legitimately empty it ΓÇö a draft mid-edit does
@@ -127,6 +136,7 @@ export const campaignSchemas = {
     whatsappNumberId: id.optional(),
     scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
     goal: z.enum(['sales', 'launch', 'reengage', 'nurture']).optional(),
+    variableMapping: variableMapping.optional(),
   }).passthrough(),
   launch: z.object({
     scheduledAt: z.union([z.string(), z.date(), z.null()]).optional(),
@@ -139,6 +149,7 @@ export const campaignSchemas = {
     campaignId: id.optional(),
     // Drives per-category message pricing before the campaign row exists.
     templateId: id.optional(),
+    variableMapping: variableMapping.optional(),
   }).refine((v) => (v.contactIds && v.contactIds.length > 0) || v.campaignId, {
     message: 'Provide contactIds or a campaignId',
     path: ['contactIds'],
@@ -155,6 +166,8 @@ export const contactSchemas = {
     // own field definitions in customFields.service.js#validateCustomFields ΓÇö
     // a schema here could not know what fields this workspace has.
     customFields: z.record(z.union([z.string(), z.number(), z.null()])).optional(),
+    // Extra CSV columns (price, city, …); see lib/contactAttributes.js.
+    attributes: z.record(z.union([z.string().max(500), z.number(), z.null()])).optional(),
   }),
   update: z.object({
     name: z.string().trim().min(1).max(120).optional(),
@@ -163,6 +176,8 @@ export const contactSchemas = {
     tags: z.array(z.string().trim().max(50)).max(30).optional(),
     optedOut: z.boolean().optional(),
     customFields: z.record(z.union([z.string(), z.number(), z.null()])).optional(),
+    // Extra CSV columns (price, city, …); see lib/contactAttributes.js.
+    attributes: z.record(z.union([z.string().max(500), z.number(), z.null()])).optional(),
   }).strict(),
 };
 

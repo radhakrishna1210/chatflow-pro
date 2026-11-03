@@ -158,12 +158,12 @@ const CsvTab = ({ onSaved }) => {
 
   const downloadSample = () => {
     const csvContent = [
-      'name,phoneNumber,email,tags',
-      'Aarav,+917410066251,aarav@example.com,test',
-      'Vivaan,+918983416795,vivaan@example.com,test',
-      'Krishna,+919226573383,krishna@example.com,test',
-      'Arjun,+918080178330,arjun@example.com,test',
-      'Rohan,+919604609921,rohan@example.com,test',
+      'name,phoneNumber,email,tags,price',
+      'Aarav,+917410066251,aarav@example.com,test,180',
+      'Vivaan,+918983416795,vivaan@example.com,test,165',
+      'Krishna,+919226573383,krishna@example.com,test,200',
+      'Arjun,+918080178330,arjun@example.com,test,175',
+      'Rohan,+919604609921,rohan@example.com,test,190',
     ].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -189,7 +189,8 @@ const CsvTab = ({ onSaved }) => {
       )}
       {result && (
         <div style={{ padding:'10px 13px', borderRadius:8, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)', fontSize:13, fontWeight:600 }}>
-          ✓ Imported {result.imported} contact{result.imported !== 1 ? 's' : ''}.
+          ✓ Imported {result.imported} contact{result.imported !== 1 ? 's' : ''}{result.updated ? `, updated ${result.updated}` : ''}.
+          {result.attributeKeys?.length > 0 && ` Extra columns saved: ${result.attributeKeys.join(', ')}.`}
         </div>
       )}
       <input ref={inputRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={e => { setFile(e.target.files[0]); setResult(null); }} />
@@ -221,7 +222,7 @@ const CsvTab = ({ onSaved }) => {
           <>
             <p style={{ fontSize:14, fontWeight:600, color:'var(--t1)', marginBottom:5 }}>Drop CSV here or click to browse</p>
             <p style={{ fontSize:12, color:'var(--t2)' }}>
-              Columns: <code style={{ color:'var(--green)', fontFamily:'monospace' }}>name</code>, <code style={{ color:'var(--green)', fontFamily:'monospace' }}>phoneNumber</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>email</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>tags</code>
+              Columns: <code style={{ color:'var(--green)', fontFamily:'monospace' }}>name</code>, <code style={{ color:'var(--green)', fontFamily:'monospace' }}>phoneNumber</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>email</code>, <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>tags</code>, plus any of your own (e.g. <code style={{ color:'var(--t2)', fontFamily:'monospace' }}>price</code>)
             </p>
           </>
         )}
@@ -266,8 +267,11 @@ const CsvTab = ({ onSaved }) => {
               <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>vip,customer</code>
             </div>
           </li>
+          <li>
+            Any other column (e.g. <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>price</code>, <code style={{ fontFamily: 'monospace', color: '#b9a3ff' }}>city</code>) is saved on the contact. A campaign can put it into a template variable, so each customer gets their own value.
+          </li>
           <li>Duplicate phone numbers in the CSV will be skipped.</li>
-          <li>Existing contacts are matched using phone number.</li>
+          <li>Existing contacts are matched using phone number. Their extra columns are updated from the new sheet.</li>
           <li>Invalid rows will not be imported.</li>
         </ul>
       </div>
@@ -310,6 +314,9 @@ const EditContactDialog = ({ contact, onClose, onSaved }) => {
   const [phone, setPhone]   = useState(contact.phoneNumber || '');
   const [email, setEmail]   = useState(contact.email || '');
   const [tagsRaw, setTags]  = useState((contact.tags || []).join(', '));
+  // Extra columns from uploaded sheets (price, city, …), editable as rows.
+  const initialAttrs = contact.attributes && typeof contact.attributes === 'object' && !Array.isArray(contact.attributes) ? contact.attributes : {};
+  const [attrRows, setAttrRows] = useState(Object.entries(initialAttrs).map(([key, value]) => ({ key, value: String(value ?? '') })));
   const [saving, setSaving] = useState(false);
   const [err, setErr]       = useState(null);
 
@@ -318,9 +325,15 @@ const EditContactDialog = ({ contact, onClose, onSaved }) => {
     setErr(null); setSaving(true);
     try {
       const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+      // Keys the user removed are sent as null so the server drops them.
+      const attributes = Object.fromEntries(Object.keys(initialAttrs).map(k => [k, null]));
+      for (const row of attrRows) {
+        const key = row.key.trim();
+        if (key) attributes[key] = row.value.trim() || null;
+      }
       const res = await wFetch(`/contacts/${contact.id}`, {
         method:'PATCH',
-        body: JSON.stringify({ name: name.trim() || 'Unknown', phoneNumber: phone.trim(), email: email.trim() || null, tags }),
+        body: JSON.stringify({ name: name.trim() || 'Unknown', phoneNumber: phone.trim(), email: email.trim() || null, tags, attributes }),
       });
       const data = await res.json();
       if (!res.ok) { setErr(data.error || `Error ${res.status}`); return; }
@@ -355,6 +368,27 @@ const EditContactDialog = ({ contact, onClose, onSaved }) => {
           <FLabel>Tags</FLabel>
           <FInput value={tagsRaw} onChange={e => setTags(e.target.value)} placeholder="vip, newsletter, prospect" />
           <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Comma-separated.</p>
+        </div>
+        <div>
+          <FLabel>Extra Columns</FLabel>
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            {attrRows.map((row, i) => (
+              <div key={i} style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <div style={{ flex:1 }}>
+                  <FInput value={row.key} onChange={e => setAttrRows(rows => rows.map((r, j) => j === i ? { ...r, key: e.target.value } : r))} placeholder="price" />
+                </div>
+                <div style={{ flex:1 }}>
+                  <FInput value={row.value} onChange={e => setAttrRows(rows => rows.map((r, j) => j === i ? { ...r, value: e.target.value } : r))} placeholder="180" />
+                </div>
+                <button type="button" aria-label="Remove column" onClick={() => setAttrRows(rows => rows.filter((_, j) => j !== i))}
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', fontSize:18, lineHeight:1, padding:'0 4px' }}>×</button>
+              </div>
+            ))}
+            <Btn variant="ghost" size="sm" onClick={() => setAttrRows(rows => [...rows, { key: '', value: '' }])} style={{ alignSelf:'flex-start' }}>
+              <I n="plus" s={12} c="var(--t2)" /> Add column
+            </Btn>
+          </div>
+          <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Values from your uploaded sheets, like price. Campaigns can use them in template variables.</p>
         </div>
         <Btn onClick={submit} disabled={saving || !phone.trim()} style={{ alignSelf:'flex-end', boxShadow: phone.trim() ? 'var(--glow)' : 'none' }}>
           {saving ? 'Saving…' : 'Save Changes'}

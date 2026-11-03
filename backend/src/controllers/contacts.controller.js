@@ -36,6 +36,10 @@ export async function importCsv(req, res) {
   res.json(result);
 }
 
+export async function variableSources(req, res) {
+  res.json(await contactsService.listVariableSources(req.params.workspaceId));
+}
+
 export async function remove(req, res) {
   await contactsService.deleteContact(req.params.workspaceId, req.params.id);
   res.status(204).send();

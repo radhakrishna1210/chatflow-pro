@@ -393,6 +393,10 @@ model Contact {
   // { fieldKey: value } against WorkspaceCustomField definitions. Null until
   // the workspace defines a field and sets one.
   customFields       Json?
+  // { key: text } from extra CSV columns (price, city, …). Untyped and needs no
+  // setup, unlike customFields. Fills campaign variables via
+  // Campaign.variableMapping. See lib/contactAttributes.js.
+  attributes         Json?
   createdAt          DateTime            @default(now())
   // Backfilled from createdAt for rows that predate the column, so "Recently
   // Updated" means something the first time it is used.
@@ -471,6 +475,10 @@ model Campaign {
   // the step existed has no answer, and inventing one would be a lie about
   // what the sender chose.
   goal            String?
+  // Which contact value fills each template variable, e.g.
+  // { BODY: ["name", "attr:price"] }. Null keeps the default (name, then the
+  // approved sample). See lib/templateParams.js#normalizeVariableMapping.
+  variableMapping Json?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @default(now()) @updatedAt
   template        Template            @relation(fields: [templateId], references: [id])

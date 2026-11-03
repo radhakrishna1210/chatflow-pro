@@ -18,6 +18,8 @@ router.post('/import', upload.single('file'), verifyFileContents, contactsContro
 router.get('/tags', contactsController.tags);
 // Literal path, before '/:id'. Takes the same filters as the list endpoint.
 router.get('/export', contactsController.exportCsv);
+// Literal path, before '/:id'. What a campaign can fill template variables with.
+router.get('/variable-sources', contactsController.variableSources);
 router.get('/:id', contactsController.getOne);
 router.delete('/:id', contactsController.remove);
 router.patch('/:id', validate({ body: contactSchemas.update }), contactsController.update);
