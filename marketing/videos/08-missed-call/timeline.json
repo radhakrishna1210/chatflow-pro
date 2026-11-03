@@ -1,0 +1,27 @@
+[
+ {
+  "page": "s1-ring",
+  "at": 0.0,
+  "dur": 5.0
+ },
+ {
+  "page": "s2-lost",
+  "at": 5.0,
+  "dur": 4.2
+ },
+ {
+  "page": "s3-voice",
+  "at": 9.2,
+  "dur": 11.0
+ },
+ {
+  "page": "s4-confirm",
+  "at": 20.2,
+  "dur": 6.4
+ },
+ {
+  "page": "s5-cta",
+  "at": 26.6,
+  "dur": 6.0
+ }
+]

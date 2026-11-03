@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #title { top: 220px; font-size: 104px; padding: 0 60px; }
+  #flow { position: absolute; left: 110px; right: 110px; top: 560px; display: flex; flex-direction: column; align-items: center; }
+  .nd { width: 100%; padding: 34px 38px; }
+  .nd .k { font-family: var(--mono); font-size: 24px; font-weight: 600; letter-spacing: .14em; }
+  .nd h3 { font-size: 46px; margin-top: 10px; }
+  .wire { width: 6px; height: 70px; background: linear-gradient(var(--cyan), var(--violet)); transform-origin: top; }
+  #fire { top: 1530px; font-size: 96px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">You built the <span class="hl-id">automation.</span></h1>
+  <div id="flow">
+    <div class="nd card" id="n1"><div class="k" style="color:var(--cyan)">TRIGGER · KEYWORD</div><h3>“where is my order”</h3></div>
+    <div class="wire" id="w1"></div>
+    <div class="nd card" id="n2"><div class="k" style="color:var(--violet)">ACTION</div><h3>Send tracking link 📦</h3></div>
+    <div class="wire" id="w2"></div>
+    <div class="nd card" id="n3"><div class="k" style="color:var(--lime)">STATUS</div><h3>Active ✓</h3></div>
+  </div>
+  <h2 class="center" id="fire">But… did it <span class="hl-bad">fire?</span> 🤷</h2>
+</div><script type="module">
+import { film, enter, p, ease, $ } from './lib/kit.js';
+film({ duration: 5.6, draw(t) {
+  enter($('#title'), t, -0.3, { y: 30 });
+  [0.4, 1.4, 2.4].forEach((a, i) => { enter($('#n' + (i + 1)), t, a, { y: 40, s: 0.94 }); if (i) $('#w' + i).style.transform = `scaleY(${ease.out(p(t, a - 0.4, 0.4))})`; });
+  enter($('#fire'), t, 4.4, { y: 40, blur: 8 });
+} });
+</script></body></html>

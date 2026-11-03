@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 200px; font-size: 104px; padding: 0 60px; }
+  #grid { position: absolute; left: 90px; right: 90px; top: 720px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; }
+  #grid div { aspect-ratio: 1; border-radius: 26px; display: grid; place-items: center; font-size: 70px; background: rgba(245,239,224,.08); border: 2px solid rgba(245,239,224,.2); position: relative; }
+  #grid div b { position: absolute; top: -12px; right: -12px; width: 44px; height: 44px; border-radius: 50%; background: #e5484d; color: #fff; font-size: 22px; display: grid; place-items: center; font-family: var(--mono); }
+  #tired { top: 1290px; font-size: 76px; }
+  #tired .serif { font-size: 88px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Ten clients. <span class="hl">Ten WhatsApp numbers.</span></h1>
+  <div id="grid"></div>
+  <h2 class="center" id="tired">One very <span class="serif hl">tired</span> agency. 😮‍💨</h2>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+['🛍️', '🩺', '🎓', '🏡', '✈️', '☕', '💄', '🏋️', '🍕', '🚗'].forEach((e, i) => $('#grid').insertAdjacentHTML('beforeend', `<div>${e}<b>${[12, 4, 31, 7, 18, 9, 22, 5, 14, 26][i]}</b></div>`));
+film({ theme: 'forest', duration: 5.8, draw(t) {
+  enter($('#title'), t, -0.3, { y: 40 });
+  $$('#grid div').forEach((d, i) => { pop(d, t, 0.6 + i * 0.12, { s: 0.4 }); const sh = t > 2.8 ? Math.sin(t * 40 + i) * 4 : 0; d.style.transform += ` translateX(${sh}px)`; pop(d.querySelector('b'), t, 1.6 + i * 0.08, { s: 0.2 }); });
+  enter($('#tired'), t, 2.8, { y: 40, blur: 8 });
+} });
+</script></body></html>

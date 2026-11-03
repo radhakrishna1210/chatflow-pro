@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #lang { top: 130px; font-size: 120px; }
+  #sub { top: 300px; font-family: var(--mono); font-size: 28px; font-weight: 600; letter-spacing: .14em; color: var(--t2); }
+  .phone { left: 220px; top: 420px; height: 1240px; }
+  .bub { font-size: 27px; }
+  #same { top: 1710px; } #same .chip { font-size: 28px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="lang"><span class="hl">हिन्दी</span> 🇮🇳</h1>
+  <div class="center" id="sub">SAME OFFER · SAME FACTS</div>
+  <div class="phone"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av">S</div><div><div class="wa-name">Stride Shoes</div><div class="wa-sub">Spandan AI · knows this campaign</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+  <div class="center" id="same"><span class="chip">🔒 Grounded in: 40% off Nike Air Zoom · ends Sunday</span></div>
+</div><script type="module">
+import { film, enter, pop, Chat, $ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: -1, side: 'in', time: '6:00 PM', tpl: { img: 'MONSOON SALE<br>40% OFF', imgBg: 'linear-gradient(135deg,#25d366,#2ad4ff)', html: '⚡ <b>Monsoon Flash Sale</b> — 40% off the Nike Air Zoom. Ends Sunday!', btns: ['🛍 Shop now', '✦ Ask Anything'] } },
+  { at: 0.6, side: 'out', html: 'क्या यह 40% छूट नए कलेक्शन पर भी है?' },
+  { at: 1.2, side: 'in', typing: true, until: 2.7 },
+  { at: 2.8, side: 'in', ai: true, html: 'नहीं, 40% छूट सिर्फ़ Nike Air Zoom पर है, रविवार तक। क्या मैं टीम से नए कलेक्शन के बारे में पूछ दूँ?' },
+]);
+film({ theme: 'ocean', duration: 6.4, setup: () => chat.measure(), draw(t) {
+  enter($('#lang'), t, -0.3, { y: 40, s: 0.9 });
+  enter($('#sub'), t, -0.1, { y: 20 });
+  enter($('.phone'), t, -0.3, { y: 120, d: 0.5 });
+  chat.draw(t);
+  pop($('#same'), t, 3.6);
+} });
+</script></body></html>

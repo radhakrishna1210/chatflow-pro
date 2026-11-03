@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 250px; font-size: 32px; }
+  #title { top: 320px; font-size: 100px; }
+  #list { position: absolute; left: 80px; right: 80px; top: 600px; display: flex; flex-direction: column; gap: 34px; }
+  .u { display: flex; gap: 34px; align-items: center; padding: 38px 40px; }
+  .u .ic { width: 120px; height: 120px; border-radius: 34px; display: grid; place-items: center; font-size: 60px; flex: none; }
+  .u h3 { font-size: 54px; } .u p { font-size: 32px; color: var(--t2); margin-top: 8px; font-weight: 600; }
+</style></head>
+<body><div class="stage">
+  <div class="bg"><div class="grid"></div><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <div class="center eyebrow" id="eye">Why teams switch to Spandan</div>
+  <h1 class="center" id="title">No guessing. <span class="hl">No markup.</span></h1>
+  <div id="list">
+    <div class="u card"><div class="ic" style="background:rgba(53,232,242,.14)">🛡️</div><div><h3>Never invents a price</h3><p>Answers only from what the customer received</p></div></div>
+    <div class="u card"><div class="ic" style="background:rgba(157,107,255,.16)">🤝</div><div><h3>Human handoff built in</h3><p>Hot leads &amp; tricky asks land in your inbox</p></div></div>
+    <div class="u card"><div class="ic" style="background:rgba(196,255,70,.14)">₹</div><div><h3>Meta’s rate. Zero markup.</h3><p>Per-message cost passed straight through</p></div></div>
+    <div class="u card"><div class="ic" style="background:rgba(37,211,102,.14)">↩️</div><div><h3>Failed sends refunded</h3><p>Pay only for messages that went out</p></div></div>
+  </div>
+</div>
+<script type="module">
+import { film, enter, drawWords, $, $$ } from './lib/kit.js';
+const at = [0.3, 1.9, 3.8, 5.6];
+film({ duration: 7.6, draw(t) {
+  enter($('#eye'), t, 0, { y: 20 });
+  drawWords($('#title'), t, 0.05, { rate: 0.08 });
+  $$('.u').forEach((u, i) => {
+    enter(u, t, at[i], { x: 200, y: 0, d: 0.5 });
+    const on = t > at[i] && (i === 3 || t < at[i + 1]);
+    u.style.borderColor = on ? 'rgba(53,232,242,0.6)' : '';
+    u.style.boxShadow = on ? '0 0 60px rgba(53,232,242,0.25)' : '';
+  });
+} });
+</script></body></html>

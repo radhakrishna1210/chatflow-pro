@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #day { top: 360px; font-size: 60px; font-family: var(--mono); color: var(--amber); font-weight: 600; letter-spacing: .1em; }
+  #old { top: 620px; font-size: 300px; color: var(--t3); }
+  #line { position: absolute; left: 260px; right: 260px; top: 790px; height: 22px; border-radius: 11px; background: var(--red); transform-origin: left; }
+  #new { top: 1000px; font-size: 300px; }
+  #edit { top: 1420px; font-size: 44px; font-weight: 700; color: var(--t2); }
+</style></head><body><div class="stage">
+  <div class="center" id="day">WEDNESDAY</div>
+  <h1 class="center" id="old">50%</h1>
+  <div id="line"></div>
+  <h1 class="center" id="new"><span class="hl-bad">30%</span></h1>
+  <div class="center" id="edit">✏️ “Let’s change the offer.”</div>
+</div><script type="module">
+import { film, enter, pop, p, ease, $ } from './lib/kit.js';
+film({ duration: 4.4, draw(t) {
+  enter($('#day'), t, -0.3, { y: 20 });
+  enter($('#old'), t, -0.2, { y: 0, s: 1.1 });
+  $('#line').style.transform = `scaleX(${ease.out(p(t, 1.4, 0.35))})`;
+  pop($('#new'), t, 2.0, { s: 0.3 });
+  enter($('#edit'), t, 0.6, { y: 20 });
+} });
+</script></body></html>

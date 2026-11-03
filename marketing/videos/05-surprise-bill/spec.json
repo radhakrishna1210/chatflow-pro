@@ -1,0 +1,9 @@
+{ "title": "The surprise bill", "size": [1080, 1920], "voice": "af_heart",
+  "music": [{ "src": "bed-tense", "at": 0, "in": 0, "out": 13.4, "volume": 0.22 }, { "src": "bed-lift", "at": 13.4, "in": 0, "out": 38, "volume": 0.2 }],
+  "scenes": [
+    { "page": "s1-bill.html", "dur": 4.6, "vo": [[0.3, "You budgeted thirty-one thousand. The bill says forty-eight."]], "sfx": [[0.0, "whoosh", 0.4], [2.2, "impact", 0.7], [2.4, "buzz", 0.4]] },
+    { "page": "s2-lines.html", "dur": 8.8, "vo": [[0.2, "A markup on every message. Charges for sends that failed. Retries, billed twice. Even messages to people who said stop."]], "sfx": [[0.3, "cash", 0.4], [2.2, "cash", 0.4], [4.0, "cash", 0.4], [5.4, "cash", 0.4], [6.8, "buzz", 0.4]] },
+    { "page": "s3-ledger.html", "dur": 12.0, "vo": [[0.2, "Spandan reserves at launch, and settles on completion. Opted-out numbers are skipped. Retries are never charged twice. And anything that never went out, comes back to your wallet."]], "sfx": [[0.0, "riser", 0.4], [0.6, "pop", 0.5], [3.4, "pop", 0.5], [5.4, "pop", 0.5], [7.6, "pop", 0.5], [9.4, "cash", 0.7]] },
+    { "page": "s4-rate.html", "dur": 4.8, "vo": [[0.2, "And every message is billed at Meta's own rate. Zero markup."]], "sfx": [[0.1, "impact", 0.6]] },
+    { "page": "s5-cta.html", "dur": 6.0, "vo": [[0.3, "Ever been surprised by a messaging bill? Comment yes, or no."]], "sfx": [[0.6, "pop", 0.6], [1.0, "pop", 0.6]] }
+  ] }

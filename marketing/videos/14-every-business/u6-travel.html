@@ -1,0 +1,34 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #n { top: 150px; font-family: var(--mono); font-size: 30px; font-weight: 600; color: var(--t3); letter-spacing: .2em; }
+  #ic { top: 220px; font-size: 140px; }
+  #name { top: 400px; font-size: 128px; }
+  #metric { top: 560px; } #metric .chip { font-size: 34px; color: #fff; background: #ff6b3d; border: 0; }
+  .phone { left: 220px; top: 720px; height: 1080px; }
+  .bub { font-size: 27px; }
+</style></head><body><div class="stage">
+  <div class="center" id="n">06 / 06</div>
+  <div class="center" id="ic">✈️</div>
+  <h1 class="center" id="name">Travel</h1>
+  <div class="center" id="metric"><span class="chip">Itineraries</span></div>
+  <div class="phone light"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av" style="background:#ff6b3d;color:#fff">✈️</div><div><div class="wa-name">Wanderway Trips</div><div class="wa-sub">Spandan AI · business account</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, Chat, $ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: 0.5, side: 'in', time: '10:00 AM', html: '✈️ Your Goa itinerary is ready · Fri 6:40 AM flight · hotel check-in 2 PM.' },
+  { at: 1.7, side: 'out', time: '10:02 AM', html: 'Can I check in early?' },
+  { at: 2.4, side: 'in', ai: true, time: '10:02 AM', html: 'Early check-in depends on the hotel. I’ll ask our team to request it and update you here.' },
+]);
+film({ theme: 'sunrise', duration: 5.6, setup: () => chat.measure(), draw(t) {
+  enter($('#n'), t, -0.3, { y: 10 });
+  pop($('#ic'), t, -0.25, { s: 0.3 }); $('#ic').style.transform += ` rotate(${Math.sin(t * 3) * 6}deg)`;
+  enter($('#name'), t, -0.15, { x: 120, y: 0, d: 0.45 });
+  pop($('#metric'), t, 0.3);
+  enter($('.phone'), t, -0.1, { y: 160, d: 0.5 });
+  chat.draw(t);
+} });
+</script></body></html>

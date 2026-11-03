@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #eye { top: 160px; font-size: 30px; }
+  #title { top: 220px; font-size: 92px; padding: 0 60px; }
+  #prompt { left: 70px; right: 70px; top: 470px; padding: 28px 32px; display: flex; gap: 20px; align-items: center; font-size: 36px; font-weight: 700; }
+  #prompt .ai { width: 70px; height: 70px; border-radius: 20px; background: var(--grad-id); display: grid; place-items: center; color: #fff; font-size: 34px; flex: none; }
+  #tpl { left: 150px; right: 150px; top: 660px; padding: 16px; background: #202c33; border-radius: 30px; box-shadow: 0 40px 100px rgba(0,0,0,.6); }
+  #img { height: 420px; border-radius: 20px; background: radial-gradient(circle at 50% 110%, #ffb02e, #ff6a2b 40%, #8a1430 80%); display: grid; place-items: center; text-align: center; color: #fff4e2; font-family: var(--display); font-weight: 800; font-size: 84px; line-height: .95; overflow: hidden; position: relative; }
+  #img small { display: block; font-size: 34px; font-family: var(--mono); letter-spacing: .2em; margin-top: 16px; color: #ffe08a; }
+  #img .d { position: absolute; font-size: 54px; }
+  #body { padding: 20px 14px 6px; font-size: 30px; line-height: 1.4; color: #e9edef; }
+  .tb { text-align: center; color: #53bdeb; font-weight: 700; padding: 18px; font-size: 28px; border-top: 1px solid rgba(255,255,255,.08); }
+  #chips { position: absolute; left: 0; right: 0; top: 1620px; display: flex; gap: 14px; justify-content: center; }
+  #chips .chip { font-size: 26px; padding: 12px 22px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">AI template studio</div>
+  <h1 class="center" id="title">One line in. <span class="hl">A Diwali campaign out.</span></h1>
+  <div class="abs card" id="prompt"><span class="ai">✦</span><span id="ptxt"></span></div>
+  <div class="abs" id="tpl"><div id="img"><div>DIWALI<br>GLOW SALE<small>FLAT 40% OFF</small></div><span class="d" style="left:40px;top:30px">✨</span><span class="d" style="right:40px;top:50px">🪔</span><span class="d" style="left:70px;bottom:30px">🪔</span><span class="d" style="right:60px;bottom:40px">✨</span></div>
+    <div id="body">Hi Ananya ✨ Our <b>Diwali Glow Sale</b> is live — flat <b>40% off</b> festive wear for our VIPs, till Diwali night.</div>
+    <div class="tb">🛍 Shop the sale</div><div class="tb">✦ Ask Anything</div></div>
+  <div id="chips"><span class="chip">✓ Copy</span><span class="chip">✓ Header image</span><span class="chip">✓ Buttons</span></div>
+</div><script type="module">
+import { film, enter, pop, typeText, $, $$ } from './lib/kit.js';
+film({ theme: 'saffron', duration: 7.5, draw(t) {
+  enter($('#eye'), t, -0.2, { y: 20 }); enter($('#title'), t, -0.1, { y: 40 });
+  enter($('#prompt'), t, 0.3, { y: 30 });
+  typeText($('#ptxt'), 'Build a Diwali sale campaign for my VIPs', t, 0.6, 26);
+  pop($('#tpl'), t, 2.6, { s: 0.8 });
+  enter($('#img'), t, 3.2, { y: 0, s: 0.92 });
+  $$('#img .d').forEach((d, i) => { d.style.transform = `translateY(${Math.sin(t * 2 + i) * 10}px) rotate(${Math.sin(t + i) * 10}deg)`; });
+  enter($('#body'), t, 3.6, { y: 10 });
+  $$('.tb').forEach((b, i) => enter(b, t, 4.6 + i * 0.25, { y: 10 }));
+  $$('#chips .chip').forEach((c, i) => pop(c, t, [3.2, 3.9, 4.7][i]));
+} });
+</script></body></html>

@@ -1,0 +1,132 @@
+{
+ "title": "Forms people actually finish",
+ "size": [
+  1080,
+  1920
+ ],
+ "voice": "af_nova",
+ "music": [
+  {
+   "src": "bed-bright",
+   "at": 0,
+   "in": 0,
+   "out": 60,
+   "volume": 0.18
+  }
+ ],
+ "scenes": [
+  {
+   "page": "s1-webform.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.3,
+     "Nobody finishes your twelve-field web form."
+    ]
+   ],
+   "sfx": [
+    [
+     0.3,
+     "tick",
+     0.6
+    ],
+    [
+     2.8,
+     "buzz",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s2-chatform.html",
+   "dur": 12.0,
+   "vo": [
+    [
+     0.3,
+     "So ask on WhatsApp instead. One question at a time, with quick replies, and validation that catches typos."
+    ]
+   ],
+   "sfx": [
+    [
+     0.6,
+     "pop",
+     0.4
+    ],
+    [
+     1.8,
+     "pop",
+     0.4
+    ],
+    [
+     3.2,
+     "pop",
+     0.4
+    ],
+    [
+     4.4,
+     "pop",
+     0.4
+    ],
+    [
+     5.8,
+     "pop",
+     0.4
+    ],
+    [
+     7.0,
+     "buzz",
+     0.3
+    ],
+    [
+     8.4,
+     "pop",
+     0.4
+    ],
+    [
+     9.6,
+     "success",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s3-submitted.html",
+   "dur": 6.4,
+   "vo": [
+    [
+     0.3,
+     "Every answer lands as a complete submission, ready for your team."
+    ]
+   ],
+   "sfx": [
+    [
+     0.4,
+     "success",
+     0.5
+    ]
+   ]
+  },
+  {
+   "page": "s4-end.html",
+   "dur": 7.0,
+   "vo": [
+    [
+     0.3,
+     "Forms people actually finish. Try it free, with Spandan."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "impact",
+     0.5
+    ],
+    [
+     1.6,
+     "pop",
+     0.5
+    ]
+   ]
+  }
+ ]
+}

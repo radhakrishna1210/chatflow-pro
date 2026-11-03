@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 150px; font-size: 32px; }
+  #title { top: 210px; font-size: 96px; }
+  #wal { left: 70px; right: 70px; top: 400px; padding: 40px 44px; }
+  #wal .l { font-family: var(--mono); font-size: 24px; color: var(--t3); font-weight: 600; }
+  #bal { font-family: var(--display); font-size: 120px; font-weight: 700; margin-top: 6px; }
+  #rows { position: absolute; left: 70px; right: 70px; top: 760px; display: flex; flex-direction: column; gap: 22px; }
+  .e { display: flex; gap: 26px; align-items: center; padding: 28px 32px; }
+  .e .ic { width: 84px; height: 84px; border-radius: 24px; display: grid; place-items: center; font-size: 44px; flex: none; }
+  .e h3 { font-size: 36px; } .e p { font-size: 26px; color: var(--t2); margin-top: 4px; font-weight: 600; }
+  .e .amt { margin-left: auto; font-family: var(--mono); font-weight: 600; font-size: 32px; white-space: nowrap; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">The Spandan way</div>
+  <h1 class="center" id="title">Billing you can <span class="hl">audit.</span></h1>
+  <div class="abs card" id="wal"><div class="l">WALLET BALANCE</div><div id="bal">₹50,000</div></div>
+  <div id="rows">
+    <div class="e card"><div class="ic" style="background:rgba(157,107,255,.16)">🔒</div><div><h3>Reserve at launch</h3><p>Diwali campaign · 10,000 contacts</p></div><span class="amt" style="color:var(--violet)">−₹31,000</span></div>
+    <div class="e card"><div class="ic" style="background:rgba(53,232,242,.14)">🛑</div><div><h3>Opted-out skipped</h3><p>Never sent, never charged</p></div><span class="amt" style="color:var(--t3)">₹0</span></div>
+    <div class="e card"><div class="ic" style="background:rgba(53,232,242,.14)">🔁</div><div><h3>Retries billed once</h3><p>However many attempts it took</p></div><span class="amt" style="color:var(--t3)">₹0</span></div>
+    <div class="e card" id="ref"><div class="ic" style="background:rgba(37,211,102,.16)">↩️</div><div><h3>Settle &amp; refund</h3><p>Never went out → back to you</p></div><span class="amt" style="color:var(--wa)">+₹720</span></div>
+  </div>
+</div><script type="module">
+import { film, enter, lerp, ease, p, $, $$ } from './lib/kit.js';
+const at = [0.6, 3.4, 5.4, 7.6];
+const fmt = v => '₹' + Math.round(v).toLocaleString('en-IN');
+film({ duration: 12, draw(t) {
+  enter($('#eye'), t, -0.2, { y: 20 });
+  enter($('#title'), t, -0.1, { y: 30 });
+  enter($('#wal'), t, 0.1, { y: 40 });
+  $$('.e').forEach((e, i) => enter(e, t, at[i], { x: 200, y: 0 }));
+  const v = 50000 - 31000 * ease.out(p(t, 1.0, 0.8)) + 720 * ease.out(p(t, 9.4, 0.8));
+  $('#bal').textContent = fmt(v);
+  $('#bal').style.color = t > 9.4 ? 'var(--wa)' : '';
+  const g = p(t, 9.4, 0.4);
+  $('#ref').style.boxShadow = `0 0 ${90 * g}px rgba(37,211,102,${0.35 * g})`;
+  $('#ref').style.borderColor = g > 0 ? 'rgba(37,211,102,.6)' : '';
+} });
+</script></body></html>

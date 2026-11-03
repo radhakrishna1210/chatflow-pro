@@ -1,0 +1,442 @@
+{
+ "title": "Spandan product tour",
+ "size": [
+  1920,
+  1080
+ ],
+ "voice": "am_michael",
+ "speed": 1.12,
+ "music": [
+  {
+   "src": "bed-calm",
+   "at": 0,
+   "in": 0,
+   "out": 240,
+   "volume": 0.14
+  }
+ ],
+ "scenes": [
+  {
+   "page": "s00-intro.html",
+   "dur": 11.6,
+   "vo": [
+    [
+     0.6,
+     "This is Spandan: the WhatsApp Business platform where your campaigns answer for themselves. In the next two minutes, you'll see everything, from your first number, to your first sale."
+    ]
+   ],
+   "sfx": [
+    [
+     0.2,
+     "impact",
+     0.5
+    ],
+    [
+     6.0,
+     "whoosh",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s01-connect.html",
+   "dur": 14.4,
+   "vo": [
+    [
+     0.3,
+     "Start by connecting a WhatsApp number. Bring your own, through Meta's embedded signup, or get one assigned from our pool. It's the official WhatsApp Business API, and your access tokens are encrypted at rest."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     6.2,
+     "success",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s02-templates.html",
+   "dur": 12.8,
+   "vo": [
+    [
+     0.3,
+     "Next, the template studio. Describe what you need, and AI writes the copy, generates the header image, and adds the buttons. Submit it to Meta, and watch the approval land, by webhook."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     4.4,
+     "pop",
+     0.4
+    ],
+    [
+     9.6,
+     "tick",
+     0.6
+    ],
+    [
+     10.8,
+     "success",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s03-contacts.html",
+   "dur": 11.4,
+   "vo": [
+    [
+     0.3,
+     "Import contacts from a CSV, and group them into segments for targeting. Anyone who replies STOP is blocked for good, and skipped on every future campaign."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     5.0,
+     "pop",
+     0.4
+    ],
+    [
+     8.2,
+     "buzz",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s04-campaign.html",
+   "dur": 16.8,
+   "vo": [
+    [
+     0.3,
+     "The campaign builder walks you through every step: goal, number, template, audience, and schedule. Then attach an AI agent, reply flows, retries, conversion tracking, and SMS or email fallback. Launch, and watch delivery in real time."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     11.6,
+     "impact",
+     0.4
+    ],
+    [
+     12.0,
+     "success",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s05-campaign-ai.html",
+   "dur": 19.6,
+   "vo": [
+    [
+     0.3,
+     "Here's the heart of Spandan: the Campaign AI agent. A customer taps Ask Anything, and the agent answers from the exact campaign they received, plus your knowledge base. It replies in their language, including Hindi and Hinglish. And when it doesn't know, it says so, and brings in a human."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     3.6,
+     "tick",
+     0.6
+    ],
+    [
+     3.8,
+     "pop",
+     0.4
+    ],
+    [
+     6.4,
+     "pop",
+     0.4
+    ],
+    [
+     10.2,
+     "pop",
+     0.4
+    ],
+    [
+     12.6,
+     "pop",
+     0.4
+    ],
+    [
+     15.6,
+     "ding",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s06-quiz.html",
+   "dur": 18.4,
+   "vo": [
+    [
+     0.3,
+     "Quick question. You edit an offer from fifty, to thirty percent, after sending. What does the AI tell someone who received fifty? Pause, and guess."
+    ],
+    [
+     12.6,
+     "It's B. Every answer stays true to the message that customer actually received."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "impact",
+     0.4
+    ],
+    [
+     9.4,
+     "tick",
+     0.6
+    ],
+    [
+     10.4,
+     "tick",
+     0.6
+    ],
+    [
+     11.4,
+     "tick",
+     0.6
+    ],
+    [
+     12.4,
+     "success",
+     0.5
+    ]
+   ]
+  },
+  {
+   "page": "s07-automation.html",
+   "dur": 18.2,
+   "vo": [
+    [
+     0.3,
+     "Automation does the rest. Intent matching routes free-form messages, without exact keywords. Visual workflows chain triggers, AI, conditions, and delays, with a run history for every execution. And WhatsApp forms collect answers, one question at a time."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     2.2,
+     "ding",
+     0.3
+    ],
+    [
+     5.4,
+     "pop",
+     0.3
+    ],
+    [
+     6.2,
+     "pop",
+     0.3
+    ],
+    [
+     7.0,
+     "pop",
+     0.3
+    ],
+    [
+     7.8,
+     "pop",
+     0.3
+    ],
+    [
+     8.6,
+     "pop",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s08-inbox.html",
+   "dur": 14.0,
+   "vo": [
+    [
+     0.3,
+     "When a human is needed, the conversation lands in the shared inbox, with the campaign and the full history attached. And agencies get a separate workspace per client, with their own numbers, wallets, and teams."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     2.4,
+     "ding",
+     0.4
+    ],
+    [
+     9.0,
+     "pop",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s09-analytics.html",
+   "dur": 17.0,
+   "vo": [
+    [
+     0.3,
+     "Analytics track sent, delivered, read, and failed, for every campaign, tied back to spend. And billing is auditable. Campaigns reserve at launch, settle on completion, and refund anything that never went out. Always at Meta's rate, with zero markup."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     8.4,
+     "pop",
+     0.3
+    ],
+    [
+     10.8,
+     "pop",
+     0.3
+    ],
+    [
+     13.0,
+     "cash",
+     0.5
+    ]
+   ]
+  },
+  {
+   "page": "s10-more.html",
+   "dur": 13.2,
+   "vo": [
+    [
+     0.3,
+     "And there's more. Voice AI that answers your calls. Instagram quickflows. Scoped API keys and webhooks. And integrations with Shopify, HubSpot, Slack, Mailchimp, and Google."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ]
+   ]
+  },
+  {
+   "page": "s11-usp.html",
+   "dur": 12.4,
+   "vo": [
+    [
+     0.3,
+     "So what makes Spandan different? Campaign-aware AI that never invents an offer. Built-in human handoff. A test lab, before you go live. And billing you can actually audit."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     3.6,
+     "tick",
+     0.6
+    ],
+    [
+     5.8,
+     "tick",
+     0.6
+    ],
+    [
+     7.6,
+     "tick",
+     0.6
+    ],
+    [
+     9.4,
+     "tick",
+     0.6
+    ]
+   ]
+  },
+  {
+   "page": "s12-pricing.html",
+   "dur": 16.2,
+   "vo": [
+    [
+     0.3,
+     "Start free, with no card. Paid plans begin at fifteen hundred rupees a month. Growth unlocks unlimited numbers and messages, the Campaign AI agent, and voice and Instagram flows. Or talk to us, about Enterprise."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "whoosh",
+     0.3
+    ],
+    [
+     5.0,
+     "pop",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s13-cta.html",
+   "dur": 8.0,
+   "vo": [
+    [
+     0.4,
+     "Send the campaign. Let it handle the questions. Start free with Spandan, today."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "riser",
+     0.4
+    ],
+    [
+     1.6,
+     "impact",
+     0.5
+    ]
+   ]
+  }
+ ]
+}

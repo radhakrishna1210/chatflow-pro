@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #title { top: 360px; font-size: 120px; }
+  #fire { top: 620px; font-size: 200px; }
+  #cmt { top: 900px; } #cmt .comment { font-size: 56px; padding: 30px 54px; }
+  #share { top: 1080px; font-size: 44px; font-weight: 700; color: var(--t2); padding: 0 100px; line-height: 1.3; }
+  #logo { top: 1360px; font-size: 64px; } #logo .mark { width: 92px; height: 92px; font-size: 54px; }
+  #foot { top: 1500px; font-size: 32px; color: var(--t3); font-family: var(--mono); font-weight: 600; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Got it <span class="hl">right?</span></h1>
+  <div class="center" id="fire">🔥</div>
+  <div class="center" id="cmt"><span class="comment">Drop a 🔥 in the comments</span></div>
+  <div class="center" id="share">📤 Send this to someone whose bot keeps making things up</div>
+  <div class="center" id="logo"><span class="logo"><span class="mark">S</span>Spandan</span></div>
+  <div class="center" id="foot">Campaign AI · free plan · no card</div>
+</div><script type="module">
+import { film, enter, pop, drawWords, $ } from './lib/kit.js';
+film({ duration: 6.4, draw(t) {
+  drawWords($('#title'), t, -0.1, { rate: 0.1 });
+  pop($('#fire'), t, 0.5, { s: 0.2 });
+  $('#fire').style.transform += ` scale(${1 + Math.sin(t * 6) * 0.05})`;
+  pop($('#cmt'), t, 1.3);
+  enter($('#share'), t, 2.8, { y: 30 });
+  pop($('#logo'), t, 3.8);
+  enter($('#foot'), t, 4.2, { y: 20 });
+} });
+</script></body></html>

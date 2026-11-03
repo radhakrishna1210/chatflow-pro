@@ -1,0 +1,27 @@
+[
+ {
+  "page": "s1-monday",
+  "at": 0.0,
+  "dur": 4.6
+ },
+ {
+  "page": "s2-wednesday",
+  "at": 4.6,
+  "dur": 4.4
+ },
+ {
+  "page": "s3-thursday",
+  "at": 9.0,
+  "dur": 10.0
+ },
+ {
+  "page": "s4-snapshot",
+  "at": 19.0,
+  "dur": 9.6
+ },
+ {
+  "page": "s5-cta",
+  "at": 28.6,
+  "dur": 5.4
+ }
+]

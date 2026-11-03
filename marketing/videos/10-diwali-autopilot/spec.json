@@ -1,0 +1,10 @@
+{ "title": "Diwali sale on autopilot", "size": [1080, 1920], "voice": "af_bella",
+  "music": [{ "src": "bed-festive", "at": 0, "in": 0, "out": 60, "volume": 0.18 }],
+  "scenes": [
+    { "page": "s1-hook.html", "dur": 5.0, "vo": [[0.3, "Diwali sale. Ten thousand customers. And one person running it all."]], "sfx": [[0.1, "impact", 0.5], [2.4, "ding", 0.4]] },
+    { "page": "s2-template.html", "dur": 7.5, "vo": [[0.2, "Priya types one line. Spandan writes the Diwali template, designs the header, and adds the buttons."]], "sfx": [[0.6, "tick", 0.6], [3.4, "pop", 0.5], [5.6, "success", 0.4]] },
+    { "page": "s3-send.html", "dur": 6.0, "vo": [[0.2, "One tap sends it to every VIP. Delivered, and read."]], "sfx": [[0.3, "whoosh", 0.4], [0.6, "riser", 0.4], [2.2, "impact", 0.5]] },
+    { "page": "s4-answers.html", "dur": 8.5, "vo": [[0.2, "Then the questions pour in. The AI answers every one, from the exact offer each customer received."]], "sfx": [[0.6, "pop", 0.4], [1.4, "pop", 0.4], [2.2, "pop", 0.4], [3.6, "pop", 0.4], [4.4, "pop", 0.4], [5.2, "pop", 0.4]] },
+    { "page": "s5-evening.html", "dur": 7.0, "vo": [[0.2, "Priya only steps in for the chats that need her. The rest run themselves."]], "sfx": [[0.4, "pop", 0.4], [3.0, "success", 0.4]] },
+    { "page": "s6-end.html", "dur": 7.5, "vo": [[0.3, "This Diwali, let your campaign do the talking. Start free, with Spandan."]], "sfx": [[0.1, "riser", 0.4], [1.2, "impact", 0.5], [2.6, "ding", 0.4]] }
+  ] }

@@ -1,0 +1,22 @@
+[
+ {
+  "page": "s1-webform",
+  "at": 0.0,
+  "dur": 5.6
+ },
+ {
+  "page": "s2-chatform",
+  "at": 5.6,
+  "dur": 12.0
+ },
+ {
+  "page": "s3-submitted",
+  "at": 17.6,
+  "dur": 6.4
+ },
+ {
+  "page": "s4-end",
+  "at": 24.0,
+  "dur": 7.0
+ }
+]

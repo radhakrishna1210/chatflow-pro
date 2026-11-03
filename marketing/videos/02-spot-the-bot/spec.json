@@ -1,0 +1,9 @@
+{ "title": "Spot the bot that lied", "size": [1080, 1920], "voice": "af_heart",
+  "music": [{ "src": "bed-drive", "at": 0, "in": 40, "out": 78, "volume": 0.2 }],
+  "scenes": [
+    { "page": "s1-hook.html", "dur": 4.6, "vo": [[0.2, "Quick quiz. One of these bots just lied to a customer. Can you spot it?"]], "sfx": [[0.05, "impact", 0.6], [2.4, "whoosh", 0.4]] },
+    { "page": "s2-quiz.html", "dur": 11.0, "vo": [[0.2, "The campaign said: forty percent off the Nike Air Zoom. A customer asks about new arrivals."], [5.8, "Bot A, or bot B? Lock it in. Comment now."]], "sfx": [[0.3, "pop", 0.5], [2.2, "pop", 0.5], [3.6, "pop", 0.5], [4.4, "pop", 0.5], [6.0, "tick", 0.8], [7.0, "tick", 0.8], [8.0, "tick", 0.8], [9.0, "tick", 0.8], [10.0, "tick", 0.8]] },
+    { "page": "s3-reveal.html", "dur": 7.4, "vo": [[0.5, "Bot A invented a discount, and a coupon. That's a refund request, waiting to happen. Bot B is Spandan."]], "sfx": [[0.0, "impact", 0.7], [0.4, "buzz", 0.5], [5.2, "success", 0.5]] },
+    { "page": "s4-how.html", "dur": 11.4, "vo": [[0.2, "Spandan's Campaign AI answers only from the exact message each customer received, plus your knowledge base. If the answer isn't there, it says so, and brings in a human."]], "sfx": [[0.2, "whoosh", 0.4], [2.8, "pop", 0.4], [5.5, "pop", 0.4], [8.2, "pop", 0.4]] },
+    { "page": "s5-cta.html", "dur": 6.4, "vo": [[0.3, "Got it right? Drop a fire in the comments. And send this to someone whose bot needs it."]], "sfx": [[0.1, "riser", 0.4], [1.3, "pop", 0.6]] }
+  ] }

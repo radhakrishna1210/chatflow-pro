@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 150px; font-size: 88px; padding: 0 60px; }
+  .pair { position: absolute; left: 60px; right: 60px; }
+  .q, .a { max-width: 780px; padding: 22px 28px; border-radius: 28px; font-size: 32px; font-weight: 600; line-height: 1.35; }
+  .q { margin-left: auto; background: #005c4b; border-top-right-radius: 8px; color: #e9edef; }
+  .a { margin-top: 14px; background: #202c33; border-top-left-radius: 8px; color: #e9edef; box-shadow: 0 0 0 2px rgba(255,201,74,.6), 0 0 40px rgba(255,176,46,.25); }
+  .a .tag { display: block; font-family: var(--mono); font-size: 18px; color: #ffc94a; margin-bottom: 4px; letter-spacing: .1em; }
+  #p1 { top: 430px; } #p2 { top: 830px; } #p3 { top: 1230px; }
+  #count { top: 1680px; } #count .chip { font-size: 32px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Questions pour in. <span class="hl">AI answers each one.</span></h1>
+  <div class="pair" id="p1"><div class="q">Will it deliver before Diwali? 🙏</div><div class="a"><span class="tag">✦ SPANDAN AI</span>Yes! Orders placed by the 29th arrive before Diwali 🪔</div></div>
+  <div class="pair" id="p2"><div class="q">Is 40% on the silk saree too?</div><div class="a"><span class="tag">✦ SPANDAN AI</span>Yes — the Glow Sale 40% covers all festive wear, sarees included ✨</div></div>
+  <div class="pair" id="p3"><div class="q">Gift wrap milega?</div><div class="a"><span class="tag">✦ SPANDAN AI</span>Haan! Free festive gift wrap at checkout 🎁</div></div>
+  <div class="center" id="count"><span class="chip">⚡ <span id="n">0</span> chats answered by AI</span></div>
+</div><script type="module">
+import { film, enter, pop, count, $, $$ } from './lib/kit.js';
+film({ theme: 'saffron', duration: 8.5, draw(t) {
+  enter($('#title'), t, -0.25, { y: 40 });
+  $$('.pair').forEach((pr, i) => { pop(pr.querySelector('.q'), t, 0.6 + i * 0.8, { s: 0.6 }); pop(pr.querySelector('.a'), t, 3.6 + i * 0.8, { s: 0.6 }); });
+  enter($('#count'), t, 5.6, { y: 30 });
+  count($('#n'), t, 5.8, 2.4, 0, 1840);
+} });
+</script></body></html>

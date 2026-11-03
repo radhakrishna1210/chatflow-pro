@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  .phone { left: 220px; top: 300px; }
+  #miss { position: absolute; left: 40px; right: 40px; top: 1650px; text-align: center; font-family: var(--mono); font-size: 34px; font-weight: 600; color: var(--red); }
+  #x { position: absolute; left: 0; right: 0; top: 900px; text-align: center; font-size: 240px; z-index: 9; }
+</style></head><body><div class="stage">
+  <div class="phone"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av">Q</div><div><div class="wa-name">QuickKart</div><div class="wa-sub">last seen today at 4:10 PM</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+  <div id="x">❌</div>
+  <div id="miss">“my parcel hasn’t come” ≠ “where is my order”</div>
+</div><script type="module">
+import { film, enter, pop, Chat, $ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: 0.4, side: 'out', time: '4:12 PM', html: 'my parcel hasn’t come yet 😡 ordered last week' },
+  { at: 1.8, side: 'out', time: '5:40 PM', html: 'hello??' },
+  { at: 2.6, side: 'out', time: '7:03 PM', html: '?????' },
+  { at: 3.4, side: 'out', time: '9:15 PM', html: 'Forget it. Cancel my order.' },
+]);
+film({ bg: 'bad', duration: 6.8, setup: () => chat.measure(), draw(t) {
+  enter($('.phone'), t, -0.3, { y: 200, d: 0.5 });
+  chat.draw(t);
+  pop($('#x'), t, 4.6, { s: 3 });
+  enter($('#miss'), t, 1.0, { y: 20 });
+} });
+</script></body></html>

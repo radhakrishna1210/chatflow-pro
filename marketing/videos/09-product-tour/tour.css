@@ -1,0 +1,33 @@
+/* Layout shared by the tour's pages: copy on the left, product on the right. */
+#chrome-top { position: absolute; left: 64px; top: 44px; display: flex; align-items: center; gap: 22px; font-size: 24px; z-index: 20; }
+#chrome-top .logo { font-size: 28px; gap: 12px; } #chrome-top .logo .mark { width: 42px; height: 42px; font-size: 24px; }
+#chrome-top .ch { font-family: var(--mono); font-size: 20px; letter-spacing: .12em; color: var(--t2); padding: 8px 16px; border-radius: 999px; border: 1px solid var(--glass-bd); background: rgba(255,255,255,.04); text-transform: uppercase; }
+#rail { position: absolute; left: 64px; right: 64px; bottom: 34px; display: flex; gap: 8px; z-index: 20; }
+#rail .seg { flex: 1; }
+#rail .bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,.1); overflow: hidden; }
+#rail .bar i { display: block; height: 100%; background: var(--grad-cta); transform-origin: left; }
+#rail .lb { font-family: var(--mono); font-size: 13px; color: var(--t3); margin-top: 8px; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#rail .seg.on .lb { color: var(--cyan); }
+.left { position: absolute; left: 110px; top: 200px; width: 700px; }
+.left .eyebrow { font-size: 22px; }
+.left h1 { font-size: 74px; margin-top: 18px; }
+.left p { font-size: 28px; line-height: 1.45; color: var(--t2); margin-top: 26px; font-weight: 600; }
+.left ul { list-style: none; margin-top: 30px; display: flex; flex-direction: column; gap: 16px; }
+.left li { font-size: 26px; font-weight: 700; display: flex; gap: 14px; align-items: center; }
+.left li b { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: rgba(53,232,242,.14); color: var(--cyan); font-size: 20px; flex: none; }
+.right { position: absolute; left: 880px; right: 90px; top: 150px; bottom: 120px; }
+.ui { background: #0e1117; border: 1px solid rgba(255,255,255,.1); border-radius: 22px; box-shadow: 0 40px 100px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06); overflow: hidden; }
+.ui .tb { height: 46px; display: flex; align-items: center; gap: 8px; padding: 0 18px; background: rgba(255,255,255,.03); border-bottom: 1px solid rgba(255,255,255,.06); font-family: var(--mono); font-size: 15px; color: var(--t3); }
+.ui .tb i { width: 12px; height: 12px; border-radius: 50%; background: #2a2f37; display: block; }
+.ui .tb span { margin-left: 14px; }
+.pillx { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; font-size: 17px; font-weight: 800; }
+.phone.sm { width: 440px; height: 860px; border-radius: 56px; }
+.phone.sm .notch { width: 120px; height: 30px; margin-left: -60px; top: 14px; }
+.phone.sm .wa-head { height: 120px; padding: 52px 20px 0; } .phone.sm .wa-av { width: 48px; height: 48px; font-size: 22px; }
+.phone.sm .wa-name { font-size: 22px; } .phone.sm .wa-sub { font-size: 15px; }
+.phone.sm .wa-body { top: 120px; bottom: 76px; padding: 0 14px 12px; }
+.phone.sm .wa-foot { height: 76px; } .phone.sm .wa-input { height: 46px; font-size: 17px; } .phone.sm .wa-send { width: 46px; height: 46px; }
+.phone.sm .bub { font-size: 18px; padding: 11px 14px 8px; } .phone.sm .bub .meta { font-size: 12px; }
+.phone.sm .slot > .inner { padding-top: 10px; }
+.phone.sm .tpl .img { height: 150px; font-size: 30px; } .phone.sm .tpl .b { font-size: 18px; padding: 11px; }
+.phone.sm .bub .tag { font-size: 12px; } .phone.sm .facts span { font-size: 12px; padding: 4px 8px; }

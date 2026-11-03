@@ -1,0 +1,27 @@
+[
+ {
+  "page": "s1-built",
+  "at": 0.0,
+  "dur": 5.6
+ },
+ {
+  "page": "s2-silence",
+  "at": 5.6,
+  "dur": 6.8
+ },
+ {
+  "page": "s3-intent",
+  "at": 12.4,
+  "dur": 7.6
+ },
+ {
+  "page": "s4-history",
+  "at": 20.0,
+  "dur": 6.6
+ },
+ {
+  "page": "s5-cta",
+  "at": 26.6,
+  "dur": 5.4
+ }
+]

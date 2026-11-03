@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #rnd { top: 150px; font-size: 34px; }
+  .side { position: absolute; left: 70px; right: 70px; height: 600px; border-radius: 44px; padding: 60px 60px; display: flex; flex-direction: column; justify-content: center; gap: 24px; border: 3px solid; }
+  .side .lab { font-family: var(--mono); font-weight: 600; letter-spacing: .2em; font-size: 30px; }
+  .side .em { font-size: 110px; line-height: 1; }
+  .side h2 { font-size: 76px; }
+  #this { top: 240px; background: linear-gradient(160deg, rgba(255,90,106,.16), rgba(255,181,71,.06)); border-color: rgba(255,90,106,.4); }
+  #this .lab { color: var(--red); }
+  #that { top: 1000px; background: linear-gradient(160deg, rgba(53,232,242,.16), rgba(196,255,70,.06)); border-color: rgba(53,232,242,.45); }
+  #that .lab { color: var(--cyan); }
+  #vs { position: absolute; left: 50%; top: 920px; width: 150px; height: 150px; margin: -75px 0 0 -75px; border-radius: 50%; background: #fff; color: #0a0b0e; display: grid; place-items: center; font-family: var(--display); font-weight: 700; font-size: 56px; z-index: 3; box-shadow: 0 0 0 12px #0a0b0e; }
+  .mark { position: absolute; right: 50px; top: 50px; font-size: 110px; }
+  #ring { position: absolute; width: 150px; height: 150px; margin: -75px 0 0 -75px; border-radius: 50%; border: 7px solid #fff; background: rgba(255,255,255,.2); left: 760px; top: 1420px; opacity: 0; z-index: 5; }
+  #ask { top: 1680px; font-size: 40px; font-weight: 800; color: var(--t2); }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="rnd">Round 5 / 5</div>
+  <div class="side" id="this"><span class="lab">THIS</span><span class="em">🔕</span><h2>Customer says STOP… and still gets messages</h2><span class="mark" id="m1">🙅</span></div>
+  <div id="vs">VS</div>
+  <div class="side" id="that"><span class="lab">THAT</span><span class="em">🛑</span><h2>STOP blocks that number for good</h2><span class="mark" id="m2">✅</span></div>
+  <div id="ring"></div>
+  <div class="center" id="ask">Which one are you living? 👇</div>
+</div><script type="module">
+import { film, enter, pop, tap, p, $ } from './lib/kit.js';
+film({ duration: 5.2, draw(t) {
+  enter($('#rnd'), t, -0.2, { y: 10 });
+  enter($('#this'), t, -0.15, { x: -500, y: 0, d: 0.45 });
+  enter($('#that'), t, 0.1, { x: 500, y: 0, d: 0.45 });
+  pop($('#vs'), t, 0.3, { s: 0.2 });
+  $('#vs').style.transform += ` rotate(${Math.sin(t * 3) * 8}deg)`;
+  tap($('#ring'), t, 3.9);
+  const k = p(t, 3.9, 0.4);
+  $('#this').style.opacity = String(Math.min(+$('#this').style.opacity, 1 - 0.55 * k));
+  $('#this').style.filter = `grayscale(${k})`;
+  $('#that').style.boxShadow = `0 0 ${100 * k}px rgba(53,232,242,${0.4 * k})`;
+  $('#that').style.transform += ` scale(${1 + 0.03 * k})`;
+  pop($('#m1'), t, 3.9 + 0.1); pop($('#m2'), t, 3.9 + 0.15);
+  enter($('#ask'), t, 0.6, { y: 20 });
+} });
+</script></body></html>

@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #time { top: 250px; font-size: 260px; font-weight: 600; letter-spacing: -0.04em; }
+  #date { top: 560px; font-size: 44px; color: var(--t2); font-weight: 700; }
+  #notes { position: absolute; left: 70px; right: 70px; top: 720px; display: flex; flex-direction: column; gap: 22px; }
+  .n { display: flex; gap: 24px; align-items: center; padding: 26px 30px; border-radius: 34px; background: rgba(40,44,52,.78); border: 1px solid rgba(255,255,255,.1); }
+  .n .ic { width: 80px; height: 80px; border-radius: 20px; background: #25d366; display: grid; place-items: center; font-size: 44px; flex: none; }
+  .n b { font-size: 32px; display: block; } .n span { font-size: 30px; color: var(--t2); }
+  .n .ago { margin-left: auto; font-size: 24px; color: var(--t3); align-self: flex-start; }
+  #sale { top: 1600px; font-size: 40px; font-weight: 800; color: var(--t3); font-family: var(--mono); }
+</style></head><body><div class="stage">
+  <h1 class="center" id="time">11:48</h1>
+  <div class="center" id="date">Tuesday · sale launched at 6:00 PM</div>
+  <div id="notes"></div>
+  <div class="center" id="sale">😮‍💨 still replying…</div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+const N = [['Ritika', 'Is COD available on the kurta set?', 'now'], ['+91 98•••• 4410', 'Size L still there??', '2m'], ['Aman', 'Hello? Anyone?', '9m'], ['Sneha', 'Does 30% apply to the dupatta?', '21m'], ['+91 70•••• 1182', 'Do you ship to Kochi', '43m'], ['WhatsApp Business', '1,284 unread chats', '']];
+N.forEach(([a, b, c]) => $('#notes').insertAdjacentHTML('beforeend', `<div class="n"><div class="ic">💬</div><div><b>${a}</b><span>${b}</span></div><span class="ago">${c}</span></div>`));
+film({ bg: 'bad', duration: 5.8, draw(t) {
+  enter($('#time'), t, -0.3, { y: 0, s: 1.1 });
+  $('#time').textContent = t < 4.5 ? '11:48' : '11:49';
+  enter($('#date'), t, 0.0, { y: 20 });
+  $$('.n').forEach((n, i) => pop(n, t, 1.4 + i * 0.6, { s: 0.85, y: -40 }));
+  enter($('#sale'), t, 4.6, { y: 20 });
+} });
+</script></body></html>

@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #q { top: 340px; font-size: 116px; padding: 0 70px; }
+  #opts { top: 760px; font-size: 150px; }
+  #cmt { top: 1020px; } #cmt .comment { font-size: 50px; }
+  #logo { top: 1320px; font-size: 64px; } #logo .mark { width: 92px; height: 92px; font-size: 54px; }
+  #foot { top: 1450px; font-size: 32px; color: var(--t3); font-family: var(--mono); font-weight: 600; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="q">Would your bot <span class="hl">pass this test?</span></h1>
+  <div class="center" id="opts"><span id="y">✅</span>  <span id="n">❌</span></div>
+  <div class="center" id="cmt"><span class="comment">💬 Comment ✅ or ❌</span></div>
+  <div class="center" id="logo"><span class="logo"><span class="mark">S</span>Spandan</span></div>
+  <div class="center" id="foot">Campaign AI · grounded per message</div>
+</div><script type="module">
+import { film, enter, pop, drawWords, $ } from './lib/kit.js';
+film({ duration: 5.4, draw(t) {
+  drawWords($('#q'), t, -0.2, { rate: 0.08 });
+  ['#y', '#n'].forEach((s, i) => { pop($(s), t, 0.8 + i * 0.2); $(s).style.display = 'inline-block'; $(s).style.transform += ` rotate(${Math.sin(t * 4 + i * 3) * 8}deg)`; });
+  pop($('#cmt'), t, 1.6);
+  pop($('#logo'), t, 2.8); enter($('#foot'), t, 3.2, { y: 20 });
+} });
+</script></body></html>

@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #ph { left: 220px; top: 260px; width: 640px; height: 1300px; border-radius: 76px; background: linear-gradient(#1b2330, #0b0f15); border: 3px solid #2a2f37; box-shadow: 0 0 0 10px #12161c, 0 60px 120px rgba(0,0,0,.7); }
+  #who { top: 520px; font-size: 64px; } #lab { top: 610px; font-size: 32px; color: var(--t2); font-weight: 600; }
+  #av { left: 430px; top: 760px; width: 220px; height: 220px; border-radius: 50%; background: var(--grad-id); display: grid; place-items: center; font-size: 110px; }
+  .wave { position: absolute; left: 430px; top: 760px; width: 220px; height: 220px; border-radius: 50%; border: 4px solid rgba(53,232,242,.6); }
+  #btns { position: absolute; left: 300px; right: 300px; top: 1300px; display: flex; justify-content: space-between; }
+  #btns i { width: 140px; height: 140px; border-radius: 50%; display: grid; place-items: center; font-size: 64px; font-style: normal; }
+  #missed { top: 1640px; font-size: 52px; font-weight: 800; color: var(--red); }
+  #desk { left: 60px; top: 120px; font-size: 34px; padding: 18px 28px; }
+</style></head><body><div class="stage">
+  <div class="abs" id="ph"></div>
+  <div class="abs chip" id="desk">🏥 Reception: 4 patients waiting</div>
+  <h1 class="center" id="who">Incoming call</h1>
+  <div class="center" id="lab">+91 98•••• 2207 · mobile</div>
+  <div class="wave" id="w1"></div><div class="wave" id="w2"></div>
+  <div class="abs" id="av">👤</div>
+  <div id="btns"><i style="background:#ff3b30">✆</i><i style="background:#34c759">✆</i></div>
+  <div class="center" id="missed">📵 Missed call (<span id="n">1</span>)</div>
+</div><script type="module">
+import { film, enter, pop, p, $ } from './lib/kit.js';
+film({ bg: 'bad', duration: 5, draw(t) {
+  enter($('#ph'), t, -0.3, { y: 100 });
+  enter($('#desk'), t, 0, { y: -20 });
+  enter($('#who'), t, -0.1, { y: 10 }); enter($('#lab'), t, 0, { y: 10 });
+  pop($('#av'), t, 0); $('#av').style.transform += ` rotate(${Math.sin(t * 30) * (t % 1 < 0.5 ? 6 : 0)}deg)`;
+  ['#w1', '#w2'].forEach((w, i) => { const k = ((t + i * 0.5) % 1); $(w).style.transform = `scale(${1 + k * 0.8})`; $(w).style.opacity = String(1 - k); });
+  enter($('#btns'), t, 0.1, { y: 40 });
+  enter($('#missed'), t, 2.2, { y: 20 });
+  $('#n').textContent = String(Math.min(6, 1 + Math.floor(Math.max(0, t - 2.2) * 2.5)));
+} });
+</script></body></html>

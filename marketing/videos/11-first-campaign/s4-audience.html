@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css"><link rel="stylesheet" href="step.css">
+<style>
+  #u { top: 560px; }
+  .row span.n { margin-left: auto; font-family: var(--mono); font-size: 26px; color: var(--t3); }
+  #segs { position: absolute; left: 90px; right: 90px; top: 1250px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .sg { padding: 30px; } .sg h3 { font-size: 36px; } .sg .v { font-family: var(--display); font-weight: 800; font-size: 72px; margin-top: 6px; }
+  #s1 { border: 3px solid var(--lime); }
+</style></head><body><div class="stage">
+  <div class="center" id="badge"><span class="chip">STEP 3 / 5</span></div>
+  <h1 class="center" id="title">Pick your <span class="hl">audience.</span></h1>
+  <div class="ui" id="u"><div class="tb"><i></i><i></i><i></i><span>⬆ customers.csv · 2,480 rows</span></div>
+    <div class="row">Ritika Shah <span class="n">+91 98•••• 4410</span></div><div class="row">Aman Verma <span class="n">+91 70•••• 1182</span></div><div class="row">Sneha Iyer <span class="n">+91 99•••• 2071</span></div><div class="row" style="border:0">Kabir Mehta <span class="n">+91 90•••• 7314</span></div></div>
+  <div id="segs"><div class="sg card" id="s1"><h3>⭐ New sign-ups</h3><div class="v hl">640</div></div><div class="sg card"><h3>🛒 Repeat buyers</h3><div class="v">1,120</div></div></div>
+  <div id="prog"></div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+import { progress } from './progress.js';
+const pr = progress(3, 5.8);
+film({ theme: 'day', duration: 5.8, draw(t) {
+  pr(t);
+  pop($('#badge'), t, -0.2); enter($('#title'), t, -0.1, { y: 40 });
+  enter($('#u'), t, 0.3, { y: 60 });
+  $$('#u .row').forEach((r, i) => enter(r, t, 0.8 + i * 0.2, { x: 40, y: 0, d: 0.35 }));
+  $$('.sg').forEach((s, i) => pop(s, t, 2.4 + i * 0.3, { s: 0.8 }));
+  $('#s1').style.boxShadow = t > 3.4 ? '0 0 0 8px rgba(25,179,107,.18), 0 30px 70px rgba(42,30,80,.14)' : '';
+} });
+</script></body></html>

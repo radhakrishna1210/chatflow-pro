@@ -1,0 +1,27 @@
+[
+ {
+  "page": "s1-bill",
+  "at": 0.0,
+  "dur": 4.6
+ },
+ {
+  "page": "s2-lines",
+  "at": 4.6,
+  "dur": 8.8
+ },
+ {
+  "page": "s3-ledger",
+  "at": 13.4,
+  "dur": 12.0
+ },
+ {
+  "page": "s4-rate",
+  "at": 25.4,
+  "dur": 4.8
+ },
+ {
+  "page": "s5-cta",
+  "at": 30.2,
+  "dur": 6.0
+ }
+]

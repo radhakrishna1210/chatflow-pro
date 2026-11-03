@@ -1,0 +1,32 @@
+[
+ {
+  "page": "s1-hook",
+  "at": 0.0,
+  "dur": 5.0
+ },
+ {
+  "page": "s2-template",
+  "at": 5.0,
+  "dur": 7.5
+ },
+ {
+  "page": "s3-send",
+  "at": 12.5,
+  "dur": 6.0
+ },
+ {
+  "page": "s4-answers",
+  "at": 18.5,
+  "dur": 8.5
+ },
+ {
+  "page": "s5-evening",
+  "at": 27.0,
+  "dur": 7.0
+ },
+ {
+  "page": "s6-end",
+  "at": 34.0,
+  "dur": 7.5
+ }
+]

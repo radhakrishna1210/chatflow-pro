@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #eye { top: 300px; font-size: 30px; }
+  #num { top: 380px; font-size: 270px; }
+  #lab { top: 690px; font-size: 52px; font-weight: 800; color: var(--t2); }
+  #bars { position: absolute; left: 110px; right: 110px; top: 860px; display: flex; flex-direction: column; gap: 30px; }
+  .b .row { display: flex; justify-content: space-between; font-size: 40px; font-weight: 800; }
+  .b .tr { height: 26px; border-radius: 13px; background: rgba(255,220,160,.12); margin-top: 12px; overflow: hidden; }
+  .b .fl { height: 100%; border-radius: 13px; background: var(--grad-cta); transform-origin: left; }
+  #burst { position: absolute; left: 540px; top: 520px; }
+  #burst i { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #ffd56b; box-shadow: 0 0 20px #ffb02e; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">One tap · VIP segment</div>
+  <h1 class="center" id="num"><span class="hl" id="n">0</span></h1>
+  <div class="center" id="lab">Diwali messages sent ✓✓</div>
+  <div id="bars">
+    <div class="b"><div class="row"><span>📬 Delivered</span><span id="d">0%</span></div><div class="tr"><div class="fl" id="fd"></div></div></div>
+    <div class="b"><div class="row"><span>👀 Read</span><span id="r">0%</span></div><div class="tr"><div class="fl" id="fr"></div></div></div>
+  </div>
+  <div id="burst"></div>
+</div><script type="module">
+import { film, enter, count, p, ease, $, $$ } from './lib/kit.js';
+for (let i = 0; i < 28; i++) $('#burst').appendChild(document.createElement('i'));
+film({ theme: 'saffron', duration: 6.0, draw(t) {
+  enter($('#eye'), t, -0.2, { y: 20 });
+  enter($('#num'), t, -0.1, { s: 0.6, y: 0, d: 0.5 });
+  count($('#n'), t, 0.3, 1.9, 0, 10000);
+  enter($('#lab'), t, 0.4, { y: 20 });
+  const k = p(t, 2.2, 1.2);
+  $$('#burst i').forEach((d, i) => { const a = i / 28 * Math.PI * 2; const r = ease.out(k) * (300 + (i % 4) * 80); d.style.transform = `translate(${Math.cos(a) * r}px, ${Math.sin(a) * r}px)`; d.style.opacity = String(k > 0 && k < 1 ? 1 - k : 0); });
+  enter($('#bars'), t, 2.0, { y: 40 });
+  const kd = ease.out(p(t, 2.4, 1.6)), kr = ease.out(p(t, 3.0, 1.8));
+  $('#fd').style.transform = `scaleX(${0.98 * kd})`; $('#d').textContent = Math.round(98 * kd) + '%';
+  $('#fr').style.transform = `scaleX(${0.84 * kr})`; $('#r').textContent = Math.round(84 * kr) + '%';
+} });
+</script></body></html>

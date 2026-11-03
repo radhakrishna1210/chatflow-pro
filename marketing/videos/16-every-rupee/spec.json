@@ -1,0 +1,134 @@
+{
+ "title": "Every rupee, accounted for",
+ "size": [
+  1080,
+  1920
+ ],
+ "voice": "bm_george",
+ "music": [
+  {
+   "src": "bed-calm",
+   "at": 0,
+   "in": 0,
+   "out": 60,
+   "volume": 0.16
+  }
+ ],
+ "scenes": [
+  {
+   "page": "s1-title.html",
+   "dur": 5.0,
+   "vo": [
+    [
+     0.3,
+     "Every rupee. Accounted for."
+    ]
+   ],
+   "sfx": [
+    [
+     0.2,
+     "impact",
+     0.5
+    ],
+    [
+     1.8,
+     "cash",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s2-ledger.html",
+   "dur": 10.0,
+   "vo": [
+    [
+     0.3,
+     "Spandan reserves at launch, and settles on completion. Opted-out numbers are never charged. And retries are billed only once."
+    ]
+   ],
+   "sfx": [
+    [
+     0.6,
+     "tick",
+     0.6
+    ],
+    [
+     3.4,
+     "tick",
+     0.6
+    ],
+    [
+     5.6,
+     "tick",
+     0.6
+    ],
+    [
+     7.6,
+     "tick",
+     0.6
+    ]
+   ]
+  },
+  {
+   "page": "s3-refund.html",
+   "dur": 6.4,
+   "vo": [
+    [
+     0.3,
+     "Anything that never went out comes straight back to your wallet."
+    ]
+   ],
+   "sfx": [
+    [
+     1.6,
+     "cash",
+     0.6
+    ],
+    [
+     2.0,
+     "success",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s4-rate.html",
+   "dur": 6.4,
+   "vo": [
+    [
+     0.3,
+     "And every message is billed at Meta's own rate. No markup. Ever."
+    ]
+   ],
+   "sfx": [
+    [
+     2.6,
+     "impact",
+     0.5
+    ]
+   ]
+  },
+  {
+   "page": "s5-end.html",
+   "dur": 7.0,
+   "vo": [
+    [
+     0.3,
+     "Billing you can actually audit. That's Spandan."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "riser",
+     0.3
+    ],
+    [
+     1.4,
+     "impact",
+     0.5
+    ]
+   ]
+  }
+ ]
+}

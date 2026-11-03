@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #day { top: 120px; font-size: 44px; font-family: var(--mono); color: var(--red); font-weight: 600; letter-spacing: .1em; }
+  .phone { left: 220px; top: 230px; }
+  #shot { position: absolute; left: 0; right: 0; top: 1600px; text-align: center; z-index: 9; }
+  #shot .comment { font-size: 44px; background: var(--red); color: #fff; }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; z-index: 10; }
+</style></head><body><div class="stage">
+  <div class="center" id="day">THURSDAY · GENERIC BOT</div>
+  <div class="phone"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av" style="background:#555">🤖</div><div><div class="wa-name">ShopBot</div><div class="wa-sub">automated replies</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+  <div id="shot"><span class="comment">📸 Screenshot saved. Posting it.</span></div>
+  <div id="flash"></div>
+</div><script type="module">
+import { film, enter, pop, p, Chat, $ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: 0.3, side: 'in', time: 'Mon 10:00 AM', tpl: { img: '50% OFF<br>EVERYTHING', html: '📣 Big Summer Sale — 50% off, this week only.', btns: ['🛍 Shop now'] } },
+  { at: 0.6, side: 'out', time: 'Thu 3:12 PM', html: 'Is my 50% still valid? Checking out now' },
+  { at: 2.8, side: 'in', time: 'Thu 3:12 PM', html: 'The current offer is 30% off. 🙂' },
+  { at: 5.4, side: 'out', time: 'Thu 3:13 PM', html: 'WHAT?! You sent ME 50%. This is a scam 😡' },
+]);
+film({ bg: 'bad', duration: 10, setup: () => chat.measure(), draw(t) {
+  enter($('#day'), t, -0.3, { y: 20 });
+  enter($('.phone'), t, -0.3, { y: 200, d: 0.5 });
+  chat.draw(t);
+  const f = p(t, 7.4, 0.35); $('#flash').style.opacity = String(f > 0 && f < 1 ? 0.8 * (1 - f) : 0);
+  pop($('#shot'), t, 7.5);
+} });
+</script></body></html>

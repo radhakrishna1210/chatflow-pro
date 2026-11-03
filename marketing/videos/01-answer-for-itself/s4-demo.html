@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #title { top: 150px; font-size: 92px; padding: 0 70px; }
+  .phone { left: 220px; top: 470px; }
+  #ring { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 6px solid #fff; background: rgba(255,255,255,0.2); opacity: 0; z-index: 9; }
+  #badge { position: absolute; right: 24px; top: 990px; z-index: 8; font-size: 30px; padding: 18px 26px; background: #0d1a1f; border-color: rgba(53,232,242,0.5); }
+</style></head>
+<body><div class="stage">
+  <div class="bg"><div class="grid"></div><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <h1 class="center" id="title">Your campaign can <span class="hl">answer for itself.</span></h1>
+  <div class="phone"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av">V</div><div><div class="wa-name">Vastra Studio</div><div class="wa-sub">Spandan AI · knows this campaign</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+  <div id="ring"></div>
+  <div class="chip" id="badge">⚡ Answered in seconds</div>
+</div>
+<script type="module">
+import { film, enter, pop, drawWords, tap, Chat, $, $$ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: 0.5, side: 'in', time: '6:00 PM', tpl: { img: 'REPUBLIC DAY<br>DROP · 30% OFF', html: '🎉 <b>Republic Day Drop</b> — flat <b>30% off</b> the Linen Kurta set. This week only.', btns: ['🛍 Shop the drop', '✦ Ask Anything'] } },
+  { at: 3.5, side: 'out', html: 'Does 30% work on the linen set in size L?' },
+  { at: 4.1, side: 'in', typing: true, until: 5.9 },
+  { at: 6.0, side: 'in', ai: true, html: 'Yes — the Republic Day 30% applies to the Linen Kurta set, and size L is in stock. Tap “Shop the drop” and it’s pre-applied at checkout.<div class="facts"><span>OFFER 30%</span><span>ITEM Linen Kurta</span><span>SIZE L ✓</span></div>' },
+]);
+film({ duration: 10, setup: () => chat.measure(), draw(t) {
+  drawWords($('#title'), t, 0.05, { rate: 0.07 });
+  enter($('.phone'), t, 0.1, { y: 260, d: 0.8 });
+  chat.draw(t);
+  const btn = $$('.tpl .b')[1];
+  const r = btn.getBoundingClientRect();
+  $('#ring').style.left = (r.left + r.width / 2) + 'px';
+  $('#ring').style.top = (r.top + r.height / 2) + 'px';
+  tap($('#ring'), t, 3.2);
+  btn.style.background = t > 3.1 && t < 3.6 ? 'rgba(83,189,235,0.18)' : 'transparent';
+  pop($('#badge'), t, 6.6);
+} });
+</script></body></html>

@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #prompt { position: absolute; left: 0; right: 0; top: 0; padding: 22px 26px; display: flex; gap: 16px; align-items: center; font-size: 24px; font-weight: 600; }
+  #prompt .ai { width: 48px; height: 48px; border-radius: 14px; background: var(--grad-id); display: grid; place-items: center; color: var(--ink); font-weight: 800; flex: none; }
+  #tpl { position: absolute; left: 0; width: 470px; top: 130px; padding: 14px; background: #202c33; border-radius: 22px; }
+  #img { height: 230px; border-radius: 14px; background: linear-gradient(135deg,#ff9a62,#ff5a8a 50%,#9d6bff); display: grid; place-items: center; text-align: center; font-family: var(--display); font-weight: 700; font-size: 40px; color: #fff; line-height: 1.05; }
+  #img small { display: block; font-size: 20px; font-family: var(--mono); opacity: .85; margin-top: 8px; }
+  #body { font-size: 21px; line-height: 1.45; padding: 14px 8px 6px; color: #e9edef; } #body .v { color: var(--cyan); font-family: var(--mono); }
+  .tb2 { text-align: center; color: #53bdeb; font-weight: 700; padding: 12px; font-size: 20px; border-top: 1px solid rgba(255,255,255,.08); }
+  #steps { position: absolute; left: 510px; right: 0; top: 130px; display: flex; flex-direction: column; gap: 16px; }
+  .stp { padding: 20px 22px; font-size: 22px; font-weight: 700; display: flex; gap: 14px; align-items: center; }
+  .stp .d { width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--t3); flex: none; display: grid; place-items: center; font-size: 15px; }
+  #status { position: absolute; left: 510px; right: 0; top: 520px; padding: 24px; text-align: center; }
+  #status .l { font-family: var(--mono); font-size: 16px; color: var(--t3); }
+  #status .s { font-family: var(--display); font-size: 40px; font-weight: 700; margin-top: 8px; }
+</style></head><body><div class="stage">
+  <div class="left"><div class="eyebrow">Step 2 · Template studio</div><h1>Describe it. <span class="hl">AI builds it.</span></h1>
+    <p>Copy, header image and buttons, generated in seconds. Submit to Meta and approval lands by webhook.</p>
+    <ul><li><b>✦</b>AI copy &amp; header images</li><li><b>⚡</b>30+ ready-made templates</li><li><b>✓</b>Live Meta approval status</li></ul></div>
+  <div class="right">
+    <div class="ui" id="prompt"><span class="ai">✦</span><span id="ptxt"></span></div>
+    <div id="tpl"><div id="img">Still thinking<br>about it? 🛒<small>AI-GENERATED HEADER</small></div>
+      <div id="body">Hi <span class="v">{{1}}</span>, you left the <b>Linen Kurta set</b> in your cart 👀 It’s still waiting — and your size is in stock. Complete your order today for free shipping!</div>
+      <div class="tb2">🛍 Complete my order</div><div class="tb2">✦ Ask Anything</div></div>
+    <div id="steps"><div class="stp card"><span class="d">✓</span>Copy written</div><div class="stp card"><span class="d">✓</span>Header image generated</div><div class="stp card"><span class="d">✓</span>Buttons added</div><div class="stp card"><span class="d">✓</span>Submitted to Meta</div></div>
+    <div class="card" id="status"><div class="l">META REVIEW · VIA WEBHOOK</div><div class="s" id="stx">PENDING</div></div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, typeText, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const ch = chrome(2, 12.8);
+film({ duration: 12.8, draw(t) {
+  ch(t);
+  enter($('.left .eyebrow'), t, 0, { y: 20 }); enter($('.left h1'), t, 0.15, { y: 30 }); enter($('.left p'), t, 1.6, { y: 20 });
+  $$('.left li').forEach((l, i) => enter(l, t, 3.6 + i * 1.2, { x: -30, y: 0 }));
+  enter($('#prompt'), t, 0.6, { y: 30 });
+  typeText($('#ptxt'), 'Create a template for an abandoned cart', t, 1.8, 24);
+  pop($('#tpl'), t, 3.8, { s: 0.85 });
+  enter($('#img'), t, 5.4, { y: 0, s: 0.9 }); enter($('#body'), t, 4.2, { y: 10 });
+  $$('.tb2').forEach((b, i) => enter(b, t, 7.1 + i * 0.2, { y: 10 }));
+  const at = [4.4, 6.0, 7.3, 8.2];
+  $$('.stp').forEach((s, i) => { enter(s, t, at[i], { x: 40, y: 0 }); const d = s.querySelector('.d'); const done = t > at[i] + 0.4; d.style.borderColor = done ? 'var(--wa)' : ''; d.style.background = done ? 'var(--wa)' : ''; d.style.color = done ? '#06110f' : 'transparent'; });
+  enter($('#status'), t, 8.6, { y: 20 });
+  const ok = t > 10.6; $('#stx').textContent = ok ? 'APPROVED ✓' : t > 9.4 ? 'IN REVIEW…' : 'SUBMITTED';
+  $('#stx').style.color = ok ? 'var(--wa)' : 'var(--amber)';
+  $('#status').style.boxShadow = ok ? '0 0 60px rgba(37,211,102,.3)' : '';
+} });
+</script></body></html>

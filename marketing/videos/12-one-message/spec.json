@@ -1,0 +1,126 @@
+{
+ "title": "Follow one message",
+ "size": [
+  1080,
+  1920
+ ],
+ "voice": "af_nicole",
+ "speed": 1.08,
+ "music": [
+  {
+   "src": "bed-synth",
+   "at": 0,
+   "in": 0,
+   "out": 60,
+   "volume": 0.22
+  }
+ ],
+ "scenes": [
+  {
+   "page": "s1-title.html",
+   "dur": 4.4,
+   "vo": [
+    [
+     0.3,
+     "Follow one WhatsApp message, all the way."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "impact",
+     0.5
+    ],
+    [
+     1.8,
+     "whoosh",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s2-journey.html",
+   "dur": 38.0,
+   "vo": [
+    [
+     0.3,
+     "Signal. It goes out to thousands, with SMS and email as a fallback."
+    ],
+    [
+     7.1,
+     "Context. The customer taps in, carrying the exact offer they received."
+    ],
+    [
+     13.5,
+     "Intelligence. The AI answers from that offer, and never invents one."
+    ],
+    [
+     19.8,
+     "Flow. Intent matching decides what happens next."
+    ],
+    [
+     24.3,
+     "Human. When it matters, a person takes over, with the full story."
+    ],
+    [
+     30.0,
+     "Feedback. Every reply flows into analytics, so the next campaign is smarter."
+    ]
+   ],
+   "sfx": [
+    [
+     0.19999999999999998,
+     "ding",
+     0.4
+    ],
+    [
+     7.0,
+     "ding",
+     0.4
+    ],
+    [
+     13.4,
+     "ding",
+     0.4
+    ],
+    [
+     19.7,
+     "ding",
+     0.4
+    ],
+    [
+     24.2,
+     "ding",
+     0.4
+    ],
+    [
+     29.9,
+     "ding",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s3-end.html",
+   "dur": 7.0,
+   "vo": [
+    [
+     0.3,
+     "One message. Six stops. One platform. Spandan."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "riser",
+     0.4
+    ],
+    [
+     1.4,
+     "impact",
+     0.5
+    ]
+   ]
+  }
+ ]
+}

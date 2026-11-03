@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  .opt2 { position: absolute; left: 0; right: 0; padding: 30px 34px; display: flex; gap: 26px; align-items: center; }
+  .opt2 .ic { width: 84px; height: 84px; border-radius: 24px; display: grid; place-items: center; font-size: 42px; background: rgba(255,255,255,.06); flex: none; }
+  .opt2 h3 { font-size: 34px; } .opt2 p { font-size: 22px; color: var(--t2); margin-top: 6px; font-weight: 600; }
+  #o1 { top: 0; } #o2 { top: 170px; }
+  #or { position: absolute; left: 0; right: 0; top: 140px; text-align: center; font-family: var(--mono); color: var(--t3); font-size: 18px; }
+  #num { position: absolute; left: 0; right: 0; top: 380px; padding: 34px; }
+  #num .row { display: flex; justify-content: space-between; align-items: center; }
+  #num h3 { font-size: 40px; font-family: var(--mono); } #num .st { font-size: 22px; }
+  #num .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 26px; }
+  #num .grid div { padding: 18px; border-radius: 16px; background: rgba(255,255,255,.04); font-size: 18px; color: var(--t3); font-family: var(--mono); }
+  #num .grid b { display: block; font-family: var(--body); font-size: 26px; color: var(--t1); margin-top: 6px; }
+  #lock { position: absolute; right: 0; top: 700px; font-size: 22px; }
+</style></head><body><div class="stage">
+  <div class="left"><div class="eyebrow">Step 1 · Connect</div><h1>A number, <span class="hl">live in minutes.</span></h1>
+    <p>Bring your own number through Meta’s embedded signup, or get one assigned from the pool.</p>
+    <ul><li><b>✓</b>Official WhatsApp Business API</li><li><b>✓</b>Templates & tokens stay bound to your workspace</li><li><b>🔒</b>Access tokens encrypted at rest</li></ul></div>
+  <div class="right">
+    <div class="opt2 card" id="o1"><div class="ic">🔗</div><div><h3>Connect your own number</h3><p>Meta embedded signup · 2-minute flow</p></div></div>
+    <div id="or">— or —</div>
+    <div class="opt2 card" id="o2"><div class="ic">🎟️</div><div><h3>Get one from the pool</h3><p>Assigned to your workspace by our team</p></div></div>
+    <div class="ui" id="num"><div class="row"><h3>+91 98200 ••• 41</h3><span class="pillx st" style="background:rgba(37,211,102,.16);color:var(--wa)">● Connected</span></div>
+      <div class="grid"><div>Quality<b>High 🟢</b></div><div>Webhooks<b>Subscribed</b></div><div>API<b>Meta Cloud</b></div></div></div>
+    <div class="chip" id="lock">🔒 AES-256 · encrypted at rest</div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const ch = chrome(1, 14.4);
+film({ duration: 14.4, draw(t) {
+  ch(t);
+  enter($('.left .eyebrow'), t, 0, { y: 20 }); enter($('.left h1'), t, 0.15, { y: 30 }); enter($('.left p'), t, 2.4, { y: 20 });
+  $$('.left li').forEach((l, i) => enter(l, t, [8.0, 9.6, 11.6][i], { x: -30, y: 0 }));
+  enter($('#o1'), t, 2.6, { x: 80, y: 0 }); enter($('#or'), t, 5.4, { y: 0 }); enter($('#o2'), t, 5.8, { x: 80, y: 0 });
+  const sel = t > 6.0 ? 1 : 0; $('#o1').style.borderColor = t > 3.2 && t < 5.8 ? 'rgba(53,232,242,.6)' : '';
+  pop($('#num'), t, 6.2, { s: 0.85 });
+  pop($('#lock'), t, 12.2);
+} });
+</script></body></html>

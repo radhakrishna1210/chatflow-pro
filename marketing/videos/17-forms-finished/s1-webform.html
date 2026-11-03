@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 170px; font-size: 92px; padding: 0 60px; }
+  #form { left: 110px; right: 110px; top: 560px; padding: 36px; }
+  .f { height: 64px; border-radius: 14px; border: 4px solid #111; margin-top: 18px; display: flex; align-items: center; padding: 0 20px; font-size: 26px; color: #888; font-weight: 700; }
+  #pb { margin-top: 26px; height: 22px; border: 4px solid #111; border-radius: 11px; overflow: hidden; } #pb i { display: block; height: 100%; width: 8%; background: #ff2e88; }
+  #pl { font-family: var(--mono); font-size: 24px; font-weight: 600; margin-top: 10px; }
+  #x { position: absolute; left: 0; right: 0; top: 1500px; text-align: center; }
+  #x span { display: inline-block; font-family: var(--display); font-weight: 800; font-size: 76px; background: #111; color: #ffd93d; padding: 18px 40px; border-radius: 22px; transform: rotate(-4deg); }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Nobody finishes your 12-field form.</h1>
+  <div class="abs card" id="form"><div class="f">Full name *</div><div class="f">Email *</div><div class="f">Phone *</div><div class="f">Course *</div><div class="f">City *</div><div class="f">How did you hear… *</div><div id="pb"><i></i></div><div id="pl">Step 1 of 4 · 8%</div></div>
+  <div id="x"><span>✕ TAB CLOSED</span></div>
+</div><script type="module">
+import { film, enter, pop, $ } from './lib/kit.js';
+film({ theme: 'pop', duration: 5.6, draw(t) {
+  enter($('#title'), t, -0.3, { y: 40 });
+  enter($('#form'), t, 0, { y: 120, rot: 3 });
+  $('#form').style.transform += ' rotate(-2deg)';
+  $('#form').style.opacity = String(Math.min(+$('#form').style.opacity, t > 2.6 ? Math.max(0.25, 1 - (t - 2.6) * 2) : 1));
+  pop($('#x'), t, 2.7, { s: 2.2 });
+} });
+</script></body></html>

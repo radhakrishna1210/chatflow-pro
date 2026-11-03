@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 300px; font-size: 32px; }
+  #title { top: 380px; font-size: 104px; padding: 0 60px; }
+  #opts { position: absolute; left: 90px; right: 90px; top: 760px; display: flex; flex-direction: column; gap: 34px; }
+  .opt.a .k { background: #35e8f2; color: #06110f; } .opt.b .k { background: #9d6bff; color: #06110f; } .opt.c .k { background: #c4ff46; color: #06110f; }
+  #cmt { top: 1440px; }
+  #hint { top: 1600px; font-size: 34px; color: var(--t2); font-weight: 600; }
+</style></head>
+<body><div class="stage">
+  <div class="bg"><div class="grid"></div><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <div class="center eyebrow" id="eye">Quick poll · be honest</div>
+  <h1 class="center" id="title">Who answers <span class="hl">your</span> customers?</h1>
+  <div id="opts">
+    <div class="opt a"><span class="k">A</span> Me, at midnight 😵‍💫</div>
+    <div class="opt b"><span class="k">B</span> My team… eventually 🐢</div>
+    <div class="opt c"><span class="k">C</span> Honestly? Nobody 😬</div>
+  </div>
+  <div class="center" id="cmt"><span class="comment">💬 Comment A, B or C</span></div>
+  <div class="center" id="hint">We read every single one 👀</div>
+</div>
+<script type="module">
+import { film, enter, pop, drawWords, $, $$ } from './lib/kit.js';
+film({ duration: 6.2, draw(t) {
+  enter($('#eye'), t, 0.05, { y: 20 });
+  drawWords($('#title'), t, 0.1, { rate: 0.09 });
+  $$('.opt').forEach((o, i) => {
+    enter(o, t, 0.85 + i * 0.4, { x: i % 2 ? 120 : -120, y: 0, d: 0.5 });
+    const glow = Math.max(0, Math.sin((t - 2.2) * 3 - i * 1.2));
+    o.style.borderColor = t > 2.2 ? `rgba(53,232,242,${0.12 + glow * 0.6})` : '';
+  });
+  pop($('#cmt'), t, 4.0);
+  $('#cmt').style.transform += ` scale(${1 + Math.max(0, Math.sin((t - 4.4) * 5)) * 0.04})`;
+  enter($('#hint'), t, 4.6, { y: 20 });
+} });
+</script></body></html>

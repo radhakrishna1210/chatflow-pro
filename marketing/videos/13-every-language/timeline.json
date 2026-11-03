@@ -1,0 +1,32 @@
+[
+ {
+  "page": "s1-hook",
+  "at": 0.0,
+  "dur": 5.4
+ },
+ {
+  "page": "s2-english",
+  "at": 5.4,
+  "dur": 6.4
+ },
+ {
+  "page": "s3-hindi",
+  "at": 11.8,
+  "dur": 6.4
+ },
+ {
+  "page": "s4-hinglish",
+  "at": 18.2,
+  "dur": 6.4
+ },
+ {
+  "page": "s5-tamil",
+  "at": 24.6,
+  "dur": 6.4
+ },
+ {
+  "page": "s6-end",
+  "at": 31.0,
+  "dur": 7.4
+ }
+]

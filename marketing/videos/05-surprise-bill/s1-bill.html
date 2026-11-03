@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 340px; font-size: 32px; color: var(--red); }
+  #inv { left: 110px; right: 110px; top: 440px; padding: 50px; }
+  #inv .l { font-family: var(--mono); font-size: 26px; color: var(--t3); font-weight: 600; }
+  #exp { font-family: var(--display); font-size: 90px; font-weight: 700; color: var(--t2); margin: 10px 0 40px; }
+  #act { font-family: var(--display); font-size: 170px; font-weight: 700; line-height: 1; margin-top: 10px; }
+  #diff { display: inline-block; margin-top: 30px; padding: 14px 28px; border-radius: 999px; background: rgba(255,90,106,.18); color: #ff8a96; font-size: 40px; font-weight: 800; }
+  #face { top: 1380px; font-size: 200px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">⚠ WhatsApp bill · this month</div>
+  <div class="abs card" id="inv">
+    <div class="l">YOU BUDGETED</div><div id="exp">₹31,000</div>
+    <div class="l">YOU WERE BILLED</div><div id="act" class="hl-bad">₹0</div>
+    <div id="diff">+₹17,200 you can’t explain</div>
+  </div>
+  <div class="center" id="face">😳</div>
+</div><script type="module">
+import { film, enter, pop, count, $ } from './lib/kit.js';
+film({ bg: 'bad', duration: 4.6, draw(t) {
+  enter($('#eye'), t, -0.3, { y: 20 });
+  enter($('#inv'), t, -0.2, { y: 80, d: 0.5 });
+  count($('#act'), t, 0.6, 1.6, 0, 48200, v => '₹' + Math.round(v).toLocaleString('en-IN'));
+  const sh = t > 2.2 ? Math.sin(t * 70) * Math.exp(-(t - 2.2) * 5) * 14 : 0;
+  $('#act').style.transform = `translateX(${sh}px)`;
+  pop($('#diff'), t, 2.4);
+  pop($('#face'), t, 2.8);
+} });
+</script></body></html>

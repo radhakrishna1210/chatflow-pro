@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #eye { top: 200px; font-size: 30px; color: var(--violet); }
+  #title { top: 260px; font-size: 118px; padding: 0 70px; }
+  #cart { left: 150px; right: 150px; top: 720px; padding: 40px; }
+  #cart .h { font-family: var(--mono); font-size: 24px; color: var(--t3); font-weight: 600; letter-spacing: .12em; }
+  #cart .item { display: flex; gap: 28px; align-items: center; margin-top: 26px; }
+  #cart .img { width: 190px; height: 190px; border-radius: 20px; background: linear-gradient(135deg, #e9dcc3, #c9b48c); display: grid; place-items: center; font-size: 100px; flex: none; }
+  #cart h3 { font-size: 46px; } #cart p { font-size: 30px; color: var(--t2); margin-top: 8px; font-weight: 600; }
+  #cart .pr { font-family: var(--display); font-size: 52px; font-weight: 800; margin-top: 10px; }
+  #stamp { position: absolute; left: 0; right: 0; top: 1230px; text-align: center; }
+  #stamp span { display: inline-block; padding: 16px 34px; border: 7px solid var(--violet); color: var(--violet); border-radius: 16px; font-family: var(--display); font-weight: 800; font-size: 70px; }
+  #cursor { position: absolute; font-size: 90px; left: 760px; top: 1500px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">Tuesday, 9:42 PM</div>
+  <h1 class="center" id="title">She added it to her cart. <span class="hl">Then she left.</span></h1>
+  <div class="abs card" id="cart"><div class="h">YOUR CART · 1 ITEM</div><div class="item"><div class="img">👘</div><div><h3>Linen Kurta set</h3><p>Size L · sage green</p><div class="pr">₹2,940</div></div></div></div>
+  <div id="stamp"><span>ABANDONED</span></div>
+  <div id="cursor">🖱️</div>
+</div><script type="module">
+import { film, enter, pop, lerp, p, ease, $ } from './lib/kit.js';
+film({ theme: 'paper', duration: 5.4, draw(t) {
+  enter($('#eye'), t, -0.3, { y: 20 });
+  enter($('#title'), t, -0.2, { y: 40 });
+  enter($('#cart'), t, 0.1, { y: 80 });
+  const k = ease.inOut(p(t, 1.0, 1.2));
+  $('#cursor').style.transform = `translate(${lerp(0, 120, k)}px, ${lerp(0, -1300, k)}px)`;
+  $('#cursor').style.opacity = String(p(t, 0.8, 0.2) * (1 - p(t, 2.2, 0.2)));
+  $('#cart').style.filter = `grayscale(${p(t, 2.4, 0.4)})`;
+  pop($('#stamp'), t, 2.5, { s: 2.6, rot: -20 }); $('#stamp span').style.transform = 'rotate(-6deg)';
+} });
+</script></body></html>

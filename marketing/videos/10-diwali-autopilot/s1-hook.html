@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #diya { top: 300px; font-size: 170px; }
+  #l1 { top: 560px; font-size: 130px; } #l2 { top: 720px; font-size: 104px; } #l3 { top: 880px; font-size: 88px; }
+  #one { top: 1160px; font-size: 64px; padding: 0 80px; line-height: 1.15; }
+  #one .serif { font-size: 88px; }
+</style></head><body><div class="stage">
+  <div class="center" id="diya">🪔</div>
+  <h1 class="center" id="l1"><span class="hl">Diwali sale.</span></h1>
+  <h1 class="center" id="l2">10,000 customers.</h1>
+  <h1 class="center" id="l3">Hundreds of questions.</h1>
+  <h2 class="center" id="one">And just <span class="serif hl">one person</span> running it all.</h2>
+</div><script type="module">
+import { film, enter, pop, $ } from './lib/kit.js';
+film({ theme: 'saffron', duration: 5.0, draw(t) {
+  pop($('#diya'), t, -0.2, { s: 0.3 }); $('#diya').style.transform += ` translateY(${Math.sin(t * 3) * 10}px)`;
+  enter($('#l1'), t, -0.25, { y: 50, s: 0.9 });
+  enter($('#l2'), t, 1.0, { y: 50 });
+  enter($('#l3'), t, 1.7, { y: 50 });
+  enter($('#one'), t, 2.6, { y: 40, blur: 8 });
+} });
+</script></body></html>

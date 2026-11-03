@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #quote { top: 320px; font-size: 104px; padding: 0 70px; }
+  #em { top: 720px; font-size: 180px; }
+  #cmt { top: 980px; } #cmt .comment { font-size: 52px; }
+  #sub { top: 1130px; font-size: 40px; color: var(--t2); font-weight: 700; padding: 0 100px; line-height: 1.3; }
+  #logo { top: 1380px; font-size: 64px; } #logo .mark { width: 92px; height: 92px; font-size: 54px; }
+  #foot { top: 1510px; font-size: 32px; color: var(--t3); font-family: var(--mono); font-weight: 600; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="quote">“It <span class="hl-bad">should’ve</span> worked…”</h1>
+  <div class="center" id="em">😅</div>
+  <div class="center" id="cmt"><span class="comment">🏷️ Tag that teammate</span></div>
+  <div class="center" id="sub">Intent matching + run history, built into every workflow</div>
+  <div class="center" id="logo"><span class="logo"><span class="mark">S</span>Spandan</span></div>
+  <div class="center" id="foot">Workflows that actually run</div>
+</div><script type="module">
+import { film, enter, pop, drawWords, $ } from './lib/kit.js';
+film({ duration: 5.4, draw(t) {
+  drawWords($('#quote'), t, -0.2, { rate: 0.08 });
+  pop($('#em'), t, 1.0); $('#em').style.transform += ` rotate(${Math.sin(t * 5) * 8}deg)`;
+  pop($('#cmt'), t, 2.4);
+  enter($('#sub'), t, 3.0, { y: 20 });
+  pop($('#logo'), t, 3.8); enter($('#foot'), t, 4.2, { y: 20 });
+} });
+</script></body></html>

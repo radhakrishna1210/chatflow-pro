@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css"><link rel="stylesheet" href="step.css">
+<style>
+  #u { top: 600px; }
+  .row { font-size: 36px; padding: 34px; } .row small { display: block; font-size: 24px; color: var(--t3); font-weight: 600; margin-top: 4px; }
+  .tg { margin-left: auto; width: 110px; height: 62px; border-radius: 31px; background: #dfe5ee; position: relative; flex: none; }
+  .tg i { position: absolute; top: 6px; left: 6px; width: 50px; height: 50px; border-radius: 50%; background: #fff; box-shadow: 0 4px 10px rgba(0,0,0,.15); }
+</style></head><body><div class="stage">
+  <div class="center" id="badge"><span class="chip">STEP 4 / 5</span></div>
+  <h1 class="center" id="title">Switch on <span class="hl">the smart stuff.</span></h1>
+  <div class="ui" id="u"><div class="tb"><i></i><i></i><i></i><span>Campaign settings</span></div>
+    <div class="row"><div>✦ AI agent<small>Answers from this exact campaign</small></div><span class="tg"><i></i></span></div>
+    <div class="row"><div>↻ Retries<small>Billed once, however many tries</small></div><span class="tg"><i></i></span></div>
+    <div class="row" style="border:0"><div>✉️ SMS &amp; email fallback<small>If WhatsApp can’t deliver</small></div><span class="tg"><i></i></span></div></div>
+  <div id="prog"></div>
+</div><script type="module">
+import { film, enter, pop, p, ease, lerp, $, $$ } from './lib/kit.js';
+import { progress } from './progress.js';
+const pr = progress(4, 6.2);
+const at = [2.0, 2.9, 3.8];
+film({ theme: 'day', duration: 6.2, draw(t) {
+  pr(t);
+  pop($('#badge'), t, -0.2); enter($('#title'), t, -0.1, { y: 40 });
+  enter($('#u'), t, 0.3, { y: 60 });
+  $$('.tg').forEach((g, i) => { const k = ease.out(p(t, at[i], 0.3)); g.style.background = k > 0.5 ? '#19b36b' : '#dfe5ee'; g.firstChild.style.transform = `translateX(${lerp(0, 48, k)}px)`; });
+} });
+</script></body></html>

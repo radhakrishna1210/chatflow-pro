@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #eye { top: 200px; font-size: 32px; }
+  #title { top: 260px; font-size: 104px; padding: 0 60px; }
+  #log { left: 70px; right: 70px; top: 620px; padding: 36px; }
+  #log .hd { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 24px; color: var(--t3); font-weight: 600; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .run { display: flex; align-items: center; gap: 22px; padding: 24px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .run .s { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 32px; font-weight: 800; flex: none; }
+  .run h3 { font-size: 34px; } .run p { font-family: var(--mono); font-size: 22px; color: var(--t3); margin-top: 4px; }
+  .ok { background: rgba(37,211,102,.16); color: var(--wa); } .skip { background: rgba(255,181,71,.16); color: var(--amber); }
+  #ans { top: 1500px; } #ans .comment { font-size: 46px; }
+</style></head><body><div class="stage">
+  <div class="center eyebrow" id="eye">Workflow run history</div>
+  <h1 class="center" id="title">Every run, <span class="hl">on the record.</span></h1>
+  <div class="abs card" id="log">
+    <div class="hd"><span>ORDER STATUS FLOW</span><span>LAST 24H</span></div>
+    <div class="run"><span class="s ok">✓</span><div><h3>Fired · tracking link sent</h3><p>9:15 PM · intent “order status” 86% · 1.2s</p></div></div>
+    <div class="run"><span class="s ok">✓</span><div><h3>Fired · tracking link sent</h3><p>8:02 PM · keyword match · 0.9s</p></div></div>
+    <div class="run"><span class="s skip">!</span><div><h3>Skipped · contact opted out</h3><p>7:40 PM · STOP received earlier</p></div></div>
+    <div class="run"><span class="s ok">✓</span><div><h3>Fired · handed to human</h3><p>6:51 PM · condition “refund” → inbox</p></div></div>
+  </div>
+  <div class="center" id="ans"><span class="comment">“Did it fire?” → ✅ Yes, at 9:15 PM</span></div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+film({ duration: 6.6, draw(t) {
+  enter($('#eye'), t, -0.2, { y: 20 }); enter($('#title'), t, -0.1, { y: 30 });
+  enter($('#log'), t, 0.2, { y: 80 });
+  $$('.run').forEach((r, i) => enter(r, t, 0.5 + i * 0.7, { x: -80, y: 0, d: 0.4 }));
+  pop($('#ans'), t, 4.2);
+} });
+</script></body></html>

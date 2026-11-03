@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css">
+<style>
+  #title { top: 200px; font-size: 96px; } 
+  #rc { left: 90px; right: 90px; top: 440px; padding: 50px 50px 40px; background: #f4f1ea; color: #1a1a1a; border-radius: 22px; font-family: var(--mono); box-shadow: 0 40px 100px rgba(0,0,0,.6); }
+  #rc .h { text-align: center; font-weight: 600; font-size: 28px; letter-spacing: .2em; border-bottom: 3px dashed #bbb; padding-bottom: 24px; }
+  .ln { display: flex; justify-content: space-between; gap: 20px; font-size: 32px; padding: 26px 0; border-bottom: 2px dashed #ccc; font-weight: 500; }
+  .ln b { color: #d62839; font-weight: 600; white-space: nowrap; }
+  #tot { display: flex; justify-content: space-between; font-size: 44px; font-weight: 600; padding-top: 30px; }
+  #tot b { color: #d62839; }
+  #stamp { position: absolute; right: 20px; bottom: -70px; transform: rotate(-12deg); padding: 14px 26px; border: 6px solid #d62839; color: #d62839; border-radius: 14px; font-family: var(--display); font-weight: 700; font-size: 52px; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Where did it <span class="hl-bad">go?</span></h1>
+  <div class="abs" id="rc">
+    <div class="h">HIDDEN CHARGES</div>
+    <div class="ln"><span>Platform markup / message</span><b>+₹9,400</b></div>
+    <div class="ln"><span>2,300 sends that failed</span><b>+₹4,100</b></div>
+    <div class="ln"><span>Retries billed twice</span><b>+₹2,300</b></div>
+    <div class="ln"><span>Sent to people who said STOP</span><b>+₹1,400</b></div>
+    <div id="tot"><span>Extra</span><b>₹17,200</b></div>
+    <div id="stamp">OUCH</div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+const at = [0.3, 2.2, 4.0, 5.4];
+film({ bg: 'bad', duration: 8.8, draw(t) {
+  enter($('#title'), t, -0.3, { y: 30 });
+  enter($('#rc'), t, -0.2, { y: 120 });
+  $$('.ln').forEach((l, i) => enter(l, t, at[i], { x: -60, y: 0, d: 0.4 }));
+  enter($('#tot'), t, 6.6, { y: 20 });
+  pop($('#stamp'), t, 6.8, { s: 2.5, rot: -30 });
+  $('#stamp').style.transform += ' rotate(-12deg)';
+} });
+</script></body></html>

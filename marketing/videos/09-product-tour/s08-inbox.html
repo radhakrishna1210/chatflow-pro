@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="tour.css">
+<style>
+  #inbox { position: absolute; left: 0; right: 0; top: 0; height: 600px; display: grid; grid-template-columns: 300px 1fr 250px; grid-template-rows: 46px 1fr; }
+  #inbox .tb { grid-column: 1 / 4; }
+  .list { border-right: 1px solid rgba(255,255,255,.06); }
+  .it { padding: 16px 18px; border-bottom: 1px solid rgba(255,255,255,.05); }
+  .it b { font-size: 18px; } .it p { font-size: 14px; color: var(--t3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .it .pillx { font-size: 12px; padding: 3px 9px; margin-top: 7px; }
+  .th { padding: 20px; display: flex; flex-direction: column; gap: 10px; background: #0b141a; }
+  .m { max-width: 80%; padding: 10px 14px; border-radius: 14px; font-size: 16px; line-height: 1.4; }
+  .m.i { background: #202c33; } .m.o { background: #005c4b; align-self: flex-end; } .m.ai { box-shadow: 0 0 0 1.5px rgba(53,232,242,.5); }
+  .m.sys { align-self: center; background: rgba(157,107,255,.16); color: var(--violet); font-family: var(--mono); font-size: 13px; }
+  .side { border-left: 1px solid rgba(255,255,255,.06); padding: 16px; font-size: 14px; }
+  .side .k { font-family: var(--mono); font-size: 12px; color: var(--t3); letter-spacing: .08em; margin-top: 14px; } .side .v { font-size: 16px; font-weight: 700; margin-top: 4px; }
+  #ws { position: absolute; left: 0; right: 0; top: 630px; display: flex; gap: 14px; }
+  #ws .chip { font-size: 18px; padding: 12px 18px; }
+</style></head><body><div class="stage">
+  <div class="left"><div class="eyebrow">Step 7 · Shared inbox</div><h1>Humans step in <span class="hl">with full context.</span></h1>
+    <p>Handoffs arrive with the campaign, the offer and the whole chat — no “can you repeat that?”.</p>
+    <ul><li><b>👥</b>Team inbox with roles</li><li><b>🏷</b>Tags: hot lead, AI-handled, needs human</li><li><b>🏢</b>A workspace per client, for agencies</li></ul></div>
+  <div class="right">
+    <div class="ui" id="inbox"><div class="tb"><i></i><i></i><i></i><span>Shared inbox · 3 need a human</span></div>
+      <div class="list">
+        <div class="it" id="hot" style="background:rgba(53,232,242,.06)"><b>Kabir Mehta</b><p>Need 3 sets for a wedding…</p><span class="pillx" style="background:rgba(255,90,106,.18);color:#ff8a96">🔥 Hot lead</span></div>
+        <div class="it"><b>Ritika Shah</b><p>Thanks! Ordered 🙌</p><span class="pillx" style="background:rgba(53,232,242,.14);color:var(--cyan)">✦ AI handled</span></div>
+        <div class="it"><b>Aman Verma</b><p>I want a refund for…</p><span class="pillx" style="background:rgba(157,107,255,.16);color:var(--violet)">🙋 Needs human</span></div>
+        <div class="it"><b>Sneha Iyer</b><p>Size 9 available?</p><span class="pillx" style="background:rgba(53,232,242,.14);color:var(--cyan)">✦ AI handled</span></div>
+      </div>
+      <div class="th"><div class="m i">Need 3 sets for a wedding 🎊 Bulk price?</div><div class="m i ai">✦ Great choice! Getting our team to put a bulk quote together 🙌</div><div class="m sys">AI → handed to Priya · high intent</div><div class="m o" id="reply">Hi Kabir! Priya here — for 3 sets I can do an extra 5% on top of your 30% 🎉</div></div>
+      <div class="side"><div style="font-family:var(--mono);font-size:12px;color:var(--cyan)">CONTEXT</div><div class="k">CAMPAIGN</div><div class="v">Republic Day Drop</div><div class="k">OFFER RECEIVED</div><div class="v">30% · Linen Kurta</div><div class="k">AI SUMMARY</div><div class="v">Bulk order · wedding · ready to buy</div><div class="k">ASSIGNED</div><div class="v">Priya (Sales)</div></div>
+    </div>
+    <div id="ws"><span class="chip">🏢 Workspace · Vastra Studio</span><span class="chip">🏢 Glow Clinic</span><span class="chip">🏢 QuickKart</span><span class="chip" style="color:var(--t3)">+ new client</span></div>
+  </div>
+</div><script type="module">
+import { film, enter, pop, $, $$ } from './lib/kit.js';
+import { chrome } from './tour.js';
+const ch = chrome(8, 14.0);
+film({ duration: 14.0, draw(t) {
+  ch(t);
+  enter($('.left .eyebrow'), t, 0, { y: 20 }); enter($('.left h1'), t, 0.15, { y: 30 }); enter($('.left p'), t, 1.4, { y: 20 });
+  $$('.left li').forEach((l, i) => enter(l, t, [3.4, 5.0, 7.6][i], { x: -30, y: 0 }));
+  enter($('#inbox'), t, 0.5, { y: 40 });
+  $$('.it').forEach((it, i) => enter(it, t, 1.0 + i * 0.2, { x: -20, y: 0 }));
+  $$('.th .m').forEach((m, i) => pop(m, t, [2.2, 2.8, 3.6, 5.6][i], { s: 0.7 }));
+  $$('.side > *').forEach((s, i) => enter(s, t, 4.2 + i * 0.12, { y: 10 }));
+  $$('#ws .chip').forEach((c, i) => pop(c, t, 8.8 + i * 0.3));
+} });
+</script></body></html>

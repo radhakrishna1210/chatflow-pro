@@ -1,0 +1,225 @@
+{
+ "title": "One platform, every business",
+ "size": [
+  1080,
+  1920
+ ],
+ "voice": "bf_emma",
+ "music": [
+  {
+   "src": "bed-bright",
+   "at": 0,
+   "in": 0,
+   "out": 60,
+   "volume": 0.2
+  }
+ ],
+ "scenes": [
+  {
+   "page": "s0-title.html",
+   "dur": 4.6,
+   "vo": [
+    [
+     0.3,
+     "One platform. Every kind of business."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "impact",
+     0.5
+    ],
+    [
+     1.6,
+     "whoosh",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "u1-ecom.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.25,
+     "E-commerce. Abandoned carts nudged back, and stock questions answered."
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.35
+    ],
+    [
+     0.8,
+     "pop",
+     0.4
+    ],
+    [
+     2.4,
+     "pop",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "u2-edu.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.25,
+     "Education. Fee reminders, and student details collected right in the chat."
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.35
+    ],
+    [
+     0.8,
+     "pop",
+     0.4
+    ],
+    [
+     2.4,
+     "pop",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "u3-clinic.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.25,
+     "Clinics. Bookings confirmed, reminders sent, and calls answered when the desk is busy."
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.35
+    ],
+    [
+     0.8,
+     "pop",
+     0.4
+    ],
+    [
+     2.4,
+     "pop",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "u4-realty.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.25,
+     "Real estate. New listings out, and price questions answered, per property."
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.35
+    ],
+    [
+     0.8,
+     "pop",
+     0.4
+    ],
+    [
+     2.4,
+     "pop",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "u5-agency.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.25,
+     "Agencies. A workspace for every client, with separate numbers and wallets."
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.35
+    ],
+    [
+     0.8,
+     "pop",
+     0.4
+    ],
+    [
+     2.4,
+     "pop",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "u6-travel.html",
+   "dur": 5.6,
+   "vo": [
+    [
+     0.25,
+     "Travel. Itineraries delivered, and after-hours questions handled."
+    ]
+   ],
+   "sfx": [
+    [
+     0.0,
+     "whoosh",
+     0.35
+    ],
+    [
+     0.8,
+     "pop",
+     0.4
+    ],
+    [
+     2.4,
+     "pop",
+     0.4
+    ]
+   ]
+  },
+  {
+   "page": "s9-end.html",
+   "dur": 7.2,
+   "vo": [
+    [
+     0.3,
+     "Whatever you sell, let your WhatsApp answer for itself. Start free, with Spandan."
+    ]
+   ],
+   "sfx": [
+    [
+     0.1,
+     "riser",
+     0.3
+    ],
+    [
+     1.4,
+     "impact",
+     0.5
+    ]
+   ]
+  }
+ ]
+}

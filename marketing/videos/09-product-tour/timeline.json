@@ -1,0 +1,72 @@
+[
+ {
+  "page": "s00-intro",
+  "at": 0.0,
+  "dur": 11.6
+ },
+ {
+  "page": "s01-connect",
+  "at": 11.6,
+  "dur": 14.4
+ },
+ {
+  "page": "s02-templates",
+  "at": 26.0,
+  "dur": 12.8
+ },
+ {
+  "page": "s03-contacts",
+  "at": 38.8,
+  "dur": 11.4
+ },
+ {
+  "page": "s04-campaign",
+  "at": 50.2,
+  "dur": 16.8
+ },
+ {
+  "page": "s05-campaign-ai",
+  "at": 67.0,
+  "dur": 19.6
+ },
+ {
+  "page": "s06-quiz",
+  "at": 86.6,
+  "dur": 18.4
+ },
+ {
+  "page": "s07-automation",
+  "at": 105.0,
+  "dur": 18.2
+ },
+ {
+  "page": "s08-inbox",
+  "at": 123.2,
+  "dur": 14.0
+ },
+ {
+  "page": "s09-analytics",
+  "at": 137.2,
+  "dur": 17.0
+ },
+ {
+  "page": "s10-more",
+  "at": 154.2,
+  "dur": 13.2
+ },
+ {
+  "page": "s11-usp",
+  "at": 167.4,
+  "dur": 12.4
+ },
+ {
+  "page": "s12-pricing",
+  "at": 179.8,
+  "dur": 16.2
+ },
+ {
+  "page": "s13-cta",
+  "at": 196.0,
+  "dur": 8.0
+ }
+]

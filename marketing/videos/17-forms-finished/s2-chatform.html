@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css">
+<style>
+  #title { top: 120px; font-size: 74px; padding: 0 60px; }
+  .phone { left: 220px; top: 420px; height: 1280px; border: 6px solid #111 !important; box-shadow: 16px 16px 0 #111 !important; }
+  .bub { font-size: 27px; }
+  .qr { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; } .qr span { padding: 8px 16px; border-radius: 999px; border: 2px solid #027eb5; color: #027eb5; font-size: 20px; font-weight: 800; }
+  .err { color: #d6336c; font-weight: 800; }
+  #steps { position: absolute; right: 30px; top: 470px; display: flex; flex-direction: column; gap: 16px; z-index: 5; }
+  #steps span { padding: 10px 18px; font-size: 24px; font-weight: 800; background: #fff; }
+</style></head><body><div class="stage">
+  <h1 class="center" id="title">Ask on WhatsApp. One question at a time.</h1>
+  <div class="phone light"><div class="notch"></div>
+    <div class="wa-head"><div class="wa-av" style="background:#2e5bff;color:#fff">U</div><div><div class="wa-name">Upskill Academy</div><div class="wa-sub">Enrolment form · 3 questions</div></div></div>
+    <div class="wa-body" id="body"></div>
+    <div class="wa-foot"><div class="wa-input">Message</div><div class="wa-send"></div></div>
+  </div>
+</div><script type="module">
+import { film, enter, Chat, $ } from './lib/kit.js';
+const chat = new Chat($('#body'), [
+  { at: 0.6, side: 'in', time: '4:10 PM', html: '📝 <b>Question 1 of 3</b><br>What’s your full name?' },
+  { at: 1.8, side: 'out', time: '4:10 PM', html: 'Kabir Mehta' },
+  { at: 3.2, side: 'in', time: '4:10 PM', html: '📝 <b>Question 2 of 3</b><br>Which course?<div class="qr"><span>Data Science</span><span>UI Design</span><span>Marketing</span></div>' },
+  { at: 4.4, side: 'out', time: '4:11 PM', html: 'Data Science' },
+  { at: 5.8, side: 'in', time: '4:11 PM', html: '📝 <b>Question 3 of 3</b><br>Your email?' },
+  { at: 6.6, side: 'out', time: '4:11 PM', html: 'kabir@gmail' },
+  { at: 7.1, side: 'in', time: '4:11 PM', html: '<span class="err">⚠ That doesn’t look like a full email.</span> Could you check it?' },
+  { at: 8.4, side: 'out', time: '4:12 PM', html: 'kabir@gmail.com' },
+  { at: 9.6, side: 'in', time: '4:12 PM', html: '✅ All done, Kabir! Your enrolment is in. We’ll be in touch today.' },
+]);
+film({ theme: 'pop', duration: 12.0, setup: () => chat.measure(), draw(t) {
+  enter($('#title'), t, -0.3, { y: 40 });
+  enter($('.phone'), t, -0.1, { y: 200, d: 0.6 });
+  chat.draw(t);
+} });
+</script></body></html>

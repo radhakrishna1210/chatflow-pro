@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="lib/brand.css"><link rel="stylesheet" href="lib/themes.css"><link rel="stylesheet" href="step.css">
+<style>
+  #go { top: 600px; } #go .btn { font-size: 64px; padding: 44px 90px; box-shadow: 0 30px 70px rgba(25,179,107,.35); }
+  #stats { position: absolute; left: 90px; right: 90px; top: 860px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .sx { padding: 34px; } .sx .l { font-family: var(--mono); font-size: 22px; color: var(--t3); font-weight: 600; letter-spacing: .1em; } .sx .v { font-family: var(--display); font-weight: 800; font-size: 84px; margin-top: 6px; }
+  #conf { position: absolute; left: 540px; top: 700px; }
+  #conf i { position: absolute; width: 18px; height: 28px; border-radius: 5px; }
+</style></head><body><div class="stage">
+  <div class="center" id="badge"><span class="chip">STEP 5 / 5</span></div>
+  <h1 class="center" id="title">Go <span class="hl">live.</span></h1>
+  <div class="center" id="go"><span class="btn" id="gb">🚀 Go live</span></div>
+  <div id="stats"><div class="sx card"><div class="l">SENT</div><div class="v" id="a">0</div></div><div class="sx card"><div class="l">DELIVERED</div><div class="v hl" id="b">0</div></div><div class="sx card"><div class="l">READ</div><div class="v" id="c">0</div></div><div class="sx card"><div class="l">REPLIES</div><div class="v" id="d">0</div></div></div>
+  <div id="conf"></div>
+  <div id="prog"></div>
+</div><script type="module">
+import { film, enter, pop, count, p, ease, $, $$ } from './lib/kit.js';
+import { progress } from './progress.js';
+const cols = ['#19b36b', '#0aa5c2', '#3466f6', '#ffb020', '#ff5e7a'];
+for (let i = 0; i < 40; i++) { const c = document.createElement('i'); c.style.background = cols[i % 5]; $('#conf').appendChild(c); }
+const pr = progress(5, 7.0);
+film({ theme: 'day', duration: 7.0, draw(t) {
+  pr(t);
+  pop($('#badge'), t, -0.2); enter($('#title'), t, -0.1, { y: 40 });
+  pop($('#go'), t, 0.4);
+  const press = t > 2.2 && t < 2.5; $('#gb').style.transform = `scale(${press ? 0.92 : 1})`; $('#gb').textContent = t > 2.4 ? '● Live' : '🚀 Go live';
+  const k = p(t, 2.4, 1.8);
+  $$('#conf i').forEach((c, i) => { const a = (i / 40) * Math.PI * 2 + i; const r = ease.out(k) * (360 + (i % 5) * 70); c.style.transform = `translate(${Math.cos(a) * r}px, ${Math.sin(a) * r + k * k * 500}px) rotate(${k * 720 + i * 40}deg)`; c.style.opacity = String(k > 0 && k < 1 ? 1 - k * 0.8 : 0); });
+  $$('.sx').forEach((s, i) => enter(s, t, 2.6 + i * 0.12, { y: 40 }));
+  count($('#a'), t, 2.8, 2.6, 0, 640); count($('#b'), t, 3.0, 2.6, 0, 628); count($('#c'), t, 3.3, 2.8, 0, 512); count($('#d'), t, 3.6, 3.0, 0, 96);
+} });
+</script></body></html>
