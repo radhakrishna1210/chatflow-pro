@@ -132,18 +132,24 @@ export default function CustomizeBusinessView({ user, initialTab }) {
   const requestDelete = async (keyOrId, executeDelete) => {
     try {
       const res = await wFetch(`/crm-customization/${activeTab}/check-delete?key=${encodeURIComponent(keyOrId)}`);
-      const check = await res.json();
-      if (!check.safe) {
+      const check = await res.json().catch(() => ({}));
+      if (!res.ok || !check.safe) {
         setDeleteWarning({
-          message: check.reason,
+          message: check.reason || check.error || 'Could not confirm this option is unused, so it was not removed. Try again.',
           canForce: false,
           onConfirm: () => setDeleteWarning(null),
         });
         return;
       }
       executeDelete();
-    } catch (err) {
-      executeDelete();
+    } catch {
+      // Fail closed: deleting an option that live records still use would
+      // orphan them, and "the safety check could not run" is not "safe".
+      setDeleteWarning({
+        message: 'Could not reach the server to check whether this option is in use, so it was not removed.',
+        canForce: false,
+        onConfirm: () => setDeleteWarning(null),
+      });
     }
   };
 

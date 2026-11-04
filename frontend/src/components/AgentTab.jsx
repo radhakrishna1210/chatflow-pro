@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { I } from './Icons.jsx';
 import { Btn } from './Btn.jsx';
 import { wFetch } from '../lib/api.js';
+import { canManage } from '../lib/permissions.js';
 
 // What the autonomous agent has done to one record.
 //
@@ -49,6 +50,7 @@ const Suggestion = ({ fact, onSettled }) => {
   const [error, setError] = useState(null);
 
   const settle = async (accepted) => {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -89,11 +91,15 @@ const Suggestion = ({ fact, onSettled }) => {
         <span style={{ fontSize: 11.5, color: fact.accepted ? 'var(--green)' : 'var(--t3)' }}>
           {fact.accepted ? 'Accepted' : 'Rejected'} · {fmtWhen(fact.settledAt)}
         </span>
-      ) : (
+      ) : canManage() ? (
         <div style={{ display: 'flex', gap: 6 }}>
           <Btn size="sm" onClick={() => settle(true)} disabled={busy}>Accept</Btn>
           <Btn size="sm" variant="ghost" onClick={() => settle(false)} disabled={busy}>Reject</Btn>
         </div>
+      ) : (
+        // PATCH /agent/facts is members-and-admins only; say so instead of
+        // offering two buttons that can only answer 403.
+        <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>Awaiting review by a workspace member</span>
       )}
     </div>
   );

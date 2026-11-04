@@ -504,6 +504,8 @@ Rules:
         config: {
           temperature: 0.3,
           responseMimeType: "application/json",
+          // Bounded like lib/llm.js; up to four attempts run back to back.
+          httpOptions: { timeout: 20_000 },
         },
       });
       if (model !== env.GEMINI_MODEL) {

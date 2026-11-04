@@ -145,6 +145,7 @@ export const CustomFieldAdmin = ({ entity, isAdmin }) => {
   };
 
   const deactivate = async (d) => {
+    if (!window.confirm(`Remove the "${d.label || d.key}" field? It will no longer appear on records.`)) return;
     setErr(null);
     const res = await wFetch(`/custom-fields/${d.id}`, { method: 'DELETE' });
     if (!res.ok) {

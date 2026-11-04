@@ -257,7 +257,9 @@ export async function analyseWebsite(url) {
     response = await ai.models.generateContent({
       model: env.GEMINI_MODEL,
       contents: `${SYSTEM_PROMPT}\n\nWebsite: ${crawl.homepage.url}\n\nEvidence:\n${digest}`,
-      config: { temperature: 0.4, responseMimeType: 'application/json' },
+      // Bounded like lib/llm.js: an unanswered call otherwise holds the
+      // request open until the client gives up.
+      config: { temperature: 0.4, responseMimeType: 'application/json', httpOptions: { timeout: 45_000 } },
     });
   } catch (err) {
     console.error('[WebsiteAnalysis] Gemini error:', err.message);

@@ -914,10 +914,13 @@ function UsersTab() {
   }, [debounced, page]);
 
   const impersonate = async (u) => {
-    if (!window.confirm(`Impersonate ${u.name} (${u.email})? You'll see the app exactly as they do until you return to admin.`)) return;
+    // The reason goes into the audit log next to the impersonation; the
+    // server already accepts one, but nothing ever sent it.
+    const reason = window.prompt(`Impersonate ${u.name} (${u.email})? You'll see the app exactly as they do until you return to admin.\n\nReason (recorded in the audit log):`, 'Support request');
+    if (reason === null) return;
     setImpersonatingId(u.id);
     try {
-      const res = await adminFetch(`/platform/users/${u.id}/impersonate`, { method: 'POST' });
+      const res = await adminFetch(`/platform/users/${u.id}/impersonate`, { method: 'POST', body: JSON.stringify({ reason: reason.trim().slice(0, 500) }) });
       const body = await res.json();
       if (!res.ok) { window.alert(body.error || 'Impersonation failed'); return; }
 
