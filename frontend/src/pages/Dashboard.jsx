@@ -647,7 +647,8 @@ const NextBestAction = ({ onGo }) => {
     return () => { alive = false; };
   }, []);
 
-  if (!action || dismissed) return null;
+  // Every suggestion here is an action a viewer or agent cannot take.
+  if (!action || dismissed || !canManage()) return null;
 
   const later = () => { sessionStorage.setItem(NEXT_ACTION_DISMISS_KEY, '1'); setDismissed(true); };
 
@@ -753,6 +754,10 @@ const LegalView = ({ initialTab }) => {
 };
 
 const HomeView = () => {
+  // The assistant creates and deletes templates and campaigns; the server
+  // refuses it for viewers and agents, so they are told up front instead of
+  // finding out from an error after typing a prompt.
+  const mayBuild = canManage();
   const [prompt, setPrompt] = useState('');
   const [guided, setGuided] = useState(true);
   const [number, setNumber] = useState(null);
@@ -772,7 +777,7 @@ const HomeView = () => {
   }, []);
 
   const handleSend = async () => {
-    if (!prompt.trim() || aiLoading) return;
+    if (!prompt.trim() || aiLoading || !mayBuild) return;
 
     const token = localStorage.getItem('accessToken');
     if (!token) {
@@ -787,16 +792,14 @@ const HomeView = () => {
 
     try {
       const user = JSON.parse(localStorage.getItem('user') || '{}');
-      
-      const res = await fetch('/api/v1/onboarding/chat', {
+      // apiFetch rather than a bare fetch: access tokens last 15 minutes, and
+      // the bare call had no refresh, so anyone who left the dashboard open a
+      // while got "Error: Invalid or expired token" on their first prompt.
+      const res = await apiFetch('/api/v1/onboarding/chat', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
         body: JSON.stringify({ message: prompt, workspaceId: user.workspaceId, guided }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || data.content || `Request failed (${res.status})`);
       
       setAiResponse(data.content || prompt);
@@ -876,9 +879,16 @@ const HomeView = () => {
             <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '18px', color: '#fff', marginBottom: '8px' }}>Create your Free WhatsApp AI Assistant</h3>
             <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}>Describe your business flow or campaign parameters below to automatically build and register templates.</p>
           </div>
+          {!mayBuild && (
+            <p role="note" style={{ margin: '0 24px 12px', fontSize: 12.5, color: '#fbbf24' }}>
+              Your role can view this workspace but not create or delete templates and campaigns. Ask a workspace admin for Member access.
+            </p>
+          )}
           <textarea 
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            disabled={!mayBuild}
+            aria-label="Describe what the AI assistant should build"
             placeholder="Describe your ideal WhatsApp campaign or onboarding flow..."
             style={{ width: '100%', height: '120px', background: 'transparent', border: 'none', padding: '0 24px 24px', color: '#fff', fontSize: '15px', resize: 'none', outline: 'none', fontFamily: 'inherit' }}
             onKeyDown={(e) => {
@@ -897,6 +907,7 @@ const HomeView = () => {
             ].map(s => (
               <button
                 key={s}
+                disabled={!mayBuild}
                 onClick={() => setPrompt(s)}
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '10px 14px', color: '#fff', fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left' }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'rgba(53,232,242, 0.1)'; e.currentTarget.style.borderColor = 'rgba(53,232,242, 0.3)'; }}
@@ -913,7 +924,7 @@ const HomeView = () => {
             </label>
             <button 
               onClick={handleSend}
-              disabled={aiLoading || !prompt.trim()}
+              disabled={!mayBuild || aiLoading || !prompt.trim()}
               style={{ background: aiLoading || !prompt.trim() ? 'rgba(53,232,242,0.22)' : 'var(--grad-cta)', color: aiLoading || !prompt.trim() ? 'var(--t3)' : 'var(--ink)', border: 'none', borderRadius: '9px', padding: '9px 20px', fontSize: '13px', fontWeight: 700, cursor: aiLoading || !prompt.trim() ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', transition: 'transform 0.1s' }}
               onMouseDown={e => { if (!aiLoading && prompt.trim()) e.currentTarget.style.transform = 'scale(0.96)'; }}
               onMouseUp={e => { if (!aiLoading && prompt.trim()) e.currentTarget.style.transform = 'scale(1)'; }}
