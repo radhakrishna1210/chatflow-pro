@@ -6,6 +6,7 @@ import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
+import { canManage } from '../lib/permissions.js';
 
 const card = { background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', boxShadow:'var(--card-shadow)' };
 const inputStyle = { width:'100%', padding:'10px 13px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none', fontFamily:"'Manrope',sans-serif", boxSizing:'border-box' };
@@ -1833,9 +1834,14 @@ const AIIntentMatchingTab = () => {
   }, [loadRules, loadStats]);
 
   // Debounced so the tester feels live without a request per keystroke.
+  //
+  // Not for viewers/agents: POST /intents/test is outside what roleCapabilities
+  // lets them write, and the prefilled example fired it on page load, so every
+  // read-only visit logged a 403.
+  const mayTest = canManage();
   useEffect(() => {
     const value = testInput.trim();
-    if (!value) { setTestResult(null); return undefined; }
+    if (!value || !mayTest) { setTestResult(null); return undefined; }
     const t = setTimeout(async () => {
       setTesting(true);
       const r = await wJson('/intents/test', { method: 'POST', body: JSON.stringify({ message: value }) });
@@ -1949,7 +1955,7 @@ const AIIntentMatchingTab = () => {
         <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
           <div style={{ ...card, padding:'18px' }}>
             <div style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.14em', color:'var(--t3)', textTransform:'uppercase', marginBottom:10 }}>Test a message</div>
-            <input value={testInput} onChange={e => setTestInput(e.target.value)} placeholder="Type what a customer might say…" style={inputStyle} />
+            <input value={testInput} onChange={e => setTestInput(e.target.value)} placeholder="Type what a customer might say…" style={inputStyle} disabled={!mayTest} aria-label="Test message" title={mayTest ? undefined : 'Testing intents needs Member access'} />
 
             {testResult && (
               <div style={{ marginTop:14 }}>

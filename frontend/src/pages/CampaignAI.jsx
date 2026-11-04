@@ -109,7 +109,7 @@ const Hero = ({ onNav }) => (
           plain text rather than a link that goes nowhere. */}
       <Reveal>
         <nav aria-label="Breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 26, fontSize: 12.5, color: 'var(--t3)' }}>
-          <a href="/" onClick={(e) => { e.preventDefault(); onNav('landing'); }}
+          <a href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }}
             style={{ color: 'var(--t2)', textDecoration: 'none' }}
             onMouseOver={e => e.target.style.color = 'var(--t1)'} onMouseOut={e => e.target.style.color = 'var(--t2)'}>Home</a>
           <span aria-hidden="true">/</span>

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { I } from './Icons.jsx';
+import { useIsMobile } from '../lib/useMediaQuery.js';
 
 // ─── Website assistant ───────────────────────────────────────────────────────
 //
@@ -99,6 +100,7 @@ const Typing = () => (
 
 export default function SiteAssistant() {
   const [open, setOpen] = useState(false);
+  const mobile = useIsMobile();
   const [messages, setMessages] = useState(loadThread);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -209,13 +211,19 @@ export default function SiteAssistant() {
 
   if (isCrm) return null;
 
+  // Inside the app shell on a phone the bottom tab bar owns the last ~62px;
+  // at bottom:22 the launcher sat on its "Analytics" tab and took its taps.
+  const p = typeof window !== 'undefined' ? window.location.pathname : '';
+  const overTabBar = mobile && (p.startsWith('/dashboard') || p.startsWith('/resources'));
+  const launcherBottom = overTabBar ? 'calc(76px + env(safe-area-inset-bottom, 0px))' : 22;
+
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
         aria-label="Open the Spandan assistant"
         style={{
-          position: 'fixed', right: 22, bottom: 22, zIndex: 900,
+          position: 'fixed', right: overTabBar ? 14 : 22, bottom: launcherBottom, zIndex: 900,
           width: 52, height: 52, borderRadius: '50%',
           background: 'var(--green)', border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',

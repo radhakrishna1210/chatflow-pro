@@ -259,7 +259,10 @@ export default function InboxView() {
   const [isBot, setIsBot]       = useState(false);
   const [input, setInput]       = useState('');
   const [tab, setTab]           = useState('chat');
-  const [search, setSearch]     = useState('');
+  // Seeded from ?search= so Contacts → "Message" opens on that customer's thread.
+  const [search, setSearch]     = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('search') || ''; } catch { return ''; }
+  });
   const [sending, setSending]   = useState(false);
   const [sendError, setSendError] = useState(null);
   const scrollRef = useRef(null);
