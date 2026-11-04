@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { env } from '../config/env.js';
+import { toE164Digits } from './phone.js';
 
 const BASE = `https://graph.facebook.com/${env.META_API_VERSION}`;
 
@@ -44,13 +45,47 @@ export const systemClient = new Proxy({}, {
 // 136 of the 159 contacts in the live database are stored with a leading "+",
 // so those paths were handing Meta a format it does not promise to accept for
 // the overwhelming majority of contacts.
-const toRecipient = (value) => String(value ?? '').replace(/[^\d]/g, '');
+//
+// It is also where a contact stored in national format ("9876543210") gets its
+// country code: Meta cannot guess the country, so those sends failed. The
+// code comes from the business number sending the message (lib/phone.js), so
+// only a number that looks national costs a lookup, and each sender is looked
+// up once.
+const senderPhoneCache = new Map();
+async function senderPhoneFor(phoneNumberId) {
+  if (!phoneNumberId) return null;
+  if (senderPhoneCache.has(phoneNumberId)) return senderPhoneCache.get(phoneNumberId);
+  let phone = null;
+  try {
+    const { prisma } = await import('./prisma.js');
+    const row = await prisma.waNumber.findFirst({
+      where: { metaPhoneNumberId: String(phoneNumberId) },
+      select: { phoneNumber: true },
+    });
+    phone = row?.phoneNumber || null;
+  } catch {
+    phone = null;
+  }
+  if (phone) {
+    if (senderPhoneCache.size > 1000) senderPhoneCache.clear();
+    senderPhoneCache.set(phoneNumberId, phone);
+  }
+  return phone;
+}
+
+export async function resolveRecipient(phoneNumberId, value) {
+  const str = String(value ?? '').trim();
+  const digits = str.replace(/[^\d]/g, '');
+  // International already ("+…", "00…"), or too long to be a national number.
+  if (str.startsWith('+') || digits.startsWith('00') || digits.length > 11) return toE164Digits(str);
+  return toE164Digits(str, await senderPhoneFor(phoneNumberId));
+}
 
 export async function sendWhatsAppMessage(phoneNumberId, accessToken, to, template) {
   const client = metaClient(accessToken);
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to: toRecipient(to),
+    to: await resolveRecipient(phoneNumberId, to),
     type: 'template',
     template,
   });
@@ -61,7 +96,7 @@ export async function sendTextMessage(phoneNumberId, accessToken, to, body) {
   const client = metaClient(accessToken);
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to: toRecipient(to),
+    to: await resolveRecipient(phoneNumberId, to),
     type: 'text',
     text: { body },
   });
@@ -553,7 +588,7 @@ export async function sendMediaMessage(phoneNumberId, accessToken, to, { mediaId
 
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to: toRecipient(to),
+    to: await resolveRecipient(phoneNumberId, to),
     type,
     [type]: media,
   });
@@ -692,7 +727,7 @@ export async function sendButtonMessage(phoneNumberId, accessToken, to, { body, 
   const client = metaClient(accessToken);
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to: toRecipient(to),
+    to: await resolveRecipient(phoneNumberId, to),
     type: 'interactive',
     interactive: {
       type: 'button',
@@ -730,7 +765,7 @@ export async function sendListMessage(phoneNumberId, accessToken, to, { body, ro
   const client = metaClient(accessToken);
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to: toRecipient(to),
+    to: await resolveRecipient(phoneNumberId, to),
     type: 'interactive',
     interactive: {
       type: 'list',

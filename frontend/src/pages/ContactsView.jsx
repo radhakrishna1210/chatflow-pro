@@ -352,20 +352,20 @@ const EditContactDialog = ({ contact, onClose, onSaved }) => {
         )}
         <div>
           <FLabel>Name</FLabel>
-          <FInput value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" />
+          <FInput value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" ariaLabel="Name" />
         </div>
         <div>
           <FLabel required>Phone Number</FLabel>
-          <FInput value={phone} onChange={e => setPhone(e.target.value.replace(/[^0-9+\s\-()]/g, ''))} placeholder="+91 9876543210" onKeyDown={e => e.key === 'Enter' && submit()} />
+          <FInput value={phone} onChange={e => setPhone(e.target.value.replace(/[^0-9+\s\-()]/g, ''))} placeholder="+91 9876543210" onKeyDown={e => e.key === 'Enter' && submit()} ariaLabel="Phone number" />
           <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Include country code (e.g. +91 for India, +1 for US). WhatsApp won't deliver without it.</p>
         </div>
         <div>
           <FLabel>Email</FLabel>
-          <FInput type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" />
+          <FInput type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" ariaLabel="Email" />
         </div>
         <div>
           <FLabel>Tags</FLabel>
-          <FInput value={tagsRaw} onChange={e => setTags(e.target.value)} placeholder="vip, newsletter, prospect" />
+          <FInput value={tagsRaw} onChange={e => setTags(e.target.value)} placeholder="vip, newsletter, prospect" ariaLabel="Tags" />
           <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Comma-separated.</p>
         </div>
         <div>
@@ -374,10 +374,10 @@ const EditContactDialog = ({ contact, onClose, onSaved }) => {
             {attrRows.map((row, i) => (
               <div key={i} style={{ display:'flex', gap:8, alignItems:'center' }}>
                 <div style={{ flex:1 }}>
-                  <FInput value={row.key} onChange={e => setAttrRows(rows => rows.map((r, j) => j === i ? { ...r, key: e.target.value } : r))} placeholder="price" />
+                  <FInput value={row.key} onChange={e => setAttrRows(rows => rows.map((r, j) => j === i ? { ...r, key: e.target.value } : r))} placeholder="price" ariaLabel={`Column ${i + 1} name`} />
                 </div>
                 <div style={{ flex:1 }}>
-                  <FInput value={row.value} onChange={e => setAttrRows(rows => rows.map((r, j) => j === i ? { ...r, value: e.target.value } : r))} placeholder="180" />
+                  <FInput value={row.value} onChange={e => setAttrRows(rows => rows.map((r, j) => j === i ? { ...r, value: e.target.value } : r))} placeholder="180" ariaLabel={`Column ${i + 1} value`} />
                 </div>
                 <button type="button" aria-label="Remove column" onClick={() => setAttrRows(rows => rows.filter((_, j) => j !== i))}
                   style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', fontSize:18, lineHeight:1, padding:'0 4px' }}>×</button>
@@ -585,11 +585,11 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
         )}
         <div>
           <FLabel required>Cluster Name</FLabel>
-          <FInput value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. VIP Customers, Pune Leads" />
+          <FInput value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. VIP Customers, Pune Leads" ariaLabel="Cluster name" />
         </div>
         <div>
           <FLabel>Description</FLabel>
-          <FInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional description..." />
+          <FInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional description..." ariaLabel="Cluster description" />
         </div>
         <div>
           <FLabel required>Select Contacts</FLabel>
@@ -599,6 +599,7 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search contacts…"
+              aria-label="Search contacts to add"
               style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif" }}
             />
           </div>
