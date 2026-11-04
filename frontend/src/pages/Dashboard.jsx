@@ -2710,6 +2710,12 @@ const MOBILE_TABS_SUPERADMIN = [
   { id: 'admin-support',    label: 'Support',    icon: 'msg'     },
 ];
 
+// A fifth tab that opens the drawer. Fourteen CRM screens (Leads, Deals,
+// Tasks, …) build their own headers without the hamburger, so on a phone the
+// rest of the nav was unreachable from them except by the back button. The
+// tab bar is on every screen, so the way out lives here.
+const MENU_TAB = { id: '__menu', label: 'More' };
+
 const MobileTabBar = ({ page, setPage, user }) => {
   const tabs = user?.superAdmin === true ? MOBILE_TABS_SUPERADMIN : MOBILE_TABS;
   return (
@@ -2721,7 +2727,16 @@ const MobileTabBar = ({ page, setPage, user }) => {
       // else env() resolves to 0 and this is a plain 8px bar.
       padding: '6px 0 calc(6px + env(safe-area-inset-bottom, 0px))',
     }}>
-      {tabs.map(t => {
+      {[...tabs, MENU_TAB].map(t => {
+        if (t.id === MENU_TAB.id) {
+          return (
+            <button key={t.id} onClick={openMobileNav} aria-label="Open navigation menu"
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '7px 4px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'Manrope',sans-serif" }}>
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="var(--t3)" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+              <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--t3)' }}>{t.label}</span>
+            </button>
+          );
+        }
         const on = page === t.id || (t.id === 'campaigns' && page === 'campaigns-create');
         return (
           <button key={t.id} onClick={() => setPage(t.id)} aria-current={on ? 'page' : undefined}
@@ -3196,7 +3211,7 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     if (page === 'payments')       return <PaymentsView initialTab={initialSubTab || 'wallet'} />;
     if (page === 'api')            return <ApiKeysView />;
     if (page === 'support')        return <SupportView />;
-    if (page === 'settings')       return <SettingsView />;
+    if (page === 'settings')       return <SettingsView initialTab={initialSubTab} />;
     if (page === 'profile')        return <ProfileView />;
     if (page === 'resources') {
       const rPath = String(routePath || window.location.pathname);

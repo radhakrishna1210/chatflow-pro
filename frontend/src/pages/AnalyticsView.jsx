@@ -444,11 +444,11 @@ export default function AnalyticsView() {
           )}
           {/* bars */}
           <div style={{ display:'flex', gap:8, alignItems:'flex-end', height:BAR_H+48 }}>
-            {delivery.map(d => {
+            {delivery.map((d, i) => {
               const h = Math.max(8, (d.sent / maxBar) * BAR_H);
               const bc = barColor(d.rate);
               return (
-                <div key={d.iso || d.date} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                <div key={d.iso || `${d.date}-${i}`} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
                   <span style={{ fontSize:11, fontWeight:700, color:bc }}>{d.rate}%</span>
                   <div style={{ width:'100%', maxWidth:48 }}>
                     <div style={{ height:h, borderRadius:'6px 6px 0 0', background:bc, opacity:0.85, transition:'height .3s', position:'relative' }}>

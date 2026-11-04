@@ -98,7 +98,7 @@ const statusBadge = s => {
   return <span style={{ padding:'2px 8px', borderRadius:10, fontSize:11, fontWeight:600, background:v.bg, border:`1px solid ${v.bd}`, color:v.c }}>{s}</span>;
 };
 
-export default function SettingsView() {
+export default function SettingsView({ initialTab } = {}) {
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
   // Settings covers three different powers: running the workspace (any
   // member), managing who else is in it, and paying for it.
@@ -108,7 +108,12 @@ export default function SettingsView() {
   const currentUserId = currentUser.id;
   const [settings, setSettings] = useState({});
   // ── tab rail ──
-  const [tab, setTab] = useState('workspace');
+  // `?tab=` (Quick Links' "Role Permissions" / "Manage Teams") picks the
+  // starting tab; followed on change because the route can switch tabs while
+  // this view stays mounted.
+  const validTab = (t) => SETTINGS_TABS.some(x => x.id === t);
+  const [tab, setTab] = useState(() => (validTab(initialTab) ? initialTab : 'workspace'));
+  useEffect(() => { if (validTab(initialTab)) setTab(initialTab); }, [initialTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── workspace profile & branding ──
   // Seeded from the settings payload once it loads; `profileSaved` is the

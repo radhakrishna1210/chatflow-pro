@@ -207,7 +207,7 @@ export default function ChatAnalytics({ workspaceId }) {
             <div style={{ ...card, padding: 20 }}>
               <SectionTitle title="Daily Volume" sub={`Outbound and inbound messages over the last ${days} days`} />
               <div style={{ height: 300 }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 200 }}>
                   <BarChart data={chartData} margin={{ top: 8, right: 10, left: -18, bottom: 0 }}>
                     <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
                     <XAxis dataKey="label" tick={{ fill: 'var(--t3)', fontSize: 11 }} axisLine={false} tickLine={false} minTickGap={days > 30 ? 18 : 8} />

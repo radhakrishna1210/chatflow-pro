@@ -535,7 +535,7 @@ export function CrmDashboardView({ user }) {
                 <p style={{ fontSize: 11, color: 'var(--t3)', margin: 0 }}>Monthly trend of new pipeline value vs closed won revenue</p>
               </div>
               <div style={{ height: 260, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '20px 16px 16px 0', background: 'rgba(255,255,255,0.02)' }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 200 }}>
                   <AreaChart data={charts.pipelineVsWon || []}>
                     <defs>
                       <linearGradient id="colorPipeline" x1="0" y1="0" x2="0" y2="1">
@@ -565,7 +565,7 @@ export function CrmDashboardView({ user }) {
               </div>
               <div style={{ height: 260, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '20px', background: 'rgba(255,255,255,0.02)', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ height: 120, marginBottom: 14, position: 'relative' }}>
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 200 }}>
                     <PieChart>
                       <Pie
                         data={charts.openPipelineByStage || []}
@@ -729,7 +729,7 @@ export function CrmDashboardView({ user }) {
           <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '20px', background: 'rgba(255,255,255,0.02)' }}>
             <h3 style={{ fontSize: 13.5, fontWeight: 600, color: '#fff', margin: '0 0 16px 0' }}>Leads Volume vs. Closed Won by Source</h3>
             <div style={{ height: 260 }}>
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 200 }}>
                 <BarChart data={sourcePerformance} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                   <XAxis dataKey="source" stroke="rgba(255,255,255,0.2)" fontSize={11} tickMargin={10} axisLine={false} tickLine={false} />
@@ -935,7 +935,7 @@ export function CrmDashboardView({ user }) {
               </div>
             ) : reportConfig.chartType === 'pie' ? (
               <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 200 }}>
                   <PieChart>
                     <Pie data={reportData.rows} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={85} label={({ label, value }) => `${label}: ${value}`}>
                       {reportData.rows.map((entry, idx) => (
@@ -948,7 +948,7 @@ export function CrmDashboardView({ user }) {
               </div>
             ) : reportConfig.chartType === 'bar' ? (
               <div style={{ height: 280 }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 200 }}>
                   <BarChart data={reportData.rows} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                     <XAxis dataKey="label" stroke="rgba(255,255,255,0.2)" fontSize={11} tickMargin={10} axisLine={false} tickLine={false} />
