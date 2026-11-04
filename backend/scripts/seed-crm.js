@@ -1,11 +1,23 @@
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { assertLocalDatabase } from './assert-local-db.js';
+
+// Seeds demo CRM data. Local databases only, and only into the workspace you
+// name — it used to seed EVERY workspace in the database.
+//   node scripts/seed-crm.js <workspaceId>
+assertLocalDatabase();
+const TARGET_WORKSPACE_ID = process.argv[2] || process.env.SEED_WORKSPACE_ID;
+if (!TARGET_WORKSPACE_ID) {
+  console.error('Usage: node scripts/seed-crm.js <workspaceId>  (or set SEED_WORKSPACE_ID)');
+  process.exit(2);
+}
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('Seeding CRM data...');
 
-  const workspaces = await prisma.workspace.findMany();
+  const workspaces = await prisma.workspace.findMany({ where: { id: TARGET_WORKSPACE_ID } });
   if (workspaces.length === 0) {
     console.error('No workspaces found.');
     process.exit(1);
@@ -13,7 +25,9 @@ async function main() {
 
   for (const workspace of workspaces) {
     const workspaceId = workspace.id;
-    const user = await prisma.user.findFirst(); // just grab any user as owner
+    // Owner must be a member of this workspace, not any user in the database.
+    const user = (await prisma.workspaceMember.findFirst({ where: { workspaceId }, include: { user: true } }))?.user;
+    if (!user) { console.error(`Workspace ${workspaceId} has no members to own the seeded records.`); continue; }
     console.log(`Seeding data for workspace: ${workspace.name} (${workspaceId})`);
 
   // Create Contacts

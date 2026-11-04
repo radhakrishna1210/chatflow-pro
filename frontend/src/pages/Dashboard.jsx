@@ -3246,7 +3246,11 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
           page={page} setPage={setPage} onNav={onNav} user={user}
           mobile={mobile} open={navOpen} onClose={() => setNavOpen(false)}
         />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0 }}>
+        {/* On CRM tabs the floating "Ask your CRM" button (40px tall, 22px up)
+            sat on the last table row's actions, and most CRM views scroll
+            inside their own container, so padding the page alone can't clear
+            it. Reserving the strip here keeps every inner scroller above it. */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0, paddingBottom: isCrmTab && !copilotOpen ? 72 : 0 }}>
           <Suspense fallback={
             <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--t2)', fontSize: 13 }}>
               <div style={{ width: 24, height: 24, border: '2px solid var(--green)', borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 10px', animation: 'spin 1s linear infinite' }} />

@@ -1,5 +1,16 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { assertLocalDatabase } from './assert-local-db.js';
+
+// Writes 50 fake leads. Local databases only, and only into a workspace you
+// name — it used to hard-code a real customer's workspace id.
+//   node scripts/seed-crm-50.js <workspaceId>
+assertLocalDatabase();
+const TARGET_WORKSPACE_ID = process.argv[2] || process.env.SEED_WORKSPACE_ID;
+if (!TARGET_WORKSPACE_ID) {
+  console.error('Usage: node scripts/seed-crm-50.js <workspaceId>  (or set SEED_WORKSPACE_ID)');
+  process.exit(2);
+}
 
 const prisma = new PrismaClient();
 
@@ -316,9 +327,7 @@ async function main() {
     }
   }
 
-  const targetIds = [
-    'cmrt8hesi000l5lejtvocvic7', // Sampada Kulkarni's Workspace
-  ];
+  const targetIds = [TARGET_WORKSPACE_ID];
 
   const targets = [];
   for (const id of targetIds) {
@@ -327,7 +336,8 @@ async function main() {
     } else {
       const ws = await prisma.workspace.findUnique({ where: { id } });
       if (ws) {
-        const users = await prisma.user.findMany({ take: 3 });
+        // Only members of this workspace may own its seeded records.
+        const users = (await prisma.workspaceMember.findMany({ where: { workspaceId: id }, include: { user: true }, take: 3 })).map((m) => m.user);
         targets.push({ workspace: ws, users });
       }
     }

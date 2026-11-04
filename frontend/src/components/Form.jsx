@@ -23,19 +23,21 @@ export const FLabel = ({ children, required }) => (
   </label>
 );
 
-export const FInput = ({ value, onChange, placeholder, type = 'text', onKeyDown, onFocus, onBlur, disabled, min, max, step, ...rest }) => (
+export const FInput = ({ value, onChange, placeholder, type = 'text', onKeyDown, onFocus, onBlur, disabled, min, max, step, style, ...rest }) => (
   <input
     type={type} value={value ?? ''} onChange={onChange} placeholder={placeholder}
     onKeyDown={onKeyDown} disabled={disabled} min={min} max={max} step={step}
-    style={{ ...fieldStyle, opacity: disabled ? .6 : 1 }}
+    // Caller style is merged over the theme, not swapped in for it — `...rest`
+    // used to carry `style` past this prop and wipe the field's whole look.
+    style={{ ...fieldStyle, opacity: disabled ? .6 : 1, ...style }}
     onFocus={focusRing(onFocus)} onBlur={blurRing(onBlur)}
     {...rest} />
 );
 
-export const FSelect = ({ value, onChange, options = [], children, disabled, placeholder, onFocus, onBlur, ...rest }) => (
+export const FSelect = ({ value, onChange, options = [], children, disabled, placeholder, onFocus, onBlur, style, ...rest }) => (
   <select
     value={value ?? ''} onChange={onChange} disabled={disabled}
-    style={{ ...fieldStyle, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? .6 : 1 }}
+    style={{ ...fieldStyle, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? .6 : 1, ...style }}
     onFocus={focusRing(onFocus)} onBlur={blurRing(onBlur)}
     {...rest}>
     {placeholder && <option value="" style={{ background: '#1e293b', color: '#f8fafc' }}>{placeholder}</option>}
@@ -48,10 +50,10 @@ export const FSelect = ({ value, onChange, options = [], children, disabled, pla
   </select>
 );
 
-export const FTextarea = ({ value, onChange, placeholder, rows = 4, disabled, onFocus, onBlur, ...rest }) => (
+export const FTextarea = ({ value, onChange, placeholder, rows = 4, disabled, onFocus, onBlur, style, ...rest }) => (
   <textarea
     value={value ?? ''} onChange={onChange} placeholder={placeholder} rows={rows} disabled={disabled}
-    style={{ ...fieldStyle, resize: 'vertical', lineHeight: 1.5, opacity: disabled ? .6 : 1 }}
+    style={{ ...fieldStyle, resize: 'vertical', lineHeight: 1.5, opacity: disabled ? .6 : 1, ...style }}
     onFocus={focusRing(onFocus)} onBlur={blurRing(onBlur)}
     {...rest} />
 );
