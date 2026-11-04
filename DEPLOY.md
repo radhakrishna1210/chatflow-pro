@@ -11,7 +11,7 @@ Render Web Service  "spandan"     (backend/ as rootDir)
 │                             ├─ prisma generate
 │                             └─ npm ci + vite build in ../frontend
 ├── start:  npm run start:prod
-│           └─ scripts/prisma-cli.js migrate deploy && node src/server.js
+│           └─ scripts/migrate-or-bootstrap.js && node src/server.js
 └── serves: /api/v1/*  ->  Express router
             /*         ->  frontend/dist/index.html  (SPA fallback)
 

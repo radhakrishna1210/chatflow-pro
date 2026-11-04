@@ -18,8 +18,12 @@ export const DEFAULT_CUSTOMIZATIONS = {
     minBudget: 1000,
     currency: 'USD',
     companySizeMin: 5,
+    // WhatsApp-first: the phone number is a contact's identity and most leads
+    // arrive from chat with no email at all. Requiring email by default made
+    // every inbox- or workflow-created lead fail until an admin found and
+    // switched this off. Workspaces that want it can still turn it on.
     requirePhone: true,
-    requireEmail: true,
+    requireEmail: false,
     requireCompany: false,
     targetIndustries: [
       'Technology & SaaS',

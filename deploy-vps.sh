@@ -64,7 +64,7 @@ PATH="$NODE22_BIN:$PATH" RUN_DEPLOY_BUILD=1 "$NODE22_BIN/npm" ci
 # Explicit, not on boot: this database is shared with the Render deployment,
 # so a migration should be a decision, never a side effect of a restart.
 log "Applying migrations"
-"$NODE22_BIN/node" scripts/prisma-cli.js migrate deploy
+"$NODE22_BIN/node" scripts/migrate-or-bootstrap.js
 
 # --- Restart ---------------------------------------------------------------
 # System Node on purpose (see note 1 above).

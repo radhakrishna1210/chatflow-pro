@@ -12,6 +12,15 @@ let otherWorkspaceId;
 let userId;
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000);
+// A moment inside the current calendar month, so a test about "this month"
+// does not fail during the first days of a month. 10 days back is used when it
+// still falls in this month; otherwise the first instant of the month.
+const thisMonth = () => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 1);
+  const tenAgo = daysAgo(10);
+  return tenAgo >= start ? tenAgo : start;
+};
 
 test.before(async () => {
   try {
@@ -42,7 +51,7 @@ test.before(async () => {
 
   // Closed in the last 90 days: two won (600 + 400), one lost => 66.7% win rate,
   // average won deal 500.
-  await deal({ title: 'Won A', value: 600, stage: 'CLOSED_WON', closedAt: daysAgo(10) });
+  await deal({ title: 'Won A', value: 600, stage: 'CLOSED_WON', closedAt: thisMonth() });
   await deal({ title: 'Won B', value: 400, stage: 'CLOSED_WON', closedAt: daysAgo(20) });
   await deal({ title: 'Lost A', value: 900, stage: 'CLOSED_LOST', closedAt: daysAgo(30) });
 
