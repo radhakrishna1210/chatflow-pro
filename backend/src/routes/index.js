@@ -21,6 +21,7 @@ import membersRoutes from './members.routes.js';
 import apiKeysRoutes from './apikeys.routes.js';
 import adminRoutes from './admin.routes.js';
 import webhookRoutes from './webhook.routes.js';
+import * as razorpayWebhookController from '../controllers/razorpayWebhook.controller.js';
 import onboardingRoutes from './onboarding.routes.js';
 import aiRoutes from './ai.routes.js';
 import workflowRoutes from './workflow.routes.js';
@@ -110,6 +111,10 @@ router.use('/authentication', authenticationRoutes);
 router.use('/public', publicRoutes);
 
 router.use('/webhook', webhookRoutes);
+
+// Razorpay payment confirmations (server-to-server, signature-verified), so a
+// buyer who closes the tab before the browser's verify call is still credited.
+router.post('/webhooks/razorpay', razorpayWebhookController.receive);
 
 // Public, signature-verified webhooks: Instagram DMs/comments and Twilio voice.
 router.get(

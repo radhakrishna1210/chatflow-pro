@@ -79,9 +79,18 @@ export async function verifyAddonPayment(workspaceId, { orderId, paymentId, sign
 
   const client = getRazorpayClient();
   const order = await client.orders.fetch(orderId).catch(normalizeRazorpayError);
-  if (order.notes?.workspaceId !== workspaceId || order.notes?.type !== 'addon') {
+  return applyAddonPayment(workspaceId, order, paymentId);
+}
+
+// Activates a paid add-on order. Shared by the browser's verify call and the
+// Razorpay webhook (services/razorpayWebhook.service.js), so whichever arrives
+// first activates and the other finds the payment's invoice. `order` is the
+// order as Razorpay stores it, never a client- or webhook-supplied amount.
+export async function applyAddonPayment(workspaceId, order, paymentId) {
+  if (order?.notes?.workspaceId !== workspaceId || order?.notes?.type !== 'addon') {
     const e = new Error('This payment does not belong to your workspace'); e.status = 403; throw e;
   }
+  if (!paymentId) { const e = new Error('paymentId is required'); e.status = 400; throw e; }
   const addon = getAddon(order.notes.addonKey);
 
   // Amount comes back from the gateway, never from the client.

@@ -7,6 +7,9 @@ import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { useIsMobile } from '../lib/useMediaQuery.js';
+// Window-faking helpers only exist in development (conversations.service
+// assertDevOnly); production returns 404 for both.
+const SHOW_DEV_WINDOW_TOOLS = import.meta.env.DEV;
 
 const CATEGORY_COLORS = {
   HOT: { bg: 'rgba(239, 68, 68, 0.12)', bd: 'rgba(239, 68, 68, 0.3)', c: '#f87171', label: 'HOT 🔥' },
@@ -316,9 +319,11 @@ export default function CrmSalesInboxView() {
 
   // Auto-scroll to bottom of conversation
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
+    // Scroll only the thread itself. scrollIntoView() also scrolls every
+    // scrollable ancestor, which on a phone threw the whole page down past the
+    // lead list on first load.
+    const box = messagesEndRef.current?.parentElement;
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
   }, [messages.length, selectedLeadId]);
 
   // Periodic polling for active conversation messages & window state
@@ -374,7 +379,9 @@ export default function CrmSalesInboxView() {
 
   // 5. Direct Message Sending
   const handleSendMessage = async () => {
-    if (!messageText.trim() || !selectedLead) return;
+    // The Send button is disabled while sending, but Enter in the composer
+    // called this directly — two quick Enters sent the WhatsApp message twice.
+    if (sendingMsg || !messageText.trim() || !selectedLead) return;
     setSendingMsg(true);
     setChatError(null);
     try {
@@ -441,7 +448,7 @@ export default function CrmSalesInboxView() {
         err.message?.toLowerCase().includes('not messaged you');
 
       if (isWindowErr) {
-        setChatError('This contact is outside WhatsApp\'s 24-hour reply window according to Meta. Please send an approved template message to re-engage them, or sync the window if they have messaged you.');
+        setChatError('This contact is outside WhatsApp\'s 24-hour reply window according to Meta. Please send an approved template message to re-engage them.');
       } else {
         setChatError(err.message);
       }
@@ -846,14 +853,13 @@ export default function CrmSalesInboxView() {
           <div style={{
             width: mobile ? '100%' : leftWidth,
             flexShrink: 0,
-            ...(mobile ? { height: '70vh', display: mobilePane === 'list' ? 'flex' : 'none' } : {}),
             background: 'var(--surf)',
             border: '1px solid var(--bd)',
             borderRadius: 14,
             padding: 14,
-            display: 'flex',
+            display: mobile ? (mobilePane === 'list' ? 'flex' : 'none') : 'flex',
             flexDirection: 'column',
-            height: '100%',
+            height: mobile ? '70vh' : '100%',
             overflow: 'hidden',
           }}>
             <div style={{ marginBottom: 10, flexShrink: 0 }}>
@@ -962,10 +968,9 @@ export default function CrmSalesInboxView() {
             onMouseDown={startResizeLeft}
             title="Drag to resize lead list"
             style={{
-              ...(mobile ? { display: 'none' } : {}),
               width: 10,
               cursor: 'col-resize',
-              display: 'flex',
+              display: mobile ? 'none' : 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               zIndex: 10,
@@ -982,13 +987,12 @@ export default function CrmSalesInboxView() {
           <div style={{
             flex: mobile ? 'none' : 1,
             minWidth: mobile ? 0 : 320,
-            ...(mobile ? { height: '70vh', display: mobilePane === 'thread' ? 'flex' : 'none' } : {}),
             background: 'var(--surf)',
             border: '1px solid var(--bd)',
             borderRadius: 14,
-            display: 'flex',
+            display: mobile ? (mobilePane === 'thread' ? 'flex' : 'none') : 'flex',
             flexDirection: 'column',
-            height: '100%',
+            height: mobile ? '70vh' : '100%',
             overflow: 'hidden',
           }}>
             {selectedLead ? (
@@ -1027,18 +1031,24 @@ export default function CrmSalesInboxView() {
                 {!selectedLead.contact?.optedOut && windowState && !windowState.open && (
                   <div style={{ padding: '9px 14px', background: 'rgba(245, 158, 11, 0.12)', borderBottom: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 8, flexWrap: 'wrap' }}>
                     <span>
-                      ⚡ <strong>WhatsApp 24h Window:</strong> Meta requires customer activity within 24h for free-form replies. You can send a template, or type and send a custom message directly.
+                      ⚡ <strong>WhatsApp 24h Window:</strong> Meta requires customer activity within 24h for free-form replies. Send an approved template to re-engage this lead.
                     </span>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                       <Btn size="xs" variant="sec" onClick={() => setShowTemplateModal(true)}>
                         <I n="file" s={12} /> Send Template
                       </Btn>
-                      <Btn size="xs" variant="ghost" onClick={handleReopenWindow} title="Click to sync if the lead already messaged you on WhatsApp">
-                        🔄 Sync Window
-                      </Btn>
-                      <Btn size="xs" variant="ghost" onClick={() => handleSimulateInbound('Hii')} title="Simulate lead inbound reply in dev/test">
-                        💬 + Inbound "Hii"
-                      </Btn>
+                      {/* Dev-only: the backend answers these with 404 in
+                          production (they would fabricate a customer reply). */}
+                      {SHOW_DEV_WINDOW_TOOLS && (
+                        <>
+                          <Btn size="xs" variant="ghost" onClick={handleReopenWindow} title="Dev only: reopen the window">
+                            🔄 Sync Window
+                          </Btn>
+                          <Btn size="xs" variant="ghost" onClick={() => handleSimulateInbound('Hii')} title="Dev only: simulate an inbound reply">
+                            💬 + Inbound "Hii"
+                          </Btn>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1053,7 +1063,7 @@ export default function CrmSalesInboxView() {
                           Send Approved Template
                         </Btn>
                       )}
-                      {(chatError.toLowerCase().includes('window') || chatError.toLowerCase().includes('24-hour')) && (
+                      {SHOW_DEV_WINDOW_TOOLS && (chatError.toLowerCase().includes('window') || chatError.toLowerCase().includes('24-hour')) && (
                         <Btn size="xs" variant="ghost" onClick={handleReopenWindow} title="Click to sync if the lead messaged you on WhatsApp">
                           🔄 Sync Window
                         </Btn>
@@ -1132,10 +1142,9 @@ export default function CrmSalesInboxView() {
             onMouseDown={startResizeRight}
             title="Drag to resize CRM Context panel & conversation"
             style={{
-              ...(mobile ? { display: 'none' } : {}),
               width: 10,
               cursor: 'col-resize',
-              display: 'flex',
+              display: mobile ? 'none' : 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               zIndex: 10,
@@ -1152,7 +1161,8 @@ export default function CrmSalesInboxView() {
           <div style={{
             width: mobile ? '100%' : rightWidth,
             flexShrink: 0,
-            ...(mobile ? { display: mobilePane === 'thread' ? 'block' : 'none', boxSizing: 'border-box' } : {}),
+            boxSizing: mobile ? 'border-box' : undefined,
+            display: mobile && mobilePane !== 'thread' ? 'none' : 'block',
             background: 'var(--surf)',
             border: '1px solid var(--bd)',
             borderRadius: 14,

@@ -30,7 +30,14 @@ export async function authenticate(req, res, next) {
     superAdmin: payload.superAdmin === true,
     jti: payload.jti ?? null,
     exp: payload.exp ?? null,
+    impersonatedBy: typeof payload.impersonatedBy === 'string' ? payload.impersonatedBy : null,
   };
+  // A platform admin acting as this user (auth.service impersonateUser). Every
+  // change made that way is logged with the admin behind it, so "the user did
+  // it" and "support did it as the user" can be told apart afterwards.
+  if (req.user.impersonatedBy && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    console.info(`[impersonation] admin ${req.user.impersonatedBy} as user ${req.user.id}: ${req.method} ${req.originalUrl || req.url}`);
+  }
   next();
 }
 
@@ -51,6 +58,7 @@ export function authenticateOptional(req, res, next) {
       superAdmin: payload.superAdmin === true,
       jti: payload.jti ?? null,
       exp: payload.exp ?? null,
+      impersonatedBy: typeof payload.impersonatedBy === 'string' ? payload.impersonatedBy : null,
     };
   } catch {
     // An expired or malformed token is not an error here — there is simply

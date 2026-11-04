@@ -119,6 +119,10 @@ function tooMany(res, resetAt) {
  *                                             email being tried), so a spray
  *                                             across many IPs still trips.
  * @param {number}   opts.subjectMax     allowance for the subject bucket
+ * @param {(req) => string|null} opts.key  optional primary bucket id used in
+ *                                         place of the client IP (e.g. the API
+ *                                         key id), falling back to the IP when
+ *                                         it returns nothing.
  */
 export function rateLimit({
   windowMs = 60_000,
@@ -127,12 +131,14 @@ export function rateLimit({
   countFailuresOnly = false,
   subject = null,
   subjectMax = null,
+  key = null,
 } = {}) {
   return async (req, res, next) => {
     // `req.ip` respects app.set('trust proxy', …) — it is only taken from
     // X-Forwarded-For for as many hops as we have actually configured.
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
-    const ipKey = `rl:${keyPrefix}:ip:${ip}`;
+    const primary = key ? key(req) : null;
+    const ipKey = primary ? `rl:${keyPrefix}:key:${primary}` : `rl:${keyPrefix}:ip:${ip}`;
     const subjectValue = subject ? subject(req) : null;
     const subjectKey = subjectValue ? `rl:${keyPrefix}:sub:${subjectValue}` : null;
 
@@ -143,8 +149,12 @@ export function rateLimit({
 
     if (!countFailuresOnly) {
       const hits = await hit(ipKey, windowMs);
-      if (subjectKey) await hit(subjectKey, windowMs);
+      const subHits = subjectKey ? await hit(subjectKey, windowMs) : null;
       if (hits.count > max) return tooMany(res, hits.resetAt);
+      // The subject bucket was only ever checked by the peek above, i.e. on
+      // the *next* request — so the request that crossed subjectMax was let
+      // through, one more than the allowance.
+      if (subHits && subjectMax && subHits.count > subjectMax) return tooMany(res, subHits.resetAt);
       return next();
     }
 

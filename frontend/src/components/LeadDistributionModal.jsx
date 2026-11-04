@@ -12,16 +12,28 @@ export function LeadDistributionModal({ onClose, members = [], onDistributed }) 
   const [saving, setSaving] = useState(false);
   const [distributing, setDistributing] = useState(false);
   const [msg, setMsg] = useState(null);
+  // If the saved rules could not be read, the editor starts empty — saving
+  // from there would overwrite the real rules with nothing. Block it.
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  const readError = async (res, fallback) => {
+    const d = await res.json().catch(() => ({}));
+    return d.error || d.message || `${fallback} (${res.status})`;
+  };
 
   useEffect(() => {
     wFetch('/lead-distribution/rules')
-      .then((r) => (r.ok ? r.json() : { enabled: false, rules: [] }))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Could not load distribution rules (${r.status}).`))))
       .then((d) => {
         setEnabled(Boolean(d.enabled));
         setRules(d.rules || []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((e) => {
+        setLoadFailed(true);
+        setMsg({ type: 'error', text: `${e.message} Close and reopen to try again.` });
+        setLoading(false);
+      });
   }, []);
 
   const handleSave = async () => {
@@ -33,12 +45,11 @@ export function LeadDistributionModal({ onClose, members = [], onDistributed }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled, rules }),
       });
-      if (res.ok) {
-        setMsg({ type: 'success', text: 'Distribution rules saved successfully.' });
-        setTimeout(() => setMsg(null), 3500);
-      }
+      if (!res.ok) throw new Error(await readError(res, 'Failed to save distribution rules'));
+      setMsg({ type: 'success', text: 'Distribution rules saved successfully.' });
+      setTimeout(() => setMsg(null), 3500);
     } catch (e) {
-      setMsg({ type: 'error', text: 'Failed to save distribution rules.' });
+      setMsg({ type: 'error', text: e.message || 'Failed to save distribution rules.' });
     } finally {
       setSaving(false);
     }
@@ -53,16 +64,15 @@ export function LeadDistributionModal({ onClose, members = [], onDistributed }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      if (res.ok) {
-        const d = await res.json();
-        setMsg({
-          type: 'success',
-          text: `Auto-distributed ${d.assignedCount} of ${d.totalEvaluated} unassigned lead(s).`,
-        });
-        if (onDistributed) onDistributed();
-      }
+      if (!res.ok) throw new Error(await readError(res, 'Distribution execution failed'));
+      const d = await res.json();
+      setMsg({
+        type: 'success',
+        text: `Auto-distributed ${d.assignedCount ?? 0} of ${d.totalEvaluated ?? 0} unassigned lead(s).`,
+      });
+      if (onDistributed) onDistributed();
     } catch (e) {
-      setMsg({ type: 'error', text: 'Distribution execution failed.' });
+      setMsg({ type: 'error', text: e.message || 'Distribution execution failed.' });
     } finally {
       setDistributing(false);
     }
@@ -248,7 +258,7 @@ export function LeadDistributionModal({ onClose, members = [], onDistributed }) 
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
           <Btn variant="ghost" onClick={onClose}>Close</Btn>
-          <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save Rules'}</Btn>
+          <Btn onClick={handleSave} disabled={saving || loading || loadFailed}>{saving ? 'Saving…' : 'Save Rules'}</Btn>
         </div>
       </div>
     </Modal>

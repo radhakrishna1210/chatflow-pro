@@ -224,7 +224,7 @@ export default function App() {
     ) {
       navigate('/dashboard', { replace: true });
     } else if (
-      (path === '/login' || path === '/register') &&
+      (path === '/login' || path === '/register' || path === '/') &&
       isAuthed()
     ) {
       navigate(
@@ -385,14 +385,10 @@ function renderPage(path, nav, search) {
   }
 
   if (path === '/' && isAuthed()) {
-    // Logged-in users land on the dashboard, matching the pre-router behaviour.
-    navigate(
-      canAccessDashboard()
-        ? '/dashboard'
-        : '/setup',
-      { replace: true }
-    );
-
+    // Logged-in users land on the dashboard, matching the pre-router
+    // behaviour. The redirect itself is in the guard effect — navigating from
+    // inside render updates App's state mid-render (React warns "Cannot update
+    // a component while rendering").
     return null;
   }
 

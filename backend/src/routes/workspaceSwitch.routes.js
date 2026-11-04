@@ -10,7 +10,7 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext);
 
 router.post('/', async (req, res) => {
-  const result = await authService.switchWorkspace(req.user.id, req.params.workspaceId);
+  const result = await authService.switchWorkspace(req.user.id, req.params.workspaceId, req.user);
   res.json(result);
 });
 

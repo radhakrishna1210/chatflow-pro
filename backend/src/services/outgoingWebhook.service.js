@@ -1,7 +1,10 @@
 import axios from 'axios';
 import { createHmac, randomUUID, randomBytes } from 'crypto';
 import { lookup } from 'dns/promises';
+import http from 'http';
+import https from 'https';
 import { isIP } from 'net';
+import { assertSafeUrl, ipIsPublic, safeLookup } from '../lib/siteCrawler.js';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 
@@ -64,24 +67,18 @@ export async function ensureVerifyToken(workspaceId, current) {
   return ws?.webhookVerifyToken || token;
 }
 
-const isPrivateAddress = (ip) => {
-  if (ip.includes(':')) {
-    const v = ip.toLowerCase();
-    if (v.startsWith('::ffff:')) return isPrivateAddress(v.slice(7));
-    return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80');
-  }
-  const [a, b] = ip.split('.').map(Number);
-  return a === 10 || a === 127 || a === 0
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 168)
-    || (a === 100 && b >= 64 && b <= 127);
-};
-
 // The server POSTs to whatever URL a workspace saves, so without this any
 // member could point it at the VPS's own services (Redis, the PM2 apps on
 // localhost) or a cloud metadata endpoint. Local development legitimately
 // targets localhost receivers, so the check applies in production only.
+//
+// The address rules are lib/siteCrawler.js's (ipIsPublic), which parse IPv6
+// fully — IPv4-mapped in either spelling ("::ffff:127.0.0.1" and
+// "::ffff:7f00:1"), NAT64, 6to4, Teredo, multicast, the reserved v4 ranges —
+// where the old hand-written prefix list here let several of those through.
+// Checking at save time is not enough on its own (a name can resolve publicly
+// now and to 127.0.0.1 at delivery), so deliveries also connect through
+// webhookAgents(), which validates the address actually dialled.
 export async function assertDeliverableUrl(url) {
   let parsed;
   try { parsed = new URL(url); } catch {
@@ -91,14 +88,31 @@ export async function assertDeliverableUrl(url) {
     const e = new Error('Webhook URL must use http or https'); e.status = 400; e.expose = true; throw e;
   }
   if (env.NODE_ENV !== 'production') return;
+  const refuse = (message) => { const e = new Error(message); e.status = 400; e.expose = true; return e; };
+  try {
+    assertSafeUrl(url);
+  } catch {
+    throw refuse('Webhook URL points to a private or internal address');
+  }
   const host = parsed.hostname.replace(/^\[|\]$/g, '');
-  const addresses = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map((r) => r.address);
-  if (addresses.length === 0) {
-    const e = new Error(`Webhook host "${host}" does not resolve`); e.status = 400; e.expose = true; throw e;
+  const addresses = isIP(host) ? [host] : (await lookup(host, { all: true, verbatim: true }).catch(() => [])).map((r) => r.address);
+  if (addresses.length === 0) throw refuse(`Webhook host "${host}" does not resolve`);
+  if (!addresses.every(ipIsPublic)) throw refuse('Webhook URL points to a private or internal address');
+}
+
+// Agents whose DNS lookup refuses any non-public address, so the address that
+// was checked is the address that is connected to (no DNS-rebinding window).
+// Production only, for the same reason as assertDeliverableUrl.
+let agents = null;
+export function webhookAgents() {
+  if (env.NODE_ENV !== 'production') return {};
+  if (!agents) {
+    agents = {
+      httpAgent: new http.Agent({ lookup: safeLookup }),
+      httpsAgent: new https.Agent({ lookup: safeLookup }),
+    };
   }
-  if (addresses.some(isPrivateAddress)) {
-    const e = new Error('Webhook URL points to a private or internal address'); e.status = 400; e.expose = true; throw e;
-  }
+  return agents;
 }
 
 // The settings API (validators/index.js, settingsSchemas.update) only accepts
@@ -129,6 +143,7 @@ async function deliverOnce(url, body, headers, timeoutMs = 10_000) {
   try {
     const res = await axios.post(url, body, {
       headers, timeout: timeoutMs,
+      ...webhookAgents(),
       // We validate the status ourselves so a 4xx does not throw and lose the
       // response we want to record.
       validateStatus: () => true,

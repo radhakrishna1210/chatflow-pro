@@ -129,7 +129,7 @@ const ProfileMenu = () => {
       const data = await res.json();
       if (!res.ok) return;
       localStorage.setItem('accessToken', data.accessToken);
-      localStorage.setItem('refreshToken', data.refreshToken);
+      if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken); // none under impersonation
       localStorage.setItem('user', JSON.stringify({
         id: data.user.id, name: data.user.name, email: data.user.email, role: data.user.role,
         superAdmin: data.user.superAdmin === true, workspaceId: data.workspace.id, workspaceName: data.workspace.name,

@@ -72,7 +72,7 @@ export default function InviteAccept() {
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Could not accept this invite.'); setState('ready'); return; }
       localStorage.setItem('accessToken', data.accessToken);
-      localStorage.setItem('refreshToken', data.refreshToken);
+      if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken); // none under impersonation
       localStorage.setItem('user', JSON.stringify({
         id: data.user.id, name: data.user.name, email: data.user.email, role: data.user.role,
         superAdmin: data.user.superAdmin === true,

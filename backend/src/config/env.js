@@ -143,6 +143,9 @@ const envSchema = z.object({
   // Razorpay test/live keys — optional until subscription checkout is configured.
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
+  // Secret entered in Razorpay Dashboard → Webhooks for POST /api/v1/webhooks/razorpay.
+  // Unset, that endpoint refuses every call (503) rather than accept unsigned events.
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
 
   // SMTP — optional until credentials are configured
   SMTP_HOST: z.string().optional(),

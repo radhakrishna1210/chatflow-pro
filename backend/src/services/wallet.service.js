@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError } from '../lib/razorpay.js';
+import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError, lockPayment } from '../lib/razorpay.js';
 import { env } from '../config/env.js';
 
 const MAX_RECHARGE = 100000;
@@ -239,37 +239,65 @@ export async function verifyTopupPayment(workspaceId, { orderId, paymentId, sign
 
   const client = getRazorpayClient();
   const order = await client.orders.fetch(orderId).catch(normalizeRazorpayError);
-  if (order.notes?.workspaceId !== workspaceId || order.notes?.type !== 'wallet_topup') {
+  return applyTopupPayment(workspaceId, order, paymentId);
+}
+
+// Credits a paid top-up order. Shared by the browser's verify call and the
+// Razorpay webhook (services/razorpayWebhook.service.js), so whichever arrives
+// first credits and the other — or a redelivered webhook — finds it done.
+// `order` is the order as Razorpay stores it (fetched from the API, never a
+// client- or webhook-supplied amount).
+//
+// The credit and its invoice are written in one transaction behind the
+// per-payment lock: as two separate steps, a crash between them left a
+// credit with no invoice, and a concurrent second caller could see the credit
+// but not yet the invoice.
+export async function applyTopupPayment(workspaceId, order, paymentId) {
+  if (order?.notes?.workspaceId !== workspaceId || order?.notes?.type !== 'wallet_topup') {
     const e = new Error('This payment does not belong to your workspace'); e.status = 403; throw e;
   }
+  if (!paymentId) { const e = new Error('paymentId is required'); e.status = 400; throw e; }
 
   const amt = money(Number(order.amount) / 100);
-  // Idempotency is enforced by the unique key rather than a pre-check, so a
-  // duplicate gateway callback, a network retry and a double-clicked verify
-  // all converge on the one original credit.
-  const result = await credit(workspaceId, amt, {
-    reason: 'Wallet recharge (Razorpay)',
-    reference: paymentId,
-    category: 'RECHARGE',
-    gateway: 'razorpay',
-    idempotencyKey: `rzp_topup_${paymentId}`,
-  });
-
-  if (!result.alreadyProcessed) {
-    await prisma.invoice.create({
-      data: {
-        workspaceId,
-        invoiceDate: new Date(),
-        description: 'Wallet recharge',
-        amount: amt,
-        currency: order.currency,
-        status: 'PAID',
+  const idempotencyKey = `rzp_topup_${paymentId}`;
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await lockPayment(tx, paymentId);
+      // Idempotency is enforced by the unique key rather than a pre-check, so a
+      // duplicate gateway callback, a network retry and a double-clicked verify
+      // all converge on the one original credit.
+      const result = await credit(workspaceId, amt, {
+        reason: 'Wallet recharge (Razorpay)',
         reference: paymentId,
-      },
-    }).catch(() => {});
+        category: 'RECHARGE',
+        gateway: 'razorpay',
+        idempotencyKey,
+      }, tx);
+      if (!result.alreadyProcessed) {
+        await tx.invoice.create({
+          data: {
+            workspaceId,
+            invoiceDate: new Date(),
+            description: 'Wallet recharge',
+            amount: amt,
+            currency: order.currency,
+            status: 'PAID',
+            reference: paymentId,
+          },
+        });
+      }
+      return result;
+    }, TX_OPTS);
+  } catch (err) {
+    if (err.code === 'P2002') {
+      const existing = await findByIdempotencyKey(prisma, idempotencyKey);
+      if (existing) {
+        const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { walletBalance: true } });
+        return { balance: Number(ws.walletBalance), transaction: serialize(existing), alreadyProcessed: true };
+      }
+    }
+    throw err;
   }
-
-  return result;
 }
 
 // Powers the dashboard's spend cards (README Part 5). One pass over the

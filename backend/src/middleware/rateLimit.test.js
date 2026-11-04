@@ -57,3 +57,26 @@ test('subject bucket trips for one account even across fresh IP buckets', async 
   for (let i = 0; i < 6; i++) outcomes.push((await attempt(limiter, { email: 'Victim@Example.com ' }, 401)).status);
   assert.deepEqual(outcomes, [401, 401, 401, 429, 429, 429]);
 });
+
+test('plain mode: the request that crosses subjectMax is refused (no off-by-one)', async () => {
+  const limiter = rateLimit({ windowMs: 60_000, max: 100, keyPrefix: `t-sub-plain-${Date.now()}`, subject: emailSubject, subjectMax: 3 });
+  const outcomes = [];
+  for (let i = 0; i < 5; i++) outcomes.push((await attempt(limiter, { email: 'a@b.co' }, 200)).status);
+  assert.deepEqual(outcomes, [200, 200, 200, 429, 429]);
+});
+
+test('plain mode: a simultaneous burst on the subject bucket cannot exceed subjectMax', async () => {
+  const limiter = rateLimit({ windowMs: 60_000, max: 100, keyPrefix: `t-sub-burst-${Date.now()}`, subject: emailSubject, subjectMax: 4 });
+  const results = await Promise.all(Array.from({ length: 20 }, () => attempt(limiter, { email: 'a@b.co' }, 200, { finishDelayMs: 20 })));
+  assert.equal(results.filter((r) => r.reached).length, 4);
+});
+
+test('key option buckets by the given id instead of the IP', async () => {
+  const prefix = `t-key-${Date.now()}`;
+  const limiter = rateLimit({ windowMs: 60_000, max: 2, keyPrefix: prefix, key: (req) => req.body.k });
+  const a = [];
+  for (let i = 0; i < 3; i++) a.push((await attempt(limiter, { k: 'key-A' }, 200)).status);
+  assert.deepEqual(a, [200, 200, 429]);
+  // Same IP, different key: its own allowance.
+  assert.equal((await attempt(limiter, { k: 'key-B' }, 200)).status, 200);
+});

@@ -933,7 +933,9 @@ function UsersTab() {
       }
 
       localStorage.setItem('accessToken', body.accessToken);
-      localStorage.setItem('refreshToken', body.refreshToken);
+      // Impersonation sessions are short-lived and get no refresh token.
+      if (body.refreshToken) localStorage.setItem('refreshToken', body.refreshToken);
+      else localStorage.removeItem('refreshToken');
       localStorage.setItem('user', JSON.stringify({
         id: body.user.id, name: body.user.name, email: body.user.email, role: body.user.role,
         superAdmin: body.user.superAdmin === true, workspaceId: body.workspace?.id ?? null, workspaceName: body.workspace?.name ?? null,

@@ -130,5 +130,17 @@ export async function removeMember(workspaceId, userId, actingUserId = null) {
     await tx.workspaceMember.delete({
       where: { userId_workspaceId: { userId, workspaceId } },
     });
+
+    // What the membership granted goes with it, in the same transaction.
+    // These rows used to survive removal: the user stayed listed on this
+    // workspace's teams (and so in ticket routing), their consent to third-party
+    // apps kept skipping the consent screen for a workspace they no longer
+    // belonged to, and an unredeemed authorization code could still be
+    // exchanged for an API key. Their inbox assignments are released so the
+    // threads are not stranded on someone who can no longer open them.
+    await tx.teamMember.deleteMany({ where: { userId, team: { workspaceId } } });
+    await tx.oAuthConsent.updateMany({ where: { userId, workspaceId, revokedAt: null }, data: { revokedAt: new Date() } });
+    await tx.oAuthAuthorizationCode.deleteMany({ where: { userId, workspaceId, consumedAt: null } });
+    await tx.conversation.updateMany({ where: { workspaceId, assignedToUserId: userId }, data: { assignedToUserId: null } });
   });
 }

@@ -96,7 +96,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Optional — leave blank to disable that feature: `GEMINI_API_KEY`, `OPENAI_API_KEY`,
 `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`,
-`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `SMTP_*`, `EMAIL_FROM`.
+`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`.
 
 4. **Apply**. First build takes ~5 min (two `npm ci` runs + a Vite build +
    `prisma migrate deploy`).
@@ -142,7 +142,21 @@ Substitute your real hostname:
   Save* — Meta GETs that URL and expects the challenge echoed back.
 - **Meta Embedded Signup** redirect URI (if used):
   `https://<host>/api/v1/auth/meta/callback`
-- **Razorpay** webhook (if used): your configured webhook route on the same host.
+- **Razorpay** webhook (set it up whenever Razorpay keys are set). Without it, a
+  buyer who pays and then closes the tab before the browser confirms the payment
+  is charged but gets no wallet credit, plan or add-on.
+  Razorpay Dashboard → Account & Settings → Webhooks → *Add New Webhook*:
+  - Webhook URL: `https://<host>/api/v1/webhooks/razorpay`
+  - Secret: any long random string (`openssl rand -hex 32`). Set the same value as
+    `RAZORPAY_WEBHOOK_SECRET` on the service. This is not the API key secret.
+  - Active events: `payment.captured` and `order.paid`. Other events are
+    acknowledged and ignored.
+
+  While `RAZORPAY_WEBHOOK_SECRET` is unset, the endpoint answers every call with 503.
+  A bad signature gets 401. The webhook and the browser's verify call share one
+  idempotent path, so a payment is credited once whichever one arrives first, and a
+  redelivered webhook does nothing. Test mode and live mode have separate webhook
+  settings in the dashboard, so add it in both.
 
 ## 7. Verify
 

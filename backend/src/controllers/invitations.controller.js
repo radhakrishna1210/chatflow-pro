@@ -35,6 +35,6 @@ export async function getByToken(req, res) {
 // invitations.service.js never has to import auth.service.js.
 export async function accept(req, res) {
   const result = await invitationsService.acceptInvitation(req.params.token, req.user.id);
-  const session = await authService.mintSessionForWorkspace(req.user.id, result.workspaceId, result.role);
+  const session = await authService.mintSessionForWorkspace(req.user.id, result.workspaceId, result.role, req.user);
   res.json(session);
 }

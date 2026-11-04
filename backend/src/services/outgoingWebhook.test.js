@@ -95,3 +95,30 @@ test('URL guard refuses non-http schemes', async () => {
   await assert.rejects(() => assertDeliverableUrl('ftp://example.com/x'), /http or https/);
   await assert.rejects(() => assertDeliverableUrl('not a url'), /not a valid URL/);
 });
+
+test('production URL guard uses the full address rules (IPv6-mapped, metadata, localhost names, credentials)', async () => {
+  const { env } = await import('../config/env.js');
+  const prev = env.NODE_ENV;
+  env.NODE_ENV = 'production';
+  try {
+    for (const url of [
+      'http://127.0.0.1/hook',
+      'http://[::ffff:7f00:1]/hook',          // IPv4-mapped, hex spelling — the old prefix list missed it
+      'http://[::ffff:127.0.0.1]/hook',
+      'http://[64:ff9b::a9fe:a9fe]/hook',     // NAT64 of 169.254.169.254
+      'http://169.254.169.254/latest/meta-data',
+      'http://localhost:6379/',
+      'http://redis.internal/',
+      'https://user:pw@example.com/hook',
+      'http://0.0.0.0/',
+      'http://198.18.0.1/',                    // benchmarking range
+    ]) {
+      await assert.rejects(() => assertDeliverableUrl(url), /private or internal/, url);
+    }
+    const { webhookAgents } = await import('./outgoingWebhook.service.js');
+    const agents = webhookAgents();
+    assert.ok(agents.httpAgent && agents.httpsAgent, 'deliveries connect through address-checking agents in production');
+  } finally {
+    env.NODE_ENV = prev;
+  }
+});

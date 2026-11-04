@@ -53,3 +53,17 @@ export function inr(rate) {
   const n = Number(rate);
   return Number.isFinite(n) ? `₹${n.toFixed(2)}` : null;
 }
+
+// How many messages of each category a balance pays for, e.g.
+// [['MARKETING','Marketing',84], ['UTILITY','Utility',575], …], or null until
+// the rates load. Campaigns are charged by template category, so a single
+// "≈ N messages" figure from one flat rate was right for none of them.
+export function messagesForBalance(balance, rates) {
+  const bal = Number(balance);
+  if (!rates || !Number.isFinite(bal)) return null;
+  const rows = PRICING_CATEGORIES
+    .map(([key, label]) => [key, label, Number(rates[key])])
+    .filter(([, , rate]) => Number.isFinite(rate) && rate > 0)
+    .map(([key, label, rate]) => [key, label, Math.max(0, Math.floor(bal / rate + 1e-9))]);
+  return rows.length ? rows : null;
+}

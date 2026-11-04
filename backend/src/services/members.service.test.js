@@ -86,3 +86,43 @@ test('the last admin cannot be removed', async (t) => {
     await prisma.user.delete({ where: { id: a } }).catch(() => {});
   }
 });
+
+test('removing a member also drops their teams, OAuth consents/codes and inbox assignments', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  const stamp = Date.now();
+  const ws = (await prisma.workspace.create({ data: { name: `test-members-cleanup-${stamp}` } })).id;
+  const otherWs = (await prisma.workspace.create({ data: { name: `test-members-cleanup-other-${stamp}` } })).id;
+  const admin = (await prisma.user.create({ data: { name: 'adm', email: `cl-adm-${stamp}@example.test` } })).id;
+  const gone = (await prisma.user.create({ data: { name: 'gone', email: `cl-gone-${stamp}@example.test` } })).id;
+  const clientId = `test-client-${stamp}`;
+  try {
+    await prisma.workspaceMember.create({ data: { userId: admin, workspaceId: ws, role: 'ADMIN' } });
+    await prisma.workspaceMember.create({ data: { userId: gone, workspaceId: ws, role: 'CLIENT' } });
+    await prisma.workspaceMember.create({ data: { userId: gone, workspaceId: otherWs, role: 'CLIENT' } });
+    const team = await prisma.team.create({ data: { workspaceId: ws, name: 'Sales' } });
+    const otherTeam = await prisma.team.create({ data: { workspaceId: otherWs, name: 'Sales' } });
+    await prisma.teamMember.createMany({ data: [{ teamId: team.id, userId: gone }, { teamId: otherTeam.id, userId: gone }] });
+    await prisma.oAuthClient.create({ data: { clientId, clientSecretHash: `h-${stamp}`, name: 'Test app', redirectUris: [], allowedScopes: [] } });
+    await prisma.oAuthConsent.create({ data: { userId: gone, workspaceId: ws, clientId, scopes: [] } });
+    await prisma.oAuthConsent.create({ data: { userId: gone, workspaceId: otherWs, clientId, scopes: [] } });
+    await prisma.oAuthAuthorizationCode.create({
+      data: { code: `c-${stamp}`, clientId, userId: gone, workspaceId: ws, redirectUri: 'https://x.test/cb', scopes: [], expiresAt: new Date(Date.now() + 60_000) },
+    });
+    const contact = await prisma.contact.create({ data: { workspaceId: ws, name: 'C', phoneNumber: `+9199${String(stamp).slice(-8)}` } });
+    const convo = await prisma.conversation.create({ data: { workspaceId: ws, contactId: contact.id, assignedToUserId: gone } });
+
+    await removeMember(ws, gone, admin);
+
+    assert.equal(await prisma.teamMember.count({ where: { userId: gone, teamId: team.id } }), 0);
+    assert.equal(await prisma.teamMember.count({ where: { userId: gone, teamId: otherTeam.id } }), 1, 'other workspace untouched');
+    const consents = await prisma.oAuthConsent.findMany({ where: { userId: gone } });
+    assert.ok(consents.find((c) => c.workspaceId === ws).revokedAt);
+    assert.equal(consents.find((c) => c.workspaceId === otherWs).revokedAt, null);
+    assert.equal(await prisma.oAuthAuthorizationCode.count({ where: { userId: gone, workspaceId: ws } }), 0);
+    assert.equal((await prisma.conversation.findUnique({ where: { id: convo.id } })).assignedToUserId, null);
+  } finally {
+    await prisma.workspace.deleteMany({ where: { id: { in: [ws, otherWs] } } }).catch(() => {});
+    await prisma.oAuthClient.deleteMany({ where: { clientId } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { id: { in: [admin, gone] } } }).catch(() => {});
+  }
+});

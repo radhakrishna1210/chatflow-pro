@@ -241,7 +241,7 @@ export async function listUsers(req, res) {
 }
 
 export async function impersonateUser(req, res) {
-  const result = await authService.impersonateUser(req.params.id);
+  const result = await authService.impersonateUser(req.params.id, req.user.id);
   // Audited after the fact deliberately: a failed impersonation is an
   // authorisation event the auth layer already reports, and logging the attempt
   // as if it succeeded would be worse than not logging it.

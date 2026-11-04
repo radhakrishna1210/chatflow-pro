@@ -275,9 +275,19 @@ export async function verifyCheckoutPayment(workspaceId, { orderId, paymentId, s
 
   const client = getRazorpayClient();
   const order = await client.orders.fetch(orderId).catch(normalizeRazorpayError);
-  if (order.notes?.workspaceId !== workspaceId) {
+  return applyCheckoutPayment(workspaceId, order, paymentId);
+}
+
+// Applies a paid plan order. Shared by the browser's verify call and the
+// Razorpay webhook (services/razorpayWebhook.service.js): the invoice written
+// for the payment id, checked behind the per-payment lock, is what makes the
+// second of the two (or a redelivered webhook) a no-op. `order` is the order
+// as Razorpay stores it, never a client- or webhook-supplied amount.
+export async function applyCheckoutPayment(workspaceId, order, paymentId) {
+  if (order?.notes?.workspaceId !== workspaceId) {
     const e = new Error('This payment does not belong to your workspace'); e.status = 403; throw e;
   }
+  if (!paymentId) { const e = new Error('paymentId is required'); e.status = 400; throw e; }
 
   // A wallet top-up or add-on order carries no planId; findUnique({ id:
   // undefined }) would throw a Prisma validation error (a 500) instead.

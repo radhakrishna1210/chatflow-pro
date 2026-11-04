@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
@@ -253,6 +253,8 @@ export default function InboxView() {
   const [templates, setTemplates] = useState([]);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(null);
+  // { id, values[] } while the agent fills a template's {{2}}+ before sending.
+  const [templateDraft, setTemplateDraft] = useState(null);
   const [activeId, setActiveId] = useState(null);
   const [isBot, setIsBot]       = useState(false);
   const [input, setInput]       = useState('');
@@ -520,18 +522,29 @@ export default function InboxView() {
       .catch(() => {});
   }, []);
 
-  const sendTemplate = async (template) => {
+  // Highest {{n}} across the template's text. The server refuses a send with
+  // {{2}} and up empty (they used to go out as the word "there"), so the agent
+  // is asked for them here; {{1}} defaults to the contact's name.
+  const templateVarCount = (t) => (Array.isArray(t?.components) ? t.components : []).reduce((max, c) => {
+    const nums = [...String(c?.text || '').matchAll(/\{\{(\d+)\}\}/g)].map(m => parseInt(m[1], 10));
+    return Math.max(max, ...nums, 0);
+  }, 0);
+
+  const sendTemplate = async (template, values = null) => {
     if (!activeId) return;
     setSendError(null);
+    const needed = templateVarCount(template);
+    if (needed >= 2 && !values) { setTemplateDraft({ id: template.id, values: Array(needed).fill('') }); return; }
     setSendingTemplate(template.id);
     try {
       const res = await wFetch(`/conversations/${activeId}/template`, {
-        method: 'POST', body: JSON.stringify({ templateId: template.id }),
+        method: 'POST', body: JSON.stringify({ templateId: template.id, ...(values ? { variables: values } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) { setSendError(data.error || `Could not send that template (${res.status})`); return; }
       setMsgs(p => ({ ...p, [activeId]: [...(p[activeId] || []), data] }));
       setTemplatePickerOpen(false);
+      setTemplateDraft(null);
     } catch (e) {
       setSendError(e.message);
     } finally {
@@ -925,7 +938,8 @@ export default function InboxView() {
                           </span>
                         )}
                         {templates.map(t => (
-                          <button key={t.id} onClick={() => sendTemplate(t)} disabled={sendingTemplate === t.id}
+                          <Fragment key={t.id}>
+                          <button onClick={() => sendTemplate(t)} disabled={sendingTemplate === t.id}
                             style={{ textAlign:'left', padding:'7px 10px', borderRadius:7, cursor:'pointer',
                                      background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)',
                                      color:'var(--t1)', fontSize:12, fontFamily:"'Manrope',sans-serif" }}>
@@ -933,6 +947,28 @@ export default function InboxView() {
                             <span style={{ color:'var(--t3)', marginLeft:8, fontSize:11 }}>{t.category} · {t.language}</span>
                             {sendingTemplate === t.id && <span style={{ color:'var(--t3)', marginLeft:8 }}>sending…</span>}
                           </button>
+                          {templateDraft?.id === t.id && (
+                            <div style={{ display:'flex', flexDirection:'column', gap:5, padding:'4px 10px 8px' }}>
+                              {templateDraft.values.map((v, i) => (
+                                <input key={i} value={v} aria-label={`Value for {{${i + 1}}}`}
+                                  placeholder={i === 0 ? '{{1}} — leave empty for the contact\'s name' : `{{${i + 1}}} (required)`}
+                                  onChange={e => setTemplateDraft(d => ({ ...d, values: d.values.map((x, j) => (j === i ? e.target.value : x)) }))}
+                                  style={{ padding:'6px 8px', borderRadius:6, border:'1px solid var(--bd)', background:'var(--surf)', color:'var(--t1)', fontSize:12 }} />
+                              ))}
+                              <div style={{ display:'flex', gap:6 }}>
+                                <button disabled={sendingTemplate === t.id || templateDraft.values.slice(1).some(x => !x.trim())}
+                                  onClick={() => sendTemplate(t, templateDraft.values)}
+                                  style={{ padding:'5px 12px', borderRadius:6, cursor:'pointer', background:'var(--green)', border:'none', color:'#08090c', fontSize:12, fontWeight:700 }}>
+                                  Send
+                                </button>
+                                <button onClick={() => setTemplateDraft(null)}
+                                  style={{ padding:'5px 12px', borderRadius:6, cursor:'pointer', background:'none', border:'1px solid var(--bd)', color:'var(--t2)', fontSize:12 }}>
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          </Fragment>
                         ))}
                       </div>
                     )}

@@ -6,7 +6,28 @@ import { env } from '../config/env.js';
 import { queueWelcomeEmail, sendOtpEmailNow } from './email.service.js';
 import { consumeInvitationAtomically } from './invitations.service.js';
 
-function generateTokens(userId, workspaceId, role, superAdmin = false) {
+// An impersonation session is short and cannot be renewed. It used to be an
+// ordinary login — a 7-day refresh token and nothing in the token saying an
+// admin was behind it — so a support look-in quietly became a week-long
+// session indistinguishable from the user's own. Now the access token carries
+// `impersonatedBy` (the admin's user id; authenticate.js logs every write made
+// under it), lives IMPERSONATION_TTL_SEC at most, and no refresh token is
+// issued. Sessions minted *from* an impersonation session (switching or
+// creating a workspace, accepting an invite) inherit the claim and the original
+// expiry, so they cannot be used to step out of it.
+export const IMPERSONATION_TTL_SEC = 60 * 60;
+
+function generateTokens(userId, workspaceId, role, superAdmin = false, { impersonatedBy = null, impersonationExp = null } = {}) {
+  if (impersonatedBy) {
+    const now = Math.floor(Date.now() / 1000);
+    const exp = Math.min(now + IMPERSONATION_TTL_SEC, Number(impersonationExp) || Infinity);
+    if (!(exp > now)) { const e = new Error('The impersonation session has ended'); e.status = 401; throw e; }
+    const accessToken = jwt.sign(
+      { sub: userId, workspaceId, role, superAdmin: false, impersonatedBy, jti: randomUUID(), exp },
+      env.JWT_ACCESS_SECRET,
+    );
+    return { accessToken, refreshToken: null };
+  }
   // The access token carries its own `jti` so signing out can revoke *this*
   // token. Without one there is nothing to name in a denylist, which is why a
   // logged-out access token stayed usable for its full 15-minute life.
@@ -26,6 +47,12 @@ function generateTokens(userId, workspaceId, role, superAdmin = false) {
   return { accessToken, refreshToken };
 }
 
+// What a request made under an impersonation session must pass on to any
+// session it mints. Null for an ordinary session.
+const impersonationOf = (actor) => (actor?.impersonatedBy
+  ? { impersonatedBy: actor.impersonatedBy, impersonationExp: actor.exp ?? null }
+  : {});
+
 // Parse durations like '15m' / '7d' / '12h' into milliseconds.
 function parseDurationMs(value, fallbackMs) {
   const m = /^(\d+)\s*(ms|s|m|h|d)$/.exec(String(value || '').trim());
@@ -37,6 +64,7 @@ function parseDurationMs(value, fallbackMs) {
 const REFRESH_TTL_MS = parseDurationMs(env.JWT_REFRESH_EXPIRES_IN, 7 * 86_400_000);
 
 async function storeRefreshToken(userId, token) {
+  if (!token) return;
   const expiresAt = new Date(Date.now() + REFRESH_TTL_MS);
   await prisma.refreshToken.create({ data: { userId, token, expiresAt } });
   // Opportunistic cleanup so expired tokens don't pile up forever.
@@ -623,7 +651,7 @@ export async function resetPassword({ email, code, newPassword }) {
 
 // ─── Workspace creation ───────────────────────────────────────────────────────
 // The ONLY place a user gains the ADMIN role: explicitly creating a workspace.
-export async function createWorkspace(userId, { name } = {}) {
+export async function createWorkspace(userId, { name } = {}, actor = null) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
 
@@ -653,8 +681,8 @@ export async function createWorkspace(userId, { name } = {}) {
 
   // Issue fresh tokens carrying the new workspace context so the client can
   // swap its session in place.
-  const superAdmin = isPlatformAdmin(user.email);
-  const { accessToken, refreshToken } = generateTokens(user.id, workspace.id, role, superAdmin);
+  const superAdmin = !actor?.impersonatedBy && isPlatformAdmin(user.email);
+  const { accessToken, refreshToken } = generateTokens(user.id, workspace.id, role, superAdmin, impersonationOf(actor));
   await storeRefreshToken(user.id, refreshToken);
 
   return {
@@ -672,12 +700,12 @@ export async function createWorkspace(userId, { name } = {}) {
 
 // Shared tail of createWorkspace — mint tokens scoped to a given workspace.
 // Used by both switchWorkspace and the invitations controller's accept flow.
-export async function mintSessionForWorkspace(userId, workspaceId, role) {
+export async function mintSessionForWorkspace(userId, workspaceId, role, actor = null) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
 
-  const superAdmin = isPlatformAdmin(user.email);
-  const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin);
+  const superAdmin = !actor?.impersonatedBy && isPlatformAdmin(user.email);
+  const { accessToken, refreshToken } = generateTokens(user.id, workspaceId, role, superAdmin, impersonationOf(actor));
   await storeRefreshToken(user.id, refreshToken);
 
   const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, name: true } });
@@ -689,20 +717,20 @@ export async function mintSessionForWorkspace(userId, workspaceId, role) {
   };
 }
 
-export async function switchWorkspace(userId, targetWorkspaceId) {
+export async function switchWorkspace(userId, targetWorkspaceId, actor = null) {
   const member = await prisma.workspaceMember.findUnique({
     where: { userId_workspaceId: { userId, workspaceId: targetWorkspaceId } },
   });
   if (!member) { const e = new Error('Not a member of this workspace'); e.status = 403; throw e; }
 
-  return mintSessionForWorkspace(userId, targetWorkspaceId, member.role);
+  return mintSessionForWorkspace(userId, targetWorkspaceId, member.role, actor);
 }
 
 // Platform-admin impersonation: mint a session for the target user's default
 // (earliest-joined) workspace, exactly as if they'd logged in themselves.
 // Impersonating the platform admin account is blocked — no legitimate use,
 // and it would silently hand out a super-admin session from a user-id lookup.
-export async function impersonateUser(targetUserId) {
+export async function impersonateUser(targetUserId, adminUserId = null) {
   const user = await prisma.user.findUnique({ where: { id: targetUserId } });
   if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
   if (isPlatformAdmin(user.email)) { const e = new Error('Cannot impersonate the platform admin'); e.status = 400; throw e; }
@@ -712,15 +740,17 @@ export async function impersonateUser(targetUserId) {
     orderBy: { joinedAt: 'asc' },
   });
 
-  const { accessToken, refreshToken } = generateTokens(user.id, member?.workspaceId ?? null, member?.role ?? null, false);
-  await storeRefreshToken(user.id, refreshToken);
+  if (!adminUserId) { const e = new Error('Impersonation needs the acting admin'); e.status = 400; throw e; }
+  // Short-lived, marked, and not renewable — see generateTokens.
+  const { accessToken } = generateTokens(user.id, member?.workspaceId ?? null, member?.role ?? null, false, { impersonatedBy: adminUserId });
 
   const workspace = member
     ? await prisma.workspace.findUnique({ where: { id: member.workspaceId }, select: { id: true, name: true } })
     : null;
 
   return {
-    accessToken, refreshToken,
+    accessToken, refreshToken: null,
+    impersonation: { impersonatedBy: adminUserId, expiresInSeconds: IMPERSONATION_TTL_SEC },
     user: { id: user.id, name: user.name, email: user.email, role: member?.role ?? null, superAdmin: false },
     workspace,
   };

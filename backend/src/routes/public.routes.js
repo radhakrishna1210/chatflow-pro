@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticateApiKey } from '../middleware/authenticateApiKey.js';
 import { requireScope } from '../lib/apiScopes.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import * as templatesController from '../controllers/templates.controller.js';
 import * as campaignsController from '../controllers/campaigns.controller.js';
 import * as contactsController from '../controllers/contacts.controller.js';
@@ -18,6 +19,14 @@ const router = Router();
 // 1. Authenticate all public routes
 router.use(authenticateApiKey);
 
+// Per-key rate limits. There were none, so one leaked or runaway key could
+// drive unbounded sends and DB load. Keyed by the API key (not the IP: many
+// integrations share egress IPs, and one key spread over many IPs must still
+// be one budget). Sends get their own, tighter bucket.
+const apiKeyId = (req) => (req.apiKey?.id ? String(req.apiKey.id) : null);
+router.use(rateLimit({ windowMs: 60_000, max: 300, keyPrefix: 'public-api', key: apiKeyId }));
+const sendLimit = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'public-api-send', key: apiKeyId });
+
 // 2. Inject workspaceId into req.params just before controller executes 
 //    to avoid Express wiping req.params when matching route paths.
 const injectWorkspace = (fn) => (req, res, next) => {
@@ -33,7 +42,7 @@ const injectWorkspace = (fn) => (req, res, next) => {
 router.get('/me', publicIdentityController.me);
 
 // --- Messages ---
-router.post('/messages', requireScope('messages:send'), async (req, res, next) => {
+router.post('/messages', requireScope('messages:send'), sendLimit, async (req, res, next) => {
   try {
     const result = await whatsappService.sendPublicMessage(req.workspaceId, req.body);
     res.status(200).json(result);

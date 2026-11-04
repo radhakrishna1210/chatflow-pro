@@ -1,6 +1,7 @@
 import { I } from './Icons.jsx';
 import { Btn } from './Btn.jsx';
 import { useWallet, goToRecharge } from '../lib/useWallet.js';
+import { useMessageRates, messagesForBalance } from '../lib/pricing.js';
 
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -51,12 +52,14 @@ const STATES = {
  */
 export default function WalletStatusBanner({ hideWhenHealthy = false, compact = false, style = {} }) {
   const { wallet, loading } = useWallet();
+  const rates = useMessageRates();
 
   // Nothing is shown until the real balance has arrived — a banner that
   // guesses would flash the wrong status on every page load.
   if (loading || !wallet) return null;
 
   const state = STATES[wallet.status] || STATES.HEALTHY;
+  const runway = messagesForBalance(wallet.balance, rates);
   if (hideWhenHealthy && wallet.status === 'HEALTHY') return null;
 
   return (
@@ -87,10 +90,16 @@ export default function WalletStatusBanner({ hideWhenHealthy = false, compact = 
         <div style={{ textAlign: 'right' }}>
           <p style={{ fontSize: 10, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>Available</p>
           <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--t1)', fontVariantNumeric: 'tabular-nums' }}>{inr(wallet.balance)}</p>
-          {/* Runway, not just rupees — it is what makes "low" mean something. */}
-          {wallet.messagesRemaining != null && wallet.status !== 'EMPTY' && (
-            <p style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 1 }}>
-              ≈ {wallet.messagesRemaining.toLocaleString('en-IN')} messages
+          {/* Runway, not just rupees — it is what makes "low" mean something.
+              Campaigns are charged by template category, so the figure names
+              its basis (marketing, the dearest) and the tooltip gives the
+              rest, instead of one count at a flat rate no campaign pays. */}
+          {runway && wallet.status !== 'EMPTY' && (
+            <p
+              style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 1 }}
+              title={runway.map(([, label, n]) => `≈ ${n.toLocaleString('en-IN')} ${label.toLowerCase()} messages`).join('\n')}>
+              ≈ {runway[0][2].toLocaleString('en-IN')} {runway[0][1].toLowerCase()} messages
+              {runway[1] && ` · ${runway[1][2].toLocaleString('en-IN')} ${runway[1][1].toLowerCase()}`}
             </p>
           )}
         </div>

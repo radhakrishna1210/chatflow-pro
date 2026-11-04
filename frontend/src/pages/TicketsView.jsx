@@ -387,6 +387,8 @@ export default function TicketsView() {
       setError(null);
     } catch (e) {
       if (seq !== reqSeq.current) return;
+      // Don't leave the previous queue's tickets on screen under the new tab.
+      setTickets([]);
       setError(e.message);
     }
     setLoading(false);

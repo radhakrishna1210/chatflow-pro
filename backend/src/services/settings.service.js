@@ -272,7 +272,7 @@ export async function testWebhook(workspaceId) {
   // unsigned {event:'test'} body, so a receiver that verified signatures — the
   // thing the test is meant to prove works — rejected the test and accepted
   // production traffic, or vice versa.
-  const { signPayload, assertDeliverableUrl, ensureVerifyToken } = await import('./outgoingWebhook.service.js');
+  const { signPayload, assertDeliverableUrl, ensureVerifyToken, webhookAgents } = await import('./outgoingWebhook.service.js');
   const { randomUUID } = await import('crypto');
   await assertDeliverableUrl(ws.webhookUrl);
   const secret = await ensureVerifyToken(workspaceId, ws.webhookVerifyToken);
@@ -288,6 +288,8 @@ export async function testWebhook(workspaceId) {
   try {
     const res = await axios.post(ws.webhookUrl, body, {
       timeout: 8000,
+      // Connect-time address check, as for real deliveries.
+      ...webhookAgents(),
       validateStatus: () => true,
       // Same as real deliveries (outgoingWebhook.service.js). The test used to
       // follow redirects while production did not, so an http:// URL that
