@@ -237,3 +237,23 @@ test('an add-on payment cannot be replayed to re-activate an expired add-on', as
   const row = await prisma.workspaceAddon.findUnique({ where: { workspaceId_addonKey: { workspaceId, addonKey: 'fields' } } });
   assert.equal(row.currentPeriodEnd.getTime(), lapsed.getTime(), 'replay must not extend the add-on');
 });
+
+test('concurrent first requests of a billing period all get one usage counter', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  const { getActiveSubscription, consumeMessageCredit } = await import('./subscription.service.js');
+  const plan = await prisma.plan.findFirst({ where: { messageQuota: { gt: 0 } } });
+  const start = new Date(Date.now() - 1000);
+  await prisma.subscription.upsert({
+    where: { workspaceId },
+    update: { planId: plan.id, currentPeriodStart: start, currentPeriodEnd: new Date(Date.now() + 86_400_000), status: 'ACTIVE' },
+    create: { workspaceId, planId: plan.id, status: 'ACTIVE', currentPeriodStart: start, currentPeriodEnd: new Date(Date.now() + 86_400_000) },
+  });
+  const results = await Promise.allSettled([
+    ...Array.from({ length: 8 }, () => getActiveSubscription(workspaceId)),
+    ...Array.from({ length: 4 }, () => consumeMessageCredit(workspaceId, { prepaid: true })),
+  ]);
+  assert.deepEqual(results.filter((r) => r.status === 'rejected').map((r) => r.reason?.message), []);
+  const rows = await prisma.usageCounter.findMany({ where: { workspaceId, periodStart: start } });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].messagesUsed, 4);
+});

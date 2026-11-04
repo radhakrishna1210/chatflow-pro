@@ -7,6 +7,16 @@ import { env } from '../config/env.js';
 // Returns the workspace's subscription + plan + the UsageCounter for the
 // subscription's current billing cycle, creating the counter if it doesn't
 // exist yet (e.g. right after a cycle rollover).
+// Creates this period's usage row if it is missing, without ever failing on a
+// concurrent creator. Safe inside a transaction too: ON CONFLICT DO NOTHING
+// does not abort it the way a caught P2002 would.
+async function ensureUsageCounter(client, workspaceId, { currentPeriodStart, currentPeriodEnd }) {
+  await client.usageCounter.createMany({
+    data: [{ workspaceId, periodStart: currentPeriodStart, periodEnd: currentPeriodEnd, messagesUsed: 0 }],
+    skipDuplicates: true,
+  });
+}
+
 export async function getActiveSubscription(workspaceId) {
   const subscription = await prisma.subscription.findUnique({
     where: { workspaceId },
@@ -18,15 +28,13 @@ export async function getActiveSubscription(workspaceId) {
     where: { workspaceId_periodStart: { workspaceId, periodStart: subscription.currentPeriodStart } },
   });
   if (!usage) {
-    usage = await prisma.usageCounter.upsert({
+    // INSERT … ON CONFLICT DO NOTHING, then read. Prisma's upsert with an
+    // empty update is a select-then-insert, so the first few requests of a
+    // new billing period racing here (five invites accepted at once) hit the
+    // unique key and failed with a 500.
+    await ensureUsageCounter(prisma, workspaceId, subscription);
+    usage = await prisma.usageCounter.findUnique({
       where: { workspaceId_periodStart: { workspaceId, periodStart: subscription.currentPeriodStart } },
-      update: {},
-      create: {
-        workspaceId,
-        periodStart: subscription.currentPeriodStart,
-        periodEnd: subscription.currentPeriodEnd,
-        messagesUsed: 0,
-      },
     });
   }
 
@@ -66,11 +74,7 @@ export async function consumeMessageCredit(workspaceId, { reason = 'Message send
     const { plan, currentPeriodStart, currentPeriodEnd } = subscription;
     const periodKey = { workspaceId_periodStart: { workspaceId, periodStart: currentPeriodStart } };
 
-    await tx.usageCounter.upsert({
-      where: periodKey,
-      update: {},
-      create: { workspaceId, periodStart: currentPeriodStart, periodEnd: currentPeriodEnd, messagesUsed: 0 },
-    });
+    await ensureUsageCounter(tx, workspaceId, subscription);
 
     if (plan.messageQuota === -1) {
       await tx.usageCounter.update({ where: periodKey, data: { messagesUsed: { increment: 1 } } });
