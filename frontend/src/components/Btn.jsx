@@ -22,7 +22,7 @@ export const Btn = ({ children, variant = 'primary', size = 'md', onClick, style
     // green on hover after the palette moved to cyan.
     ...(variant === 'primary' ? {
       background: h ? 'var(--grad-cta-hot)' : 'var(--grad-cta)', color: 'var(--ink)',
-      boxShadow: h ? '0 6px 24px rgba(53,232,242,0.32), inset 0 1px 0 rgba(255,255,255,0.28)'
+      boxShadow: h ? '0 6px 24px rgba(var(--accent-rgb),0.32), inset 0 1px 0 rgba(255,255,255,0.28)'
                    : 'inset 0 1px 0 rgba(255,255,255,0.22)',
       transform: h && !disabled ? 'translateY(-1px)' : 'none',
     } : variant === 'ghost' ? {

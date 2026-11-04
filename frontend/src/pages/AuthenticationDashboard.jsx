@@ -137,7 +137,7 @@ const ReadinessItem = ({ ready, label, detail }) => (
 );
 
 const OtpFlow = () => (
-  <section style={{ ...card, padding: '20px 22px', background: 'linear-gradient(135deg, rgba(53,232,242,.07), rgba(157,107,255,.035)), var(--surf)' }}>
+  <section style={{ ...card, padding: '20px 22px', background: 'linear-gradient(135deg, rgba(var(--accent-rgb),.07), rgba(var(--violet-rgb),.035)), var(--surf)' }}>
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16 }}>
       <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><I n="shield" s={15} c="var(--green)" /></div>
       <div>
@@ -314,7 +314,7 @@ const TabBar = ({ active, onChange }) => (
     {TABS.map(t => {
       const on = active === t.id;
       return (
-        <button key={t.id} onClick={() => onChange(t.id)} style={{ flexShrink: 0, whiteSpace: 'nowrap', border: 0, borderRadius: 7, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all .15s', color: on ? '#071015' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent', boxShadow: on ? '0 0 18px rgba(53,232,242,0.35)' : 'none' }}>
+        <button key={t.id} onClick={() => onChange(t.id)} style={{ flexShrink: 0, whiteSpace: 'nowrap', border: 0, borderRadius: 7, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all .15s', color: on ? '#071015' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent', boxShadow: on ? '0 0 18px rgba(var(--accent-rgb),0.35)' : 'none' }}>
           {t.label}
         </button>
       );
@@ -617,7 +617,7 @@ const ConfirmRegenerateModal = ({ onCancel, onConfirm, loading }) => (
     role="dialog" aria-modal="true" aria-label="Regenerate API Key?"
     style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
   >
-    <div onClick={e => e.stopPropagation()} style={{ ...card, border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(53,232,242,0.10)', width: '100%', maxWidth: 440, overflow: 'hidden' }}>
+    <div onClick={e => e.stopPropagation()} style={{ ...card, border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(var(--accent-rgb),0.10)', width: '100%', maxWidth: 440, overflow: 'hidden' }}>
       <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
@@ -663,7 +663,7 @@ const ConfirmRegenerateModal = ({ onCancel, onConfirm, loading }) => (
 // it closes and cannot be recovered from this page again.
 const NewKeyModal = ({ apiKey, onClose }) => (
   <div role="dialog" aria-modal="true" aria-label="New API Key Generated" style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-    <div style={{ ...card, border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(53,232,242,0.10)', width: '100%', maxWidth: 480, overflow: 'hidden' }}>
+    <div style={{ ...card, border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(var(--accent-rgb),0.10)', width: '100%', maxWidth: 480, overflow: 'hidden' }}>
       <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--sbg)', border: '1px solid var(--sbd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
@@ -1046,7 +1046,7 @@ export default function AuthenticationDashboard({ header }) {
 
         {activeTab === 'overview' && (
         <>
-        <section style={{ ...card, padding: '20px 22px', background: 'linear-gradient(135deg, rgba(53,232,242,.08), rgba(157,107,255,.04)), var(--surf)', borderColor: 'var(--gbd)' }}>
+        <section style={{ ...card, padding: '20px 22px', background: 'linear-gradient(135deg, rgba(var(--accent-rgb),.08), rgba(var(--violet-rgb),.04)), var(--surf)', borderColor: 'var(--gbd)' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
             <div>
               <p style={{ margin: 0, fontFamily: mono, fontSize: 10, fontWeight: 700, letterSpacing: '.1em', color: 'var(--green)', textTransform: 'uppercase' }}>Authentication overview</p>

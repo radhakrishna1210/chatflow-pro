@@ -615,9 +615,9 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
                   <div
                     key={c.id}
                     onClick={() => toggle(c.id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: sel ? 'rgba(53,232,242,0.08)' : 'transparent', transition: 'background .12s' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: sel ? 'rgba(var(--accent-rgb),0.08)' : 'transparent', transition: 'background .12s' }}
                     onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
-                    onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = sel ? 'rgba(53,232,242,0.08)' : 'transparent'; }}
+                    onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = sel ? 'rgba(var(--accent-rgb),0.08)' : 'transparent'; }}
                   >
                     <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${sel ? 'var(--green)' : 'var(--bd)'}`, background: sel ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
                       {sel && <I n="check" s={9} c="#08090c" w={3} />}
@@ -1119,7 +1119,7 @@ export default function ContactsView() {
                   const sel = selected.has(c.id);
                   return (
                     <tr key={c.id}
-                      style={{ borderBottom: i < contacts.length - 1 ? '1px solid var(--bd)' : 'none', background: sel ? 'rgba(53,232,242,0.04)' : 'transparent', transition:'background .12s' }}
+                      style={{ borderBottom: i < contacts.length - 1 ? '1px solid var(--bd)' : 'none', background: sel ? 'rgba(var(--accent-rgb),0.04)' : 'transparent', transition:'background .12s' }}
                       onMouseEnter={e => { if (!sel) e.currentTarget.style.background = 'rgba(255,255,255,0.015)'; }}
                       onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'transparent'; }}>
                       <td style={{ padding:'12px 16px' }}>
@@ -1147,7 +1147,7 @@ export default function ContactsView() {
                               searched to this contact's number. */}
                           <button type="button" style={rowIconBtn} aria-label={`Message ${c.name || c.phoneNumber}`} title="Open in Inbox"
                             onClick={() => openInInbox(c)}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(53,232,242,0.1)'; e.currentTarget.style.borderColor = 'var(--gbd)'; }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.1)'; e.currentTarget.style.borderColor = 'var(--gbd)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
                             <I n="msg" s={13} c="var(--t2)" />
                           </button>

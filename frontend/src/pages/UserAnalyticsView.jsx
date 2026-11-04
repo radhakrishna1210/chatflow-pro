@@ -65,7 +65,7 @@ const GrowthChart = ({ growth }) => {
           <div key={g.label} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:6, minWidth:0 }}>
             <span style={{ fontFamily:'var(--mono)', fontSize:9.5, color:'var(--t3)' }}>{g.added || ''}</span>
             <div title={`${g.added} added in the week of ${g.label}`}
-              style={{ width:'100%', height:`${Math.max(2, (g.added / max) * 100)}%`, minHeight:2, borderRadius:'4px 4px 0 0', background:'linear-gradient(180deg, var(--cyan), rgba(53,232,242,0.25))' }} />
+              style={{ width:'100%', height:`${Math.max(2, (g.added / max) * 100)}%`, minHeight:2, borderRadius:'4px 4px 0 0', background:'linear-gradient(180deg, var(--cyan), rgba(var(--accent-rgb),0.25))' }} />
           </div>
         ))}
       </div>
@@ -104,7 +104,7 @@ const CohortGrid = ({ cohorts, columns }) => (
               fontVariantNumeric:'tabular-nums',
               // A future week is drawn as absence, not as zero — the difference
               // between "nobody came back" and "that week hasn't happened".
-              background: cell == null ? 'rgba(255,255,255,0.02)' : `rgba(53,232,242,${0.08 + (cell / 100) * 0.55})`,
+              background: cell == null ? 'rgba(255,255,255,0.02)' : `rgba(var(--accent-rgb),${0.08 + (cell / 100) * 0.55})`,
               color: cell == null ? 'var(--t3)' : cell > 45 ? '#06110f' : '#8fecf3',
               border: cell == null ? '1px dashed var(--bd)' : '1px solid transparent',
             }}>
@@ -280,7 +280,7 @@ export default function UserAnalyticsView() {
                             <span style={{ fontFamily:'var(--mono)', fontSize:11.5, color:'var(--t2)', flexShrink:0 }}>{(a.chatsHandled ?? 0).toLocaleString()}</span>
                           </div>
                           <div style={{ height:4, borderRadius:4, background:'rgba(255,255,255,0.07)', overflow:'hidden' }}>
-                            <div style={{ width:`${((a.chatsHandled ?? 0) / max) * 100}%`, height:'100%', borderRadius:4, background: isYou ? 'var(--grad-cta)' : 'rgba(157,107,255,0.6)' }} />
+                            <div style={{ width:`${((a.chatsHandled ?? 0) / max) * 100}%`, height:'100%', borderRadius:4, background: isYou ? 'var(--grad-cta)' : 'rgba(var(--violet-rgb),0.6)' }} />
                           </div>
                         </div>
                       </div>

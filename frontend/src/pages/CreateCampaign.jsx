@@ -188,7 +188,7 @@ const SMART_SCHEDULE = [
 ];
 
 const CAT_STYLE = {
-  MARKETING:      { bg: 'rgba(196,255,70,.12)', bd: 'rgba(196,255,70,.3)',  c: '#d8ff8a' },
+  MARKETING:      { bg: 'rgba(var(--lime-rgb),.12)', bd: 'rgba(var(--lime-rgb),.3)',  c: '#d8ff8a' },
   UTILITY:        { bg: 'rgba(14,165,233,.12)',  bd: 'rgba(14,165,233,.3)',   c: '#9d6bff' },
   AUTHENTICATION: { bg: 'rgba(245,158,11,.12)',  bd: 'rgba(245,158,11,.3)',   c: '#fbbf24' },
 };
@@ -351,7 +351,7 @@ const GoalStep = ({ goal, setGoal, onNext }) => (
                      background: on ? 'var(--gbg)' : 'rgba(255,255,255,0.02)',
                      border: `1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`, transition: 'all .15s' }}>
             <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                           background: on ? 'rgba(53,232,242,0.14)' : 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
+                           background: on ? 'rgba(var(--accent-rgb),0.14)' : 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
               <I n={g.icon} s={15} c={on ? 'var(--green)' : 'var(--t2)'} />
             </span>
             <span style={{ flex: 1, minWidth: 0 }}>
@@ -638,9 +638,9 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
               const sel = selectedContactIds.has(c.id);
               return (
                 <div key={c.id} onClick={() => toggleContact(c.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '9px 12px', borderRadius: '8px', cursor: 'pointer', background: sel ? 'rgba(53,232,242,0.05)' : 'transparent', transition: 'background .12s' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '9px 12px', borderRadius: '8px', cursor: 'pointer', background: sel ? 'rgba(var(--accent-rgb),0.05)' : 'transparent', transition: 'background .12s' }}
                   onMouseEnter={e => { if (!sel) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
-                  onMouseLeave={e => { if (!sel) e.currentTarget.style.background = sel ? 'rgba(53,232,242,0.05)' : 'transparent'; }}>
+                  onMouseLeave={e => { if (!sel) e.currentTarget.style.background = sel ? 'rgba(var(--accent-rgb),0.05)' : 'transparent'; }}>
                   <div style={{ width: '16px', height: '16px', borderRadius: '4px', border: `1.5px solid ${sel ? 'var(--green)' : 'var(--bd)'}`, background: sel ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
                     {sel && <I n="check" s={9} c="#08090c" w={3} />}
                   </div>
@@ -1554,7 +1554,7 @@ const StepRail = ({ steps, current }) => (
     {steps.map((s, i) => (
       <span key={s.n} style={{
         flex: 1, height: 3, borderRadius: 3,
-        background: s.done ? 'var(--accent)' : i === current ? 'rgba(53,232,242,0.45)' : 'rgba(255,255,255,0.12)',
+        background: s.done ? 'var(--accent)' : i === current ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(255,255,255,0.12)',
         transition: 'background .2s ease',
       }} />
     ))}

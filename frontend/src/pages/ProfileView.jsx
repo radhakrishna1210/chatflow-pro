@@ -69,7 +69,7 @@ const Avatar = ({ name = '?', size = 34, showRing = false }) => {
 const Badge = ({ label, tone = 'green' }) => {
   const tones = {
     green:  { bg: 'var(--gbg)', bd: 'var(--gbd)', c: 'var(--green)' },
-    purple: { bg: 'rgba(196,255,70,.1)', bd: 'rgba(196,255,70,.25)', c: '#d8ff8a' },
+    purple: { bg: 'rgba(var(--lime-rgb),.1)', bd: 'rgba(var(--lime-rgb),.25)', c: '#d8ff8a' },
     red:    { bg: 'rgba(239,68,68,.08)', bd: 'rgba(239,68,68,.22)', c: '#f87171' },
     gray:   { bg: 'rgba(255,255,255,0.04)', bd: 'var(--bd)', c: 'var(--t2)' },
   };

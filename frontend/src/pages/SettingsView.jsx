@@ -581,7 +581,7 @@ export default function SettingsView({ initialTab } = {}) {
         <SectionCard icon="users" title="Team Members">
           {canInvite && (
             <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
-              <Btn size="sm" style={{ background:'rgba(53,232,242,0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={()=>setShowInvite(!showInvite)}>
+              <Btn size="sm" style={{ background:'rgba(var(--accent-rgb),0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={()=>setShowInvite(!showInvite)}>
                 <I n="plus" s={13} c="var(--green)" />
                 Invite
               </Btn>
@@ -774,7 +774,7 @@ export default function SettingsView({ initialTab } = {}) {
         {/* ── Billing ── */}
         {tab === 'billing' && (
         <SectionCard icon="credit" title="Billing">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', borderRadius:10, background:'rgba(53,232,242,0.06)', border:'1px solid var(--gbd)', marginBottom:18, flexWrap: 'wrap', rowGap: 10 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', borderRadius:10, background:'rgba(var(--accent-rgb),0.06)', border:'1px solid var(--gbd)', marginBottom:18, flexWrap: 'wrap', rowGap: 10 }}>
             <div>
               <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)', marginBottom:3 }}>Growth Plan</p>
               <p style={{ fontSize:12, color:'var(--t2)' }}>Manage your subscription</p>

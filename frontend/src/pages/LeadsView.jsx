@@ -681,8 +681,8 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
             style={{
               padding: '6px 12px',
               borderRadius: 6,
-              background: c.optedOut ? 'rgba(255,255,255,0.03)' : 'rgba(53,232,242,0.12)',
-              border: '1px solid rgba(53,232,242,0.25)',
+              background: c.optedOut ? 'rgba(255,255,255,0.03)' : 'rgba(var(--accent-rgb),0.12)',
+              border: '1px solid rgba(var(--accent-rgb),0.25)',
               color: c.optedOut ? 'var(--t3)' : 'var(--accent, #35e8f2)',
               fontSize: 12,
               fontWeight: 600,
@@ -703,8 +703,8 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
 
       {/* AI Insight & Next Best Action Card (Gap Analysis Part 1, Page 15) */}
       <div style={{
-        background: 'rgba(53,232,242,0.06)',
-        border: '1px solid rgba(53,232,242,0.2)',
+        background: 'rgba(var(--accent-rgb),0.06)',
+        border: '1px solid rgba(var(--accent-rgb),0.2)',
         borderRadius: 8,
         padding: '12px 16px',
         marginBottom: 18,
@@ -1418,8 +1418,8 @@ export default function LeadsView() {
       {selectedIds.size > 0 && (
         <div style={{
           padding: '8px 24px',
-          background: 'rgba(53,232,242,0.08)',
-          borderBottom: '1px solid rgba(53,232,242,0.25)',
+          background: 'rgba(var(--accent-rgb),0.08)',
+          borderBottom: '1px solid rgba(var(--accent-rgb),0.25)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -1589,7 +1589,7 @@ export default function LeadsView() {
                     padding: '12px 14px',
                     cursor: 'pointer',
                     textAlign: 'left',
-                    background: isSelected ? 'rgba(53, 232, 242, 0.06)' : activeId === l.id ? 'rgba(255,255,255,0.05)' : 'transparent',
+                    background: isSelected ? 'rgba(var(--accent-rgb), 0.06)' : activeId === l.id ? 'rgba(255,255,255,0.05)' : 'transparent',
                     borderBottom: '1px solid var(--bd)',
                     borderLeft: `3px solid ${activeId === l.id ? 'var(--accent, #35e8f2)' : isSelected ? 'var(--accent)' : 'transparent'}`,
                     boxSizing: 'border-box',

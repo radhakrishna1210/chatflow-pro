@@ -77,7 +77,7 @@ const GroundedDemo = () => {
         </div>
 
         {/* what the customer asked */}
-        <div style={{ alignSelf: 'flex-end', maxWidth: '84%', borderRadius: '14px 4px 14px 14px', background: 'rgba(53,232,242,0.14)', border: '1px solid var(--gbd)', padding: '9px 12px' }}>
+        <div style={{ alignSelf: 'flex-end', maxWidth: '84%', borderRadius: '14px 4px 14px 14px', background: 'rgba(var(--accent-rgb),0.14)', border: '1px solid var(--gbd)', padding: '9px 12px' }}>
           <p style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--t1)' }}>{d.question}</p>
         </div>
 
@@ -86,12 +86,12 @@ const GroundedDemo = () => {
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 7 }}>
             <span style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.1em', color: 'var(--lime)', fontWeight: 600 }}>✓ GROUNDED IN CAMPAIGN</span>
             {d.facts.map(([k, v]) => (
-              <span key={k} style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.06em', padding: '2px 7px', borderRadius: 5, background: 'rgba(53,232,242,0.10)', border: '1px solid var(--gbd)', color: 'var(--t2)' }}>
+              <span key={k} style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.06em', padding: '2px 7px', borderRadius: 5, background: 'rgba(var(--accent-rgb),0.10)', border: '1px solid var(--gbd)', color: 'var(--t2)' }}>
                 <span style={{ color: 'var(--green)', fontWeight: 700 }}>{k}</span> {v}
               </span>
             ))}
           </div>
-          <div style={{ borderRadius: '4px 14px 14px 14px', background: 'rgba(53,232,242,0.06)', border: '1px solid var(--gbd)', padding: '11px 13px' }}>
+          <div style={{ borderRadius: '4px 14px 14px 14px', background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid var(--gbd)', padding: '11px 13px' }}>
             <p style={{ fontSize: 12.5, lineHeight: 1.55, color: 'var(--t1)' }}>{d.answer}</p>
           </div>
         </div>

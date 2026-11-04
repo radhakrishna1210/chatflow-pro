@@ -674,7 +674,7 @@ export default function InboxView() {
               const lastMsg = (msgs[c.id] || []).slice(-1)[0];
               return (
                 <div key={c.id} onClick={() => setActiveId(c.id)}
-                  style={{ padding:'12px 14px', borderBottom:'1px solid var(--bd)', cursor:'pointer', transition:'background .12s', borderLeft:`2px solid ${on ? 'var(--green)' : 'transparent'}`, background: on ? 'rgba(53,232,242,0.06)' : 'transparent' }}
+                  style={{ padding:'12px 14px', borderBottom:'1px solid var(--bd)', cursor:'pointer', transition:'background .12s', borderLeft:`2px solid ${on ? 'var(--green)' : 'transparent'}`, background: on ? 'rgba(var(--accent-rgb),0.06)' : 'transparent' }}
                   onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
                   onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}>
                   <div style={{ display:'flex', gap:10 }}>
@@ -909,7 +909,7 @@ export default function InboxView() {
                   {suggestions.map((sug, i) => (
                     <button key={i} onClick={() => setInput(sug)} title="Put this in the composer"
                       style={{ fontSize:12, padding:'5px 11px', borderRadius:100, cursor:'pointer', maxWidth:340, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
-                               fontFamily:"'Manrope',sans-serif", background:'rgba(53,232,242,0.08)', border:'1px solid var(--gbd)', color:'var(--t1)' }}>
+                               fontFamily:"'Manrope',sans-serif", background:'rgba(var(--accent-rgb),0.08)', border:'1px solid var(--gbd)', color:'var(--t1)' }}>
                       {sug}
                     </button>
                   ))}
@@ -1011,7 +1011,7 @@ export default function InboxView() {
                     onFocus={e => e.target.style.borderColor='var(--gbd)'}
                     onBlur={e => e.target.style.borderColor='var(--bd)'} />
                   <button onClick={send} disabled={!input.trim() || sending || (activeWindow ? !activeWindow.open : false)}
-                    style={{ width:38, height:38, borderRadius:9, background:'var(--green)', border:'none', cursor: (!input.trim() || sending) ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'0 0 14px rgba(53,232,242,0.25)', opacity: (!input.trim() || sending) ? 0.5 : 1 }}>
+                    style={{ width:38, height:38, borderRadius:9, background:'var(--green)', border:'none', cursor: (!input.trim() || sending) ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'0 0 14px rgba(var(--accent-rgb),0.25)', opacity: (!input.trim() || sending) ? 0.5 : 1 }}>
                     <I n="send" s={15} c="#08090c" />
                   </button>
                 </div>

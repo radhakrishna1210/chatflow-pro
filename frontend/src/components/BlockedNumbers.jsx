@@ -209,7 +209,7 @@ export default function BlockedNumbers({ isAdmin }) {
                       <span style={{ fontSize:11, fontWeight:600, color:'var(--t3)' }}>Unblocked</span>
                     ) : isAdmin ? (
                       <button onClick={() => unblock([row.id], row.phoneNumber)} disabled={busy}
-                        style={{ padding:'4px 11px', borderRadius:6, background:'rgba(53,232,242,0.08)', border:'1px solid var(--gbd)', cursor: busy ? 'not-allowed' : 'pointer', fontSize:11.5, fontWeight:600, color:'var(--green)', opacity: busy ? 0.6 : 1 }}>
+                        style={{ padding:'4px 11px', borderRadius:6, background:'rgba(var(--accent-rgb),0.08)', border:'1px solid var(--gbd)', cursor: busy ? 'not-allowed' : 'pointer', fontSize:11.5, fontWeight:600, color:'var(--green)', opacity: busy ? 0.6 : 1 }}>
                         Unblock
                       </button>
                     ) : null}

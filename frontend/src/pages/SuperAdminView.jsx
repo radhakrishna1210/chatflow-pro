@@ -705,8 +705,8 @@ function NumbersTab({ workspaces }) {
   };
 
   const statusColor = (st) => st === 'AVAILABLE' ? 'var(--green)' : st === 'BANNED' ? '#f87171' : '#9d6bff';
-  const statusBg = (st) => st === 'AVAILABLE' ? 'var(--gbg)' : st === 'BANNED' ? 'rgba(239,68,68,.08)' : 'rgba(157,107,255,.1)';
-  const statusBd = (st) => st === 'AVAILABLE' ? 'var(--gbd)' : st === 'BANNED' ? 'rgba(239,68,68,.25)' : 'rgba(157,107,255,.25)';
+  const statusBg = (st) => st === 'AVAILABLE' ? 'var(--gbg)' : st === 'BANNED' ? 'rgba(239,68,68,.08)' : 'rgba(var(--violet-rgb),.1)';
+  const statusBd = (st) => st === 'AVAILABLE' ? 'var(--gbd)' : st === 'BANNED' ? 'rgba(239,68,68,.25)' : 'rgba(var(--violet-rgb),.25)';
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--t2)', fontSize: 13 }}>Loading number pool…</div>;
 
@@ -1559,7 +1559,7 @@ export default function SuperAdminView({ tab }) {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
                     <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                      background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(157,107,255,.1)',
+                      background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(var(--violet-rgb),.1)',
                       color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#9d6bff' }}>{t.status}</span>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {t.status !== 'IN_PROGRESS' && t.status !== 'RESOLVED' && t.status !== 'CLOSED' && <Btn variant="ghost" size="sm" onClick={() => updateTicket(t, 'IN_PROGRESS')}>Start</Btn>}

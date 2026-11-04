@@ -129,7 +129,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
         background: 'linear-gradient(180deg, #0c0d11 0%, #080B12 100%)',
         border: '1px solid rgba(255,255,255,0.08)',
         borderRadius: '20px',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 40px rgba(53,232,242,0.06), inset 0 1px 0 rgba(255,255,255,0.06)',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 40px rgba(var(--accent-rgb),0.06), inset 0 1px 0 rgba(255,255,255,0.06)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -140,16 +140,16 @@ export default function AIOnboardingCard({ page = 'landing' }) {
         {/* ─── Header ─── */}
         <div style={{
           padding: '14px 18px',
-          background: 'linear-gradient(135deg, rgba(53,232,242,0.12), rgba(14,165,233,0.05))',
+          background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.12), rgba(14,165,233,0.05))',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           display: 'flex', alignItems: 'center', gap: '10px',
           flexShrink: 0,
         }}>
           <div style={{
             width: '36px', height: '36px', borderRadius: '10px',
-            background: 'linear-gradient(135deg, rgba(53,232,242,0.2), rgba(53,232,242,0.05))',
+            background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.2), rgba(var(--accent-rgb),0.05))',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            border: '1px solid rgba(53,232,242,0.25)', fontSize: '17px',
+            border: '1px solid rgba(var(--accent-rgb),0.25)', fontSize: '17px',
             flexShrink: 0,
           }}>🤖</div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -176,10 +176,10 @@ export default function AIOnboardingCard({ page = 'landing' }) {
               )}
               <div style={{
                 background: m.role === 'user'
-                  ? 'linear-gradient(135deg, rgba(53,232,242,0.15), rgba(53,232,242,0.08))'
+                  ? 'linear-gradient(135deg, rgba(var(--accent-rgb),0.15), rgba(var(--accent-rgb),0.08))'
                   : 'rgba(255,255,255,0.03)',
                 border: m.role === 'user'
-                  ? '1px solid rgba(53,232,242,0.2)'
+                  ? '1px solid rgba(var(--accent-rgb),0.2)'
                   : '1px solid rgba(255,255,255,0.06)',
                 padding: '9px 13px',
                 borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : '12px 12px 12px 3px',
@@ -192,7 +192,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
                   <div style={{
                     marginTop: m.content ? '10px' : '0',
                     background: 'rgba(0,0,0,0.2)',
-                    border: '1px solid rgba(53,232,242,0.3)',
+                    border: '1px solid rgba(var(--accent-rgb),0.3)',
                     borderRadius: '8px',
                     padding: '12px',
                   }}>
@@ -254,9 +254,9 @@ export default function AIOnboardingCard({ page = 'landing' }) {
                   fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '4px',
                 }}
                 onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = 'rgba(53,232,242,0.3)';
+                  e.currentTarget.style.borderColor = 'rgba(var(--accent-rgb),0.3)';
                   e.currentTarget.style.color = '#35e8f2';
-                  e.currentTarget.style.background = 'rgba(53,232,242,0.06)';
+                  e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.06)';
                 }}
                 onMouseLeave={e => {
                   e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
@@ -290,19 +290,19 @@ export default function AIOnboardingCard({ page = 'landing' }) {
               outline: 'none', fontFamily: 'inherit', fontSize: '12.5px',
               transition: 'border-color 0.15s',
             }}
-            onFocus={e => e.currentTarget.style.borderColor = 'rgba(53,232,242,0.3)'}
+            onFocus={e => e.currentTarget.style.borderColor = 'rgba(var(--accent-rgb),0.3)'}
             onBlur={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
           />
           <button
             onClick={handleSend}
             disabled={loading || !input.trim()}
             style={{
-              background: (loading || !input.trim()) ? 'rgba(53,232,242,0.3)' : '#35e8f2',
+              background: (loading || !input.trim()) ? 'rgba(var(--accent-rgb),0.3)' : '#35e8f2',
               color: '#08090c', border: 'none', borderRadius: '10px',
               padding: '0 14px', fontWeight: 700,
               cursor: (loading || !input.trim()) ? 'not-allowed' : 'pointer',
               fontFamily: 'inherit', fontSize: '13px',
-              boxShadow: (loading || !input.trim()) ? 'none' : '0 0 16px rgba(53,232,242,0.25)',
+              boxShadow: (loading || !input.trim()) ? 'none' : '0 0 16px rgba(var(--accent-rgb),0.25)',
               transition: 'all 0.15s', display: 'flex', alignItems: 'center',
             }}
           >

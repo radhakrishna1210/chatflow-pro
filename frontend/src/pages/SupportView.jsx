@@ -80,7 +80,7 @@ export default function SupportView() {
                   <p style={{ fontSize: 11, color: 'var(--t3)' }}>{new Date(t.createdAt).toLocaleString('en-IN')}</p>
                 </div>
                 <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, flexShrink: 0,
-                  background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(157,107,255,.1)',
+                  background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(var(--violet-rgb),.1)',
                   color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#9d6bff' }}>
                   {t.status}
                 </span>

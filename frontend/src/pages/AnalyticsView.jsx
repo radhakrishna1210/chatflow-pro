@@ -521,7 +521,7 @@ export default function AnalyticsView() {
                       </div>
                     </td>
                     <td style={{ padding:'11px 16px' }}>
-                      <span style={{ padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:700, background:'rgba(196,255,70,.1)', border:'1px solid rgba(196,255,70,.25)', color:'#d8ff8a' }}>{a.chatsHandled}</span>
+                      <span style={{ padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:700, background:'rgba(var(--lime-rgb),.1)', border:'1px solid rgba(var(--lime-rgb),.25)', color:'#d8ff8a' }}>{a.chatsHandled}</span>
                     </td>
                   </tr>
                 ))}

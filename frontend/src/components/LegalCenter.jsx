@@ -38,7 +38,7 @@ export default function LegalCenter({ active, onSelect, compact = false }) {
               const on = key === active;
               return (
                 <button key={key} onClick={() => onSelect(key)}
-                  style={{ textAlign: 'left', fontSize: 13.5, fontWeight: on ? 700 : 500, color: on ? 'var(--t1)' : 'var(--t2)', background: on ? 'rgba(53,232,242,0.10)' : 'transparent', border: 'none', borderLeft: `2px solid ${on ? 'var(--accent)' : 'transparent'}`, borderRadius: '0 8px 8px 0', padding: '9px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  style={{ textAlign: 'left', fontSize: 13.5, fontWeight: on ? 700 : 500, color: on ? 'var(--t1)' : 'var(--t2)', background: on ? 'rgba(var(--accent-rgb),0.10)' : 'transparent', border: 'none', borderLeft: `2px solid ${on ? 'var(--accent)' : 'transparent'}`, borderRadius: '0 8px 8px 0', padding: '9px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
                   {LEGAL_DOCS[key].title}
                 </button>
               );
@@ -80,7 +80,7 @@ export default function LegalCenter({ active, onSelect, compact = false }) {
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {crossLinks.map(c => (
                 <button key={c.key} onClick={() => onSelect(c.key)}
-                  style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent)', background: 'rgba(53,232,242,0.08)', border: '1px solid rgba(53,232,242,0.24)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent)', background: 'rgba(var(--accent-rgb),0.08)', border: '1px solid rgba(var(--accent-rgb),0.24)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
                   {c.title}
                 </button>
               ))}

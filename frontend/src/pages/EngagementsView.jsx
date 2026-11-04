@@ -65,8 +65,8 @@ const ChannelIcon = ({ source = 'INCOMING' }) => {
         width: 20,
         height: 20,
         borderRadius: 6,
-        background: 'rgba(53, 232, 242, 0.12)',
-        border: '1px solid rgba(53, 232, 242, 0.25)',
+        background: 'rgba(var(--accent-rgb), 0.12)',
+        border: '1px solid rgba(var(--accent-rgb), 0.25)',
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -553,7 +553,7 @@ export default function EngagementsView({ user, initialTab }) {
                     onClick={open}
                     style={{
                       borderBottom: '1px solid var(--bd)',
-                      background: isSelected ? 'rgba(53, 232, 242, 0.05)' : 'transparent',
+                      background: isSelected ? 'rgba(var(--accent-rgb), 0.05)' : 'transparent',
                       cursor: 'pointer',
                       transition: 'background 0.12s ease',
                     }}
@@ -577,8 +577,8 @@ export default function EngagementsView({ user, initialTab }) {
                               fontSize: 10.5,
                               fontWeight: 600,
                               color: leadStage.includes('Qualified') ? 'var(--green)' : 'var(--accent, #35e8f2)',
-                              background: leadStage.includes('Qualified') ? 'var(--gbg)' : 'rgba(53, 232, 242, 0.12)',
-                              border: `1px solid ${leadStage.includes('Qualified') ? 'var(--gbd)' : 'rgba(53, 232, 242, 0.25)'}`,
+                              background: leadStage.includes('Qualified') ? 'var(--gbg)' : 'rgba(var(--accent-rgb), 0.12)',
+                              border: `1px solid ${leadStage.includes('Qualified') ? 'var(--gbd)' : 'rgba(var(--accent-rgb), 0.25)'}`,
                               padding: '1px 6px',
                               borderRadius: 4,
                               display: 'inline-block',
@@ -617,7 +617,7 @@ export default function EngagementsView({ user, initialTab }) {
                             engStatus === 'Completed'
                               ? 'var(--gbg)'
                               : engStatus === 'Active'
-                              ? 'rgba(53, 232, 242, 0.12)'
+                              ? 'rgba(var(--accent-rgb), 0.12)'
                               : 'rgba(245, 158, 11, 0.12)',
                           color:
                             engStatus === 'Completed'
@@ -629,7 +629,7 @@ export default function EngagementsView({ user, initialTab }) {
                             engStatus === 'Completed'
                               ? 'var(--gbd)'
                               : engStatus === 'Active'
-                              ? 'rgba(53, 232, 242, 0.25)'
+                              ? 'rgba(var(--accent-rgb), 0.25)'
                               : 'rgba(245, 158, 11, 0.25)'
                           }`,
                         }}

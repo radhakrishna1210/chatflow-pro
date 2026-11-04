@@ -618,7 +618,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
 
   return (
     <div onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Template' : 'New Message Template'} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
-      <div ref={modalRef} className="modal-card" style={{ ...card, ...(isAuth ? { border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(53,232,242,0.10)' } : {}), width: isAuth ? 900 : 620, maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+      <div ref={modalRef} className="modal-card" style={{ ...card, ...(isAuth ? { border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(var(--accent-rgb),0.10)' } : {}), width: isAuth ? 900 : 620, maxHeight:'88vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
             <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{isEdit ? 'Edit Template' : 'New Message Template'}</p>

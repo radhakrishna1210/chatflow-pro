@@ -36,7 +36,7 @@ export default function Legal({ routePath }) {
   }, [doc.title]);
 
   return (
-    <div style={{ minHeight: '100vh', width: '100%', background: 'radial-gradient(1100px 560px at 12% -10%, rgba(53,232,242,0.05), transparent 60%), radial-gradient(900px 480px at 100% 0%, rgba(157,107,255,0.05), transparent 62%), var(--bg)' }}>
+    <div style={{ minHeight: '100vh', width: '100%', background: 'radial-gradient(1100px 560px at 12% -10%, rgba(var(--accent-rgb),0.05), transparent 60%), radial-gradient(900px 480px at 100% 0%, rgba(var(--violet-rgb),0.05), transparent 62%), var(--bg)' }}>
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '16px clamp(18px,4vw,44px)', borderBottom: '1px solid var(--bd)', position: 'sticky', top: 0, zIndex: 20, background: 'rgba(10,11,14,0.82)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' }}>
         <a href="/" onClick={e => { e.preventDefault(); navigate('/'); }} style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'inherit' }}>
           <span className="sp-pulse" style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 12px var(--accent)' }} />

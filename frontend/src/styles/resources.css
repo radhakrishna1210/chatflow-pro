@@ -129,7 +129,7 @@
   font-size: 15px; font-family: 'Manrope', sans-serif; outline: none;
   transition: border-color .18s ease, box-shadow .18s ease;
 }
-.rc-search input:focus { border-color: var(--gbd); box-shadow: 0 0 0 3px rgba(53, 232, 242, 0.12); }
+.rc-search input:focus { border-color: var(--gbd); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12); }
 .rc-search input::placeholder { color: var(--t3); }
 .rc-search .rc-search-ico { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); opacity: .6; pointer-events: none; display: flex; }
 .rc-search .rc-search-clear {
@@ -173,7 +173,7 @@
 /* ── Category grid ─────────────────────────────────────────────────────────── */
 .rc-kb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .rc-kb-card { padding: 22px 22px 20px; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 6px; font-family: inherit; }
-.rc-kb-card .ico { width: 42px; height: 42px; border-radius: 11px; display: flex; align-items: center; justify-content: center; background: rgba(53, 232, 242, 0.08); border: 1px solid var(--gbd); margin-bottom: 12px; }
+.rc-kb-card .ico { width: 42px; height: 42px; border-radius: 11px; display: flex; align-items: center; justify-content: center; background: rgba(var(--accent-rgb), 0.08); border: 1px solid var(--gbd); margin-bottom: 12px; }
 .rc-kb-card h3 { font-size: 16px; font-weight: 600; }
 .rc-kb-card p { color: var(--t2); font-size: 13px; line-height: 1.55; flex: 1; }
 .rc-kb-card .count { font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .04em; color: var(--accent); margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; text-transform: uppercase; }
@@ -213,7 +213,7 @@
 .rc-res-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .rc-res-card { width: 100%; height: 100%; padding: 20px; display: flex; flex-direction: column; gap: 12px; cursor: pointer; text-align: left; font-family: inherit; }
 .rc-res-card .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.rc-res-card .ico { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: rgba(53, 232, 242, 0.08); border: 1px solid var(--gbd); flex-shrink: 0; }
+.rc-res-card .ico { width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: rgba(var(--accent-rgb), 0.08); border: 1px solid var(--gbd); flex-shrink: 0; }
 .rc-badges { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
 .rc-badge { font-family: var(--mono); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--t2); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--bd); padding: 3px 8px; border-radius: 6px; }
 .rc-badge.type { color: var(--accent); border-color: var(--gbd); background: var(--gbg); }
@@ -290,7 +290,7 @@
 /* ── CTA band ──────────────────────────────────────────────────────────────── */
 .rc-cta-band {
   margin: 0 28px; border-radius: var(--rxl); padding: 56px 44px; text-align: center;
-  background: radial-gradient(700px circle at 50% 0%, rgba(53, 232, 242, 0.1), transparent 60%), var(--surf-solid);
+  background: radial-gradient(700px circle at 50% 0%, rgba(var(--accent-rgb), 0.1), transparent 60%), var(--surf-solid);
   border: 1px solid var(--bd); position: relative; overflow: hidden;
 }
 .rc-cta-band h2 { font-size: clamp(24px, 3.6vw, 34px); margin-bottom: 14px; letter-spacing: -0.03em; }

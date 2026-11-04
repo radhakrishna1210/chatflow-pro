@@ -178,7 +178,7 @@ const BasicAutomationsTab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="play" color="var(--green)" bg="rgba(53,232,242,0.1)"
+      <TabHeader icon="play" color="var(--green)" bg="rgba(var(--accent-rgb),0.1)"
         title="Basic Automations" subtitle="Welcome, out-of-office and delayed auto-replies" />
 
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
@@ -397,7 +397,7 @@ const CustomAutoReplyTab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="msg" color="var(--green)" bg="rgba(53,232,242,0.1)"
+      <TabHeader icon="msg" color="var(--green)" bg="rgba(var(--accent-rgb),0.1)"
         title="Custom Auto Reply" subtitle="Keyword-based automatic replies for common questions">
         <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Add Trigger</Btn>
       </TabHeader>
@@ -433,7 +433,7 @@ const CustomAutoReplyTab = () => {
         )}
         {triggers.map((t, i) => (
           <div key={t.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px', borderBottom: i < triggers.length-1 ? '1px solid var(--bd)' : 'none', opacity: t.isActive ? 1 : 0.55, transition:'opacity .2s' }}>
-            <span style={{ padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:700, fontFamily:'monospace', background:'rgba(53,232,242,0.08)', border:'1px solid var(--gbd)', color:'var(--green)', letterSpacing:'.05em', flexShrink:0 }}>{t.keyword}</span>
+            <span style={{ padding:'3px 10px', borderRadius:6, fontSize:12, fontWeight:700, fontFamily:'monospace', background:'rgba(var(--accent-rgb),0.08)', border:'1px solid var(--gbd)', color:'var(--green)', letterSpacing:'.05em', flexShrink:0 }}>{t.keyword}</span>
             <p style={{ flex:1, fontSize:13, color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.responseTemplate}</p>
             <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
               <Toggle on={t.isActive} onToggle={() => toggleActive(t)} />
@@ -538,7 +538,7 @@ const WebsiteAnalysisPanel = ({ data, savingWfId, savedWfIds, onGenerate, onEdit
             <a href={data.sourceUrl} target="_blank" rel="noreferrer noopener"
               style={{ fontSize:11.5, color:'var(--t3)', textDecoration:'none', wordBreak:'break-all' }}>{data.sourceUrl}</a>
           </div>
-          <span style={{ padding:'4px 11px', borderRadius:12, fontSize:11.5, fontWeight:700, background:'rgba(53,232,242,0.14)', border:'1px solid var(--gbd)', color:'var(--green)', whiteSpace:'nowrap' }}>
+          <span style={{ padding:'4px 11px', borderRadius:12, fontSize:11.5, fontWeight:700, background:'rgba(var(--accent-rgb),0.14)', border:'1px solid var(--gbd)', color:'var(--green)', whiteSpace:'nowrap' }}>
             {data.business?.industry}
           </span>
         </div>
@@ -1310,7 +1310,7 @@ const WorkflowCanvas = ({ steps, selectedId, onSelect, onChange, onAdd, onRemove
                        padding:'11px 13px', borderRadius:13, cursor:'grab',
                        background: on ? 'rgba(255,255,255,0.07)' : 'rgba(18,20,26,0.96)',
                        border:`1px solid ${on || lit ? accent : 'var(--bd)'}`,
-                       boxShadow: on || lit ? `0 0 22px ${isTrigger ? 'rgba(245,158,11,0.3)' : 'rgba(53,232,242,0.3)'}` : '0 8px 24px rgba(0,0,0,0.4)',
+                       boxShadow: on || lit ? `0 0 22px ${isTrigger ? 'rgba(245,158,11,0.3)' : 'rgba(var(--accent-rgb),0.3)'}` : '0 8px 24px rgba(0,0,0,0.4)',
                        transition:'box-shadow .2s, border-color .2s' }}>
               <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:6 }}>
                 <I n={NODE_ICON[step.subtype] || 'zap'} s={12} c={accent} />
@@ -1391,13 +1391,13 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
 
       {allowTypeChange ? (
         <select value={step.type} onChange={e => onChange({ type: e.target.value })}
-          style={{ ...selectStyle, background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(53,232,242,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', fontWeight:700, textTransform:'uppercase', fontSize:11 }}>
+          style={{ ...selectStyle, background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(var(--accent-rgb),0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', fontWeight:700, textTransform:'uppercase', fontSize:11 }}>
           <option value="trigger" style={{ background:'#0a0b0e' }}>Trigger</option>
           <option value="action" style={{ background:'#0a0b0e' }}>Action</option>
           <option value="condition" style={{ background:'#0a0b0e' }}>Condition</option>
         </select>
       ) : (
-        <span style={{ background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(53,232,242,0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', border:`1px solid ${isTrigger ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, padding:'3px 9px', borderRadius:6, fontSize:11, fontWeight:700 }}>
+        <span style={{ background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(var(--accent-rgb),0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', border:`1px solid ${isTrigger ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, padding:'3px 9px', borderRadius:6, fontSize:11, fontWeight:700 }}>
           {isTrigger ? 'TRIGGER' : isCondition ? 'IF' : 'ACTION'}
         </span>
       )}
@@ -1570,7 +1570,7 @@ const WorkflowCard = ({ workflow: w, runs, onToggle, onEdit, onDelete, onSimulat
         {(Array.isArray(w.nodes) ? w.nodes : []).map((step, idx) => (
           <div key={step.id || idx} style={{ display:'flex', alignItems:'center', gap:6 }}>
             {idx > 0 && <I n="arrow" s={10} c="var(--t3)" />}
-            <span style={{ fontSize:12, padding:'3px 8px', borderRadius:6, background: step.type === 'trigger' ? 'rgba(245,158,11,0.08)' : 'rgba(53,232,242,0.08)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:600 }}>
+            <span style={{ fontSize:12, padding:'3px 8px', borderRadius:6, background: step.type === 'trigger' ? 'rgba(245,158,11,0.08)' : 'rgba(var(--accent-rgb),0.08)', border:`1px solid ${step.type === 'trigger' ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, color: step.type === 'trigger' ? '#f59e0b' : 'var(--green)', fontWeight:600 }}>
               {stepLabel(step)}
             </span>
           </div>
@@ -1885,7 +1885,7 @@ const AIIntentMatchingTab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="spark" color="#c4ff46" bg="rgba(196,255,70,0.1)"
+      <TabHeader icon="spark" color="#c4ff46" bg="rgba(var(--lime-rgb),0.1)"
         title="Intent matching" subtitle={`Rules that route messages before the AI · ${activeCount} active`}
         badge={enabled && <Pill>On</Pill>}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -2073,7 +2073,7 @@ const AIIntentMatchingTab = () => {
 // campaign still has customers holding a message with a live CTA.
 const CAMPAIGN_TONE = {
   RUNNING:   { label:'Active',    fg:'var(--success)', bg:'var(--sbg)',          bd:'var(--sbd)' },
-  SCHEDULED: { label:'Scheduled', fg:'#9d6bff',      bg:'rgba(157,107,255,.08)',  bd:'rgba(157,107,255,.25)' },
+  SCHEDULED: { label:'Scheduled', fg:'#9d6bff',      bg:'rgba(var(--violet-rgb),.08)',  bd:'rgba(var(--violet-rgb),.25)' },
   COMPLETED: { label:'Completed', fg:'var(--success)', bg:'var(--sbg)',          bd:'var(--sbd)' },
   DRAFT:     { label:'Draft',     fg:'var(--t2)',    bg:'rgba(255,255,255,.05)', bd:'var(--bd)' },
   CANCELLED: { label:'Paused',    fg:'#fbbf24',      bg:'rgba(245,158,11,.08)',  bd:'rgba(245,158,11,.25)' },
@@ -2308,7 +2308,7 @@ const WhatsAppAIAgentTab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="bot" color="#9d6bff" bg="rgba(157,107,255,0.1)"
+      <TabHeader icon="bot" color="#9d6bff" bg="rgba(var(--violet-rgb),0.1)"
         title={name || 'WhatsApp AI Agent'}
         subtitle={deployed
           ? 'Deployed · answering campaign CTAs and inbound messages'
@@ -2338,7 +2338,7 @@ const WhatsAppAIAgentTab = () => {
                   style={{ display:'flex', alignItems:'center', gap:9, padding:'9px 10px', borderRadius:9, border:'none', cursor:'pointer', textAlign:'left', width:'100%',
                            fontFamily:"'Manrope',sans-serif", fontSize:13, fontWeight: on ? 700 : 500,
                            color: on ? 'var(--t1)' : 'var(--t2)',
-                           background: on ? 'rgba(157,107,255,0.12)' : 'transparent',
+                           background: on ? 'rgba(var(--violet-rgb),0.12)' : 'transparent',
                            borderLeft: `2px solid ${on ? '#9d6bff' : 'transparent'}` }}>
                   <I n={sec.icon} s={14} c={on ? '#9d6bff' : 'var(--t3)'} />
                   {sec.label}
@@ -2674,7 +2674,7 @@ const WhatsAppAIAgentTab = () => {
             {thread.map((m, i) => {
               if (m.role === 'customer') {
                 return (
-                  <div key={i} style={{ alignSelf:'flex-end', maxWidth:'88%', borderRadius:'13px 4px 13px 13px', background:'rgba(53,232,242,0.14)', border:'1px solid var(--gbd)', padding:'8px 11px' }}>
+                  <div key={i} style={{ alignSelf:'flex-end', maxWidth:'88%', borderRadius:'13px 4px 13px 13px', background:'rgba(var(--accent-rgb),0.14)', border:'1px solid var(--gbd)', padding:'8px 11px' }}>
                     <p style={{ fontSize:12.5, color:'var(--t1)', lineHeight:1.5 }}>{m.text}</p>
                   </div>
                 );
@@ -2693,8 +2693,8 @@ const WhatsAppAIAgentTab = () => {
                     <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:6 }}>
                       {m.sources.map(src => (
                         <span key={src.kind} style={{ fontFamily:'var(--mono)', fontSize:8.5, letterSpacing:'.06em', textTransform:'uppercase', padding:'2px 7px', borderRadius:5,
-                          background: src.kind === 'campaign' ? 'rgba(53,232,242,0.12)' : src.kind === 'knowledge' ? 'rgba(196,255,70,0.12)' : 'rgba(157,107,255,0.12)',
-                          border: `1px solid ${src.kind === 'campaign' ? 'var(--gbd)' : src.kind === 'knowledge' ? 'rgba(196,255,70,0.3)' : 'rgba(157,107,255,0.3)'}`,
+                          background: src.kind === 'campaign' ? 'rgba(var(--accent-rgb),0.12)' : src.kind === 'knowledge' ? 'rgba(var(--lime-rgb),0.12)' : 'rgba(var(--violet-rgb),0.12)',
+                          border: `1px solid ${src.kind === 'campaign' ? 'var(--gbd)' : src.kind === 'knowledge' ? 'rgba(var(--lime-rgb),0.3)' : 'rgba(var(--violet-rgb),0.3)'}`,
                           color: src.kind === 'campaign' ? 'var(--cyan)' : src.kind === 'knowledge' ? 'var(--lime)' : 'var(--violet)' }}>
                           {src.label}
                         </span>
@@ -3018,7 +3018,7 @@ const VoiceAITab = () => {
   if (!cfg.voiceAiEnabled) {
     return (
       <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-        <TabHeader icon="phone" color="var(--green)" bg="rgba(53,232,242,0.1)"
+        <TabHeader icon="phone" color="var(--green)" bg="rgba(var(--accent-rgb),0.1)"
           title="Voice AI - Inbound Calls" subtitle="An AI receptionist that answers calls and captures leads" />
         {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
         <div style={{ ...card, padding:'40px', display:'flex', flexDirection:'column', alignItems:'center', gap:'28px' }}>
@@ -3061,7 +3061,7 @@ const VoiceAITab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="phone" color="var(--green)" bg="rgba(53,232,242,0.1)"
+      <TabHeader icon="phone" color="var(--green)" bg="rgba(var(--accent-rgb),0.1)"
         title="Voice AI - Receptionist" subtitle="Configure how the AI answers your inbound calls" badge={<Pill>Active</Pill>}>
         <Btn variant="outline" onClick={() => patch({ voiceAiEnabled: false })} style={{ borderColor:'#f8717133', color:'#f87171' }}>Deactivate</Btn>
       </TabHeader>
@@ -3902,7 +3902,7 @@ export default function AutomationView({ initialTab }) {
             <button key={tab.id} onClick={() => selectTab(tab.id)}
               style={{
                 display:'flex', alignItems:'center', gap:'8px', padding:'12px 16px', cursor:'pointer',
-                background: isActive ? 'rgba(53,232,242,0.1)' : 'transparent', border:'none',
+                background: isActive ? 'rgba(var(--accent-rgb),0.1)' : 'transparent', border:'none',
                 borderBottom: isActive ? '2px solid var(--green)' : '2px solid transparent',
                 color: isActive ? 'var(--green)' : 'var(--t2)', transition:'all .15s',
                 whiteSpace:'nowrap', borderRadius:'8px 8px 0 0', fontFamily:"'Manrope',sans-serif",

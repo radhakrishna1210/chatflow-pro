@@ -140,7 +140,7 @@ export default function Register({ onNav }) {
       {/* Left brand panel */}
       <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#0a0b0e 0%,#0a0f1e 60%,#0a0b0e 100%)', borderRight: '1px solid var(--bd)' }}>
         {/* Matches the landing page and the sign-in screen. */}
-        <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(53,232,242,0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
+        <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(var(--accent-rgb),0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
         <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(14,165,233,0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', position: 'relative', zIndex: 1 }}>
           <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -166,7 +166,7 @@ export default function Register({ onNav }) {
 
       {/* Right form panel */}
       <div className="auth-form-panel" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', position: 'relative' }}>
-        <div className="aurora-b" style={{ position: 'absolute', top: '10%', right: '-10%', width: '420px', height: '420px', background: 'radial-gradient(circle,rgba(53,232,242,0.07) 0%,transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+        <div className="aurora-b" style={{ position: 'absolute', top: '10%', right: '-10%', width: '420px', height: '420px', background: 'radial-gradient(circle,rgba(var(--accent-rgb),0.07) 0%,transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
         <div className="glass auth-card" style={{ width: '100%', maxWidth: '420px', padding: '34px 32px', borderRadius: 'var(--rxl)', position: 'relative' }}>
           {step === 'details' ? (
             <>

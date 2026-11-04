@@ -288,7 +288,7 @@ export default function ChatAnalytics({ workspaceId }) {
                             </div>
                           </td>
                           <td style={{ padding: '13px 20px', textAlign: 'right' }}>
-                            <span style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(196,255,70,.1)', border: '1px solid rgba(196,255,70,.25)', color: '#d8ff8a', fontSize: 12, fontWeight: 700 }}>
+                            <span style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(var(--lime-rgb),.1)', border: '1px solid rgba(var(--lime-rgb),.25)', color: '#d8ff8a', fontSize: 12, fontWeight: 700 }}>
                               {fmt(agent.messageCount)}
                             </span>
                           </td>
@@ -328,7 +328,7 @@ export default function ChatAnalytics({ workspaceId }) {
                           </span>
                         </div>
                         <div style={{ height: 6, borderRadius: 6, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-                          <div style={{ width: `${t.width}%`, height: '100%', borderRadius: 6, background: 'linear-gradient(90deg, var(--cyan), rgba(157,107,255,0.85))' }} />
+                          <div style={{ width: `${t.width}%`, height: '100%', borderRadius: 6, background: 'linear-gradient(90deg, var(--cyan), rgba(var(--violet-rgb),0.85))' }} />
                         </div>
                       </div>
                     ))}

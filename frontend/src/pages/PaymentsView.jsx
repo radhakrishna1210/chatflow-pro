@@ -476,7 +476,7 @@ export default function PaymentsView({ initialTab } = {}) {
             ₹ {balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </h2>
         </div>
-        <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(53,232,242,0.1)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(var(--accent-rgb),0.1)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <I n="credit" s={24} c="var(--green)" />
         </div>
       </div>
@@ -980,7 +980,7 @@ export default function PaymentsView({ initialTab } = {}) {
             const on = activeSubTab === tab.id;
             return (
               <div key={tab.id} onClick={() => setActiveSubTab(tab.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', background: on ? 'rgba(53,232,242,0.1)' : 'transparent' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s', background: on ? 'rgba(var(--accent-rgb),0.1)' : 'transparent' }}
                 onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
                 onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}>
                 <I n={tab.icon} s={16} c={on ? 'var(--green)' : 'var(--t2)'} />

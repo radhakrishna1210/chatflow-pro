@@ -225,7 +225,7 @@ export default function TasksView() {
         {err && <ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner>}
 
         {selected.size > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(53,232,242,0.08)', border: '1px solid rgba(53,232,242,0.25)', fontSize: 12.5, color: 'var(--t1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12, padding: '8px 12px', borderRadius: 8, background: 'rgba(var(--accent-rgb),0.08)', border: '1px solid rgba(var(--accent-rgb),0.25)', fontSize: 12.5, color: 'var(--t1)' }}>
             <span style={{ fontWeight: 700 }}>{selected.size} selected</span>
             <Btn size="sm" variant="outline" onClick={() => setStatus([...selected], bulkTarget)} disabled={busyIds.size > 0}>
               {bulkTarget === 'COMPLETED' ? 'Mark complete' : 'Reopen'}

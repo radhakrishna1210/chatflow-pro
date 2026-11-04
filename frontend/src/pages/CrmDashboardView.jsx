@@ -770,7 +770,7 @@ export function CrmDashboardView({ user }) {
                   onClick={() => handleApplyTemplate(tmpl)}
                   style={{
                     padding: '14px 16px',
-                    background: selectedTemplate === tmpl.id ? 'rgba(53,232,242,0.08)' : 'rgba(255,255,255,0.03)',
+                    background: selectedTemplate === tmpl.id ? 'rgba(var(--accent-rgb),0.08)' : 'rgba(255,255,255,0.03)',
                     border: `1px solid ${selectedTemplate === tmpl.id ? 'var(--accent, #35e8f2)' : 'rgba(255,255,255,0.08)'}`,
                     borderRadius: 8,
                     cursor: 'pointer',

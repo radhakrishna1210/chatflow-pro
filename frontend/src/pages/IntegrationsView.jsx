@@ -312,7 +312,7 @@ function FieldInput({ field, value, onChange }) {
           onChange={e => onChange(e.target.value)}
           placeholder={field.placeholder}
           style={{ width: '100%', padding: field.password ? '9px 36px 9px 12px' : '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-          onFocus={e => e.target.style.borderColor = 'rgba(53,232,242,0.5)'}
+          onFocus={e => e.target.style.borderColor = 'rgba(var(--accent-rgb),0.5)'}
           onBlur={e => e.target.style.borderColor = 'var(--bd)'}
         />
         {field.password && (
@@ -424,7 +424,7 @@ function ConnectModal({ intg, onClose, onSave }) {
                   You'll be redirected to {cfg.provider} to grant Svann access to your account. No passwords are stored — only an OAuth token.
                 </p>
               </div>
-              <div style={{ width: '100%', padding: '12px 16px', borderRadius: 10, background: 'rgba(53,232,242,0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, textAlign: 'left', alignItems: 'flex-start' }}>
+              <div style={{ width: '100%', padding: '12px 16px', borderRadius: 10, background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, textAlign: 'left', alignItems: 'flex-start' }}>
                 <I n="shield" s={16} c="var(--green)" />
                 <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.6 }}>
                   We only request the minimum permissions needed. You can revoke access from your {cfg.provider} account settings at any time.
@@ -435,7 +435,7 @@ function ConnectModal({ intg, onClose, onSave }) {
 
           {cfg.type === 'webhook' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(53,232,242,0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid var(--gbd)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                 <I n="alertc" s={16} c="var(--green)" />
                 <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.65 }}>{cfg.hint}</p>
               </div>
@@ -446,7 +446,7 @@ function ConnectModal({ intg, onClose, onSave }) {
                     {wUrl}
                   </code>
                   <button onClick={copyUrl}
-                    style={{ padding: '9px 14px', borderRadius: 8, background: copied ? 'rgba(53,232,242,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${copied ? 'var(--gbd)' : 'var(--bd)'}`, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: copied ? 'var(--green)' : 'var(--t2)', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', transition: 'all .2s' }}>
+                    style={{ padding: '9px 14px', borderRadius: 8, background: copied ? 'rgba(var(--accent-rgb),0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${copied ? 'var(--gbd)' : 'var(--bd)'}`, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: copied ? 'var(--green)' : 'var(--t2)', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', transition: 'all .2s' }}>
                     <I n={copied ? 'check' : 'copy'} s={13} c={copied ? 'var(--green)' : 'var(--t2)'} />
                     {copied ? 'Copied!' : 'Copy'}
                   </button>
@@ -489,7 +489,7 @@ function ConnectModal({ intg, onClose, onSave }) {
             <button
               onClick={handleSave}
               disabled={!canSave() || saving}
-              style={{ padding: '8px 20px', borderRadius: 8, background: canSave() && !saving ? 'var(--green)' : 'rgba(53,232,242,0.3)', border: '1px solid var(--gbd)', color: '#08090c', fontSize: 13, fontWeight: 700, cursor: canSave() && !saving ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 7, transition: 'opacity .15s', boxShadow: canSave() && !saving ? 'var(--glow)' : 'none' }}>
+              style={{ padding: '8px 20px', borderRadius: 8, background: canSave() && !saving ? 'var(--green)' : 'rgba(var(--accent-rgb),0.3)', border: '1px solid var(--gbd)', color: '#08090c', fontSize: 13, fontWeight: 700, cursor: canSave() && !saving ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 7, transition: 'opacity .15s', boxShadow: canSave() && !saving ? 'var(--glow)' : 'none' }}>
               {saving ? (
                 <><span style={{ width: 14, height: 14, border: '2px solid rgba(6,10,16,0.3)', borderTopColor: '#08090c', borderRadius: '50%', display: 'inline-block', animation: 'spin .6s linear infinite' }} />Connecting…</>
               ) : (
@@ -632,7 +632,7 @@ function IntegrationCard({ intg, isConnected, locked, onAction, onDisconnect }) 
   const catIcon = CATEGORY_ICONS[intg.category] || 'plug';
   return (
     <div style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', gap: 13, transition: 'border-color .15s', position: 'relative' }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = isConnected ? 'var(--gbd)' : 'rgba(53,232,242,0.3)'}
+      onMouseEnter={e => e.currentTarget.style.borderColor = isConnected ? 'var(--gbd)' : 'rgba(var(--accent-rgb),0.3)'}
       onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--bd)'}
     >
       {isConnected && (

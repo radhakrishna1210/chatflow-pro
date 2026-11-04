@@ -54,7 +54,7 @@ const ChoiceCard = ({ option, selected, onSelect }) => (
              background: selected ? 'var(--gbg)' : 'rgba(255,255,255,0.03)',
              border: `1px solid ${selected ? 'var(--gbd)' : 'var(--bd)'}` }}>
     <span style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                   background: selected ? 'rgba(53,232,242,0.14)' : 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
+                   background: selected ? 'rgba(var(--accent-rgb),0.14)' : 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
       <I n={option.icon} s={16} c={selected ? 'var(--green)' : 'var(--t2)'} />
     </span>
     <span style={{ flex: 1, minWidth: 0 }}>
@@ -147,7 +147,7 @@ export default function WorkspaceSetup({ onNav }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'radial-gradient(1000px 520px at 15% -10%, rgba(53,232,242,0.07), transparent 60%), var(--bg)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'radial-gradient(1000px 520px at 15% -10%, rgba(var(--accent-rgb),0.07), transparent 60%), var(--bg)' }}>
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '18px clamp(18px,4vw,44px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="sp-pulse" style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 12px var(--accent)' }} />

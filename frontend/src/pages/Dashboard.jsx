@@ -77,7 +77,7 @@ const Avatar = ({ name, size = 34, showRing = false }) => {
   const grad = AVATAR_GRADS[seed % AVATAR_GRADS.length];
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: grad,
-      boxShadow: showRing ? '0 0 0 2px rgba(53,232,242,0.28), inset 0 1px 0 rgba(255,255,255,0.3)' : 'inset 0 1px 0 rgba(255,255,255,0.28)',
+      boxShadow: showRing ? '0 0 0 2px rgba(var(--accent-rgb),0.28), inset 0 1px 0 rgba(255,255,255,0.3)' : 'inset 0 1px 0 rgba(255,255,255,0.28)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: size * .38 + 'px', fontWeight: 800, color: 'var(--ink)',
       letterSpacing: '-.02em', flexShrink: 0 }}>
@@ -180,7 +180,7 @@ const ProfileMenu = () => {
           maxHeight:'calc(100vh - 96px)', overflowY:'auto', overflowX:'hidden',
         }}>
           {/* Header — identity */}
-          <div style={{ padding:'16px 18px', display:'flex', alignItems:'center', gap:12, borderBottom:'1px solid var(--bd)', background:'linear-gradient(135deg, rgba(53,232,242,0.06), transparent)' }}>
+          <div style={{ padding:'16px 18px', display:'flex', alignItems:'center', gap:12, borderBottom:'1px solid var(--bd)', background:'linear-gradient(135deg, rgba(var(--accent-rgb),0.06), transparent)' }}>
             <Avatar name={name} size={44} showRing />
             <div style={{ flex:1, minWidth:0 }}>
               <p style={{ fontSize:14, fontWeight:700, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:2 }}>{name}</p>
@@ -192,8 +192,8 @@ const ProfileMenu = () => {
           <div style={{ padding:'12px 18px', display:'flex', flexWrap:'wrap', gap:6, borderBottom:'1px solid var(--bd)' }}>
             <span style={{
               padding:'3px 10px', borderRadius:12, fontSize:11, fontWeight:700,
-              background: isAdmin ? 'var(--gbg)' : 'rgba(196,255,70,.1)',
-              border: `1px solid ${isAdmin ? 'var(--gbd)' : 'rgba(196,255,70,.25)'}`,
+              background: isAdmin ? 'var(--gbg)' : 'rgba(var(--lime-rgb),.1)',
+              border: `1px solid ${isAdmin ? 'var(--gbd)' : 'rgba(var(--lime-rgb),.25)'}`,
               color: isAdmin ? 'var(--green)' : '#d8ff8a',
             }}>{isSuperAdmin ? 'Super Admin' : (ROLE_LABELS[user?.role] || 'Member')}</span>
             <span style={{ padding:'3px 10px', borderRadius:12, fontSize:11, fontWeight:600, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:180 }}>
@@ -212,7 +212,7 @@ const ProfileMenu = () => {
                     style={{
                       width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8,
                       padding:'8px 12px', borderRadius:8, cursor: current ? 'default' : 'pointer',
-                      background: current ? 'rgba(53,232,242,0.06)' : 'transparent', border:'none', textAlign:'left',
+                      background: current ? 'rgba(var(--accent-rgb),0.06)' : 'transparent', border:'none', textAlign:'left',
                       fontFamily:"'Manrope',sans-serif", fontSize:12.5, fontWeight:600, color:'var(--t1)',
                       transition:'background .12s', opacity: switching ? 0.6 : 1,
                     }}
@@ -533,9 +533,9 @@ const NotificationsBell = () => {
             ) : items.map(n => (
               <div key={n.id} onClick={() => openTarget(n)}
                 {...(n.link ? { role: 'button', tabIndex: 0, onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTarget(n); } } } : {})}
-                style={{ padding: '11px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 10, alignItems: 'flex-start', cursor: n.link ? 'pointer' : 'default', background: n.read ? 'transparent' : 'rgba(53,232,242,0.05)', transition: 'background .12s' }}
+                style={{ padding: '11px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 10, alignItems: 'flex-start', cursor: n.link ? 'pointer' : 'default', background: n.read ? 'transparent' : 'rgba(var(--accent-rgb),0.05)', transition: 'background .12s' }}
                 onMouseEnter={e => { if (n.link) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = n.read ? 'transparent' : 'rgba(53,232,242,0.05)'; }}>
+                onMouseLeave={e => { e.currentTarget.style.background = n.read ? 'transparent' : 'rgba(var(--accent-rgb),0.05)'; }}>
                 <div style={{ marginTop: 2, flexShrink: 0 }}>
                   <I n={NOTIF_ICONS[n.type] || 'bell'} s={13} c={n.read ? 'var(--t3)' : 'var(--green)'} />
                 </div>
@@ -653,7 +653,7 @@ const NextBestAction = ({ onGo }) => {
   const later = () => { sessionStorage.setItem(NEXT_ACTION_DISMISS_KEY, '1'); setDismissed(true); };
 
   return (
-    <div style={{ borderRadius: 'var(--rl)', border: '1px solid var(--gbd)', background: 'linear-gradient(135deg, rgba(53,232,242,0.10), rgba(157,107,255,0.06))', padding: '16px 18px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
+    <div style={{ borderRadius: 'var(--rl)', border: '1px solid var(--gbd)', background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.10), rgba(var(--violet-rgb),0.06))', padding: '16px 18px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
       <div style={{ flex: '1 1 240px', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: 'var(--mono)', fontSize: 9.5, letterSpacing: '.14em', color: 'var(--accent)', textTransform: 'uppercase', marginBottom: 7 }}>
           <I n="zap" s={12} c="var(--accent)" /> Next best action · {action.kind}
@@ -857,7 +857,7 @@ const HomeView = () => {
           window.dispatchEvent(new CustomEvent('app:nav', { detail: a.section }));
         }} />
 
-        <div style={{ borderRadius: 'var(--rl)', background: 'linear-gradient(135deg,rgba(53,232,242,0.1),rgba(14,165,233,0.06))', border: '1px solid var(--gbd)', padding: '16px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+        <div style={{ borderRadius: 'var(--rl)', background: 'linear-gradient(135deg,rgba(var(--accent-rgb),0.1),rgba(14,165,233,0.06))', border: '1px solid var(--gbd)', padding: '16px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <I n="spark" s={18} c="var(--green)" />
@@ -874,7 +874,7 @@ const HomeView = () => {
 
         <WalletSummaryCards />
 
-        <div style={{ width: '100%', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(53,232,242, 0.4)', boxShadow: '0 0 30px rgba(53,232,242, 0.15), inset 0 0 20px rgba(53,232,242, 0.05)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', transition: 'all 0.3s ease', marginBottom: '16px' }}>
+        <div style={{ width: '100%', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '12px', border: '1px solid rgba(var(--accent-rgb), 0.4)', boxShadow: '0 0 30px rgba(var(--accent-rgb), 0.15), inset 0 0 20px rgba(var(--accent-rgb), 0.05)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', transition: 'all 0.3s ease', marginBottom: '16px' }}>
           <div style={{ padding: '24px 24px 12px' }}>
             <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '18px', color: '#fff', marginBottom: '8px' }}>Create your Free WhatsApp AI Assistant</h3>
             <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}>Describe your business flow or campaign parameters below to automatically build and register templates.</p>
@@ -910,7 +910,7 @@ const HomeView = () => {
                 disabled={!mayBuild}
                 onClick={() => setPrompt(s)}
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '10px 14px', color: '#fff', fontSize: '13px', cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left' }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(53,232,242, 0.1)'; e.currentTarget.style.borderColor = 'rgba(53,232,242, 0.3)'; }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(var(--accent-rgb), 0.1)'; e.currentTarget.style.borderColor = 'rgba(var(--accent-rgb), 0.3)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
               >
                 {s}
@@ -925,7 +925,7 @@ const HomeView = () => {
             <button 
               onClick={handleSend}
               disabled={!mayBuild || aiLoading || !prompt.trim()}
-              style={{ background: aiLoading || !prompt.trim() ? 'rgba(53,232,242,0.22)' : 'var(--grad-cta)', color: aiLoading || !prompt.trim() ? 'var(--t3)' : 'var(--ink)', border: 'none', borderRadius: '9px', padding: '9px 20px', fontSize: '13px', fontWeight: 700, cursor: aiLoading || !prompt.trim() ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', transition: 'transform 0.1s' }}
+              style={{ background: aiLoading || !prompt.trim() ? 'rgba(var(--accent-rgb),0.22)' : 'var(--grad-cta)', color: aiLoading || !prompt.trim() ? 'var(--t3)' : 'var(--ink)', border: 'none', borderRadius: '9px', padding: '9px 20px', fontSize: '13px', fontWeight: 700, cursor: aiLoading || !prompt.trim() ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', transition: 'transform 0.1s' }}
               onMouseDown={e => { if (!aiLoading && prompt.trim()) e.currentTarget.style.transform = 'scale(0.96)'; }}
               onMouseUp={e => { if (!aiLoading && prompt.trim()) e.currentTarget.style.transform = 'scale(1)'; }}
             >
@@ -940,7 +940,7 @@ const HomeView = () => {
                   <div style={{
                     marginTop: '10px',
                     background: 'rgba(0,0,0,0.2)',
-                    border: '1px solid rgba(53,232,242,0.3)',
+                    border: '1px solid rgba(var(--accent-rgb),0.3)',
                     borderRadius: '8px',
                     padding: '12px',
                   }}>
@@ -1173,7 +1173,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
               </div>
 
               {isAuthentication ? (
-                <div style={{ padding:'13px 16px', borderRadius:10, background:'rgba(157,107,255,.07)', border:'1px solid rgba(157,107,255,.28)' }}>
+                <div style={{ padding:'13px 16px', borderRadius:10, background:'rgba(var(--violet-rgb),.07)', border:'1px solid rgba(var(--violet-rgb),.28)' }}>
                   <p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>Verification rate</p>
                   <p style={{ fontSize:18, fontWeight:800, color:'#c4ff46' }}>{c.report?.authentication?.verificationRate == null ? '—' : `${c.report.authentication.verificationRate}%`}</p>
                 </div>
@@ -1184,7 +1184,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                       ['Replies', c.report?.replies],
                       ['Reply Rate', c.report?.replyRate == null ? '—' : `${c.report.replyRate}%`],
                       ['Total Clicks', c.report?.totalClicks],
-                    ].map(([k, v]) => <div key={k} style={{ padding:'12px 14px', borderRadius:10, background:'rgba(53,232,242,.05)', border:'1px solid var(--gbd)' }}><p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>{k}</p><p style={{ fontWeight:800, fontSize:18, color:'var(--t1)' }}>{v == null ? '—' : v.toLocaleString?.() ?? v}</p></div>)}
+                    ].map(([k, v]) => <div key={k} style={{ padding:'12px 14px', borderRadius:10, background:'rgba(var(--accent-rgb),.05)', border:'1px solid var(--gbd)' }}><p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>{k}</p><p style={{ fontWeight:800, fontSize:18, color:'var(--t1)' }}>{v == null ? '—' : v.toLocaleString?.() ?? v}</p></div>)}
                   </div>}
                   <div style={{ padding:'14px 16px', borderRadius:10, background:'rgba(255,255,255,.02)', border:'1px solid var(--bd)' }}>
                     <p style={{ fontSize:11, fontWeight:700, color:'var(--t2)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Button-wise clicks</p>
@@ -1219,7 +1219,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
               )}
 
               {c.totalCost != null && (
-                <div className="rgrid-4" style={{ padding:'14px 16px', borderRadius:10, background:'rgba(53,232,242,0.05)', border:'1px solid var(--gbd)', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px 16px' }}>
+                <div className="rgrid-4" style={{ padding:'14px 16px', borderRadius:10, background:'rgba(var(--accent-rgb),0.05)', border:'1px solid var(--gbd)', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px 16px' }}>
                   {[
                     ['Cost / message', `₹${Number(c.costPerMessage ?? 0).toFixed(2)}`],
                     ['Campaign cost',  `₹${Number(c.totalCost ?? 0).toFixed(2)}`],
@@ -2223,7 +2223,7 @@ const TemplatesView = () => {
                         <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '5px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)' }}>{t.category}</span>
                         {/* Standard is the norm, so only the shopping formats are called out. */}
                         {t.templateType && t.templateType !== 'STANDARD' && (
-                          <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'5px', background:'rgba(196,255,70,.10)', border:'1px solid rgba(196,255,70,.28)', color:'#c4ff46', fontWeight:700 }}>
+                          <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'5px', background:'rgba(var(--lime-rgb),.10)', border:'1px solid rgba(var(--lime-rgb),.28)', color:'#c4ff46', fontWeight:700 }}>
                             {TEMPLATE_TYPE_META[t.templateType]?.label || t.templateType}
                           </span>
                         )}
@@ -2377,7 +2377,7 @@ const LibraryPane = ({ hasNumber, loading, items, filter, setFilter, search, set
       )}
 
       {/* Hero strip */}
-      <div style={{ ...card, padding:'18px 22px', marginBottom:18, display:'flex', alignItems:'center', gap:16, background:'linear-gradient(135deg, rgba(53,232,242,0.06), rgba(53,232,242,0.01))' }}>
+      <div style={{ ...card, padding:'18px 22px', marginBottom:18, display:'flex', alignItems:'center', gap:16, background:'linear-gradient(135deg, rgba(var(--accent-rgb),0.06), rgba(var(--accent-rgb),0.01))' }}>
         <div style={{ width:44, height:44, borderRadius:12, background:'var(--gbg)', border:'1px solid var(--gbd)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'var(--glow)' }}>
           <I n="spark" s={20} c="var(--green)" />
         </div>
@@ -2888,7 +2888,7 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
                   onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)'; }}
                   onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}
                   style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '7px 10px', borderRadius: '9px', cursor: 'pointer', transition: 'background .15s ease, border-color .15s ease', justifyContent: col ? 'center' : 'flex-start',
-                    background: on ? 'rgba(53,232,242,0.10)' : 'transparent',
+                    background: on ? 'rgba(var(--accent-rgb),0.10)' : 'transparent',
                     borderLeft: col ? 'none' : `2px solid ${on ? 'var(--accent)' : 'transparent'}` }}
                   onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
                   onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'transparent'; }}
@@ -2930,9 +2930,9 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
         <div onClick={() => go('payments')} title="Open Payments to recharge" role="link" tabIndex={0}
           aria-label={`Wallet balance ${balance == null ? 'loading' : `₹${balance.toFixed(2)}`}. Open Payments`}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go('payments'); } }}
-          style={{ margin: '8px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(53,232,242,0.04)', border: '1px solid rgba(53,232,242,0.15)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px', transition: 'all 0.15s', marginBottom: '4px', flexShrink: 0 }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(53,232,242,0.08)'; e.currentTarget.style.borderColor = 'rgba(53,232,242,0.3)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(53,232,242,0.04)'; e.currentTarget.style.borderColor = 'rgba(53,232,242,0.15)'; }}>
+          style={{ margin: '8px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(var(--accent-rgb),0.04)', border: '1px solid rgba(var(--accent-rgb),0.15)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px', transition: 'all 0.15s', marginBottom: '4px', flexShrink: 0 }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.08)'; e.currentTarget.style.borderColor = 'rgba(var(--accent-rgb),0.3)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.04)'; e.currentTarget.style.borderColor = 'rgba(var(--accent-rgb),0.15)'; }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'var(--mono)', fontSize: '9.5px', fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.1em' }}>
             <I n="credit" s={12} c="var(--accent)" /> Wallet Balance
           </div>
@@ -2957,7 +2957,7 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go('legal'); } }}
           onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--accent)'; }}
           onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}
-          style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', justifyContent: col ? 'center' : 'flex-start', background: legalOn ? 'rgba(53,232,242,0.10)' : 'transparent' }}
+          style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: col ? '10px' : '9px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'background .12s', justifyContent: col ? 'center' : 'flex-start', background: legalOn ? 'rgba(var(--accent-rgb),0.10)' : 'transparent' }}
           onMouseEnter={e => { if (!legalOn) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
           onMouseLeave={e => { if (!legalOn) e.currentTarget.style.background = 'transparent'; }}
           title={col ? 'Legal & Policies' : ''}>
@@ -3246,7 +3246,7 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     // Two very low-opacity washes behind everything, so the panels above them
     // read as translucent panes rather than flat blocks. Static, not animated:
     // this is a work surface, not a landing page.
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'radial-gradient(1200px 600px at 12% -8%, rgba(53,232,242,0.07), transparent 60%), radial-gradient(1000px 520px at 100% 0%, rgba(14,165,233,0.06), transparent 62%), #060B18' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'radial-gradient(1200px 600px at 12% -8%, rgba(var(--accent-rgb),0.07), transparent 60%), radial-gradient(1000px 520px at 100% 0%, rgba(14,165,233,0.06), transparent 62%), #060B18' }}>
       {impersonator && (
         <div style={{ flexShrink: 0, height: 38, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(245,158,11,.06))', borderBottom: '1px solid rgba(245,158,11,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 12.5, color: '#fbbf24', fontWeight: 600 }}>
           <I n="eye" s={13} c="#fbbf24" />

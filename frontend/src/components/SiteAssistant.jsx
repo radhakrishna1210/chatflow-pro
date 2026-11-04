@@ -227,7 +227,7 @@ export default function SiteAssistant() {
           width: 52, height: 52, borderRadius: '50%',
           background: 'var(--green)', border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 8px 30px rgba(53,232,242,0.38), inset 0 1px 0 rgba(255,255,255,0.25)',
+          boxShadow: '0 8px 30px rgba(var(--accent-rgb),0.38), inset 0 1px 0 rgba(255,255,255,0.25)',
           transition: 'transform .18s ease',
         }}
         onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.06)'; }}
@@ -266,7 +266,7 @@ export default function SiteAssistant() {
         }}>
           <div style={{
             width: 30, height: 30, borderRadius: 9, flexShrink: 0,
-            background: 'rgba(53,232,242,0.14)', border: '1px solid var(--gbd, rgba(53,232,242,0.3))',
+            background: 'rgba(var(--accent-rgb),0.14)', border: '1px solid var(--gbd, rgba(var(--accent-rgb),0.3))',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
             <I n="bot" s={15} c="var(--green)" />
@@ -386,7 +386,7 @@ const ASSISTANT_CSS = `
     transition: background .15s, color .15s, border-color .15s;
   }
   .cfp-assistant-suggestion:hover {
-    background: rgba(53,232,242,0.08); border-color: var(--gbd, rgba(53,232,242,0.3)); color: var(--t1);
+    background: rgba(var(--accent-rgb),0.08); border-color: var(--gbd, rgba(var(--accent-rgb),0.3)); color: var(--t1);
   }
   /* On a phone the panel takes the screen: a 386px card floating over a
      360px viewport is just a broken layout with a shadow. */
