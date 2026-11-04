@@ -75,3 +75,7 @@ backend/*_tmp.mjs
 backend/query*.js
 backend/migration.sql
 open-chrome-profile.mjs
+
+# Redis snapshots hold queued job payloads (emails, OTP sends) — never commit.
+dump.rdb
+*.rdb
