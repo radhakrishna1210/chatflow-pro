@@ -9,24 +9,25 @@
 // engine that catches one fabricated claim discounts the rest.
 
 export const site = {
-  name: 'ChatFlow Pro',
+  name: 'Svann',
   // The one-sentence identity §79 asks for: unambiguous about what this is and
   // who it is for. Answer engines quote this more than anything else.
   tagline: 'WhatsApp messaging and a sales CRM in one workspace',
   description:
-    'ChatFlow Pro is a WhatsApp Business platform with a built-in sales CRM. '
+    'Svann is a WhatsApp Business platform with a built-in sales CRM. '
     + 'Run campaigns, answer conversations, and track the leads and deals they '
     + 'produce — without moving data between two tools.',
-  url: 'https://chatflow.mannmate.com',
+  // Canonical public origin. Override per deploy with VITE_SITE_URL.
+  url: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SITE_URL) || 'https://svann.in',
   locale: 'en_IN',
   // Stated because §79 asks for transparent publication dates.
-  updated: '2026-08-17',
+  updated: '2026-11-04',
 };
 
 export const hero = {
   headline: 'Your WhatsApp campaigns already create pipeline. Now you can see it.',
   subhead:
-    'ChatFlow Pro sends the campaigns, answers the replies, and turns those replies '
+    'Svann sends the campaigns, answers the replies, and turns those replies '
     + 'into scored leads and tracked deals — in one place, so nothing falls between '
     + 'your inbox and your spreadsheet.',
   primaryCta: { label: 'Start free', href: '/register' },
@@ -68,7 +69,7 @@ export const features = [
     id: 'lead-management',
     title: 'Lead management with explainable scoring',
     answer:
-      'ChatFlow Pro scores every lead from 0 to 100 using observable signals: how '
+      'Svann scores every lead from 0 to 100 using observable signals: how '
       + 'recently they replied, how often, whether they read your campaigns, and how '
       + 'complete their profile is. Every score shows the six factors behind it, so '
       + 'you can see why a lead ranks where it does.',
@@ -138,8 +139,8 @@ export const features = [
 // §78: direct answers to questions people actually ask, in the words they use.
 export const faq = [
   {
-    q: 'What is ChatFlow Pro?',
-    a: 'ChatFlow Pro is a WhatsApp Business platform with a built-in sales CRM. It sends '
+    q: 'What is Svann?',
+    a: 'Svann is a WhatsApp Business platform with a built-in sales CRM. It sends '
       + 'campaigns, manages conversations through a shared inbox, and tracks the leads, '
       + 'deals, quotes and tickets that come out of them — in a single workspace.',
   },
@@ -213,4 +214,9 @@ export const security = {
 // to the sitemap together.
 export const pages = [
   { path: '/', title: `${site.name} — ${site.tagline}`, changefreq: 'weekly', priority: 1.0 },
+  { path: '/product/campaign-ai', title: `Campaign AI — ${site.name}`, changefreq: 'monthly', priority: 0.8 },
+  { path: '/legal', title: `Legal Center — ${site.name}`, changefreq: 'yearly', priority: 0.3 },
+  { path: '/legal/privacy', title: `Privacy Policy — ${site.name}`, changefreq: 'yearly', priority: 0.3 },
+  { path: '/legal/refund', title: `Refund Policy — ${site.name}`, changefreq: 'yearly', priority: 0.3 },
+  { path: '/legal/cookies', title: `Cookie Policy — ${site.name}`, changefreq: 'yearly', priority: 0.3 },
 ];

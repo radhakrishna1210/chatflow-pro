@@ -4,11 +4,11 @@ import { Btn } from '../components/Btn.jsx';
 import { navigate } from '../App.jsx';
 import {
   MONO, prefersReducedMotion, useInView, Glass, Reveal, Eyebrow, SectionHead, Aurora,
-  MarketingNav, MarketingFooter, MARKETING_CSS,
+  MarketingNav, MarketingFooter, MARKETING_CSS, BRAND, startPath, ScrollProgress, Marquee,
 } from '../components/marketing.jsx';
 import {
   HERO, PROOF, AI_PROMPT_EXAMPLES, FEATURES, USE_CASES, PLAN_CARDS,
-  FAQ_ITEMS, REACTOR, PLAYGROUND, AUTOMATION_LAB, PLATFORM_MAP,
+  REACTOR, PLAYGROUND, AUTOMATION_LAB, PLATFORM_MAP, HOW_IT_WORKS, COMPARISON,
   // Aliased: `CTA` is already the name of the closing section's component.
   CTA as CTA_COPY,
 } from '../../../backend/src/data/siteContent.js';
@@ -71,6 +71,33 @@ const Typing = () => (
 // The campaign message, its CTA, and what happens when the CTA is tapped.
 // Plays itself once on view; tapping the button replays it, because the whole
 // point is that the button is the thing you press.
+// Small "this just happened" cards that drift beside the hero phone — the
+// events a workspace actually sees in the first minutes after a send. Hidden
+// on narrow screens and frozen under reduced motion (MARKETING_CSS).
+const HERO_TOASTS = [
+  // Anchored below the phone card, which grows as the scripted chat plays, so
+  // they ride with its bottom edge and never sit over a bubble.
+  { icon: 'target', color: 'var(--lime)', title: 'New lead captured', sub: 'from a campaign reply', style: { bottom: -64, left: -24 }, delay: 2.6 },
+  { icon: 'credit', color: 'var(--violet)', title: '₹4.36 refunded', sub: 'undelivered messages', style: { bottom: -64, right: -24 }, delay: 3.8 },
+];
+
+const HeroToasts = () => (
+  <>
+    {HERO_TOASTS.map((t) => (
+      <Glass key={t.title} lit={false} className="float-toast" aria-hidden="true"
+        style={{ position: 'absolute', zIndex: 2, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px', borderRadius: 12, animationDelay: `${t.delay}s, ${t.delay + 0.6}s`, ...t.style }}>
+        <span style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <I n={t.icon} s={13} c={t.color} />
+        </span>
+        <span style={{ lineHeight: 1.25 }}>
+          <span style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--t1)', whiteSpace: 'nowrap' }}>{t.title}</span>
+          <span style={{ display: 'block', fontFamily: MONO, fontSize: 9.5, color: 'var(--t2)', whiteSpace: 'nowrap' }}>{t.sub}</span>
+        </span>
+      </Glass>
+    ))}
+  </>
+);
+
 const CampaignTap = () => {
   const ref = useRef(null);
   const seen = useInView(ref);
@@ -101,6 +128,7 @@ const CampaignTap = () => {
 
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%', maxWidth: 420 }}>
+      <HeroToasts />
       {/* Delivery panel, frosted and set back — the campaign this message
           belongs to, seen through the glass behind the phone. */}
       <Glass lit={false} className="hero-back-panel" style={{ position: 'absolute', top: -28, right: -96, width: 250, padding: '14px 16px', opacity: 0.75 }}>
@@ -181,7 +209,7 @@ const Hero = ({ onNav }) => (
   <section style={{ position: 'relative', overflow: 'hidden', paddingTop: 150, paddingBottom: 90 }}>
     <Aurora />
     <div className="hero-grid" style={{ position: 'relative', maxWidth: 1240, margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', gap: 64 }}>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'flex-start' }}>
+      <div style={{ flex: 1.2, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'flex-start' }}>
         <Reveal>
           {/* The newest thing is the reason to read on, so it gets the badge.
               The partner credential moves to the proof strip below. */}
@@ -205,7 +233,7 @@ const Hero = ({ onNav }) => (
               return (
                 <span key={line}>
                   {tinted ? line.slice(0, -HERO.highlight.length) : line}
-                  {tinted && <span style={{ color: 'var(--green)' }}>{HERO.highlight}</span>}
+                  {tinted && <span className="grad-text">{HERO.highlight}</span>}
                   {!last && <br />}
                 </span>
               );
@@ -221,7 +249,7 @@ const Hero = ({ onNav }) => (
 
         <Reveal delay={210}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>Start for free <I n="arrow" s={14} c="#08090c" /></Btn>
+            <Btn size="lg" onClick={() => onNav(startPath())} style={{ boxShadow: 'var(--glow)' }}>Start for free <I n="arrow" s={14} c="#08090c" /></Btn>
             <Btn variant="ghost" size="lg" onClick={() => { document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }); }}>See how it works</Btn>
           </div>
         </Reveal>
@@ -498,51 +526,6 @@ const CostCalculator = () => {
   );
 };
 
-// ─── questions people ask before signing up ──────────────────────────────────
-
-const FaqRow = ({ q, a, open, onToggle, index }) => (
-  <Reveal delay={index * 50}>
-    <Glass lit={false} style={{ borderRadius: 'var(--rl)', overflow: 'hidden' }}>
-      <button
-        onClick={onToggle}
-        aria-expanded={open}
-        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, padding: '18px 22px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: "'Manrope',sans-serif" }}
-      >
-        <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'var(--t1)', letterSpacing: '-.01em' }}>{q}</span>
-        <span style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform .3s cubic-bezier(.2,.7,.3,1)', transform: open ? 'rotate(45deg)' : 'none' }}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={open ? 'var(--green)' : 'var(--t2)'} strokeWidth="2.4" strokeLinecap="round">
-            <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </span>
-      </button>
-      {/* Grid-rows trick: animates to the answer's real height without
-          measuring it or hardcoding a max-height that clips longer copy. */}
-      <div style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', transition: 'grid-template-rows .32s cubic-bezier(.2,.7,.3,1)' }}>
-        <div style={{ overflow: 'hidden' }}>
-          <p style={{ padding: '0 22px 20px', fontSize: 13.5, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 760 }}>{a}</p>
-        </div>
-      </div>
-    </Glass>
-  </Reveal>
-);
-
-const Faq = () => {
-  const [open, setOpen] = useState(0);
-  return (
-    <section style={{ padding: '20px 0 100px' }}>
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 32px' }}>
-        <SectionHead eyebrow="Before you ask" title={<>The questions that<br />come up <span style={{ color: 'var(--green)' }}>every time</span></>} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {FAQ_ITEMS.map(([q, a], i) => (
-            <FaqRow key={q} q={q} a={a} index={i} open={open === i} onToggle={() => setOpen(open === i ? -1 : i)} />
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-};
-
-
 // ─── features ────────────────────────────────────────────────────────────────
 
 const AgentChainVisual = () => (
@@ -649,6 +632,18 @@ const UseCases = () => (
     <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
       <SectionHead eyebrow="Who runs it" title={<>Built for <span style={{ color: 'var(--green)' }}>every industry</span></>}
         sub="Same platform, different conversations. These are the ones it gets used for most." />
+      <div style={{ marginBottom: 28 }}>
+        <Marquee
+          items={USE_CASES}
+          renderItem={(c) => (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 15px', borderRadius: 999, background: 'rgba(255,255,255,0.035)', border: '1px solid var(--bd)', whiteSpace: 'nowrap' }}>
+              <I n={c.icon} s={13} c={c.color} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{c.title}</span>
+              <span style={{ fontFamily: MONO, fontSize: 10.5, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.06em' }}>· {c.metric}</span>
+            </span>
+          )}
+        />
+      </div>
       <div className="case-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
         {USE_CASES.map((c, i) => (
           <Reveal key={c.title} delay={(i % 3) * 70}>
@@ -720,7 +715,7 @@ const Pricing = ({ onNav }) => (
               {/* Names the plan, because "Start free" on a ₹2,500/mo
                   subscription promises something this button cannot do — the
                   free plan is its own tier, called out under the grid. */}
-              <Btn variant={p.popular ? 'primary' : 'ghost'} style={{ width: '100%', justifyContent: 'center' }} onClick={() => onNav('dashboard')}>
+              <Btn variant={p.popular ? 'primary' : 'ghost'} style={{ width: '100%', justifyContent: 'center' }} onClick={() => onNav(startPath())}>
                 {p.name === 'Enterprise' ? 'Talk to sales' : `Choose ${p.name}`} <I n="arrow" s={13} c={p.popular ? '#08090c' : 'var(--t2)'} />
               </Btn>
             </Glass>
@@ -734,7 +729,7 @@ const Pricing = ({ onNav }) => (
       <Reveal delay={240}>
         <p style={{ textAlign: 'center', marginTop: 26, fontSize: 13.5, color: 'var(--t2)' }}>
           Not ready to pay? The Free plan includes 100 messages a cycle, one workspace and no card —{' '}
-          <button onClick={() => onNav('dashboard')} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--green)', fontWeight: 600, cursor: 'pointer' }}>
+          <button onClick={() => onNav(startPath())} style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--green)', fontWeight: 600, cursor: 'pointer' }}>
             start there
           </button>.
         </p>
@@ -761,7 +756,7 @@ const CTA = ({ onNav }) => (
             <p style={{ fontSize: 16.5, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 480, margin: '0 auto 32px' }}>
               {CTA_COPY.sub}
             </p>
-            <Btn size="lg" onClick={() => onNav('dashboard')} style={{ boxShadow: 'var(--glow)' }}>
+            <Btn size="lg" onClick={() => onNav(startPath())} style={{ boxShadow: 'var(--glow)' }}>
               Start for free <I n="arrow" s={14} c="#08090c" />
             </Btn>
             <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)', marginTop: 16, letterSpacing: '.04em' }}>NO CARD · FREE PLAN INCLUDES 100 MESSAGES</p>
@@ -772,6 +767,83 @@ const CTA = ({ onNav }) => (
   </section>
 );
 
+
+// ─── how it works ────────────────────────────────────────────────────────────
+
+const HowItWorks = ({ onNav }) => (
+  <section id="steps" style={{ padding: '10px 0 100px' }}>
+    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
+      <SectionHead eyebrow={HOW_IT_WORKS.eyebrow} title={HOW_IT_WORKS.title} sub={HOW_IT_WORKS.sub} />
+      <Reveal>
+        <div style={{ position: 'relative' }}>
+          {/* The connector draws itself left to right when the row scrolls in. */}
+          <div className="step-connector" aria-hidden="true" style={{ position: 'absolute', top: 47, left: '16%', right: '16%', height: 2, borderRadius: 2, background: 'var(--bd)', overflow: 'hidden' }}>
+            <div className="step-line" style={{ height: '100%' }} />
+          </div>
+          <ol className="steps-grid" style={{ listStyle: 'none', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, position: 'relative' }}>
+            {HOW_IT_WORKS.steps.map((step) => (
+              <li key={step.num}>
+                <Glass style={{ padding: 26, height: '100%', textAlign: 'center' }}>
+                  <div style={{ width: 44, height: 44, margin: '0 auto 16px', borderRadius: 13, background: 'var(--grad-cta)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--glow)' }}>
+                    <I n={step.icon} s={19} c="var(--ink)" />
+                  </div>
+                  <div style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '.16em', color: 'var(--t3)', marginBottom: 8 }}>STEP {step.num}</div>
+                  <h3 style={{ fontSize: 16.5, fontWeight: 700, color: 'var(--t1)', marginBottom: 8, letterSpacing: '-.015em' }}>{step.title}</h3>
+                  <p style={{ fontSize: 13.5, color: 'var(--t2)', lineHeight: 1.65 }}>{step.desc}</p>
+                </Glass>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </Reveal>
+      <Reveal delay={120}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 30 }}>
+          <Btn size="lg" onClick={() => onNav(startPath())}>Create your free workspace <I n="arrow" s={14} c="#08090c" /></Btn>
+        </div>
+      </Reveal>
+    </div>
+  </section>
+);
+
+// ─── comparison ──────────────────────────────────────────────────────────────
+
+const Comparison = () => (
+  <section id="compare" style={{ padding: '100px 0' }}>
+    <div style={{ maxWidth: 980, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
+      <SectionHead eyebrow={COMPARISON.eyebrow} title={COMPARISON.title} sub={COMPARISON.sub} />
+      <Reveal>
+        <Glass lit={false} style={{ borderRadius: 'var(--rxl)', overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="cmp-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <caption style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>{COMPARISON.title}</caption>
+              <thead>
+                <tr>
+                  {COMPARISON.columns.map((c, i) => (
+                    <th key={i} scope="col" className={i === 2 ? 'cmp-theirs' : undefined} style={i === 1 ? { color: 'var(--green)' } : undefined}>{c}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {COMPARISON.rows.map(([label, ours, theirs]) => (
+                  <tr key={label}>
+                    <th scope="row" style={{ fontFamily: "'Manrope',sans-serif", fontSize: 13.5, letterSpacing: 0, textTransform: 'none', color: 'var(--t1)', fontWeight: 600, borderTop: '1px solid var(--bd)' }}>{label}</th>
+                    <td style={{ color: 'var(--t1)', background: 'rgba(53,232,242,0.04)' }}>
+                      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{ flexShrink: 0, marginTop: 2 }}><I n="check" s={13} c="var(--green)" w={2.4} /></span>
+                        <span>{ours}<span className="cmp-vs" style={{ display: 'none', marginTop: 4, fontSize: 11.5, color: 'var(--t3)' }}>vs. {theirs.toLowerCase()}</span></span>
+                      </span>
+                    </td>
+                    <td className="cmp-theirs" style={{ color: 'var(--t2)' }}>{theirs}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Glass>
+      </Reveal>
+    </div>
+  </section>
+);
 
 // ─── page ────────────────────────────────────────────────────────────────────
 
@@ -933,7 +1005,7 @@ const Playground = () => {
                 <span style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: 12 }}>B</span>
                 <div style={{ lineHeight: 1.25 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5, color: '#fff' }}>Your Brand</div>
-                  <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.85)' }}>online · Spandan AI active</div>
+                  <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.85)' }}>online · {BRAND} AI active</div>
                 </div>
               </div>
 
@@ -1005,7 +1077,7 @@ const AutomationLab = () => {
   const running = active >= 0 && active < AUTOMATION_LAB.nodes.length - 1;
 
   return (
-    <section style={{ padding: '20px 0 100px' }}>
+    <section id="automation" style={{ padding: '20px 0 100px' }}>
       <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
         <SectionHead eyebrow={AUTOMATION_LAB.eyebrow} title={AUTOMATION_LAB.title} sub={AUTOMATION_LAB.sub} />
 
@@ -1089,20 +1161,24 @@ export default function Landing({ onNav }) {
   return (
     <div style={{ minHeight: '100vh', overflowX: 'clip' }}>
       <style>{PAGE_CSS}</style>
+      <ScrollProgress />
       <MarketingNav onNav={onNav} />
+      <main id="main">
       <Hero onNav={onNav} />
       <ProofStrip />
+      <HowItWorks onNav={onNav} />
       <AIPromptSection onNav={onNav} />
       <Reactor />
       <Playground />
       <Features />
-<AutomationLab />
+      <AutomationLab />
 {/* <Features/> above covers the messaging half. This covers the CRM half —
           leads, pipeline, forecasting, gamification — which the SoftwareApplication
           featureList in index.html claims, so it has to be on the page (§81).
           Each card leads with a standalone answer an engine can quote (§78). */}
       <MarketingFeatures />
       <UseCases />
+      <Comparison />
       <PlatformMap />
       <CostCalculator />
       <Pricing onNav={onNav} />
@@ -1114,6 +1190,7 @@ export default function Landing({ onNav }) {
       <MarketingSecurity />
       <MarketingFaq />
       <CTA onNav={onNav} />
+      </main>
       <MarketingFooter onNav={onNav} />
     </div>
   );

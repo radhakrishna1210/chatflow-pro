@@ -19,6 +19,60 @@ import { FOOTER_COLS, FOOTER_BLURB, FOOTER_LEGAL } from '../../../backend/src/da
 
 export const MONO = 'var(--mono)';
 
+export const BRAND = 'Svann';
+
+// Signed-out visitors who press "Get started" want an account, not a login
+// form; signed-in ones want their dashboard. The CTAs used to send everyone to
+// /dashboard, which bounced a new visitor to the login screen.
+export const isSignedIn = () => {
+  try { return Boolean(localStorage.getItem('accessToken')); } catch { return false; }
+};
+export const startPath = () => (isSignedIn() ? 'dashboard' : 'register');
+
+// A thin gradient bar along the top edge that tracks how far down the page the
+// reader is. Written straight to a transform from a rAF-throttled scroll
+// handler, so scrolling never re-renders React.
+export const ScrollProgress = () => {
+  const bar = useRef(null);
+  useEffect(() => {
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const el = document.documentElement;
+      const max = el.scrollHeight - el.clientHeight;
+      const p = max > 0 ? Math.min(1, el.scrollTop / max) : 0;
+      if (bar.current) bar.current.style.transform = `scaleX(${p})`;
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
+    update();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+  return (
+    <div aria-hidden="true" style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 2, zIndex: 101, pointerEvents: 'none' }}>
+      <div ref={bar} style={{ height: '100%', background: 'var(--grad-cta)', transform: 'scaleX(0)', transformOrigin: '0 50%' }} />
+    </div>
+  );
+};
+
+// An endless horizontal ribbon. The list is rendered twice and the track slides
+// by exactly half its width, so the loop has no seam. Paused on hover and
+// stopped entirely under reduced motion (see .marquee-track in MARKETING_CSS).
+export const Marquee = ({ items, renderItem, speed = 38 }) => (
+  <div className="marquee" style={{ overflow: 'hidden', maskImage: 'linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent)', WebkitMaskImage: 'linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent)' }}>
+    <div className="marquee-track" style={{ display: 'flex', gap: 12, width: 'max-content', animationDuration: `${speed}s` }}>
+      {[...items, ...items].map((item, i) => (
+        <div key={i} aria-hidden={i >= items.length ? 'true' : undefined}>{renderItem(item)}</div>
+      ))}
+    </div>
+  </div>
+);
+
 export const prefersReducedMotion = () =>
   typeof window !== 'undefined'
   && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -149,26 +203,45 @@ export const MarketingNav = ({ onNav, links = [['Product', '#story'], ['Live dem
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Close the mobile menu on Escape and whenever the layout grows back to the
+  // desktop bar, so it can never be left open behind the inline links.
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
+    const mq = window.matchMedia?.('(min-width: 1025px)');
+    const onMq = (e) => { if (e.matches) setMenuOpen(false); };
+    window.addEventListener('keydown', onKey);
+    mq?.addEventListener?.('change', onMq);
+    return () => { window.removeEventListener('keydown', onKey); mq?.removeEventListener?.('change', onMq); };
+  }, [menuOpen]);
+
   // An anchor that points at another route has to navigate rather than jump to
   // a fragment that does not exist on the current page.
   const go = (e, href) => {
+    setMenuOpen(false);
     if (!href.startsWith('#')) { e.preventDefault(); navigate(href); }
   };
+
+  // The logo goes home. It used to call onNav('landing'), which the router
+  // treats as "log out" — so clicking the logo on a product page signed you out.
+  const home = () => { setMenuOpen(false); navigate('/'); };
 
   return (
     <nav style={{
       position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, height: 64,
       display: 'flex', alignItems: 'center',
-      background: scrolled ? 'rgba(8,11,18,0.72)' : 'transparent',
-      backdropFilter: scrolled ? 'blur(18px) saturate(150%)' : 'none',
-      WebkitBackdropFilter: scrolled ? 'blur(18px) saturate(150%)' : 'none',
-      borderBottom: `1px solid ${scrolled ? 'var(--bd)' : 'transparent'}`,
+      background: scrolled || menuOpen ? 'rgba(8,11,18,0.86)' : 'transparent',
+      backdropFilter: scrolled || menuOpen ? 'blur(18px) saturate(150%)' : 'none',
+      WebkitBackdropFilter: scrolled || menuOpen ? 'blur(18px) saturate(150%)' : 'none',
+      borderBottom: `1px solid ${scrolled || menuOpen ? 'var(--bd)' : 'transparent'}`,
       transition: 'background .3s ease, border-color .3s ease',
     }}>
       <div style={{ maxWidth: 1240, width: '100%', margin: '0 auto', padding: '0 clamp(18px,4vw,32px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-        <button onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
+        <button onClick={home} aria-label={`${BRAND} home`} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
           <BrandMark />
-          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>Spandan</span>
+          <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>{BRAND}</span>
         </button>
 
         <div className="nav-links" style={{ display: 'flex', gap: 30 }}>
@@ -179,10 +252,36 @@ export const MarketingNav = ({ onNav, links = [['Product', '#story'], ['Live dem
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Btn variant="ghost" size="sm" onClick={() => onNav('login')}>Log in</Btn>
-          <Btn variant="primary" size="sm" onClick={() => onNav('dashboard')}>Get started <I n="arrow" s={12} c="#08090c" /></Btn>
+          <span className="nav-login"><Btn variant="ghost" size="sm" onClick={() => onNav(isSignedIn() ? 'dashboard' : 'login')}>{isSignedIn() ? 'Dashboard' : 'Log in'}</Btn></span>
+          <Btn variant="primary" size="sm" onClick={() => onNav(startPath())}>Get started <I n="arrow" s={12} c="#08090c" /></Btn>
+          <button
+            className="nav-burger"
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+            aria-controls="marketing-mobile-menu"
+            style={{ display: 'none', width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', cursor: 'pointer' }}
+          >
+            {menuOpen ? <I n="x" s={16} c="var(--t1)" /> : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--t1)" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                <line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" />
+              </svg>
+            )}
+          </button>
         </div>
       </div>
+
+      {menuOpen && (
+        <div id="marketing-mobile-menu" className="mobile-menu" style={{ position: 'absolute', top: 64, left: 0, right: 0, padding: '10px clamp(18px,4vw,32px) 20px', background: 'var(--bg)', boxShadow: '0 24px 40px rgba(0,0,0,0.5)', borderBottom: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {links.map(([l, h]) => (
+            <a key={l} href={h} onClick={(e) => go(e, h)} style={{ padding: '13px 4px', fontSize: 16, fontWeight: 600, color: 'var(--t1)', borderBottom: '1px solid var(--bd)' }}>{l}</a>
+          ))}
+          <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+            <Btn variant="ghost" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setMenuOpen(false); onNav(isSignedIn() ? 'dashboard' : 'login'); }}>{isSignedIn() ? 'Dashboard' : 'Log in'}</Btn>
+            <Btn style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setMenuOpen(false); onNav(startPath()); }}>Start free</Btn>
+          </div>
+        </div>
+      )}
     </nav>
   );
 };
@@ -192,9 +291,31 @@ export const MarketingNav = ({ onNav, links = [['Product', '#story'], ['Live dem
 // "Privacy" in particular pointed at #features, which meant the site's most
 // load-bearing policy link scrolled you to the feature grid.
 const FOOTER_LINK_HREFS = {
+  'Features': '#features',
+  'How it works': '#steps',
+  'Pricing': '#pricing',
   'Campaign AI Agent': '/product/campaign-ai',
+  'Workflows': '#automation',
+  'E-commerce': '#usecases',
+  'Education': '#usecases',
+  'Clinics': '#usecases',
+  'Real estate': '#usecases',
+  'Agencies': '#usecases',
+  'About': '#story',
+  'Contact': '#faq',
   'Privacy': '/legal/privacy',
   'Legal Center': '/legal',
+};
+
+// A fragment only exists on the landing page. From /product/... or /legal the
+// browser would jump nowhere, so go home first and scroll once it has rendered.
+const followHref = (e, href) => {
+  if (!href.startsWith('#')) { e.preventDefault(); navigate(href); return; }
+  if (window.location.pathname !== '/') {
+    e.preventDefault();
+    navigate('/');
+    setTimeout(() => document.getElementById(href.slice(1))?.scrollIntoView({ behavior: 'smooth' }), 80);
+  }
 };
 
 export const MarketingFooter = ({ onNav }) => (
@@ -202,9 +323,9 @@ export const MarketingFooter = ({ onNav }) => (
     <div style={{ maxWidth: 1240, margin: '0 auto' }}>
       <div className="footer-grid" style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr 1fr 1fr', gap: 40, marginBottom: 44 }}>
         <div>
-          <button onClick={() => onNav('landing')} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, cursor: 'pointer', marginBottom: 14, background: 'none', border: 'none', padding: 0 }}>
+          <button onClick={() => navigate('/')} aria-label={`${BRAND} home`} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, cursor: 'pointer', marginBottom: 14, background: 'none', border: 'none', padding: 0 }}>
             <BrandMark size={28} radius={8} glow={false} />
-            <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Spandan</span>
+            <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>{BRAND}</span>
           </button>
           <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.65, maxWidth: 240 }}>
             {FOOTER_BLURB}
@@ -215,13 +336,11 @@ export const MarketingFooter = ({ onNav }) => (
             <h4 style={{ fontFamily: MONO, fontWeight: 600, fontSize: 11, color: 'var(--t1)', marginBottom: 15, textTransform: 'uppercase', letterSpacing: '.14em' }}>{col.title}</h4>
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
               {col.links.map(l => {
-                // Anything in FOOTER_LINK_HREFS is a real route; everything
-                // else still scrolls to Features on the landing page.
                 const href = FOOTER_LINK_HREFS[l] || '#features';
                 return (
                   <li key={l}>
                     <a href={href}
-                      onClick={e => { if (!href.startsWith('#')) { e.preventDefault(); navigate(href); } }}
+                      onClick={e => followHref(e, href)}
                       style={{ fontSize: 13, color: 'var(--t2)', textDecoration: 'none', transition: 'color .15s' }}
                       onMouseOver={e => e.target.style.color = 'var(--t1)'} onMouseOut={e => e.target.style.color = 'var(--t2)'}>{l}</a>
                   </li>
@@ -252,13 +371,35 @@ export const MarketingFooter = ({ onNav }) => (
 export const MARKETING_CSS = `
   .hero-heading {
     font-family: 'Space Grotesk', sans-serif;
-    font-size: clamp(42px, 5.4vw, 76px);
+    font-size: clamp(40px, 4.9vw, 70px);
     font-weight: 800;
     color: var(--t1);
     letter-spacing: -.052em;
     line-height: 1.02;
   }
+  .marquee-track { animation: marquee linear infinite; }
+  .marquee:hover .marquee-track { animation-play-state: paused; }
+  @keyframes marquee { to { transform: translateX(calc(-50% - 6px)); } }
+  .grad-text {
+    background: linear-gradient(90deg, var(--lime), var(--cyan), var(--violet), var(--cyan), var(--lime));
+    background-size: 300% 100%;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    animation: gradShift 9s ease-in-out infinite;
+  }
+  @keyframes gradShift { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+  .float-toast { animation: toastIn .6s cubic-bezier(.2,.7,.3,1) both, floatY 6s ease-in-out .6s infinite; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+  .step-line { background: linear-gradient(90deg, var(--lime), var(--cyan)); transform-origin: 0 50%; transform: scaleX(0); transition: transform 1.2s cubic-bezier(.2,.7,.3,1) .2s; }
+  .in .step-line { transform: scaleX(1); }
+  .cmp-table td, .cmp-table th { padding: 14px 18px; text-align: left; border-top: 1px solid var(--bd); font-size: 13.5px; vertical-align: top; }
+  .cmp-table th { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--t2); border-top: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee-track, .grad-text, .float-toast { animation: none !important; }
+    .step-line { transform: scaleX(1); transition: none; }
+  }
   @media (max-width: 1024px) {
+    .nav-burger { display: inline-flex !important; }
     .calc { grid-template-columns: 1fr !important; gap: 26px !important; }
     .hero-grid { flex-direction: column; align-items: flex-start !important; gap: 56px !important; }
     .hero-visual { width: 100%; }
@@ -269,7 +410,17 @@ export const MARKETING_CSS = `
     .nav-links { display: none !important; }
   }
   @media (max-width: 720px) {
-    .hero-back-panel { display: none !important; }
+    .hero-back-panel, .float-toast { display: none !important; }
+    .nav-login { display: none !important; }
+    .steps-grid { grid-template-columns: 1fr !important; }
+    .step-connector { display: none !important; }
+    .cmp-table td, .cmp-table th { padding: 11px 10px; font-size: 12.5px; }
+    .cmp-table .cmp-theirs { display: none; }
+    /* The deliberate line break is for the wide layout; on a phone it left
+       a single word stranded on its own line. Let the sentence flow. */
+    .hero-heading br { display: none; }
+    .hero-heading > span::after { content: ' '; }
+    .cmp-table .cmp-vs { display: block !important; }
     .proof-grid { grid-template-columns: 1fr 1fr !important; gap: 20px 0; }
     .proof-grid > * { border-left: none !important; }
     .bento, .case-grid, .plan-grid { grid-template-columns: 1fr !important; }
