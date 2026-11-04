@@ -410,6 +410,14 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
   return message;
 }
 
+// The {{n}} positions (1-based) with no value. {{1}} is never reported: it
+// falls back to the contact's name, or "there" (see sendTemplateMessage).
+export function missingTemplateVariables(required, supplied) {
+  const missing = [];
+  for (let i = 1; i < required; i += 1) if (!String(supplied?.[i] ?? '').trim()) missing.push(i + 1);
+  return missing;
+}
+
 // Sends an approved template on a conversation, which is the only thing
 // WhatsApp permits once the 24-hour window has closed.
 //
@@ -453,6 +461,28 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     e.status = 422; e.code = 'TEMPLATE_NOT_SENDABLE'; e.expose = true; throw e;
   }
 
+  // Variables are settled before anything is charged. A missing {{2}} and up
+  // used to be filled from the contact's name, the approved sample, or the
+  // literal word "there" — so "Your order {{2}} ships {{3}}" went out as
+  // "Your order there ships there", or quoted the sample customer's price.
+  // Only {{1}} keeps a fallback: it is the greeting-name slot by convention
+  // (lib/templateParams.js contactVariableResolver), and "Hi Priya" / "Hi
+  // there" is the documented behaviour for it.
+  const components = Array.isArray(template.components) ? template.components : [];
+  const required = components.reduce((max, c) => Math.max(max, countVariables(c?.text)), 0);
+  const supplied = (Array.isArray(variables) ? variables : []).map((v) => String(v ?? '').trim());
+  const missing = missingTemplateVariables(required, supplied);
+  if (missing.length) {
+    const e = new Error(
+      `"${template.name}" needs a value for ${missing.map((n) => `{{${n}}}`).join(', ')} — nothing was sent.`,
+    );
+    e.status = 422; e.code = 'TEMPLATE_VARIABLES_REQUIRED'; e.expose = true;
+    e.details = { requiredVariables: required, missingVariables: missing };
+    throw e;
+  }
+  const nameResolver = contactVariableResolver(conversation.contact);
+  const resolve = (i, component) => supplied[i] || (i === 0 ? nameResolver(0, component) : '');
+
   const credit = await consumeMessageCredit(workspaceId, {
     reason: 'Template message',
     messageCategory: template.category ?? null,
@@ -463,26 +493,16 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     throw e;
   }
 
-  const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
-  const components = Array.isArray(template.components) ? template.components : [];
-  const required = components.reduce((max, c) => Math.max(max, countVariables(c?.text)), 0);
-  let supplied = (Array.isArray(variables) ? variables : []).map((v) => String(v ?? ''));
-  if (required > 0 && supplied.filter((v) => v.trim()).length < required) {
-    const resolver = contactVariableResolver(conversation.contact);
-    const bodyComp = components.find((c) => /\{\{\d+\}\}/.test(c?.text || ''));
-    supplied = Array.from({ length: required }, (_, i) => String(supplied[i] || resolver(i, bodyComp) || 'there'));
-  }
-
-  const resolve = (i, component) => String(supplied[i] ?? '').trim() || contactVariableResolver(conversation.contact)(i, component);
-
-  const payload = await buildTemplateSendPayload(template, {
-    phoneNumberId: conversation.waNumber.metaPhoneNumberId,
-    accessToken,
-    resolve,
-  });
-
   let result;
   try {
+    const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
+    // Inside the try: building the payload can fail (a header image Meta will
+    // not take), and the credit is already spent by then.
+    const payload = await buildTemplateSendPayload(template, {
+      phoneNumberId: conversation.waNumber.metaPhoneNumberId,
+      accessToken,
+      resolve,
+    });
     result = await sendWhatsAppMessage(
       conversation.waNumber.metaPhoneNumberId, accessToken,
       conversation.contact.phoneNumber, payload,

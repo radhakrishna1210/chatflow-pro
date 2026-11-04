@@ -2814,7 +2814,9 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
       width: col ? '60px' : '232px', background: mobile ? 'rgba(6,9,19,0.97)' : 'rgba(6,9,19,0.72)',
       backdropFilter: 'blur(18px) saturate(140%)', WebkitBackdropFilter: 'blur(18px) saturate(140%)',
       borderRight: '1px solid var(--bd)', boxShadow: mobile ? '8px 0 40px rgba(0,0,0,0.55)' : 'inset -1px 0 0 rgba(255,255,255,0.03)',
-      display: 'flex', flexDirection: 'column', transition: mobile ? 'transform .24s ease, visibility .24s' : 'width .22s ease',
+      display: 'flex', flexDirection: 'column', // Visibility flips at once on open (so focus can move in) and only after
+      // the slide on close (so the drawer does not vanish mid-animation).
+      transition: mobile ? (open ? 'transform .24s ease' : 'transform .24s ease, visibility 0s linear .24s') : 'width .22s ease',
       flexShrink: 0, overflow: 'hidden', minHeight: 0,
       ...(mobile ? {
         position: 'fixed', top: 0, bottom: 0, left: 0, zIndex: 91, height: '100%',
