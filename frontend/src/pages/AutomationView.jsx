@@ -217,7 +217,7 @@ const BasicAutomationsTab = () => {
                       onChange={e => setCfg(c => ({ ...c, delayedAfterMinutes: parseInt(e.target.value, 10) }))}
                       style={inputStyle}>
                       {[5, 10, 15, 30, 60, 120, 240].map(m => (
-                        <option key={m} value={m} style={{ background:'#0a0b0e' }}>
+                        <option key={m} value={m} style={{ background:'#05080f' }}>
                           {m < 60 ? `${m} minutes` : `${m / 60} hour${m === 60 ? '' : 's'}`}
                         </option>
                       ))}
@@ -399,7 +399,7 @@ const CustomAutoReplyTab = () => {
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <TabHeader icon="msg" color="var(--green)" bg="rgba(var(--accent-rgb),0.1)"
         title="Custom Auto Reply" subtitle="Keyword-based automatic replies for common questions">
-        <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Add Trigger</Btn>
+        <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#05080f" /> Add Trigger</Btn>
       </TabHeader>
 
       <Banner>Keywords match whole words only — a trigger for “HI” no longer fires on “this”. When two keywords match, the longer one wins.</Banner>
@@ -472,7 +472,7 @@ const ConfirmDialog = ({ title, message, confirmLabel = 'Delete', busy = false, 
 
   return (
     <div onClick={onCancel} role="dialog" aria-modal="true"
-      style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      style={{ position:'fixed', inset:0, background:'rgba(2,4,9,0.78)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div onClick={e => e.stopPropagation()}
         style={{ ...card, width:'100%', maxWidth:420, padding:24, display:'flex', flexDirection:'column', gap:14 }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -872,7 +872,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
             <Btn variant="outline" onClick={() => { setAiPrompt(''); setAiPreview(null); setAiSite(null); setSavedWfIds(new Set()); setAiError(''); setAiOpen(true); }}>
               <I n="spark" s={14} c="var(--green)" /> Create with AI
             </Btn>
-            <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Create Workflow</Btn>
+            <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#05080f" /> Create Workflow</Btn>
           </div>
         )}
       </TabHeader>
@@ -1064,7 +1064,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
                 <p style={{ fontSize:13, color:'var(--t2)', maxWidth:380, margin:'0 auto' }}>Build multi-step automations that reply, wait, tag contacts and hand off to an agent — all triggered by an incoming message.</p>
               </div>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-                <Btn onClick={() => setAiOpen(true)} style={{ boxShadow:'var(--glow)' }}><I n="spark" s={14} c="#08090c" /> Create with AI</Btn>
+                <Btn onClick={() => setAiOpen(true)} style={{ boxShadow:'var(--glow)' }}><I n="spark" s={14} c="#05080f" /> Create with AI</Btn>
                 <Btn variant="outline" onClick={openCreate}>Create Your First Flow</Btn>
               </div>
             </div>
@@ -1185,7 +1185,7 @@ const PALETTE = [
     })),
   },
   {
-    name: 'CONDITIONS', color: '#9d6bff',
+    name: 'CONDITIONS', color: '#0eb39e',
     items: CONDITION_SUBTYPES.map(([subtype, label]) => ({
       type: 'condition', subtype, label,
       value: subtype === 'contains' ? 'yes'
@@ -1392,9 +1392,9 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
       {allowTypeChange ? (
         <select value={step.type} onChange={e => onChange({ type: e.target.value })}
           style={{ ...selectStyle, background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(var(--accent-rgb),0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', fontWeight:700, textTransform:'uppercase', fontSize:11 }}>
-          <option value="trigger" style={{ background:'#0a0b0e' }}>Trigger</option>
-          <option value="action" style={{ background:'#0a0b0e' }}>Action</option>
-          <option value="condition" style={{ background:'#0a0b0e' }}>Condition</option>
+          <option value="trigger" style={{ background:'#05080f' }}>Trigger</option>
+          <option value="action" style={{ background:'#05080f' }}>Action</option>
+          <option value="condition" style={{ background:'#05080f' }}>Condition</option>
         </select>
       ) : (
         <span style={{ background: isTrigger ? 'rgba(245,158,11,0.1)' : 'rgba(var(--accent-rgb),0.1)', color: isTrigger ? '#f59e0b' : 'var(--green)', border:`1px solid ${isTrigger ? 'rgba(245,158,11,0.2)' : 'var(--gbd)'}`, padding:'3px 9px', borderRadius:6, fontSize:11, fontWeight:700 }}>
@@ -1403,12 +1403,12 @@ const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange =
       )}
 
       <select value={step.subtype} onChange={e => onChange({ subtype: e.target.value })} style={{ ...selectStyle, minWidth:150 }}>
-        {options.map(([v, label]) => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{label}</option>)}
+        {options.map(([v, label]) => <option key={v} value={v} style={{ background:'#05080f' }}>{label}</option>)}
       </select>
 
       {step.subtype === 'delay' ? (
         <select value={step.value} onChange={e => onChange({ value: e.target.value })} style={{ ...selectStyle, minWidth:130 }}>
-          {[...new Set(['Immediate', '5 min', '1 hour', '1 day', step.value].filter(Boolean))].map(v => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{v}</option>)}
+          {[...new Set(['Immediate', '5 min', '1 hour', '1 day', step.value].filter(Boolean))].map(v => <option key={v} value={v} style={{ background:'#05080f' }}>{v}</option>)}
         </select>
 ) : NO_CONFIG_SUBTYPES.includes(step.subtype) ? (
         <span style={{ fontSize:12, color:'var(--t3)', flex:1 }}>No configuration needed</span>
@@ -1451,7 +1451,7 @@ placeholder={
           <select value={step.remindAfter || ''} onChange={e => onChange({ remindAfter: e.target.value })}
             style={{ ...selectStyle, padding:'5px 8px', minWidth:0 }}>
             {[...new Set(['', '5 min', '15 min', '1 hour', '4 hours', step.remindAfter].filter(v => v !== undefined))].map(v => (
-              <option key={v || 'none'} value={v} style={{ background:'#0a0b0e' }}>{v || 'Never'}</option>
+              <option key={v || 'none'} value={v} style={{ background:'#05080f' }}>{v || 'Never'}</option>
             ))}
           </select>
           {step.remindAfter && (
@@ -1469,7 +1469,7 @@ placeholder={
           otherwise skip
           <select value={step.skipIfFalse ?? 1} onChange={e => onChange({ skipIfFalse: Number(e.target.value) })}
             style={{ ...selectStyle, padding:'5px 8px', minWidth:0 }}>
-            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n} style={{ background:'#0a0b0e' }}>{n}</option>)}
+            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n} style={{ background:'#05080f' }}>{n}</option>)}
           </select>
           step{(step.skipIfFalse ?? 1) === 1 ? '' : 's'}
         </label>
@@ -1885,7 +1885,7 @@ const AIIntentMatchingTab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="spark" color="#c4ff46" bg="rgba(var(--lime-rgb),0.1)"
+      <TabHeader icon="spark" color="#c6f36b" bg="rgba(var(--lime-rgb),0.1)"
         title="Intent matching" subtitle={`Rules that route messages before the AI · ${activeCount} active`}
         badge={enabled && <Pill>On</Pill>}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -2073,7 +2073,7 @@ const AIIntentMatchingTab = () => {
 // campaign still has customers holding a message with a live CTA.
 const CAMPAIGN_TONE = {
   RUNNING:   { label:'Active',    fg:'var(--success)', bg:'var(--sbg)',          bd:'var(--sbd)' },
-  SCHEDULED: { label:'Scheduled', fg:'#9d6bff',      bg:'rgba(var(--violet-rgb),.08)',  bd:'rgba(var(--violet-rgb),.25)' },
+  SCHEDULED: { label:'Scheduled', fg:'#0eb39e',      bg:'rgba(var(--violet-rgb),.08)',  bd:'rgba(var(--violet-rgb),.25)' },
   COMPLETED: { label:'Completed', fg:'var(--success)', bg:'var(--sbg)',          bd:'var(--sbd)' },
   DRAFT:     { label:'Draft',     fg:'var(--t2)',    bg:'rgba(255,255,255,.05)', bd:'var(--bd)' },
   CANCELLED: { label:'Paused',    fg:'#fbbf24',      bg:'rgba(245,158,11,.08)',  bd:'rgba(245,158,11,.25)' },
@@ -2308,7 +2308,7 @@ const WhatsAppAIAgentTab = () => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
-      <TabHeader icon="bot" color="#9d6bff" bg="rgba(var(--violet-rgb),0.1)"
+      <TabHeader icon="bot" color="#0eb39e" bg="rgba(var(--violet-rgb),0.1)"
         title={name || 'WhatsApp AI Agent'}
         subtitle={deployed
           ? 'Deployed · answering campaign CTAs and inbound messages'
@@ -2318,7 +2318,7 @@ const WhatsAppAIAgentTab = () => {
           <Btn variant="outline" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Btn>
           <Btn onClick={deploy} disabled={deploying || llmMissing}
             style={deployed ? { background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', boxShadow:'none' } : { boxShadow:'var(--glow)' }}>
-            {deploying ? 'Working…' : deployed ? 'Undeploy agent' : <><I n="play" s={14} c="#08090c"/> Deploy agent</>}
+            {deploying ? 'Working…' : deployed ? 'Undeploy agent' : <><I n="play" s={14} c="#05080f"/> Deploy agent</>}
           </Btn>
         </div>
       </TabHeader>
@@ -2339,8 +2339,8 @@ const WhatsAppAIAgentTab = () => {
                            fontFamily:"'Manrope',sans-serif", fontSize:13, fontWeight: on ? 700 : 500,
                            color: on ? 'var(--t1)' : 'var(--t2)',
                            background: on ? 'rgba(var(--violet-rgb),0.12)' : 'transparent',
-                           borderLeft: `2px solid ${on ? '#9d6bff' : 'transparent'}` }}>
-                  <I n={sec.icon} s={14} c={on ? '#9d6bff' : 'var(--t3)'} />
+                           borderLeft: `2px solid ${on ? '#0eb39e' : 'transparent'}` }}>
+                  <I n={sec.icon} s={14} c={on ? '#0eb39e' : 'var(--t3)'} />
                   {sec.label}
                 </button>
               );
@@ -2852,7 +2852,7 @@ const InstagramQuickflowsTab = () => {
       <TabHeader icon="insta" color="#dc2743" bg="linear-gradient(45deg,#f09433,#dc2743,#bc1888)"
         title="Instagram Quickflows" subtitle="Auto-reply to Instagram DMs, comments and story replies"
         badge={conn?.connected && <Pill>Connected</Pill>}>
-        {conn?.connected && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c"/> New IG Flow</Btn>}
+        {conn?.connected && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#05080f"/> New IG Flow</Btn>}
       </TabHeader>
 
       {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
@@ -2921,7 +2921,7 @@ const InstagramQuickflowsTab = () => {
                 <div style={{ minWidth:180 }}>
                   <label style={labelStyle}>Trigger on</label>
                   <select value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} style={inputStyle}>
-                    {IG_SOURCES.map(([v, l]) => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{l}</option>)}
+                    {IG_SOURCES.map(([v, l]) => <option key={v} value={v} style={{ background:'#05080f' }}>{l}</option>)}
                   </select>
                 </div>
                 <div style={{ minWidth:160 }}>
@@ -3135,7 +3135,7 @@ const VoiceAITab = () => {
               <div style={{ padding:'0 18px 14px', display:'flex', flexDirection:'column', gap:6 }}>
                 {(Array.isArray(c.transcript) ? c.transcript : []).map((t, idx) => (
                   <div key={idx} style={{ display:'flex', gap:8, fontSize:12 }}>
-                    <span style={{ minWidth:52, color: t.role === 'caller' ? '#9d6bff' : 'var(--green)', fontWeight:600 }}>{t.role === 'caller' ? 'Caller' : 'AI'}</span>
+                    <span style={{ minWidth:52, color: t.role === 'caller' ? '#0eb39e' : 'var(--green)', fontWeight:600 }}>{t.role === 'caller' ? 'Caller' : 'AI'}</span>
                     <span style={{ color:'var(--t2)' }}>{t.text}</span>
                   </div>
                 ))}
@@ -3390,7 +3390,7 @@ const WhatsAppFormsTab = () => {
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <TabHeader icon="note" color="var(--t2)" bg="rgba(255,255,255,0.04)"
         title="WhatsApp Forms" subtitle="Collect structured answers one question at a time, right inside the chat">
-        {view === 'list' && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c"/> Create Form</Btn>}
+        {view === 'list' && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#05080f"/> Create Form</Btn>}
       </TabHeader>
 
       {/* Create New Form / View All Forms */}
@@ -3484,7 +3484,7 @@ const WhatsAppFormsTab = () => {
               </button>
               {catOpen && (
                 <div style={{ position:'absolute', zIndex:20, top:'calc(100% + 4px)', left:0, right:0, borderRadius:9,
-                              border:'1px solid var(--bd)', background:'#0a0b0e', boxShadow:'0 12px 30px rgba(0,0,0,0.5)', padding:6,
+                              border:'1px solid var(--bd)', background:'#05080f', boxShadow:'0 12px 30px rgba(0,0,0,0.5)', padding:6,
                               maxHeight:220, overflowY:'auto' }}>
                   {categoryOpts.map(cat => {
                     const on = (draft.categories || []).includes(cat);
@@ -3497,7 +3497,7 @@ const WhatsAppFormsTab = () => {
                                  background: on ? 'var(--gbg)' : 'transparent', fontSize:12.5, color:'var(--t1)' }}>
                         <span style={{ width:14, height:14, borderRadius:4, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
                                        border:`1.5px solid ${on ? 'var(--green)' : 'var(--bd)'}`, background: on ? 'var(--green)' : 'transparent' }}>
-                          {on && <I n="check" s={9} c="#08090c" w={3} />}
+                          {on && <I n="check" s={9} c="#05080f" w={3} />}
                         </span>
                         {cat}
                       </label>
@@ -3519,7 +3519,7 @@ const WhatsAppFormsTab = () => {
                   <input value={f.label} onChange={e => setField(idx, { label: e.target.value })}
                     placeholder="What should the customer be asked?" style={{ ...inputStyle, flex:1, minWidth:220 }} />
                   <select value={f.type || 'text'} onChange={e => setField(idx, { type: e.target.value })} style={{ ...inputStyle, width:150 }}>
-                    {FIELD_TYPES.map(([v, l]) => <option key={v} value={v} style={{ background:'#0a0b0e' }}>{l}</option>)}
+                    {FIELD_TYPES.map(([v, l]) => <option key={v} value={v} style={{ background:'#05080f' }}>{l}</option>)}
                   </select>
                   <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, color:'var(--t2)', cursor:'pointer' }}>
                     <input type="checkbox" checked={f.required !== false} onChange={e => setField(idx, { required: e.target.checked })}
@@ -3632,7 +3632,7 @@ const SmartListsTab = () => {
   const [contactPhone, setContactPhone] = useState('');
   const [contactError, setContactError] = useState('');
 
-  const segColors = ['#8b5cf6','#f43f5e','#9d6bff','#f59e0b','#25d366','#ec4899'];
+  const segColors = ['#8b5cf6','#f43f5e','#0eb39e','#f59e0b','#25d366','#ec4899'];
   const viewingSegment = segments.find(s => s.id === viewingSegmentId) || null;
 
   const fetchSegments = useCallback(async () => {
@@ -3701,7 +3701,7 @@ const SmartListsTab = () => {
               <p style={{ fontSize:'13px', color:'var(--t2)' }}>{viewingSegment.description || viewingSegment.desc || 'No description'}</p>
             </div>
           </div>
-          <Btn onClick={openAddContact} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c"/> Add Customer</Btn>
+          <Btn onClick={openAddContact} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#05080f"/> Add Customer</Btn>
         </div>
 
         {contactFormOpen && (
@@ -3761,7 +3761,7 @@ const SmartListsTab = () => {
     <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
       <TabHeader icon="users" color="var(--t2)" bg="rgba(255,255,255,0.04)"
         title="Smart Lists" subtitle="Segment your contacts for targeted messaging">
-        <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Create Segment</Btn>
+        <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#05080f" /> Create Segment</Btn>
       </TabHeader>
 
       {segFormOpen && (
@@ -3792,7 +3792,7 @@ const SmartListsTab = () => {
             <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:17, color:'var(--t1)', marginBottom:6 }}>No Segments Yet</p>
             <p style={{ fontSize:13, color:'var(--t2)' }}>Create your first customer segment to get started.</p>
           </div>
-          <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#08090c" /> Create First Segment</Btn>
+          <Btn onClick={openCreateSeg} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#05080f" /> Create First Segment</Btn>
         </div>
       ) : (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:'16px' }}>

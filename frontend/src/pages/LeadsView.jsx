@@ -297,7 +297,7 @@ const NewLeadModal = ({ onClose, onCreated, crmConfig }) => {
         {/* Prospecting Criteria Section */}
         <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 8, padding: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <I n="target" s={13} c="var(--accent, #35e8f2)" /> Prospecting & Qualification Info
+            <I n="target" s={13} c="var(--accent, #2af5d6)" /> Prospecting & Qualification Info
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
             <div>
@@ -683,7 +683,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
               borderRadius: 6,
               background: c.optedOut ? 'rgba(255,255,255,0.03)' : 'rgba(var(--accent-rgb),0.12)',
               border: '1px solid rgba(var(--accent-rgb),0.25)',
-              color: c.optedOut ? 'var(--t3)' : 'var(--accent, #35e8f2)',
+              color: c.optedOut ? 'var(--t3)' : 'var(--accent, #2af5d6)',
               fontSize: 12,
               fontWeight: 600,
               cursor: c.optedOut ? 'not-allowed' : 'pointer',
@@ -716,8 +716,8 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-            <I n="spark" s={13} c="var(--accent, #35e8f2)" />
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent, #35e8f2)', textTransform: 'uppercase' }}>
+            <I n="spark" s={13} c="var(--accent, #2af5d6)" />
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent, #2af5d6)', textTransform: 'uppercase' }}>
               AI Next Best Action
             </span>
           </div>
@@ -733,7 +733,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
           onClick={() => setAddingTask(true)}
           style={{
             padding: '5px 12px',
-            background: 'var(--accent, #35e8f2)',
+            background: 'var(--accent, #2af5d6)',
             color: '#060A10',
             border: 'none',
             borderRadius: 6,
@@ -766,7 +766,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
               padding: '8px 4px',
               background: 'none',
               border: 'none',
-              borderBottom: tab === t.id ? '2px solid var(--accent, #35e8f2)' : '2px solid transparent',
+              borderBottom: tab === t.id ? '2px solid var(--accent, #2af5d6)' : '2px solid transparent',
               color: tab === t.id ? '#fff' : 'var(--t3)',
               fontSize: 12.5,
               fontWeight: 600,
@@ -800,7 +800,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
           <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 8, padding: '14px 16px', marginBottom: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <I n="idcard" s={14} c="var(--accent, #35e8f2)" /> Contact Tags
+                <I n="idcard" s={14} c="var(--accent, #2af5d6)" /> Contact Tags
               </div>
               {leadTagsConfig.filter(t => !currentTags.includes(t.name)).length > 0 && (
                 <select
@@ -855,7 +855,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
           <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 8, padding: '16px 18px', marginBottom: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <I n="target" s={16} c="var(--accent, #35e8f2)" />
+                <I n="target" s={16} c="var(--accent, #2af5d6)" />
                 <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--t1)' }}>
                   Prospecting & Qualification
                 </span>
@@ -1066,7 +1066,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
               {submissions.map((sub) => (
                 <div key={sub.id} style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 8, padding: 16 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, borderBottom: '1px solid var(--bd)', paddingBottom: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent, #35e8f2)' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent, #2af5d6)' }}>
                       {sub.form?.title || 'Lead Capture Form'}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--t3)' }}>
@@ -1379,7 +1379,7 @@ export default function LeadsView() {
               cursor: 'pointer',
             }}
           >
-            <I n="zap" s={13} c="var(--accent, #35e8f2)" /> Routing Rules
+            <I n="zap" s={13} c="var(--accent, #2af5d6)" /> Routing Rules
           </button>
 
           <ImportExport entity="leads" canImport onImported={load} />
@@ -1402,7 +1402,7 @@ export default function LeadsView() {
               fontSize: 12,
               fontWeight: 600,
               cursor: 'pointer',
-              background: preset === p.id ? 'var(--accent, #35e8f2)' : 'transparent',
+              background: preset === p.id ? 'var(--accent, #2af5d6)' : 'transparent',
               color: preset === p.id ? '#060A10' : 'var(--t2)',
               border: preset === p.id ? 'none' : '1px solid rgba(255,255,255,0.08)',
               whiteSpace: 'nowrap',
@@ -1493,7 +1493,7 @@ export default function LeadsView() {
             {/* Start Campaign */}
             <button
               onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'crm-sales-inbox' }))}
-              style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--accent, #35e8f2)', color: '#060A10', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
+              style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--accent, #2af5d6)', color: '#060A10', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
             >
               Start Campaign
             </button>
@@ -1591,7 +1591,7 @@ export default function LeadsView() {
                     textAlign: 'left',
                     background: isSelected ? 'rgba(var(--accent-rgb), 0.06)' : activeId === l.id ? 'rgba(255,255,255,0.05)' : 'transparent',
                     borderBottom: '1px solid var(--bd)',
-                    borderLeft: `3px solid ${activeId === l.id ? 'var(--accent, #35e8f2)' : isSelected ? 'var(--accent)' : 'transparent'}`,
+                    borderLeft: `3px solid ${activeId === l.id ? 'var(--accent, #2af5d6)' : isSelected ? 'var(--accent)' : 'transparent'}`,
                     boxSizing: 'border-box',
                   }}
                 >

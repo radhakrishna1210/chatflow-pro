@@ -253,7 +253,7 @@ export function CrmDashboardView({ user }) {
                   padding: '5px 10px',
                   fontSize: 11.5,
                   fontWeight: 600,
-                  background: range === r.id ? 'var(--accent, #35e8f2)' : 'transparent',
+                  background: range === r.id ? 'var(--accent, #2af5d6)' : 'transparent',
                   color: range === r.id ? '#060A10' : 'var(--t2)',
                   border: 'none',
                   borderRadius: 4,
@@ -347,7 +347,7 @@ export function CrmDashboardView({ user }) {
             padding: '10px 4px',
             background: 'none',
             border: 'none',
-            borderBottom: activeTab === 'overview' ? '2px solid var(--accent, #35e8f2)' : '2px solid transparent',
+            borderBottom: activeTab === 'overview' ? '2px solid var(--accent, #2af5d6)' : '2px solid transparent',
             color: activeTab === 'overview' ? '#fff' : 'var(--t3)',
             fontSize: 13.5,
             fontWeight: 600,
@@ -357,7 +357,7 @@ export function CrmDashboardView({ user }) {
             gap: 8,
           }}
         >
-          <I n="columns" s={15} c={activeTab === 'overview' ? 'var(--accent, #35e8f2)' : 'var(--t3)'} />
+          <I n="columns" s={15} c={activeTab === 'overview' ? 'var(--accent, #2af5d6)' : 'var(--t3)'} />
           <span>Management Overview</span>
         </button>
 
@@ -367,7 +367,7 @@ export function CrmDashboardView({ user }) {
             padding: '10px 4px',
             background: 'none',
             border: 'none',
-            borderBottom: activeTab === 'source_performance' ? '2px solid var(--accent, #35e8f2)' : '2px solid transparent',
+            borderBottom: activeTab === 'source_performance' ? '2px solid var(--accent, #2af5d6)' : '2px solid transparent',
             color: activeTab === 'source_performance' ? '#fff' : 'var(--t3)',
             fontSize: 13.5,
             fontWeight: 600,
@@ -377,7 +377,7 @@ export function CrmDashboardView({ user }) {
             gap: 8,
           }}
         >
-          <I n="chart" s={15} c={activeTab === 'source_performance' ? 'var(--accent, #35e8f2)' : 'var(--t3)'} />
+          <I n="chart" s={15} c={activeTab === 'source_performance' ? 'var(--accent, #2af5d6)' : 'var(--t3)'} />
           <span>Lead Source Performance</span>
         </button>
 
@@ -387,7 +387,7 @@ export function CrmDashboardView({ user }) {
             padding: '10px 4px',
             background: 'none',
             border: 'none',
-            borderBottom: activeTab === 'custom_reports' ? '2px solid var(--accent, #35e8f2)' : '2px solid transparent',
+            borderBottom: activeTab === 'custom_reports' ? '2px solid var(--accent, #2af5d6)' : '2px solid transparent',
             color: activeTab === 'custom_reports' ? '#fff' : 'var(--t3)',
             fontSize: 13.5,
             fontWeight: 600,
@@ -397,7 +397,7 @@ export function CrmDashboardView({ user }) {
             gap: 8,
           }}
         >
-          <I n="columns" s={15} c={activeTab === 'custom_reports' ? 'var(--accent, #35e8f2)' : 'var(--t3)'} />
+          <I n="columns" s={15} c={activeTab === 'custom_reports' ? 'var(--accent, #2af5d6)' : 'var(--t3)'} />
           <span>Custom Reports & Chart Library</span>
         </button>
       </div>
@@ -472,7 +472,7 @@ export function CrmDashboardView({ user }) {
             </div>
             <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: '14px 18px' }}>
               <div style={{ fontSize: 11, color: 'var(--t3)' }}>Lead → Deal Conversion</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#35e8f2', marginTop: 3 }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#2af5d6', marginTop: 3 }}>
                 {kpis.conversionRate ?? 0}%
               </div>
             </div>
@@ -614,7 +614,7 @@ export function CrmDashboardView({ user }) {
                 <h3 style={{ fontSize: 13.5, fontWeight: 600, color: '#fff', margin: 0 }}>Top deals in progress</h3>
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'deals' }))}
-                  style={{ background: 'none', border: 'none', color: 'var(--accent, #35e8f2)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', color: 'var(--accent, #2af5d6)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
                 >
                   View pipeline →
                 </button>
@@ -716,7 +716,7 @@ export function CrmDashboardView({ user }) {
                         <td style={{ padding: '12px 18px', color: 'var(--t1)' }}>{row.deals}</td>
                         <td style={{ padding: '12px 18px', color: '#fbbf24', fontWeight: 700 }}>{row.won}</td>
                         <td style={{ padding: '12px 18px', color: '#10b981', fontWeight: 700 }}>{fmtMoney(row.revenue)}</td>
-                        <td style={{ padding: '12px 18px', color: '#35e8f2', fontWeight: 600 }}>{conv}%</td>
+                        <td style={{ padding: '12px 18px', color: '#2af5d6', fontWeight: 600 }}>{conv}%</td>
                       </tr>
                     );
                   })
@@ -771,7 +771,7 @@ export function CrmDashboardView({ user }) {
                   style={{
                     padding: '14px 16px',
                     background: selectedTemplate === tmpl.id ? 'rgba(var(--accent-rgb),0.08)' : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${selectedTemplate === tmpl.id ? 'var(--accent, #35e8f2)' : 'rgba(255,255,255,0.08)'}`,
+                    border: `1px solid ${selectedTemplate === tmpl.id ? 'var(--accent, #2af5d6)' : 'rgba(255,255,255,0.08)'}`,
                     borderRadius: 8,
                     cursor: 'pointer',
                     transition: 'all 0.15s ease',
@@ -894,7 +894,7 @@ export function CrmDashboardView({ user }) {
                   padding: '6px 14px',
                   borderRadius: 6,
                   border: 'none',
-                  background: 'var(--accent, #35e8f2)',
+                  background: 'var(--accent, #2af5d6)',
                   color: '#060A10',
                   fontSize: 12,
                   fontWeight: 700,
@@ -954,7 +954,7 @@ export function CrmDashboardView({ user }) {
                     <XAxis dataKey="label" stroke="rgba(255,255,255,0.2)" fontSize={11} tickMargin={10} axisLine={false} tickLine={false} />
                     <YAxis stroke="rgba(255,255,255,0.2)" fontSize={11} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={{ background: '#111', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 12, color: '#fff' }} />
-                    <Bar dataKey="value" name={reportConfig.metric} fill="var(--accent, #35e8f2)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="value" name={reportConfig.metric} fill="var(--accent, #2af5d6)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -973,7 +973,7 @@ export function CrmDashboardView({ user }) {
                     return (
                       <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                         <td style={{ padding: '10px 14px', color: '#fff', fontWeight: 600 }}>{r.label}</td>
-                        <td style={{ padding: '10px 14px', color: 'var(--accent, #35e8f2)', fontWeight: 700 }}>{r.value}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--accent, #2af5d6)', fontWeight: 700 }}>{r.value}</td>
                         <td style={{ padding: '10px 14px', color: 'var(--t2)' }}>{share}%</td>
                       </tr>
                     );
@@ -1051,7 +1051,7 @@ export function CrmDashboardView({ user }) {
                   padding: '12px 4px',
                   background: 'none',
                   border: 'none',
-                  borderBottom: drawerTab === 'actions' ? '2px solid var(--accent, #35e8f2)' : '2px solid transparent',
+                  borderBottom: drawerTab === 'actions' ? '2px solid var(--accent, #2af5d6)' : '2px solid transparent',
                   color: drawerTab === 'actions' ? '#fff' : 'var(--t3)',
                   fontSize: 13,
                   fontWeight: 600,
@@ -1066,7 +1066,7 @@ export function CrmDashboardView({ user }) {
                   padding: '12px 4px',
                   background: 'none',
                   border: 'none',
-                  borderBottom: drawerTab === 'overdue' ? '2px solid var(--accent, #35e8f2)' : '2px solid transparent',
+                  borderBottom: drawerTab === 'overdue' ? '2px solid var(--accent, #2af5d6)' : '2px solid transparent',
                   color: drawerTab === 'overdue' ? '#fff' : 'var(--t3)',
                   fontSize: 13,
                   fontWeight: 600,

@@ -540,7 +540,7 @@ const AuthenticationTemplatesPanel = () => {
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
         <Btn onClick={() => setCreating(true)} style={{ boxShadow: 'var(--glow)' }}>
-          <I n="file" s={14} c="#08090c" /> New Template
+          <I n="file" s={14} c="#05080f" /> New Template
         </Btn>
       </div>
 
@@ -615,7 +615,7 @@ const ConfirmRegenerateModal = ({ onCancel, onConfirm, loading }) => (
   <div
     onClick={loading ? undefined : onCancel}
     role="dialog" aria-modal="true" aria-label="Regenerate API Key?"
-    style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+    style={{ position: 'fixed', inset: 0, background: 'rgba(2,4,9,0.78)', backdropFilter: 'blur(4px)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
   >
     <div onClick={e => e.stopPropagation()} style={{ ...card, border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(var(--accent-rgb),0.10)', width: '100%', maxWidth: 440, overflow: 'hidden' }}>
       <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
@@ -662,7 +662,7 @@ const ConfirmRegenerateModal = ({ onCancel, onConfirm, loading }) => (
 // out — no backdrop-click dismiss — since the raw value is dropped the moment
 // it closes and cannot be recovered from this page again.
 const NewKeyModal = ({ apiKey, onClose }) => (
-  <div role="dialog" aria-modal="true" aria-label="New API Key Generated" style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+  <div role="dialog" aria-modal="true" aria-label="New API Key Generated" style={{ position: 'fixed', inset: 0, background: 'rgba(2,4,9,0.78)', backdropFilter: 'blur(4px)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
     <div style={{ ...card, border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(var(--accent-rgb),0.10)', width: '100%', maxWidth: 480, overflow: 'hidden' }}>
       <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>

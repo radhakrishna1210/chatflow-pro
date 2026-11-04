@@ -113,7 +113,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
             <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: '24px' }}>🔒</div>
             </div>
-            <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 18, color:'#eef0f3', marginBottom: 8, margin: 0 }}>Login Required</h3>
+            <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 18, color:'#dce8f7', marginBottom: 8, margin: 0 }}>Login Required</h3>
             <p style={{ fontSize: 14, color:'rgba(255,255,255,0.6)', textAlign:'center', marginBottom: 24, lineHeight: 1.5 }}>
               You need to be logged in to use the AI Agent. Please sign in to your account to continue.
             </p>
@@ -126,7 +126,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
       )}
 
       <div style={{
-        background: 'linear-gradient(180deg, #0c0d11 0%, #080B12 100%)',
+        background: 'linear-gradient(180deg, #0c1320 0%, #080B12 100%)',
         border: '1px solid rgba(255,255,255,0.08)',
         borderRadius: '20px',
         boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 40px rgba(var(--accent-rgb),0.06), inset 0 1px 0 rgba(255,255,255,0.06)',
@@ -140,7 +140,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
         {/* ─── Header ─── */}
         <div style={{
           padding: '14px 18px',
-          background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.12), rgba(14,165,233,0.05))',
+          background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.12), rgba(var(--violet-rgb),0.05))',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           display: 'flex', alignItems: 'center', gap: '10px',
           flexShrink: 0,
@@ -153,10 +153,10 @@ export default function AIOnboardingCard({ page = 'landing' }) {
             flexShrink: 0,
           }}>🤖</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: '#eef0f3', letterSpacing: '-0.01em' }}>AI Onboarding Agent</div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#dce8f7', letterSpacing: '-0.01em' }}>AI Onboarding Agent</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '1px' }}>
-              <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#35e8f2', animation: 'agent-pulse 2s ease infinite' }} />
-              <span style={{ fontSize: '10px', color: '#35e8f2', fontWeight: 600 }}>Local Model Active</span>
+              <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#2af5d6', animation: 'agent-pulse 2s ease infinite' }} />
+              <span style={{ fontSize: '10px', color: '#2af5d6', fontWeight: 600 }}>Local Model Active</span>
             </div>
           </div>
         </div>
@@ -183,7 +183,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
                   : '1px solid rgba(255,255,255,0.06)',
                 padding: '9px 13px',
                 borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : '12px 12px 12px 3px',
-                fontSize: '12.5px', color: '#eef0f3', lineHeight: 1.55,
+                fontSize: '12.5px', color: '#dce8f7', lineHeight: 1.55,
                 whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
               }}>
@@ -196,17 +196,17 @@ export default function AIOnboardingCard({ page = 'landing' }) {
                     borderRadius: '8px',
                     padding: '12px',
                   }}>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', color: '#35e8f2', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', color: '#2af5d6', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {m.card.icon || '✅'} {m.card.title}
                     </div>
                     {m.card.details && Object.entries(m.card.details).map(([k, v]) => (
                       <div key={k} style={{ fontSize: '11px', marginBottom: '4px' }}>
                         <span style={{ color: 'var(--t2)', textTransform: 'capitalize' }}>{k}:</span>{' '}
-                        <span style={{ color: '#eef0f3' }}>{typeof v === 'object' ? JSON.stringify(v) : v}</span>
+                        <span style={{ color: '#dce8f7' }}>{typeof v === 'object' ? JSON.stringify(v) : v}</span>
                       </div>
                     ))}
                     {m.card.preview && (
-                       <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', fontSize: '11px', fontStyle: 'italic', borderLeft: '2px solid #35e8f2' }}>
+                       <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', fontSize: '11px', fontStyle: 'italic', borderLeft: '2px solid #2af5d6' }}>
                          {m.card.preview}
                        </div>
                     )}
@@ -227,7 +227,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
               }}>
                 {[0, 1, 2].map(i => (
                   <div key={i} style={{
-                    width: '6px', height: '6px', borderRadius: '50%', background: '#35e8f2',
+                    width: '6px', height: '6px', borderRadius: '50%', background: '#2af5d6',
                     animation: `agent-dot-bounce 1.4s ${i * 0.16}s ease-in-out infinite`,
                   }} />
                 ))}
@@ -255,7 +255,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
                 }}
                 onMouseEnter={e => {
                   e.currentTarget.style.borderColor = 'rgba(var(--accent-rgb),0.3)';
-                  e.currentTarget.style.color = '#35e8f2';
+                  e.currentTarget.style.color = '#2af5d6';
                   e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.06)';
                 }}
                 onMouseLeave={e => {
@@ -286,7 +286,7 @@ export default function AIOnboardingCard({ page = 'landing' }) {
             style={{
               flex: 1, padding: '9px 12px', borderRadius: '10px',
               border: '1px solid rgba(255,255,255,0.06)',
-              background: 'rgba(255,255,255,0.04)', color: '#eef0f3',
+              background: 'rgba(255,255,255,0.04)', color: '#dce8f7',
               outline: 'none', fontFamily: 'inherit', fontSize: '12.5px',
               transition: 'border-color 0.15s',
             }}
@@ -297,8 +297,8 @@ export default function AIOnboardingCard({ page = 'landing' }) {
             onClick={handleSend}
             disabled={loading || !input.trim()}
             style={{
-              background: (loading || !input.trim()) ? 'rgba(var(--accent-rgb),0.3)' : '#35e8f2',
-              color: '#08090c', border: 'none', borderRadius: '10px',
+              background: (loading || !input.trim()) ? 'rgba(var(--accent-rgb),0.3)' : '#2af5d6',
+              color: '#05080f', border: 'none', borderRadius: '10px',
               padding: '0 14px', fontWeight: 700,
               cursor: (loading || !input.trim()) ? 'not-allowed' : 'pointer',
               fontFamily: 'inherit', fontSize: '13px',

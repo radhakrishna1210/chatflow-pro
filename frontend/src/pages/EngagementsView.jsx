@@ -74,7 +74,7 @@ const ChannelIcon = ({ source = 'INCOMING' }) => {
       }}
       title={`${source} Lead`}
     >
-      <I n="target" s={11} c="var(--accent, #35e8f2)" />
+      <I n="target" s={11} c="var(--accent, #2af5d6)" />
     </div>
   );
 };
@@ -327,7 +327,7 @@ export default function EngagementsView({ user, initialTab }) {
                   fontSize: 12.5,
                   fontWeight: 600,
                   cursor: 'pointer',
-                  background: isSel ? 'var(--accent, #35e8f2)' : 'rgba(255,255,255,0.03)',
+                  background: isSel ? 'var(--accent, #2af5d6)' : 'rgba(255,255,255,0.03)',
                   color: isSel ? '#060A10' : 'var(--t2)',
                   transition: 'all 0.15s ease',
                   display: 'flex',
@@ -413,7 +413,7 @@ export default function EngagementsView({ user, initialTab }) {
                 fontSize: 12,
                 fontWeight: 700,
                 cursor: 'pointer',
-                background: scope === 'MY' ? 'var(--accent, #35e8f2)' : 'transparent',
+                background: scope === 'MY' ? 'var(--accent, #2af5d6)' : 'transparent',
                 color: scope === 'MY' ? '#060A10' : 'var(--t2)',
                 transition: 'all 0.15s ease',
               }}
@@ -430,7 +430,7 @@ export default function EngagementsView({ user, initialTab }) {
                 fontSize: 12,
                 fontWeight: 700,
                 cursor: 'pointer',
-                background: scope === 'ALL' ? 'var(--accent, #35e8f2)' : 'transparent',
+                background: scope === 'ALL' ? 'var(--accent, #2af5d6)' : 'transparent',
                 color: scope === 'ALL' ? '#060A10' : 'var(--t2)',
                 transition: 'all 0.15s ease',
               }}
@@ -506,7 +506,7 @@ export default function EngagementsView({ user, initialTab }) {
             {loading ? (
               <tr>
                 <td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--t2)' }}>
-                  <div style={{ width: 22, height: 22, border: '2px solid var(--accent, #35e8f2)', borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 10px', animation: 'spin 1s linear infinite' }} />
+                  <div style={{ width: 22, height: 22, border: '2px solid var(--accent, #2af5d6)', borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 10px', animation: 'spin 1s linear infinite' }} />
                   <div style={{ fontSize: 13 }}>Loading engagements...</div>
                 </td>
               </tr>
@@ -576,7 +576,7 @@ export default function EngagementsView({ user, initialTab }) {
                             style={{
                               fontSize: 10.5,
                               fontWeight: 600,
-                              color: leadStage.includes('Qualified') ? 'var(--green)' : 'var(--accent, #35e8f2)',
+                              color: leadStage.includes('Qualified') ? 'var(--green)' : 'var(--accent, #2af5d6)',
                               background: leadStage.includes('Qualified') ? 'var(--gbg)' : 'rgba(var(--accent-rgb), 0.12)',
                               border: `1px solid ${leadStage.includes('Qualified') ? 'var(--gbd)' : 'rgba(var(--accent-rgb), 0.25)'}`,
                               padding: '1px 6px',
@@ -623,7 +623,7 @@ export default function EngagementsView({ user, initialTab }) {
                             engStatus === 'Completed'
                               ? 'var(--green)'
                               : engStatus === 'Active'
-                              ? 'var(--accent, #35e8f2)'
+                              ? 'var(--accent, #2af5d6)'
                               : '#fbbf24',
                           border: `1px solid ${
                             engStatus === 'Completed'

@@ -393,7 +393,7 @@ export default function AiAgentsView({ user, initialTab }) {
                 padding: '2px 8px',
                 borderRadius: 12,
                 background: 'rgba(var(--accent-rgb), 0.12)',
-                color: 'var(--accent, #35e8f2)',
+                color: 'var(--accent, #2af5d6)',
                 border: '1px solid rgba(var(--accent-rgb), 0.25)',
               }}
             >
@@ -422,7 +422,7 @@ export default function AiAgentsView({ user, initialTab }) {
               gap: 6,
             }}
           >
-            <I n="spark" s={14} c="var(--accent, #35e8f2)" /> AI Setup
+            <I n="spark" s={14} c="var(--accent, #2af5d6)" /> AI Setup
           </button>
 
           <Btn size="sm" onClick={openCreateModal}>
@@ -462,7 +462,7 @@ export default function AiAgentsView({ user, initialTab }) {
                   fontSize: 12.5,
                   fontWeight: 600,
                   cursor: 'pointer',
-                  background: isSel ? 'var(--accent, #35e8f2)' : 'rgba(255,255,255,0.03)',
+                  background: isSel ? 'var(--accent, #2af5d6)' : 'rgba(255,255,255,0.03)',
                   color: isSel ? '#060A10' : 'var(--t2)',
                   transition: 'all 0.15s ease',
                   display: 'flex',
@@ -492,7 +492,7 @@ export default function AiAgentsView({ user, initialTab }) {
         </div>
 
         <div style={{ fontSize: 12, color: 'var(--t3)' }}>
-          LLM Engine: <span style={{ color: 'var(--accent, #35e8f2)', fontWeight: 600 }}>Gemini 1.5 Flash</span>
+          LLM Engine: <span style={{ color: 'var(--accent, #2af5d6)', fontWeight: 600 }}>Gemini 1.5 Flash</span>
         </div>
       </div>
 
@@ -613,7 +613,7 @@ export default function AiAgentsView({ user, initialTab }) {
                     </button>
                     <button
                       onClick={() => openReviewModal(agent)}
-                      style={{ background: 'none', border: 'none', color: 'var(--accent, #35e8f2)', cursor: 'pointer', padding: 0 }}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent, #2af5d6)', cursor: 'pointer', padding: 0 }}
                     >
                       AI Review
                     </button>
@@ -670,7 +670,7 @@ export default function AiAgentsView({ user, initialTab }) {
               <div key={item.id} style={{ padding: '14px 18px', background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)' }}>{item.title}</span>
-                  <span style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 7px', borderRadius: 6, background: 'rgba(var(--accent-rgb), 0.1)', color: 'var(--accent, #35e8f2)' }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 7px', borderRadius: 6, background: 'rgba(var(--accent-rgb), 0.1)', color: 'var(--accent, #2af5d6)' }}>
                     {item.type || 'DOCUMENT'}
                   </span>
                 </div>
@@ -703,7 +703,7 @@ export default function AiAgentsView({ user, initialTab }) {
                       padding: '2px 8px',
                       borderRadius: 6,
                       background: g.severity === 'CRITICAL' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(var(--accent-rgb), 0.12)',
-                      color: g.severity === 'CRITICAL' ? '#f87171' : 'var(--accent, #35e8f2)',
+                      color: g.severity === 'CRITICAL' ? '#f87171' : 'var(--accent, #2af5d6)',
                     }}
                   >
                     {g.severity || 'MEDIUM'}
@@ -731,7 +731,7 @@ export default function AiAgentsView({ user, initialTab }) {
               <div key={act.id} style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 10, padding: '16px 18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                   <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(var(--accent-rgb), 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <I n="zap" s={14} c="var(--accent, #35e8f2)" />
+                    <I n="zap" s={14} c="var(--accent, #2af5d6)" />
                   </div>
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)' }}>{act.name}</span>
                 </div>
@@ -767,7 +767,7 @@ export default function AiAgentsView({ user, initialTab }) {
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)' }}>{ch.channel}</div>
                     <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>
-                      Assigned Agent: <strong style={{ color: 'var(--accent, #35e8f2)' }}>{ch.assignedAgent}</strong>
+                      Assigned Agent: <strong style={{ color: 'var(--accent, #2af5d6)' }}>{ch.assignedAgent}</strong>
                       {ch.greeting && <span style={{ marginLeft: 8, color: 'var(--t3)' }}>· "{ch.greeting.slice(0, 40)}..."</span>}
                     </div>
                   </div>
@@ -783,7 +783,7 @@ export default function AiAgentsView({ user, initialTab }) {
                       borderRadius: 6,
                       background: 'rgba(var(--accent-rgb), 0.1)',
                       border: '1px solid rgba(var(--accent-rgb), 0.3)',
-                      color: 'var(--accent, #35e8f2)',
+                      color: 'var(--accent, #2af5d6)',
                       fontSize: 12,
                       fontWeight: 600,
                       cursor: 'pointer',
@@ -792,7 +792,7 @@ export default function AiAgentsView({ user, initialTab }) {
                       gap: 5,
                     }}
                   >
-                    <I n="play" s={12} c="var(--accent, #35e8f2)" /> Test Bot
+                    <I n="play" s={12} c="var(--accent, #2af5d6)" /> Test Bot
                   </button>
                   <Btn outline size="sm" onClick={() => handleOpenConfigure(ch)}>
                     Configure
@@ -876,7 +876,7 @@ export default function AiAgentsView({ user, initialTab }) {
                   style={{
                     alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
                     maxWidth: '85%',
-                    background: msg.role === 'user' ? 'var(--accent, #35e8f2)' : 'var(--surf)',
+                    background: msg.role === 'user' ? 'var(--accent, #2af5d6)' : 'var(--surf)',
                     color: msg.role === 'user' ? '#060A10' : 'var(--t1)',
                     border: msg.role === 'user' ? 'none' : '1px solid var(--bd)',
                     borderRadius: 10,
@@ -942,7 +942,7 @@ export default function AiAgentsView({ user, initialTab }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid var(--bd)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 30, height: 30, borderRadius: 6, background: 'rgba(var(--accent-rgb), 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <I n={configuringChannel.icon || 'phone'} s={16} c="var(--accent, #35e8f2)" />
+                  <I n={configuringChannel.icon || 'phone'} s={16} c="var(--accent, #2af5d6)" />
                 </div>
                 <div>
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)' }}>{configuringChannel.channel}</div>
@@ -954,7 +954,7 @@ export default function AiAgentsView({ user, initialTab }) {
                   type="checkbox"
                   checked={channelForm.enabled}
                   onChange={(e) => setChannelForm({ ...channelForm, enabled: e.target.checked })}
-                  style={{ accentColor: 'var(--accent, #35e8f2)', width: 16, height: 16 }}
+                  style={{ accentColor: 'var(--accent, #2af5d6)', width: 16, height: 16 }}
                 />
                 {channelForm.enabled ? 'Active & Answering' : 'Standby / Paused'}
               </label>
@@ -1038,7 +1038,7 @@ export default function AiAgentsView({ user, initialTab }) {
                   type="checkbox"
                   checked={channelForm.autoSyncCrm}
                   onChange={(e) => setChannelForm({ ...channelForm, autoSyncCrm: e.target.checked })}
-                  style={{ accentColor: 'var(--accent, #35e8f2)' }}
+                  style={{ accentColor: 'var(--accent, #2af5d6)' }}
                 />
                 Automatically qualify leads and sync contact details to CRM
               </label>
@@ -1047,7 +1047,7 @@ export default function AiAgentsView({ user, initialTab }) {
                   type="checkbox"
                   checked={channelForm.fallbackToHuman}
                   onChange={(e) => setChannelForm({ ...channelForm, fallbackToHuman: e.target.checked })}
-                  style={{ accentColor: 'var(--accent, #35e8f2)' }}
+                  style={{ accentColor: 'var(--accent, #2af5d6)' }}
                 />
                 Escalate conversation to CRM Sales Inbox when user asks for a human
               </label>

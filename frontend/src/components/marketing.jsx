@@ -179,16 +179,14 @@ export const SectionHead = ({ eyebrow, title, sub, align = 'center' }) => (
 export const Aurora = () => (
   <>
     <div className="aurora-a" style={{ position: 'absolute', top: '-10%', left: '-5%', width: 620, height: 620, background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.16), transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none', willChange: 'transform' }} />
-    <div className="aurora-b" style={{ position: 'absolute', top: '18%', right: '-12%', width: 680, height: 680, background: 'radial-gradient(circle, rgba(14,165,233,0.13), transparent 62%)', filter: 'blur(48px)', pointerEvents: 'none', willChange: 'transform' }} />
+    <div className="aurora-b" style={{ position: 'absolute', top: '18%', right: '-12%', width: 680, height: 680, background: 'radial-gradient(circle, rgba(var(--violet-rgb),0.13), transparent 62%)', filter: 'blur(48px)', pointerEvents: 'none', willChange: 'transform' }} />
   </>
 );
 
-export const BrandMark = ({ size = 32, radius = 9, glow = true }) => (
-  <div style={{ width: size, height: size, borderRadius: radius, background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: glow ? '0 0 18px rgba(var(--accent-rgb),0.35)' : 'none' }}>
-    <svg width={size * 0.44} height={size * 0.44} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="var(--on-accent)" />
-      <path d="M5.5 7.5h5M5.5 10h3" stroke="var(--accent)" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
+// Svann's mark, as on svann.in: a teal ring with a mint dot at its centre.
+export const BrandMark = ({ size = 32, glow = true }) => (
+  <div style={{ width: size, height: size, borderRadius: '50%', border: '1.5px solid rgba(var(--violet-rgb),0.8)', background: 'rgba(var(--violet-rgb),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: glow ? '0 0 18px rgba(var(--accent-rgb),0.25)' : 'none' }}>
+    <span style={{ width: Math.round(size * 0.3), height: Math.round(size * 0.3), borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 8px var(--accent)' }} />
   </div>
 );
 
@@ -229,16 +227,19 @@ export const MarketingNav = ({ onNav, links = [['Product', '#story'], ['Live dem
   const home = () => { setMenuOpen(false); navigate('/'); };
 
   return (
-    <nav style={{
-      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, height: 64,
-      display: 'flex', alignItems: 'center',
-      background: scrolled || menuOpen ? 'rgba(8,11,18,0.86)' : 'transparent',
-      backdropFilter: scrolled || menuOpen ? 'blur(18px) saturate(150%)' : 'none',
-      WebkitBackdropFilter: scrolled || menuOpen ? 'blur(18px) saturate(150%)' : 'none',
-      borderBottom: `1px solid ${scrolled || menuOpen ? 'var(--bd)' : 'transparent'}`,
-      transition: 'background .3s ease, border-color .3s ease',
-    }}>
-      <div style={{ maxWidth: 1240, width: '100%', margin: '0 auto', padding: '0 clamp(18px,4vw,32px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+    // A floating, rounded bar inset from the edges — the svann.in header.
+    <nav style={{ position: 'fixed', top: 10, left: 0, right: 0, zIndex: 100, padding: '0 clamp(10px,2.5vw,24px)' }}>
+      <div style={{
+        maxWidth: 1240, margin: '0 auto', height: 56, padding: '0 clamp(12px,2vw,18px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+        borderRadius: 16,
+        background: scrolled || menuOpen ? 'rgba(12,19,32,0.86)' : 'rgba(12,19,32,0.45)',
+        backdropFilter: 'blur(18px) saturate(150%)',
+        WebkitBackdropFilter: 'blur(18px) saturate(150%)',
+        border: '1px solid var(--bd)',
+        boxShadow: scrolled ? '0 12px 34px rgba(0,0,0,0.35)' : 'none',
+        transition: 'background .3s ease, box-shadow .3s ease',
+      }}>
         <button onClick={home} aria-label={`${BRAND} home`} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}>
           <BrandMark />
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--t1)', letterSpacing: '-.02em' }}>{BRAND}</span>
@@ -272,7 +273,7 @@ export const MarketingNav = ({ onNav, links = [['Product', '#story'], ['Live dem
       </div>
 
       {menuOpen && (
-        <div id="marketing-mobile-menu" className="mobile-menu" style={{ position: 'absolute', top: 64, left: 0, right: 0, padding: '10px clamp(18px,4vw,32px) 20px', background: 'var(--bg)', boxShadow: '0 24px 40px rgba(0,0,0,0.5)', borderBottom: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div id="marketing-mobile-menu" className="mobile-menu" style={{ position: 'absolute', top: 62, left: 'clamp(10px,2.5vw,24px)', right: 'clamp(10px,2.5vw,24px)', borderRadius: 16, padding: '10px 18px 18px', background: 'var(--surf-solid)', boxShadow: '0 24px 40px rgba(0,0,0,0.5)', border: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', gap: 2 }}>
           {links.map(([l, h]) => (
             <a key={l} href={h} onClick={(e) => go(e, h)} style={{ padding: '13px 4px', fontSize: 16, fontWeight: 600, color: 'var(--t1)', borderBottom: '1px solid var(--bd)' }}>{l}</a>
           ))}
@@ -319,12 +320,12 @@ const followHref = (e, href) => {
 };
 
 export const MarketingFooter = ({ onNav }) => (
-  <footer style={{ borderTop: '1px solid var(--bd)', padding: '56px clamp(18px,4vw,32px) 30px', background: 'rgba(13,17,33,0.5)' }}>
+  <footer style={{ borderTop: '1px solid var(--bd)', padding: '56px clamp(18px,4vw,32px) 30px', background: 'rgba(8,13,23,0.5)' }}>
     <div style={{ maxWidth: 1240, margin: '0 auto' }}>
       <div className="footer-grid" style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr 1fr 1fr', gap: 40, marginBottom: 44 }}>
         <div>
           <button onClick={() => navigate('/')} aria-label={`${BRAND} home`} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, cursor: 'pointer', marginBottom: 14, background: 'none', border: 'none', padding: 0 }}>
-            <BrandMark size={28} radius={8} glow={false} />
+            <BrandMark size={28} glow={false} />
             <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>{BRAND}</span>
           </button>
           <p style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.65, maxWidth: 240 }}>
@@ -349,6 +350,10 @@ export const MarketingFooter = ({ onNav }) => (
             </ul>
           </div>
         ))}
+      </div>
+      {/* The oversized outlined wordmark that closes every svann.in page. */}
+      <div aria-hidden="true" className="footer-wordmark" style={{ textAlign: 'center', lineHeight: 0.8, margin: '8px 0 -4px', userSelect: 'none', overflow: 'hidden' }}>
+        {BRAND}
       </div>
       <div style={{ borderTop: '1px solid var(--bd)', paddingTop: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)' }}>{FOOTER_LEGAL}</p>
@@ -376,6 +381,14 @@ export const MARKETING_CSS = `
     color: var(--t1);
     letter-spacing: -.052em;
     line-height: 1.02;
+  }
+  .hero-serif { font-family: 'Instrument Serif', Georgia, serif; font-style: italic; font-weight: 400; letter-spacing: -.01em; padding-right: .06em; }
+  .footer-wordmark {
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+    font-size: clamp(90px, 19vw, 280px); letter-spacing: -.06em;
+    color: transparent; -webkit-text-stroke: 1px rgba(var(--violet-rgb), 0.35);
+    background: linear-gradient(180deg, rgba(var(--violet-rgb),0.16), transparent 75%);
+    -webkit-background-clip: text; background-clip: text;
   }
   .marquee-track { animation: marquee linear infinite; }
   .marquee:hover .marquee-track { animation-play-state: paused; }

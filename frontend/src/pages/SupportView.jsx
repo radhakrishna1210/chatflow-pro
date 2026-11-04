@@ -52,11 +52,11 @@ export default function SupportView() {
             <div className="dash-split" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
               <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" style={inputStyle} maxLength={200} />
               <select value={category} onChange={e => setCategory(e.target.value)} style={{ ...inputStyle, colorScheme: 'dark' }}>
-                <option value="GENERAL" style={{ background: '#0a0b0e' }}>General</option>
-                <option value="BILLING" style={{ background: '#0a0b0e' }}>Billing</option>
-                <option value="TECHNICAL" style={{ background: '#0a0b0e' }}>Technical</option>
-                <option value="BUG" style={{ background: '#0a0b0e' }}>Bug report</option>
-                <option value="FEATURE" style={{ background: '#0a0b0e' }}>Feature request</option>
+                <option value="GENERAL" style={{ background: '#05080f' }}>General</option>
+                <option value="BILLING" style={{ background: '#05080f' }}>Billing</option>
+                <option value="TECHNICAL" style={{ background: '#05080f' }}>Technical</option>
+                <option value="BUG" style={{ background: '#05080f' }}>Bug report</option>
+                <option value="FEATURE" style={{ background: '#05080f' }}>Feature request</option>
               </select>
             </div>
             <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Describe your issue…" rows={5} maxLength={4000}
@@ -81,7 +81,7 @@ export default function SupportView() {
                 </div>
                 <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, flexShrink: 0,
                   background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(var(--violet-rgb),.1)',
-                  color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#9d6bff' }}>
+                  color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#0eb39e' }}>
                   {t.status}
                 </span>
               </div>

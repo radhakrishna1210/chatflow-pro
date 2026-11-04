@@ -71,7 +71,7 @@ function assertBranding(data) {
   if (data.brandColor !== undefined) {
     const value = String(data.brandColor || '').trim();
     if (!HEX_COLOR.test(value)) {
-      const e = new Error('Brand colour must be a 6-digit hex value such as #35e8f2');
+      const e = new Error('Brand colour must be a 6-digit hex value such as #0eb39e');
       e.status = 400;
       throw e;
     }

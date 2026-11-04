@@ -1,4 +1,4 @@
-/* Single source of truth for the Svann brand mark, so the pulse dot and
+/* Single source of truth for the Svann brand mark, so the ring mark and
    wordmark are identical everywhere they appear (sidebar, resource centre
    footer). Mirrors the treatment used in the dashboard sidebar header. */
 export function Logo({
@@ -9,7 +9,9 @@ export function Logo({
   style = {},
   ariaLabel = 'Svann',
 }) {
-  const dot = Math.max(9, Math.round(size * 0.32));
+  // Svann's mark: a teal ring with a mint dot at its centre.
+  const ring = Math.max(16, Math.round(size * 0.72));
+  const dot = Math.max(6, Math.round(ring * 0.32));
   return (
     <div
       onClick={onClick}
@@ -34,15 +36,28 @@ export function Logo({
         }}
       >
         <span
-          className="sp-pulse"
           style={{
-            width: dot,
-            height: dot,
+            width: ring,
+            height: ring,
             borderRadius: '50%',
-            background: 'var(--accent)',
-            boxShadow: '0 0 12px var(--accent)',
+            border: '1.5px solid rgba(var(--violet-rgb),0.75)',
+            background: 'rgba(var(--violet-rgb),0.10)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
-        />
+        >
+          <span
+            className="sp-pulse"
+            style={{
+              width: dot,
+              height: dot,
+              borderRadius: '50%',
+              background: 'var(--accent)',
+              boxShadow: '0 0 10px var(--accent)',
+            }}
+          />
+        </span>
       </span>
       {text && (
         <span

@@ -268,12 +268,12 @@ const AUDIT_ICON = {
 };
 
 const AUDIT_TONE = {
-  impersonate: '#9d6bff',
+  impersonate: '#0eb39e',
   suspend: '#f87171',
   'number.ban': '#f87171',
   'plan.delete': '#f87171',
   reinstate: 'var(--success)',
-  'wallet.adjust': '#c4ff46',
+  'wallet.adjust': '#c6f36b',
 };
 
 function AuditTab() {
@@ -315,9 +315,9 @@ function AuditTab() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12 }}>
           {[
             ['Actions logged', summary.total, 'var(--t1)', 'note'],
-            ['Impersonations', summary.impersonations, '#9d6bff', 'eye'],
+            ['Impersonations', summary.impersonations, '#0eb39e', 'eye'],
             ['Suspensions', summary.suspensions, '#f87171', 'ban'],
-            ['Wallet adjustments', summary.walletAdjustments, '#c4ff46', 'credit'],
+            ['Wallet adjustments', summary.walletAdjustments, '#c6f36b', 'credit'],
           ].map(([label, value, colour, icon]) => (
             <div key={label} style={{ ...card, padding: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -345,7 +345,7 @@ function AuditTab() {
           <select value={action} onChange={e => setAction(e.target.value)} style={{ ...inputStyle, width: 190, colorScheme: 'dark' }}>
             <option value="">All actions</option>
             {actions.map(a => (
-              <option key={a.action} value={a.action} style={{ background: '#0a0b0e' }}>{a.action} ({a.count})</option>
+              <option key={a.action} value={a.action} style={{ background: '#05080f' }}>{a.action} ({a.count})</option>
             ))}
           </select>
           <Btn variant="outline" size="sm" onClick={load}>Refresh</Btn>
@@ -408,8 +408,8 @@ function RevenueTab() {
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 12, marginBottom: 20 }}>
         <StatCard label="MRR" value={money(data.mrr)} color="var(--green)" />
-        <StatCard label="ARR (est.)" value={money(data.arr)} color="#9d6bff" />
-        <StatCard label="Active subscriptions" value={data.activeSubscriptions} color="#c4ff46" />
+        <StatCard label="ARR (est.)" value={money(data.arr)} color="#0eb39e" />
+        <StatCard label="Active subscriptions" value={data.activeSubscriptions} color="#c6f36b" />
       </div>
 
       <div style={{ ...card, overflowX: 'auto' }}>
@@ -495,8 +495,8 @@ function TransactionsTab({ workspaces }) {
             <StatCard label="Total credited" value={money(s.totalCredit)} color="var(--green)" />
             <StatCard label="Total debited" value={money(s.totalDebit)} color="#f87171" />
             <StatCard label="Net" value={money(s.net)} color={s.net >= 0 ? 'var(--green)' : '#f87171'} />
-            <StatCard label="Credit txns" value={s.creditCount} color="#9d6bff" />
-            <StatCard label="Debit txns" value={s.debitCount} color="#c4ff46" />
+            <StatCard label="Credit txns" value={s.creditCount} color="#0eb39e" />
+            <StatCard label="Debit txns" value={s.debitCount} color="#c6f36b" />
           </div>
 
           {s.byReason.length > 0 && (
@@ -596,7 +596,7 @@ function CampaignsTab({ workspaces }) {
             <StatCard label="Recipients" value={t.totalContacts.toLocaleString()} />
             <StatCard label="Sent" value={t.sent.toLocaleString()} />
             <StatCard label="Delivered" value={t.delivered.toLocaleString()} color="var(--green)" />
-            <StatCard label="Read" value={t.read.toLocaleString()} color="#9d6bff" />
+            <StatCard label="Read" value={t.read.toLocaleString()} color="#0eb39e" />
             <StatCard label="Failed" value={t.failed.toLocaleString()} color={t.failed > 0 ? '#f87171' : 'var(--t1)'} />
           </div>
 
@@ -704,7 +704,7 @@ function NumbersTab({ workspaces }) {
     else { const d = await res.json().catch(() => ({})); window.alert(d.error || 'Reset failed'); }
   };
 
-  const statusColor = (st) => st === 'AVAILABLE' ? 'var(--green)' : st === 'BANNED' ? '#f87171' : '#9d6bff';
+  const statusColor = (st) => st === 'AVAILABLE' ? 'var(--green)' : st === 'BANNED' ? '#f87171' : '#0eb39e';
   const statusBg = (st) => st === 'AVAILABLE' ? 'var(--gbg)' : st === 'BANNED' ? 'rgba(239,68,68,.08)' : 'rgba(var(--violet-rgb),.1)';
   const statusBd = (st) => st === 'AVAILABLE' ? 'var(--gbd)' : st === 'BANNED' ? 'rgba(239,68,68,.25)' : 'rgba(var(--violet-rgb),.25)';
 
@@ -723,7 +723,7 @@ function NumbersTab({ workspaces }) {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Btn variant="outline" size="sm" onClick={doResetAll} style={{ borderColor: 'rgba(239,68,68,.35)', color: '#f87171' }}>Reset all assignments</Btn>
-          <Btn size="sm" onClick={doSync} disabled={syncing}><I n="refresh" s={13} c="#08090c" /> {syncing ? 'Syncing…' : 'Sync from WABA'}</Btn>
+          <Btn size="sm" onClick={doSync} disabled={syncing}><I n="refresh" s={13} c="#05080f" /> {syncing ? 'Syncing…' : 'Sync from WABA'}</Btn>
         </div>
       </div>
 
@@ -835,7 +835,7 @@ function WorkspaceAnalyticsTab() {
         <StatCard label="Workspaces" value={rows.length} />
         <StatCard label="Total sent" value={totals.sent.toLocaleString()} />
         <StatCard label="Total delivered" value={totals.delivered.toLocaleString()} color="var(--green)" />
-        <StatCard label="Avg delivery rate" value={`${avgDeliveryRate}%`} color="#9d6bff" />
+        <StatCard label="Avg delivery rate" value={`${avgDeliveryRate}%`} color="#0eb39e" />
       </div>
 
       <div style={{ ...card, overflowX: 'auto' }}>
@@ -1045,7 +1045,7 @@ function PaymentsTab({ workspaces }) {
   const rows = data?.payments || [];
 
   const kindLabel = (k) => k === 'PLAN_SUBSCRIPTION' ? 'Plan subscription' : 'Wallet recharge';
-  const kindColor = (k) => k === 'PLAN_SUBSCRIPTION' ? '#c4ff46' : 'var(--green)';
+  const kindColor = (k) => k === 'PLAN_SUBSCRIPTION' ? '#c6f36b' : 'var(--green)';
 
   return (
     <div>
@@ -1066,8 +1066,8 @@ function PaymentsTab({ workspaces }) {
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 12, marginBottom: 20 }}>
             <StatCard label="Total collected" value={money(s.total)} color="var(--green)" />
-            <StatCard label="Plan revenue" value={money(s.planRevenue)} color="#c4ff46" />
-            <StatCard label="Wallet recharges" value={money(s.walletRevenue)} color="#9d6bff" />
+            <StatCard label="Plan revenue" value={money(s.planRevenue)} color="#c6f36b" />
+            <StatCard label="Wallet recharges" value={money(s.walletRevenue)} color="#0eb39e" />
             <StatCard label="Payments" value={s.count} />
           </div>
 
@@ -1199,7 +1199,7 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
                 <select value={role} onChange={(e) => setRole(e.target.value)}
                   style={{ padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, fontFamily: "'Manrope',sans-serif", outline: 'none', colorScheme: 'dark' }}>
                   {ASSIGNABLE_ROLES.map(r => (
-                    <option key={r} value={r} style={{ background: '#0a0b0e' }} title={ROLE_DESCRIPTIONS[r]}>{ROLE_LABELS[r]}</option>
+                    <option key={r} value={r} style={{ background: '#05080f' }} title={ROLE_DESCRIPTIONS[r]}>{ROLE_LABELS[r]}</option>
                   ))}
                 </select>
                 <button onClick={() => invite('email')} disabled={!email.trim() || busy}
@@ -1365,10 +1365,10 @@ export default function SuperAdminView({ tab }) {
 
   const statCards = stats ? [
     { label: 'Workspaces', value: stats.workspaces, icon: 'users', color: 'var(--green)' },
-    { label: 'Users', value: stats.users, icon: 'user', color: '#9d6bff' },
-    { label: 'Connected Numbers', value: stats.connectedNumbers, icon: 'phone', color: '#c4ff46' },
+    { label: 'Users', value: stats.users, icon: 'user', color: '#0eb39e' },
+    { label: 'Connected Numbers', value: stats.connectedNumbers, icon: 'phone', color: '#c6f36b' },
     { label: 'Campaigns', value: stats.campaigns, icon: 'send', color: '#f59e0b' },
-    { label: 'Contacts', value: stats.contacts, icon: 'users', color: '#9d6bff' },
+    { label: 'Contacts', value: stats.contacts, icon: 'users', color: '#0eb39e' },
     { label: 'Messages Sent', value: stats.messagesSent, icon: 'send', color: 'var(--green)' },
     { label: 'Delivered', value: stats.messagesDelivered, icon: 'check', color: '#25d366' },
     { label: 'Suspended', value: stats.suspendedWorkspaces, icon: 'alertc', color: '#f87171' },
@@ -1480,7 +1480,7 @@ export default function SuperAdminView({ tab }) {
                 <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 15, color: 'var(--t1)' }}>Subscription plans</h2>
                 <p style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>Prices, message quotas, rate limits and feature flags for every plan.</p>
               </div>
-              <Btn size="sm" onClick={() => setEditingPlan('new')}><I n="plus" s={14} c="#08090c" /> New plan</Btn>
+              <Btn size="sm" onClick={() => setEditingPlan('new')}><I n="plus" s={14} c="#05080f" /> New plan</Btn>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 14 }}>
@@ -1560,7 +1560,7 @@ export default function SuperAdminView({ tab }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
                     <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
                       background: t.status === 'OPEN' ? 'rgba(251,191,36,.1)' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--gbg)' : 'rgba(var(--violet-rgb),.1)',
-                      color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#9d6bff' }}>{t.status}</span>
+                      color: t.status === 'OPEN' ? '#fbbf24' : t.status === 'RESOLVED' || t.status === 'CLOSED' ? 'var(--green)' : '#0eb39e' }}>{t.status}</span>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {t.status !== 'IN_PROGRESS' && t.status !== 'RESOLVED' && t.status !== 'CLOSED' && <Btn variant="ghost" size="sm" onClick={() => updateTicket(t, 'IN_PROGRESS')}>Start</Btn>}
                       {t.status !== 'RESOLVED' && t.status !== 'CLOSED' && <Btn variant="outline" size="sm" onClick={() => updateTicket(t, 'RESOLVED')}>Resolve</Btn>}

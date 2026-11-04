@@ -83,7 +83,7 @@ const INDUSTRIES = [
 
 const Avatar = ({ name='?', size=30 }) => {
   const init = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B'];
+  const colors = ['#2af5d6','#0eb39e','#c6f36b','#F59E0B'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
@@ -118,7 +118,7 @@ export default function SettingsView({ initialTab } = {}) {
   // ── workspace profile & branding ──
   // Seeded from the settings payload once it loads; `profileSaved` is the
   // transient confirmation the other sections already use.
-  const [profile, setProfile] = useState({ name: '', industry: '', timezone: 'Asia/Kolkata', brandColor: '#35e8f2', brandLogoUrl: '' });
+  const [profile, setProfile] = useState({ name: '', industry: '', timezone: 'Asia/Kolkata', brandColor: '#2af5d6', brandLogoUrl: '' });
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState(null);
 
@@ -182,7 +182,7 @@ export default function SettingsView({ initialTab } = {}) {
         name: d.name || '',
         industry: d.industry || '',
         timezone: d.timezone || 'Asia/Kolkata',
-        brandColor: d.brandColor || '#35e8f2',
+        brandColor: d.brandColor || '#2af5d6',
         brandLogoUrl: d.brandLogoUrl || '',
       }); }}).catch(()=>{});
     wFetch('/members').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setMembers(d); }).catch(()=>{});
@@ -412,9 +412,9 @@ export default function SettingsView({ initialTab } = {}) {
                   <label style={labelStyle}>Time zone</label>
                   <select value={profile.timezone} onChange={e => setProfile(p => ({ ...p, timezone: e.target.value }))}
                     style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box', colorScheme:'dark' }}>
-                    {COMMON_TIMEZONES.map(tz => <option key={tz} value={tz} style={{ background:'#0a0b0e' }}>{tz}</option>)}
+                    {COMMON_TIMEZONES.map(tz => <option key={tz} value={tz} style={{ background:'#05080f' }}>{tz}</option>)}
                     {!COMMON_TIMEZONES.includes(profile.timezone) && profile.timezone && (
-                      <option value={profile.timezone} style={{ background:'#0a0b0e' }}>{profile.timezone}</option>
+                      <option value={profile.timezone} style={{ background:'#05080f' }}>{profile.timezone}</option>
                     )}
                   </select>
                   <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Used when a scheduled campaign says “9am”.</p>
@@ -444,13 +444,13 @@ export default function SettingsView({ initialTab } = {}) {
                 <div>
                   <label style={labelStyle}>Accent colour</label>
                   <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                    <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(profile.brandColor) ? profile.brandColor : '#35e8f2'}
+                    <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(profile.brandColor) ? profile.brandColor : '#2af5d6'}
                       onChange={e => setProfile(p => ({ ...p, brandColor: e.target.value }))}
                       aria-label="Accent colour"
                       style={{ width:42, height:38, padding:2, borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer' }} />
-                    <FInput value={profile.brandColor} onChange={e => setProfile(p => ({ ...p, brandColor: e.target.value }))} placeholder="#35e8f2" />
+                    <FInput value={profile.brandColor} onChange={e => setProfile(p => ({ ...p, brandColor: e.target.value }))} placeholder="#2af5d6" />
                   </div>
-                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Six-digit hex, e.g. #35e8f2.</p>
+                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>Six-digit hex, e.g. #2af5d6.</p>
                 </div>
                 <div>
                   <label style={labelStyle}>Logo URL</label>
@@ -462,7 +462,7 @@ export default function SettingsView({ initialTab } = {}) {
               <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
                 {profile.brandLogoUrl
                   ? <img src={profile.brandLogoUrl} alt="" style={{ width:34, height:34, borderRadius:9, objectFit:'cover', background:'rgba(255,255,255,0.05)' }} />
-                  : <span style={{ width:34, height:34, borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, color:'#08090c', background: /^#[0-9a-fA-F]{6}$/.test(profile.brandColor) ? profile.brandColor : '#35e8f2' }}>
+                  : <span style={{ width:34, height:34, borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, color:'#05080f', background: /^#[0-9a-fA-F]{6}$/.test(profile.brandColor) ? profile.brandColor : '#2af5d6' }}>
                       {(profile.name || 'W').slice(0,1).toUpperCase()}
                     </span>}
                 <div style={{ minWidth:0 }}>
@@ -594,7 +594,7 @@ export default function SettingsView({ initialTab } = {}) {
                 <select value={inviteRole} onChange={e=>setInviteRole(e.target.value)}
                   style={{ padding:'9px 10px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', colorScheme:'dark' }}>
                   {ASSIGNABLE_ROLES.map(r => (
-                    <option key={r} value={r} style={{ background:'#0a0b0e' }} title={ROLE_DESCRIPTIONS[r]}>{ROLE_LABELS[r]}</option>
+                    <option key={r} value={r} style={{ background:'#05080f' }} title={ROLE_DESCRIPTIONS[r]}>{ROLE_LABELS[r]}</option>
                   ))}
                 </select>
                 <Btn size="sm" onClick={sendInvite} disabled={sendingInvite}>{sendingInvite ? 'Sending…' : 'Send Invite'}</Btn>
@@ -723,7 +723,7 @@ export default function SettingsView({ initialTab } = {}) {
                             disabled={lockRole} title={lockRole ? roleReason : undefined}
                             style={{ padding:'5px 8px', borderRadius:6, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, fontFamily:"'Manrope',sans-serif", outline:'none', colorScheme:'dark', opacity: lockRole ? 0.5 : 1, cursor: lockRole ? 'not-allowed' : 'pointer' }}>
                             {ASSIGNABLE_ROLES.map(r => (
-                              <option key={r} value={r} style={{ background:'#0a0b0e' }} title={ROLE_DESCRIPTIONS[r]}>{ROLE_LABELS[r]}</option>
+                              <option key={r} value={r} style={{ background:'#05080f' }} title={ROLE_DESCRIPTIONS[r]}>{ROLE_LABELS[r]}</option>
                             ))}
                           </select>
                           {lockRole && <span title={roleReason} style={{ display:'flex' }}><I n="lock" s={12} c="var(--t3)" /></span>}

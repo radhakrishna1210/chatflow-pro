@@ -63,11 +63,11 @@ const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderR
 // allowed to be loud. The pair is chosen from the name so two people in a list
 // stay tellable apart, rather than every avatar being identical.
 const AVATAR_GRADS = [
-  'linear-gradient(135deg,#9d6bff,#35e8f2)',
-  'linear-gradient(135deg,#35e8f2,#c4ff46)',
-  'linear-gradient(135deg,#c4ff46,#9d6bff)',
-  'linear-gradient(135deg,#f59e0b,#c4ff46)',
-  'linear-gradient(135deg,#f472b6,#9d6bff)',
+  'linear-gradient(135deg,#0eb39e,#2af5d6)',
+  'linear-gradient(135deg,#2af5d6,#c6f36b)',
+  'linear-gradient(135deg,#c6f36b,#0eb39e)',
+  'linear-gradient(135deg,#f59e0b,#c6f36b)',
+  'linear-gradient(135deg,#f472b6,#0eb39e)',
 ];
 const Avatar = ({ name, size = 34, showRing = false }) => {
   // null-safe: a contact with only a phone number has `name: null`, which the
@@ -517,7 +517,7 @@ const NotificationsBell = () => {
         style={{ position: 'relative', width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
         <I n="bell" s={15} c="var(--t2)" />
         {unread > 0 && (
-          <div style={{ position: 'absolute', top: -5, right: -5, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 9, background: 'var(--green)', border: '1.5px solid var(--surf-solid)', color: '#08090c', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', top: -5, right: -5, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 9, background: 'var(--green)', border: '1.5px solid var(--surf-solid)', color: '#05080f', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {unread > 9 ? '9+' : unread}
           </div>
         )}
@@ -710,7 +710,7 @@ const LiveConversations = () => {
               </div>
             </div>
             {c.unreadCount > 0 && (
-              <span style={{ flexShrink: 0, padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: 'var(--green)', color: '#08090c' }}>{c.unreadCount}</span>
+              <span style={{ flexShrink: 0, padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: 'var(--green)', color: '#05080f' }}>{c.unreadCount}</span>
             )}
           </button>
         ))}
@@ -832,7 +832,7 @@ const HomeView = () => {
               <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                 <div style={{ fontSize: '24px' }}>🔒</div>
               </div>
-              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 18, color:'#eef0f3', marginBottom: 8, margin: 0 }}>Login Required</h3>
+              <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 18, color:'#dce8f7', marginBottom: 8, margin: 0 }}>Login Required</h3>
               <p style={{ fontSize: 14, color:'rgba(255,255,255,0.6)', textAlign:'center', marginBottom: 24, lineHeight: 1.5 }}>
                 You need to be logged in to use the AI Agent. Please sign in to your account to continue.
               </p>
@@ -857,7 +857,7 @@ const HomeView = () => {
           window.dispatchEvent(new CustomEvent('app:nav', { detail: a.section }));
         }} />
 
-        <div style={{ borderRadius: 'var(--rl)', background: 'linear-gradient(135deg,rgba(var(--accent-rgb),0.1),rgba(14,165,233,0.06))', border: '1px solid var(--gbd)', padding: '16px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+        <div style={{ borderRadius: 'var(--rl)', background: 'linear-gradient(135deg,rgba(var(--accent-rgb),0.1),rgba(var(--violet-rgb),0.06))', border: '1px solid var(--gbd)', padding: '16px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <I n="spark" s={18} c="var(--green)" />
@@ -918,8 +918,8 @@ const HomeView = () => {
             ))}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 24px 24px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#35e8f2', fontWeight: 600 }}>
-              <input type="checkbox" checked={guided} onChange={(e) => setGuided(e.target.checked)} style={{ accentColor: '#35e8f2', width: '15px', height: '15px', cursor: 'pointer' }} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#2af5d6', fontWeight: 600 }}>
+              <input type="checkbox" checked={guided} onChange={(e) => setGuided(e.target.checked)} style={{ accentColor: '#2af5d6', width: '15px', height: '15px', cursor: 'pointer' }} />
               Guided Flow
             </label>
             <button 
@@ -944,17 +944,17 @@ const HomeView = () => {
                     borderRadius: '8px',
                     padding: '12px',
                   }}>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', color: '#35e8f2', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px', color: '#2af5d6', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {aiCard.icon || '✅'} {aiCard.title}
                     </div>
                     {aiCard.details && Object.entries(aiCard.details).map(([k, v]) => (
                       <div key={k} style={{ fontSize: '11px', marginBottom: '4px' }}>
                         <span style={{ color: 'var(--t2)', textTransform: 'capitalize' }}>{k}:</span>{' '}
-                        <span style={{ color: '#eef0f3' }}>{typeof v === 'object' ? JSON.stringify(v) : v}</span>
+                        <span style={{ color: '#dce8f7' }}>{typeof v === 'object' ? JSON.stringify(v) : v}</span>
                       </div>
                     ))}
                     {aiCard.preview && (
-                       <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', fontSize: '11px', fontStyle: 'italic', borderLeft: '2px solid #35e8f2' }}>
+                       <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '4px', fontSize: '11px', fontStyle: 'italic', borderLeft: '2px solid #2af5d6' }}>
                          {aiCard.preview}
                        </div>
                     )}
@@ -1043,7 +1043,7 @@ const retryNote = (r, maxAttempts) => {
     const eta = fmtEta(r.nextRetryAt);
     const attempt = count + 1;
     return {
-      color: '#c4ff46',
+      color: '#c6f36b',
       text: `Attempt ${attempt}${maxAttempts ? ` of ${maxAttempts}` : ''}${eta ? ` · retrying in ${eta}` : ' · retrying shortly'}${r.lastFailureReason ? ` · ${r.lastFailureReason}` : ''}`,
     };
   }
@@ -1123,7 +1123,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
   useFocusTrap(modalRef, true);
 
   return (
-    <div onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={c?.name || 'Campaign Detail'} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+    <div onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={c?.name || 'Campaign Detail'} style={{ position:'fixed', inset:0, background:'rgba(2,4,9,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div ref={modalRef} onClick={e => e.stopPropagation()} style={{ ...card, width:'100%', maxWidth:640, maxHeight:'86vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 22px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div>
@@ -1153,7 +1153,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                   ['Verified', c.report?.authentication?.verified, 'var(--green)'],
                   ['Expired', c.report?.authentication?.expired, '#fbbf24'],
                   ['Failed Transactions', c.report?.authentication?.failed, '#f87171'],
-                  ['Retries', c.report?.retried ?? 0, '#c4ff46'],
+                  ['Retries', c.report?.retried ?? 0, '#c6f36b'],
                   ['Skipped (Opted Out)', c.report?.skipped ?? c.skipped, '#fbbf24'],
                 ] : [
                   ['Total Contacts', c.report?.totalContacts ?? c.totalContacts, 'var(--t1)'],
@@ -1161,8 +1161,8 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
                   ['Delivered',      c.report?.delivered ?? c.delivered,         'var(--t1)'],
                   ['Read',           c.report?.read ?? c.read,                   'var(--t1)'],
                   ['Failed',         c.report?.failed ?? c.failed,               '#f87171'],
-                  ['Retries',        c.report?.retried ?? 0,                     '#c4ff46'],
-                  ['Retrying Now',   c.report?.retrying ?? 0,                    '#c4ff46'],
+                  ['Retries',        c.report?.retried ?? 0,                     '#c6f36b'],
+                  ['Retrying Now',   c.report?.retrying ?? 0,                    '#c6f36b'],
                   ['Skipped (Opted Out)', c.report?.skipped ?? c.skipped,        '#fbbf24'],
                 ]).map(([k, v, danger]) => (
                   <div key={k} style={{ padding:'12px 14px', borderRadius:10, background:'rgba(255,255,255,0.02)', border:'1px solid var(--bd)' }}>
@@ -1175,7 +1175,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
               {isAuthentication ? (
                 <div style={{ padding:'13px 16px', borderRadius:10, background:'rgba(var(--violet-rgb),.07)', border:'1px solid rgba(var(--violet-rgb),.28)' }}>
                   <p style={{ fontSize:10, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'.06em', marginBottom:4 }}>Verification rate</p>
-                  <p style={{ fontSize:18, fontWeight:800, color:'#c4ff46' }}>{c.report?.authentication?.verificationRate == null ? '—' : `${c.report.authentication.verificationRate}%`}</p>
+                  <p style={{ fontSize:18, fontWeight:800, color:'#c6f36b' }}>{c.report?.authentication?.verificationRate == null ? '—' : `${c.report.authentication.verificationRate}%`}</p>
                 </div>
               ) : (
                 <>
@@ -1200,8 +1200,8 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
               {(c.report?.retrying > 0 || c.report?.retried > 0) && (
                 <div style={{ padding:'13px 16px', borderRadius:10, background:'rgba(168,85,247,.07)', border:'1px solid rgba(168,85,247,.28)', display:'flex', flexDirection:'column', gap:6 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <I n="refresh" s={13} c="#c4ff46" />
-                    <span style={{ fontSize:12.5, fontWeight:700, color:'#c4ff46' }}>
+                    <I n="refresh" s={13} c="#c6f36b" />
+                    <span style={{ fontSize:12.5, fontWeight:700, color:'#c6f36b' }}>
                       {c.report.retrying > 0
                         ? `${c.report.retrying} message${c.report.retrying === 1 ? '' : 's'} waiting to be retried`
                         : 'Retries finished'}
@@ -1314,7 +1314,7 @@ const CampaignDetailModal = ({ campaignId, onClose, onChanged, onEdit }) => {
             {resumable && <Btn size="sm" onClick={() => changeLifecycle('resume')} disabled={lifecycleChanging}>{lifecycleChanging ? 'Resuming…' : 'Resume Campaign'}</Btn>}
             {editable && (
               <Btn size="sm" onClick={() => onEdit?.(campaignId)} style={{ boxShadow:'var(--glow)' }}>
-                <I n="pencil" s={12} c="#08090c" />
+                <I n="pencil" s={12} c="#05080f" />
                 Edit / Continue
               </Btn>
             )}
@@ -1397,7 +1397,7 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
             contacts and then do nothing with them. */}
         <WalletStatusBanner style={{ marginBottom: 16 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
-          {campaignType === 'regular' && <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#08090c" /> New Campaign</Btn>}
+          {campaignType === 'regular' && <Btn style={{ boxShadow: 'var(--glow)' }} onClick={onCreateCampaign}><I n="send" s={14} c="#05080f" /> New Campaign</Btn>}
         </div>
         {loading ? (
           <div style={{ textAlign:'center', padding:'48px', color:'var(--t2)', fontSize:13 }}>Loading campaigns…</div>
@@ -1440,7 +1440,7 @@ const CampaignsView = ({ onCreateCampaign, onEditCampaign }) => {
                       {/* Messages that needed a retry, with the ones still
                           waiting on an attempt called out — those are not
                           failures yet, and the Failed column excludes them. */}
-                      {campaignType === 'regular' && <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.retried ?? 0) > 0 ? '#c4ff46' : 'var(--t2)' }}
+                      {campaignType === 'regular' && <td style={{ padding: '14px 16px', fontSize: '13px', color: (c.retried ?? 0) > 0 ? '#c6f36b' : 'var(--t2)' }}
                         title={(c.retrying ?? 0) > 0 ? `${c.retrying} still waiting on a retry` : 'Messages that needed at least one retry'}>
                         {(c.retried ?? 0).toLocaleString()}
                         {(c.retrying ?? 0) > 0 && <span style={{ fontSize: '11px', color: 'var(--t3)' }}> · {c.retrying} waiting</span>}
@@ -1501,7 +1501,7 @@ const UtilityVariantModal = ({ template, onClose, onUseDraft }) => {
   }, [template.id]);
 
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(2,4,9,0.78)', backdropFilter:'blur(4px)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div onClick={e => e.stopPropagation()} style={{ background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', width:'100%', maxWidth:600, maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
           <div>
@@ -1641,10 +1641,10 @@ const TemplateAiPanel = ({ onClose, onUseDraft }) => {
     if (draft && wantImage && !image && !imgLoading && !imgErr) generateImage();
   }, [draft, wantImage]);
 
-  const catTone = { MARKETING: '#f59e0b', UTILITY: '#9d6bff', AUTHENTICATION: '#c4ff46' };
+  const catTone = { MARKETING: '#f59e0b', UTILITY: '#0eb39e', AUTHENTICATION: '#c6f36b' };
 
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(2,4,9,0.78)', backdropFilter:'blur(4px)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div onClick={e => e.stopPropagation()} style={{ background:'var(--surf)', border:'1px solid var(--bd)', borderRadius:'var(--rl)', width:'100%', maxWidth:620, maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12 }}>
           <div>
@@ -2104,7 +2104,7 @@ const TemplatesView = () => {
             return (
               <div key={id} onClick={() => setView(id)}
                 style={{ padding:'6px 14px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight: on ? 700 : 500,
-                         color: on ? '#08090c' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent',
+                         color: on ? '#05080f' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent',
                          transition:'all .12s', whiteSpace:'nowrap' }}>
                 {label}
               </div>
@@ -2123,7 +2123,7 @@ const TemplatesView = () => {
               return (
                 <div key={f.id} onClick={() => setCatFilter(f.id)}
                   style={{ padding:'6px 12px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight: on ? 700 : 500,
-                           color: on ? '#08090c' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent',
+                           color: on ? '#05080f' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent',
                            transition:'all .12s', whiteSpace:'nowrap' }}>
                   {f.label}
                   <span style={{ marginLeft:6, opacity:.7, fontWeight:600 }}>{n}</span>
@@ -2153,7 +2153,7 @@ const TemplatesView = () => {
                 <I n="spark" s={14} c="var(--green)" /> Create with AI
               </Btn>
               <Btn onClick={() => setNewOpen(true)} style={{ boxShadow: 'var(--glow)' }}>
-                <I n="file" s={14} c="#08090c" /> New Template
+                <I n="file" s={14} c="#05080f" /> New Template
               </Btn>
             </div>
           </div>
@@ -2223,7 +2223,7 @@ const TemplatesView = () => {
                         <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '5px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t2)' }}>{t.category}</span>
                         {/* Standard is the norm, so only the shopping formats are called out. */}
                         {t.templateType && t.templateType !== 'STANDARD' && (
-                          <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'5px', background:'rgba(var(--lime-rgb),.10)', border:'1px solid rgba(var(--lime-rgb),.28)', color:'#c4ff46', fontWeight:700 }}>
+                          <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'5px', background:'rgba(var(--lime-rgb),.10)', border:'1px solid rgba(var(--lime-rgb),.28)', color:'#c6f36b', fontWeight:700 }}>
                             {TEMPLATE_TYPE_META[t.templateType]?.label || t.templateType}
                           </span>
                         )}
@@ -2278,7 +2278,7 @@ const TemplatesView = () => {
                         {isAdmin && (
                           <Btn size="sm" style={{ flex: 1, justifyContent: 'center' }}
                             onClick={() => restoreTemplate(t)} disabled={restoringId === t.id}>
-                            <I n="rotate" s={12} c="#08090c" />
+                            <I n="rotate" s={12} c="#05080f" />
                             {restoringId === t.id ? 'Restoring…' : 'Restore'}
                           </Btn>
                         )}
@@ -2396,7 +2396,7 @@ const LibraryPane = ({ hasNumber, loading, items, filter, setFilter, search, set
               <div key={f.id} onClick={() => setFilter(f.id)}
                 tabIndex={0} role="tab" aria-selected={on}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilter(f.id); } }}
-                style={{ padding:'6px 12px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight: on ? 700 : 500, color: on ? '#08090c' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent', transition:'all .12s', whiteSpace:'nowrap', outline:'none' }}
+                style={{ padding:'6px 12px', borderRadius:7, cursor:'pointer', fontSize:12, fontWeight: on ? 700 : 500, color: on ? '#05080f' : 'var(--t2)', background: on ? 'var(--green)' : 'transparent', transition:'all .12s', whiteSpace:'nowrap', outline:'none' }}
                 onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 2px var(--green)'; }}
                 onBlur={e => { e.currentTarget.style.boxShadow = 'none'; }}>
                 {f.label}
@@ -2424,7 +2424,7 @@ const LibraryPane = ({ hasNumber, loading, items, filter, setFilter, search, set
           {items.map(it => {
             const installed = !!it.installedStatus;
             const isInstalling = installing === it.id;
-            const catColor = it.category === 'MARKETING' ? '#c4ff46' : it.category === 'UTILITY' ? '#9d6bff' : '#fbbf24';
+            const catColor = it.category === 'MARKETING' ? '#c6f36b' : it.category === 'UTILITY' ? '#0eb39e' : '#fbbf24';
             return (
               <div key={it.id} style={{ ...card, padding:'18px', display:'flex', flexDirection:'column', gap:12, transition:'transform .15s, border-color .15s' }}
                 onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = 'var(--bdm)'; }}
@@ -2455,9 +2455,9 @@ const LibraryPane = ({ hasNumber, loading, items, filter, setFilter, search, set
                   <Btn size="sm" style={{ flex:1, justifyContent:'center', opacity: (installed || isInstalling) ? 0.55 : 1, cursor: (installed || isInstalling) ? 'not-allowed' : 'pointer' }}
                     disabled={installed || isInstalling}
                     onClick={() => onInstall(it)}>
-                    {installed ? (<><I n="check" s={12} c="#08090c" /> Installed</>)
+                    {installed ? (<><I n="check" s={12} c="#05080f" /> Installed</>)
                       : isInstalling ? 'Submitting…'
-                      : (<><I n="download" s={12} c="#08090c" /> Get it</>)}
+                      : (<><I n="download" s={12} c="#05080f" /> Get it</>)}
                   </Btn>
                 </div>
               </div>
@@ -2472,7 +2472,7 @@ const LibraryPane = ({ hasNumber, loading, items, filter, setFilter, search, set
 const LibraryPreviewModal = ({ item, onClose, onInstall, installing }) => {
   const installed = !!item.installedStatus;
   return (
-    <div onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={item.title} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+    <div onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={item.title} style={{ position:'fixed', inset:0, background:'rgba(2,4,9,0.78)', backdropFilter:'blur(4px)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div onClick={e => e.stopPropagation()} tabIndex={-1} style={{ ...card, width:'100%', maxWidth:520, maxHeight:'85vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div>
@@ -2509,9 +2509,9 @@ const LibraryPreviewModal = ({ item, onClose, onInstall, installing }) => {
           <Btn variant="ghost" size="sm" onClick={onClose}>Cancel</Btn>
           <Btn size="sm" disabled={installed || installing} onClick={onInstall}
             style={{ opacity: (installed || installing) ? 0.55 : 1, cursor: (installed || installing) ? 'not-allowed' : 'pointer', boxShadow:'var(--glow)' }}>
-            {installed ? (<><I n="check" s={12} c="#08090c" /> Already installed</>)
+            {installed ? (<><I n="check" s={12} c="#05080f" /> Already installed</>)
               : installing ? 'Submitting…'
-              : (<><I n="download" s={12} c="#08090c" /> Get this template</>)}
+              : (<><I n="download" s={12} c="#05080f" /> Get this template</>)}
           </Btn>
         </div>
       </div>
@@ -2851,7 +2851,7 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
         {!col && <div onClick={() => go(isSuperAdmin ? 'admin-overview' : 'home')} role="link" tabIndex={0} aria-label="Dashboard home"
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(isSuperAdmin ? 'admin-overview' : 'home'); } }}
           style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }} title="Dashboard">
-          <span className="sp-pulse" style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 12px var(--accent)' }} />
+          <span className="svann-mark" aria-hidden="true" />
         </div>}
         {!col && <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>Svann</span>}
         {mobile && (
@@ -3246,7 +3246,7 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     // Two very low-opacity washes behind everything, so the panels above them
     // read as translucent panes rather than flat blocks. Static, not animated:
     // this is a work surface, not a landing page.
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'radial-gradient(1200px 600px at 12% -8%, rgba(var(--accent-rgb),0.07), transparent 60%), radial-gradient(1000px 520px at 100% 0%, rgba(14,165,233,0.06), transparent 62%), #060B18' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'radial-gradient(1200px 600px at 12% -8%, rgba(var(--accent-rgb),0.07), transparent 60%), radial-gradient(1000px 520px at 100% 0%, rgba(var(--violet-rgb),0.06), transparent 62%), #060B18' }}>
       {impersonator && (
         <div style={{ flexShrink: 0, height: 38, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(245,158,11,.06))', borderBottom: '1px solid rgba(245,158,11,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 12.5, color: '#fbbf24', fontWeight: 600 }}>
           <I n="eye" s={13} c="#fbbf24" />

@@ -13,7 +13,7 @@ const Avatar = ({ name, size = 32 }) => {
   // `name` can be null (a contact saved with only a phone number) — the old
   // `name = '?'` default only covers undefined, so null crashed the whole table.
   const init = String(name || '?').trim().split(/\s+/).map(n => n[0]).join('').slice(0,2).toUpperCase() || '?';
-  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
+  const colors = ['#2af5d6','#0eb39e','#c6f36b','#F59E0B','#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
@@ -225,17 +225,17 @@ const CsvTab = ({ onSaved }) => {
           </>
         )}
       </div>
-      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9d6bff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, background:'rgba(var(--violet-rgb),.06)', border:'1px solid rgba(var(--violet-rgb),.18)' }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0eb39e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
           <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
         <span style={{ fontSize:12, color:'#b9a3ff', lineHeight:1.5 }}>
           Phone numbers must include country code (e.g. <code style={{ fontFamily:'monospace', color:'#b9a3ff' }}>+919876543210</code>). Tags column is comma-separated.
         </span>
       </div>
-      <div style={{ padding:'14px 16px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
+      <div style={{ padding:'14px 16px', borderRadius:8, background:'rgba(var(--violet-rgb),.06)', border:'1px solid rgba(var(--violet-rgb),.18)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9d6bff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0eb39e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
           <span style={{ fontSize:13, fontWeight:600, color:'#b9a3ff' }}>Instructions for uploading CSV</span>
@@ -620,7 +620,7 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
                     onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = sel ? 'rgba(var(--accent-rgb),0.08)' : 'transparent'; }}
                   >
                     <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${sel ? 'var(--green)' : 'var(--bd)'}`, background: sel ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
-                      {sel && <I n="check" s={9} c="#08090c" w={3} />}
+                      {sel && <I n="check" s={9} c="#05080f" w={3} />}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                       <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--t1)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{c.name}</span>
@@ -674,7 +674,7 @@ const Chk = ({ checked, onChange, indeterminate = false, label }) => (
   <button type="button" role="checkbox" aria-checked={indeterminate && !checked ? 'mixed' : !!checked} aria-label={label}
     onClick={onChange}
     style={{ width:16, height:16, padding:0, borderRadius:4, border:`1.5px solid ${checked ? 'var(--green)' : 'var(--bd)'}`, background: checked ? 'var(--green)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0, transition:'all .15s', position:'relative' }}>
-    {checked && <I n="check" s={9} c="#08090c" w={3} />}
+    {checked && <I n="check" s={9} c="#05080f" w={3} />}
     {!checked && indeterminate && <div style={{ width:8, height:2, background:'var(--t2)', borderRadius:2 }} />}
   </button>
 );
@@ -870,7 +870,7 @@ export default function ContactsView() {
           )}
           {canEdit ? (
             <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
-              <I n="plus" s={14} c="#08090c" />
+              <I n="plus" s={14} c="#05080f" />
               Add Contact
             </Btn>
           ) : (
@@ -899,7 +899,7 @@ export default function ContactsView() {
             <I n="filter" s={13} c={activeFilterCount ? 'var(--green)' : 'var(--t2)'} />
             Filter
             {activeFilterCount > 0 && (
-              <span style={{ marginLeft:2, padding:'1px 6px', borderRadius:8, fontSize:10, fontWeight:800, background:'var(--green)', color:'#08090c' }}>{activeFilterCount}</span>
+              <span style={{ marginLeft:2, padding:'1px 6px', borderRadius:8, fontSize:10, fontWeight:800, background:'var(--green)', color:'#05080f' }}>{activeFilterCount}</span>
             )}
           </Btn>
 
@@ -1105,7 +1105,7 @@ export default function ContactsView() {
                             <span>No contacts yet.</span>
                             {canEdit && (
                               <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
-                                <I n="plus" s={13} c="#08090c" />
+                                <I n="plus" s={13} c="#05080f" />
                                 Add your first contact
                               </Btn>
                             )}
@@ -1154,7 +1154,7 @@ export default function ContactsView() {
                           {canEdit && (
                             <button type="button" style={rowIconBtn} aria-label={`Edit ${c.name || c.phoneNumber}`} title="Edit"
                               onClick={() => setEditingContact(c)}
-                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,165,233,0.1)'; e.currentTarget.style.borderColor = 'rgba(14,165,233,0.3)'; }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(var(--violet-rgb),0.1)'; e.currentTarget.style.borderColor = 'rgba(var(--violet-rgb),0.3)'; }}
                               onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
                               <I n="pencil" s={13} c="var(--t2)" />
                             </button>

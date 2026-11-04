@@ -241,7 +241,7 @@ export default function PaymentsView({ initialTab } = {}) {
         name: 'Svann',
         description: 'Wallet recharge',
         prefill: { email: user.email, name: user.name },
-        theme: { color: '#35e8f2' },
+        theme: { color: '#2af5d6' },
         handler: async (response) => {
           try {
             const verifyRes = await wFetch('/wallet/checkout/verify', {
@@ -310,7 +310,7 @@ export default function PaymentsView({ initialTab } = {}) {
         name: 'Svann',
         description: `${plan.name} plan`,
         prefill: { email: user.email, name: user.name },
-        theme: { color: '#35e8f2' },
+        theme: { color: '#2af5d6' },
         handler: async (response) => {
           try {
             const verifyRes = await wFetch('/subscription/checkout/verify', {
@@ -412,7 +412,7 @@ export default function PaymentsView({ initialTab } = {}) {
         name: 'Svann',
         description: order.addon.title,
         prefill: { email: user.email, name: user.name },
-        theme: { color: '#35e8f2' },
+        theme: { color: '#2af5d6' },
         handler: async (response) => {
           try {
             const verifyRes = await wFetch('/subscription/addons/checkout/verify', {
@@ -587,9 +587,9 @@ export default function PaymentsView({ initialTab } = {}) {
         <div className="rgrid-5" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
           {[
             { label: 'Total Paid Messages', val: totals.totalPaidMessages || 0, color: 'var(--green)' },
-            { label: 'Utility', val: totals.utility || 0, color: '#c4ff46' },
+            { label: 'Utility', val: totals.utility || 0, color: '#c6f36b' },
             { label: 'Marketing', val: totals.marketing || 0, color: '#f59e0b' },
-            { label: 'Marketing Lite', val: totals.marketingLite || 0, color: '#9d6bff' },
+            { label: 'Marketing Lite', val: totals.marketingLite || 0, color: '#0eb39e' },
             { label: 'Auth Messages', val: totals.authMessages || 0, color: '#f43f5e' }
           ].map((m, idx) => (
             <div key={idx} style={{ ...card, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -753,7 +753,7 @@ export default function PaymentsView({ initialTab } = {}) {
                   style={{ padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
                            fontFamily: "'Manrope',sans-serif",
                            background: billingCycle === id ? 'var(--green)' : 'transparent',
-                           color: billingCycle === id ? '#08090c' : 'var(--t2)' }}>
+                           color: billingCycle === id ? '#05080f' : 'var(--t2)' }}>
                   {label}
                 </button>
               ))}
@@ -886,7 +886,7 @@ export default function PaymentsView({ initialTab } = {}) {
                   ) : isAdmin ? (
                     <Btn variant={addon.active ? 'outline' : 'primary'} disabled={busy}
                       onClick={() => (addon.active ? cancelAddon(addon) : buyAddon(addon))}
-                      style={{ width: '100%', borderColor: addon.active ? '#f8717144' : 'var(--bd)', color: addon.active ? '#f87171' : '#0a0b0e' }}>
+                      style={{ width: '100%', borderColor: addon.active ? '#f8717144' : 'var(--bd)', color: addon.active ? '#f87171' : '#05080f' }}>
                       {busy ? 'Working…' : addon.active ? (addon.status === 'CANCELLED' ? 'Cancelled' : 'Cancel Add-on') : 'Add to Plan'}
                     </Btn>
                   ) : (

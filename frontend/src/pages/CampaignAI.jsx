@@ -69,7 +69,7 @@ const GroundedDemo = () => {
         </div>
       </div>
 
-      <div style={{ padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 12, background: 'rgba(6,9,16,0.55)' }}>
+      <div style={{ padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 12, background: 'rgba(5,8,15,0.55)' }}>
         {/* the campaign that was sent */}
         <div style={{ alignSelf: 'flex-start', maxWidth: '92%', borderRadius: '4px 14px 14px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', padding: '11px 13px' }}>
           <p style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.45, color: 'var(--t1)' }}>{d.campaign}</p>
@@ -132,7 +132,7 @@ const Hero = ({ onNav }) => (
           </Reveal>
           <Reveal delay={160}>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <Btn size="lg" onClick={() => onNav('register')}>Start free <I n="arrow" s={14} c="#08090c" /></Btn>
+              <Btn size="lg" onClick={() => onNav('register')}>Start free <I n="arrow" s={14} c="#05080f" /></Btn>
               <Btn size="lg" variant="ghost" onClick={() => document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
                 See it answer in context
               </Btn>
@@ -378,7 +378,7 @@ const CTA = ({ onNav }) => (
             </h2>
             <p style={{ fontSize: 16, color: 'var(--t2)', lineHeight: 1.7, maxWidth: 460, margin: '0 auto 26px' }}>{CAMPAIGN_AI.cta.sub}</p>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <Btn size="lg" onClick={() => onNav('register')}>Start free <I n="arrow" s={14} c="#08090c" /></Btn>
+              <Btn size="lg" onClick={() => onNav('register')}>Start free <I n="arrow" s={14} c="#05080f" /></Btn>
               <Btn size="lg" variant="ghost" onClick={() => navigate('/dashboard/api')}>Read the docs</Btn>
             </div>
           </div>

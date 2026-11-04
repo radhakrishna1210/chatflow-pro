@@ -7,7 +7,7 @@ import MobileNavButton from '../components/MobileNavButton.jsx';
 
 const statusColor = s => ({
   AVAILABLE: { bg:'var(--gbg)',              bd:'var(--gbd)',              c:'var(--green)' },
-  ASSIGNED:  { bg:'rgba(14,165,233,.1)',     bd:'rgba(14,165,233,.25)',    c:'#9d6bff' },
+  ASSIGNED:  { bg:'rgba(var(--violet-rgb),.1)',     bd:'rgba(var(--violet-rgb),.25)',    c:'#0eb39e' },
   BANNED:    { bg:'rgba(239,68,68,.08)',     bd:'rgba(239,68,68,.2)',      c:'#f87171' },
 }[s] || { bg:'rgba(255,255,255,.04)', bd:'var(--bd)', c:'var(--t2)' });
 
@@ -213,7 +213,7 @@ const NumberCard = ({ number, isPrimary, onDisconnect, disconnecting, onRefresh 
                 style={{ padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
                          cursor: (loading || code.length !== 6) ? 'not-allowed' : 'pointer',
                          opacity: (loading || code.length !== 6) ? 0.5 : 1,
-                         background: 'rgba(14,165,233,.1)', border: '1px solid rgba(14,165,233,.25)', color: '#9d6bff', fontFamily: "'Manrope',sans-serif" }}>
+                         background: 'rgba(var(--violet-rgb),.1)', border: '1px solid rgba(var(--violet-rgb),.25)', color: '#0eb39e', fontFamily: "'Manrope',sans-serif" }}>
                 {loading ? 'Verifying…' : 'Verify'}
               </button>
             </div>
@@ -716,7 +716,7 @@ export default function NumberSetupView() {
 
         {/* Connect via Meta */}
         {isAdmin && <div style={{ ...card, border:'2px solid var(--gbd)', padding:'22px 24px', position:'relative' }}>
-          <span style={{ position:'absolute', top:-11, left:20, padding:'2px 10px', borderRadius:10, fontSize:11, fontWeight:700, background:'var(--green)', color:'#08090c' }}>Recommended</span>
+          <span style={{ position:'absolute', top:-11, left:20, padding:'2px 10px', borderRadius:10, fontSize:11, fontWeight:700, background:'var(--green)', color:'#05080f' }}>Recommended</span>
           <div style={{ display:'flex', alignItems:'flex-start', gap:18 }}>
             <div style={{ flex:1 }}>
               <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
@@ -741,7 +741,7 @@ export default function NumberSetupView() {
           {/* Get a Number */}
           <div style={{ ...card, padding:'20px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-              <I n="sparkl" s={18} c="#c4ff46" />
+              <I n="sparkl" s={18} c="#c6f36b" />
               <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)' }}>Get a Number</span>
             </div>
             <p style={{ fontSize:13, color:'var(--t2)', marginBottom:12, lineHeight:1.55 }}>We'll assign you a ready-to-use WhatsApp Business number instantly.</p>
@@ -758,7 +758,7 @@ export default function NumberSetupView() {
           {/* Connect Own */}
           <div style={{ ...card, padding:'20px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-              <I n="plug" s={18} c="#9d6bff" />
+              <I n="plug" s={18} c="#0eb39e" />
               <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14, color:'var(--t1)' }}>Connect Your Own</span>
             </div>
             <p style={{ fontSize:13, color:'var(--t2)', marginBottom:12, lineHeight:1.55 }}>Already have a WhatsApp Business number? Connect it using your Meta credentials.</p>
@@ -822,7 +822,7 @@ export default function NumberSetupView() {
                 {[
                   { label:'Total',     val: adminPool.summary.total,     c:'var(--t1)' },
                   { label:'Available', val: adminPool.summary.available,  c:'var(--green)' },
-                  { label:'Assigned',  val: adminPool.summary.assigned,   c:'#9d6bff' },
+                  { label:'Assigned',  val: adminPool.summary.assigned,   c:'#0eb39e' },
                   { label:'Banned',    val: adminPool.summary.banned,     c:'#f87171' },
                 ].map(s => (
                   <div key={s.label} style={{ background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', borderRadius:10, padding:'12px 14px', textAlign:'center' }}>
@@ -876,7 +876,7 @@ export default function NumberSetupView() {
                             <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                               {e.status === 'AVAILABLE' && (
                                 <button onClick={() => openAssignDialog(e)}
-                                  style={{ padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', background:'rgba(14,165,233,.1)', border:'1px solid rgba(14,165,233,.25)', color:'#9d6bff' }}>
+                                  style={{ padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', background:'rgba(var(--violet-rgb),.1)', border:'1px solid rgba(var(--violet-rgb),.25)', color:'#0eb39e' }}>
                                   Assign
                                 </button>
                               )}
@@ -953,7 +953,7 @@ export default function NumberSetupView() {
                     <button
                       onClick={() => assignToWorkspace(w.id)}
                       disabled={assigning}
-                      style={{ padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:600, cursor: assigning ? 'not-allowed' : 'pointer', background:'rgba(14,165,233,.1)', border:'1px solid rgba(14,165,233,.25)', color:'#9d6bff', flexShrink:0, opacity: assigning ? 0.6 : 1 }}>
+                      style={{ padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:600, cursor: assigning ? 'not-allowed' : 'pointer', background:'rgba(var(--violet-rgb),.1)', border:'1px solid rgba(var(--violet-rgb),.25)', color:'#0eb39e', flexShrink:0, opacity: assigning ? 0.6 : 1 }}>
                       {assigning ? 'Assigning…' : 'Assign'}
                     </button>
                   </div>

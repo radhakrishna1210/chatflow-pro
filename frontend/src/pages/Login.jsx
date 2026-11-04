@@ -89,19 +89,14 @@ export default function Login({ onNav, mode = 'login' }) {
         }
       `}</style>
       {/* Left panel */}
-      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#0a0b0e 0%,#0a0f1e 60%,#0a0b0e 100%)', borderRight: '1px solid var(--bd)' }}>
+      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#05080f 0%,#0a0f1e 60%,#05080f 100%)', borderRight: '1px solid var(--bd)' }}>
         {/* Same drifting aurora as the landing page, so signing in feels like
             the same product rather than a bolted-on form. */}
         <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(var(--accent-rgb),0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
-        <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(14,165,233,0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
+        <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(var(--violet-rgb),0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
 
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', position: 'relative', zIndex: 1 }}>
-          <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#0a0b0e" />
-              <path d="M5.5 7.5h5M5.5 10h3" stroke="#35e8f2" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
-          </div>
+          <span className="svann-mark" aria-hidden="true" style={{ '--mark': '34px' }} />
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
             Svann
           </span>
@@ -119,8 +114,8 @@ export default function Login({ onNav, mode = 'login' }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {[
               { icon: 'send', label: 'Launch campaigns in minutes', color: 'var(--green)' },
-              { icon: 'bot', label: 'An AI agent that answers about your campaign', color: '#9d6bff' },
-              { icon: 'chart', label: 'Delivery and spend, per campaign', color: '#c4ff46' },
+              { icon: 'bot', label: 'An AI agent that answers about your campaign', color: '#0eb39e' },
+              { icon: 'chart', label: 'Delivery and spend, per campaign', color: '#c6f36b' },
               { icon: 'wflow', label: 'Workflows, forms and auto-replies', color: '#F59E0B' },
             ].map(f => (
               <div key={f.label} className="glass" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 13px', borderRadius: 'var(--r)' }}>
@@ -220,9 +215,9 @@ export default function Login({ onNav, mode = 'login' }) {
             </div>
 
             <button type="submit" disabled={status === 'loading' || status === 'success'}
-              style={{ width: '100%', padding: '13px', borderRadius: '9px', border: 'none', cursor: 'pointer', fontFamily: "'Manrope',sans-serif", fontSize: '14px', fontWeight: 700, color: status === 'success' ? 'var(--t1)' : '#0a0b0e', background: status === 'success' ? 'var(--gbg)' : 'var(--green)', boxShadow: status === 'success' ? 'none' : 'var(--glow)', transition: 'all .18s', opacity: status === 'loading' ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              {(status === 'idle' || status === 'error') && <><I n="arrow" s={14} c="#0a0b0e" /> {isRegister ? 'Create Account' : 'Sign In'}</>}
-              {status === 'loading' && <><svg width="14" height="14" viewBox="0 0 14 14" style={{ animation: 'spin 1s linear infinite' }}><circle cx="7" cy="7" r="5" fill="none" stroke="#0a0b0e" strokeWidth="2" strokeDasharray="20" strokeDashoffset="5" /></svg> {isRegister ? 'Creating account…' : 'Signing in…'}</>}
+              style={{ width: '100%', padding: '13px', borderRadius: '9px', border: 'none', cursor: 'pointer', fontFamily: "'Manrope',sans-serif", fontSize: '14px', fontWeight: 700, color: status === 'success' ? 'var(--t1)' : '#05080f', background: status === 'success' ? 'var(--gbg)' : 'var(--green)', boxShadow: status === 'success' ? 'none' : 'var(--glow)', transition: 'all .18s', opacity: status === 'loading' ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              {(status === 'idle' || status === 'error') && <><I n="arrow" s={14} c="#05080f" /> {isRegister ? 'Create Account' : 'Sign In'}</>}
+              {status === 'loading' && <><svg width="14" height="14" viewBox="0 0 14 14" style={{ animation: 'spin 1s linear infinite' }}><circle cx="7" cy="7" r="5" fill="none" stroke="#05080f" strokeWidth="2" strokeDasharray="20" strokeDashoffset="5" /></svg> {isRegister ? 'Creating account…' : 'Signing in…'}</>}
               {status === 'success' && <><I n="check" s={14} c="var(--green)" w={2} /> <span style={{ color: 'var(--green)' }}>Done!</span></>}
             </button>
           </form>

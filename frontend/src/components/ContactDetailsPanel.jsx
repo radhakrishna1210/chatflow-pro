@@ -12,7 +12,7 @@ import { wFetch } from '../lib/api.js';
 
 const Avatar = ({ name = '?', size = 52 }) => {
   const init = String(name).split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?';
-  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
+  const colors = ['#2af5d6', '#0eb39e', '#c6f36b', '#F59E0B', '#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: `${c}18`, border: `1.5px solid ${c}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * .34 + 'px', fontWeight: 700, color: c, flexShrink: 0 }}>
@@ -278,11 +278,11 @@ export default function ContactDetailsPanel({ contactId, onClose, onContactUpdat
                   <span style={{ fontSize: 11.5, color: 'var(--t3)' }}>Not in any group.</span>
                 )}
                 {(contact.segments || []).map(sg => (
-                  <span key={sg.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 6px 2px 9px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: `${sg.color || '#9d6bff'}14`, border: `1px solid ${sg.color || '#9d6bff'}33`, color: sg.color || '#9d6bff' }}>
+                  <span key={sg.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 6px 2px 9px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: `${sg.color || '#0eb39e'}14`, border: `1px solid ${sg.color || '#0eb39e'}33`, color: sg.color || '#0eb39e' }}>
                     {sg.name}
                     <button onClick={() => removeFromGroup(sg.id)} disabled={saving} aria-label={`Remove from ${sg.name}`}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', padding: 0, opacity: .7 }}>
-                      <I n="x" s={10} c={sg.color || '#9d6bff'} />
+                      <I n="x" s={10} c={sg.color || '#0eb39e'} />
                     </button>
                   </span>
                 ))}

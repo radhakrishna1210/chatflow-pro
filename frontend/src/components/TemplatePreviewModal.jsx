@@ -75,7 +75,7 @@ const TemplatePreviewModal = ({ template, onClose }) => {
   const isImageHeader = headerComp?.format === 'IMAGE';
 
   return (
-    <div onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={template.name} style={{ position:'fixed', inset:0, background:'rgba(3,5,12,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+    <div onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }} role="dialog" aria-modal="true" aria-label={template.name} style={{ position:'fixed', inset:0, background:'rgba(2,4,9,0.78)', backdropFilter:'blur(4px)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
       <div onClick={e => e.stopPropagation()} tabIndex={-1} style={{ ...card, ...(isAuth ? { border: '1px solid var(--gbd)', boxShadow: 'var(--card-shadow), 0 0 40px rgba(var(--accent-rgb),0.10)' } : {}), width:'100%', maxWidth:480, display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div>

@@ -138,17 +138,12 @@ export default function Register({ onNav }) {
         }
       `}</style>
       {/* Left brand panel */}
-      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#0a0b0e 0%,#0a0f1e 60%,#0a0b0e 100%)', borderRight: '1px solid var(--bd)' }}>
+      <div className="auth-brand-panel" style={{ width: '44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 52px', position: 'relative', overflow: 'hidden', background: 'linear-gradient(160deg,#05080f 0%,#0a0f1e 60%,#05080f 100%)', borderRight: '1px solid var(--bd)' }}>
         {/* Matches the landing page and the sign-in screen. */}
         <div className="aurora-a" style={{ position: 'absolute', top: '-120px', left: '-120px', width: '460px', height: '460px', background: 'radial-gradient(circle,rgba(var(--accent-rgb),0.13) 0%,transparent 62%)', filter: 'blur(30px)', pointerEvents: 'none' }} />
-        <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(14,165,233,0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
+        <div className="aurora-b" style={{ position: 'absolute', bottom: '-90px', right: '-70px', width: '400px', height: '400px', background: 'radial-gradient(circle,rgba(var(--violet-rgb),0.10) 0%,transparent 62%)', filter: 'blur(34px)', pointerEvents: 'none' }} />
         <div onClick={() => onNav('landing')} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', position: 'relative', zIndex: 1 }}>
-          <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#0a0b0e" />
-              <path d="M5.5 7.5h5M5.5 10h3" stroke="#35e8f2" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
-          </div>
+          <span className="svann-mark" aria-hidden="true" style={{ '--mark': '34px' }} />
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '17px', color: 'var(--t1)' }}>
             Svann
           </span>
@@ -213,7 +208,7 @@ export default function Register({ onNav }) {
                   <input type={showPass ? 'text' : 'password'} name="confirmPassword" placeholder="Re-enter your password" value={form.confirmPassword} onChange={change} style={inp('confirmPassword')} onFocus={() => setFocus('confirmPassword')} onBlur={() => setFocus('')} required />
                 </div>
                 <Btn type="submit" disabled={status === 'loading'} style={{ justifyContent: 'center', boxShadow: status === 'loading' ? 'none' : 'var(--glow)' }}>
-                  {status === 'loading' ? 'Sending code…' : <>Continue <I n="arrow" s={14} c="#0a0b0e" /></>}
+                  {status === 'loading' ? 'Sending code…' : <>Continue <I n="arrow" s={14} c="#05080f" /></>}
                 </Btn>
                 {/* Signup had no consent line at all. The policies it points at
                     are public, so this is readable before committing to an

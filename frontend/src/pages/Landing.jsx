@@ -233,7 +233,7 @@ const Hero = ({ onNav }) => (
               return (
                 <span key={line}>
                   {tinted ? line.slice(0, -HERO.highlight.length) : line}
-                  {tinted && <span className="grad-text">{HERO.highlight}</span>}
+                  {tinted && <span className="grad-text hero-serif">{HERO.highlight}</span>}
                   {!last && <br />}
                 </span>
               );
@@ -297,7 +297,7 @@ const ProofStrip = () => (
 const LoginRequiredModal = ({ isOpen, onClose, onNav }) => {
   if (!isOpen) return null;
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.72)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: 20 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(2,4,9,0.72)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: 20 }}>
       <Glass lit={false} onClick={(e) => e.stopPropagation()} style={{ width: 400, maxWidth: '100%', padding: 26, display: 'flex', flexDirection: 'column', alignItems: 'center', borderRadius: 'var(--rxl)' }}>
         <div style={{ width: 46, height: 46, borderRadius: 13, background: 'var(--gbg)', border: '1px solid var(--gbd)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
           <I n="lock" s={20} c="var(--green)" />
@@ -628,7 +628,7 @@ const Features = () => (
 // ─── use cases ───────────────────────────────────────────────────────────────
 
 const UseCases = () => (
-  <section id="usecases" style={{ padding: '100px 0', borderTop: '1px solid var(--bd)', borderBottom: '1px solid var(--bd)', background: 'rgba(13,17,33,0.6)' }}>
+  <section id="usecases" style={{ padding: '100px 0', borderTop: '1px solid var(--bd)', borderBottom: '1px solid var(--bd)', background: 'rgba(8,13,23,0.6)' }}>
     <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
       <SectionHead eyebrow="Who runs it" title={<>Built for <span style={{ color: 'var(--green)' }}>every industry</span></>}
         sub="Same platform, different conversations. These are the ones it gets used for most." />
@@ -686,7 +686,7 @@ const Pricing = ({ onNav }) => (
                 // Tint layered *over* the glass, not instead of it. On its own
                 // the gradient faded to near-nothing by the bottom of the
                 // card, so the panel looked like it stopped above the button.
-                background: 'linear-gradient(158deg, rgba(var(--accent-rgb),0.10), rgba(14,165,233,0.05)), var(--glass)',
+                background: 'linear-gradient(158deg, rgba(var(--accent-rgb),0.10), rgba(var(--violet-rgb),0.05)), var(--glass)',
                 borderColor: 'var(--gbd)',
                 boxShadow: 'var(--glow), var(--glass-sh)',
               } : {}),
@@ -1009,7 +1009,7 @@ const Playground = () => {
                 </div>
               </div>
 
-              <div style={{ padding: '18px 15px', display: 'flex', flexDirection: 'column', gap: 12, background: 'rgba(6,9,16,0.55)', minHeight: 300 }}>
+              <div style={{ padding: '18px 15px', display: 'flex', flexDirection: 'column', gap: 12, background: 'rgba(5,8,15,0.55)', minHeight: 300 }}>
                 <div style={{ alignSelf: 'flex-start', maxWidth: '92%', borderRadius: '4px 14px 14px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', padding: '11px 13px' }}>
                   <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', lineHeight: 1.4 }}>🔔 {pg.title} is live!</p>
                   <p style={{ fontSize: 12.5, color: 'var(--t2)', marginTop: 5, lineHeight: 1.5 }}>

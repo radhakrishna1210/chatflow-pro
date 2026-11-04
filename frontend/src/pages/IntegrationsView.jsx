@@ -278,7 +278,7 @@ const CATEGORY_ICONS = {
   'Accounting Software':     'file',
 };
 
-const LOGO_COLORS = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6', '#c4ff46', '#60A5FA', '#FB923C'];
+const LOGO_COLORS = ['#2af5d6', '#0eb39e', '#c6f36b', '#F59E0B', '#F472B6', '#c6f36b', '#60A5FA', '#FB923C'];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function webhookUrl() {
@@ -387,7 +387,7 @@ function ConnectModal({ intg, onClose, onSave }) {
   };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(2,4,9,0.78)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 480, maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -489,11 +489,11 @@ function ConnectModal({ intg, onClose, onSave }) {
             <button
               onClick={handleSave}
               disabled={!canSave() || saving}
-              style={{ padding: '8px 20px', borderRadius: 8, background: canSave() && !saving ? 'var(--green)' : 'rgba(var(--accent-rgb),0.3)', border: '1px solid var(--gbd)', color: '#08090c', fontSize: 13, fontWeight: 700, cursor: canSave() && !saving ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 7, transition: 'opacity .15s', boxShadow: canSave() && !saving ? 'var(--glow)' : 'none' }}>
+              style={{ padding: '8px 20px', borderRadius: 8, background: canSave() && !saving ? 'var(--green)' : 'rgba(var(--accent-rgb),0.3)', border: '1px solid var(--gbd)', color: '#05080f', fontSize: 13, fontWeight: 700, cursor: canSave() && !saving ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 7, transition: 'opacity .15s', boxShadow: canSave() && !saving ? 'var(--glow)' : 'none' }}>
               {saving ? (
-                <><span style={{ width: 14, height: 14, border: '2px solid rgba(6,10,16,0.3)', borderTopColor: '#08090c', borderRadius: '50%', display: 'inline-block', animation: 'spin .6s linear infinite' }} />Connecting…</>
+                <><span style={{ width: 14, height: 14, border: '2px solid rgba(6,10,16,0.3)', borderTopColor: '#05080f', borderRadius: '50%', display: 'inline-block', animation: 'spin .6s linear infinite' }} />Connecting…</>
               ) : (
-                <><I n={cfg.type === 'oauth' ? 'arrow' : 'checkc'} s={14} c="#08090c" />{cfg.type === 'oauth' ? `Authorize with ${cfg.provider}` : cfg.type === 'webhook' ? 'Activate' : 'Save & Connect'}</>
+                <><I n={cfg.type === 'oauth' ? 'arrow' : 'checkc'} s={14} c="#05080f" />{cfg.type === 'oauth' ? `Authorize with ${cfg.provider}` : cfg.type === 'webhook' ? 'Activate' : 'Save & Connect'}</>
               )}
             </button>
           )}
@@ -506,7 +506,7 @@ function ConnectModal({ intg, onClose, onSave }) {
 // ─── Upgrade Modal (paid integration, plan doesn't include it) ────────────────
 function UpgradeModal({ intg, onClose }) {
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(2,4,9,0.78)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 14 }}>
           <LogoBadge name={intg.name} size={36} />
@@ -532,7 +532,7 @@ function UpgradeModal({ intg, onClose }) {
           </button>
           <button onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'payments' }))}
             style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--grad-cta)', border: '1px solid var(--gbd)', color: 'var(--ink)', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: 'var(--glow)' }}>
-            <I n="sparkl" s={13} c="#08090c" />
+            <I n="sparkl" s={13} c="#05080f" />
             View Plans
           </button>
         </div>
@@ -545,7 +545,7 @@ function UpgradeModal({ intg, onClose }) {
 function InfoModal({ intg, isConnected, locked, onClose, onConnectClick, onUpgradeClick }) {
   const catIcon = CATEGORY_ICONS[intg.category] || 'plug';
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(2,4,9,0.78)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 500, maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Header */}
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -617,7 +617,7 @@ function InfoModal({ intg, isConnected, locked, onClose, onConnectClick, onUpgra
           {!isConnected && !locked && (
             <button onClick={onConnectClick}
               style={{ padding: '8px 20px', borderRadius: 8, background: 'var(--grad-cta)', border: '1px solid var(--gbd)', color: 'var(--ink)', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: 'var(--glow)' }}>
-              <I n="plug" s={13} c="#08090c" />
+              <I n="plug" s={13} c="#05080f" />
               Connect
             </button>
           )}
@@ -665,13 +665,13 @@ function IntegrationCard({ intg, isConnected, locked, onAction, onDisconnect }) 
           const isLockedConnect = isPrimary && locked;
           return (
             <button key={a} onClick={() => onAction(a, intg)}
-              style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, transition: 'opacity .15s, background .15s', background: isLockedConnect ? 'rgba(245,158,11,0.12)' : isPrimary ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: isLockedConnect ? '#fbbf24' : isPrimary ? '#08090c' : 'var(--t2)', border: isLockedConnect ? '1px solid rgba(245,158,11,0.3)' : isPrimary ? '1px solid var(--gbd)' : '1px solid var(--bd)', boxShadow: isPrimary && !isLockedConnect ? 'var(--glow)' : 'none' }}
+              style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, transition: 'opacity .15s, background .15s', background: isLockedConnect ? 'rgba(245,158,11,0.12)' : isPrimary ? 'var(--green)' : 'rgba(255,255,255,0.05)', color: isLockedConnect ? '#fbbf24' : isPrimary ? '#05080f' : 'var(--t2)', border: isLockedConnect ? '1px solid rgba(245,158,11,0.3)' : isPrimary ? '1px solid var(--gbd)' : '1px solid var(--bd)', boxShadow: isPrimary && !isLockedConnect ? 'var(--glow)' : 'none' }}
               onMouseEnter={e => e.currentTarget.style.opacity = '0.82'}
               onMouseLeave={e => e.currentTarget.style.opacity = '1'}
             >
               {a === 'Watch Video' && <I n="play" s={11} c="var(--t2)" />}
               {isLockedConnect && <I n="sparkl" s={11} c="#fbbf24" />}
-              {isPrimary && !isLockedConnect && <I n="plug" s={11} c="#08090c" />}
+              {isPrimary && !isLockedConnect && <I n="plug" s={11} c="#05080f" />}
               {isLockedConnect ? 'Upgrade' : a}
             </button>
           );
@@ -942,7 +942,7 @@ export default function IntegrationsView() {
             const count = cat === 'All' ? INTEGRATIONS.length : INTEGRATIONS.filter(i => i.category === cat).length;
             return (
               <button key={cat} onClick={() => setActiveCategory(cat)}
-                style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: on ? 700 : 500, cursor: 'pointer', transition: 'all .15s', background: on ? 'var(--green)' : 'rgba(255,255,255,0.04)', color: on ? '#08090c' : 'var(--t2)', border: on ? '1px solid var(--gbd)' : '1px solid var(--bd)' }}>
+                style={{ padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: on ? 700 : 500, cursor: 'pointer', transition: 'all .15s', background: on ? 'var(--green)' : 'rgba(255,255,255,0.04)', color: on ? '#05080f' : 'var(--t2)', border: on ? '1px solid var(--gbd)' : '1px solid var(--bd)' }}>
                 {cat}
                 <span style={{ marginLeft: 5, opacity: 0.65, fontSize: 11 }}>{count}</span>
               </button>

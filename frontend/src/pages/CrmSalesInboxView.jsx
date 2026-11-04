@@ -730,7 +730,7 @@ export default function CrmSalesInboxView() {
       <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <I n="msg" s={18} c="var(--accent, #35e8f2)" />
+            <I n="msg" s={18} c="var(--accent, #2af5d6)" />
             <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 17, fontWeight: 700, color: 'var(--t1)' }}>CRM Sales Inbox</span>
           </div>
           <span style={{ fontSize: 12, color: 'var(--t3)' }}>

@@ -89,7 +89,7 @@ function welcomeHtml({ name }) {
         <td style="padding:14px 0;border-bottom:1px solid #f1f5f9;">
           <table cellpadding="0" cellspacing="0"><tr>
             <td style="vertical-align:top;padding-right:14px;">
-              <div style="background:#dbeafe;color:#1d4ed8;width:26px;height:26px;border-radius:50%;text-align:center;line-height:26px;font-size:12px;font-weight:700;">1</div>
+              <div style="background:#d5f5ef;color:#0a9e89;width:26px;height:26px;border-radius:50%;text-align:center;line-height:26px;font-size:12px;font-weight:700;">1</div>
             </td>
             <td>
               <p style="margin:0;color:#0f172a;font-size:14px;font-weight:600;">Connect your WhatsApp Business number</p>
@@ -102,7 +102,7 @@ function welcomeHtml({ name }) {
         <td style="padding:14px 0;border-bottom:1px solid #f1f5f9;">
           <table cellpadding="0" cellspacing="0"><tr>
             <td style="vertical-align:top;padding-right:14px;">
-              <div style="background:#dbeafe;color:#1d4ed8;width:26px;height:26px;border-radius:50%;text-align:center;line-height:26px;font-size:12px;font-weight:700;">2</div>
+              <div style="background:#d5f5ef;color:#0a9e89;width:26px;height:26px;border-radius:50%;text-align:center;line-height:26px;font-size:12px;font-weight:700;">2</div>
             </td>
             <td>
               <p style="margin:0;color:#0f172a;font-size:14px;font-weight:600;">Create and submit message templates</p>
@@ -115,7 +115,7 @@ function welcomeHtml({ name }) {
         <td style="padding:14px 0;">
           <table cellpadding="0" cellspacing="0"><tr>
             <td style="vertical-align:top;padding-right:14px;">
-              <div style="background:#dbeafe;color:#1d4ed8;width:26px;height:26px;border-radius:50%;text-align:center;line-height:26px;font-size:12px;font-weight:700;">3</div>
+              <div style="background:#d5f5ef;color:#0a9e89;width:26px;height:26px;border-radius:50%;text-align:center;line-height:26px;font-size:12px;font-weight:700;">3</div>
             </td>
             <td>
               <p style="margin:0;color:#0f172a;font-size:14px;font-weight:600;">Import contacts and launch your first campaign</p>
@@ -274,7 +274,7 @@ function apiKeyCreatedHtml({ userName, keyName, environment, keyPrefix }) {
         </tr>
         <tr>
           <td style="color:#64748b;font-size:13px;padding-bottom:10px;">Environment</td>
-          <td style="text-align:right;padding-bottom:10px;">${badge(esc(environment), environment === 'production' ? '#fee2e2' : '#dbeafe', environment === 'production' ? '#991b1b' : '#1d4ed8')}</td>
+          <td style="text-align:right;padding-bottom:10px;">${badge(esc(environment), environment === 'production' ? '#fee2e2' : '#d5f5ef', environment === 'production' ? '#991b1b' : '#0a9e89')}</td>
         </tr>
         <tr>
           <td style="color:#64748b;font-size:13px;">Key Prefix</td>

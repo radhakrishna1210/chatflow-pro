@@ -105,7 +105,7 @@ export default function WalletStatusBanner({ hideWhenHealthy = false, compact = 
         </div>
         {state.action && (
           <Btn size="sm" onClick={goToRecharge} style={{ boxShadow: 'var(--glow)' }}>
-            <I n="plus" s={13} c="#08090c" />
+            <I n="plus" s={13} c="#05080f" />
             Add Money
           </Btn>
         )}

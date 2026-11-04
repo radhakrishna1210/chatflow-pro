@@ -369,7 +369,7 @@ export default function ApiKeysView() {
           </div>
 
           {requiredVars > 0 && (
-            <div style={{ margin:'12px 0 4px', padding:'12px 14px', borderRadius:9, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
+            <div style={{ margin:'12px 0 4px', padding:'12px 14px', borderRadius:9, background:'rgba(var(--violet-rgb),.06)', border:'1px solid rgba(var(--violet-rgb),.18)' }}>
               <p style={{ fontSize:12, fontWeight:600, color:'#b9a3ff', marginBottom:10 }}>
                 This template has {requiredVars} variable{requiredVars === 1 ? '' : 's'}. Provide a value for each placeholder.
               </p>
@@ -397,7 +397,7 @@ export default function ApiKeysView() {
           {sendError && <p style={{ fontSize:12, color:'#f87171', margin:'0 0 12px' }}>{sendError}</p>}
           <Btn onClick={sendTest} disabled={sending} style={{ width:'100%', justifyContent:'center', boxShadow:'var(--glow)' }}>
             {sending ? 'Sending…' : sent ? '✓ Sent!' : <>
-              <I n="send" s={14} c="#08090c" />
+              <I n="send" s={14} c="#05080f" />
               Send Test Message
             </>}
           </Btn>

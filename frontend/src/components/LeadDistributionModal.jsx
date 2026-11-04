@@ -120,7 +120,7 @@ export function LeadDistributionModal({ onClose, members = [], onDistributed }) 
               type="checkbox"
               checked={enabled}
               onChange={(e) => setEnabled(e.target.checked)}
-              style={{ width: 16, height: 16, accentColor: 'var(--accent, #35e8f2)' }}
+              style={{ width: 16, height: 16, accentColor: 'var(--accent, #2af5d6)' }}
             />
             <span style={{ fontSize: 12.5, fontWeight: 600, color: enabled ? 'var(--green)' : 'var(--t3)' }}>
               {enabled ? 'Active' : 'Paused'}

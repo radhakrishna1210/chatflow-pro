@@ -849,7 +849,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
 
           {/* Variable examples */}
           {vars.length > 0 && (
-            <div style={{ padding:'12px 14px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
+            <div style={{ padding:'12px 14px', borderRadius:8, background:'rgba(var(--violet-rgb),.06)', border:'1px solid rgba(var(--violet-rgb),.18)' }}>
               <p style={{ fontSize:12, fontWeight:600, color:'#b9a3ff', marginBottom:10 }}>
                 Variable example values
               </p>

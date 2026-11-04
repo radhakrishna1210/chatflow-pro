@@ -98,7 +98,7 @@ const Preview = ({ form, widgetId }) => {
 
   const c = form.config;
   const width = c.size === 'small' ? 300 : c.size === 'large' ? 360 : 330;
-  const accent = c.primaryColor || '#35e8f2';
+  const accent = c.primaryColor || '#2af5d6';
   const showAi = form.type !== 'WHATSAPP';
   const showWa = form.type !== 'AI';
 
@@ -392,7 +392,7 @@ const emptyForm = (numbers) => ({
   config: {
     businessName: '', logoUrl: '', title: 'Chat with us',
     welcomeMessage: 'Hi! Ask me anything about our services, or talk to our team on WhatsApp.',
-    assistantName: 'Assistant', avatarUrl: '', primaryColor: '#35e8f2',
+    assistantName: 'Assistant', avatarUrl: '', primaryColor: '#2af5d6',
     position: 'bottom-right', size: 'medium', buttonText: 'Chat with us',
     whatsappButtonText: 'Talk to Us on WhatsApp',
     suggestedQuestions: ['What services do you offer?', 'What are your pricing plans?', 'How can I get started?'],
@@ -682,7 +682,7 @@ const WidgetEditor = ({ widget, numbers, onClose, onSaved }) => {
                   {widget.installSnippet}
                 </div>
                 <Btn size="sm" onClick={copyInstall}>
-                  <I n="copy" s={12} c="#08090c" /> {copied ? 'Copied!' : 'Copy install code'}
+                  <I n="copy" s={12} c="#05080f" /> {copied ? 'Copied!' : 'Copy install code'}
                 </Btn>
               </Section>
             )}
@@ -759,7 +759,7 @@ export default function WidgetsView() {
           <p style={{ fontSize: 11.5, color: 'var(--t2)' }}>An AI assistant, lead capture and WhatsApp handoff on your own website</p>
         </div>
         <Btn onClick={() => setEditing('new')} style={{ boxShadow: 'var(--glow)' }}>
-          <I n="plus" s={14} c="#08090c" /> New Widget
+          <I n="plus" s={14} c="#05080f" /> New Widget
         </Btn>
       </div>
 
@@ -789,15 +789,15 @@ export default function WidgetsView() {
             <div style={{ textAlign: 'center', padding: '32px 0' }}>
               <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 12 }}>No widgets yet.</p>
               <Btn onClick={() => setEditing('new')} style={{ boxShadow: 'var(--glow)' }}>
-                <I n="plus" s={13} c="#08090c" /> Create your first widget
+                <I n="plus" s={13} c="#05080f" /> Create your first widget
               </Btn>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               {widgets.map(w => (
                 <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 15px', borderRadius: 10, border: '1px solid var(--bd)', background: 'rgba(255,255,255,0.02)', flexWrap: 'wrap' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 9, background: `${w.config?.primaryColor || '#35e8f2'}18`, border: `1px solid ${w.config?.primaryColor || '#35e8f2'}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <I n="msg" s={15} c={w.config?.primaryColor || '#35e8f2'} />
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: `${w.config?.primaryColor || '#2af5d6'}18`, border: `1px solid ${w.config?.primaryColor || '#2af5d6'}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <I n="msg" s={15} c={w.config?.primaryColor || '#2af5d6'} />
                   </div>
                   <div style={{ flex: 1, minWidth: 160 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>

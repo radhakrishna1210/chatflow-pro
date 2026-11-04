@@ -15,7 +15,7 @@ const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderR
 
 const BAND = {
   STRONG:   { label: 'Strong',   fg: 'var(--green)', bg: 'var(--gbg)', bd: 'var(--gbd)' },
-  MODERATE: { label: 'Moderate', fg: '#38bdf8', bg: 'rgba(14,165,233,.12)', bd: 'rgba(14,165,233,.32)' },
+  MODERATE: { label: 'Moderate', fg: '#38bdf8', bg: 'rgba(var(--violet-rgb),.12)', bd: 'rgba(var(--violet-rgb),.32)' },
   WEAK:     { label: 'Weak',     fg: '#fbbf24', bg: 'rgba(245,158,11,.12)', bd: 'rgba(245,158,11,.32)' },
   AT_RISK:  { label: 'At risk',  fg: '#f87171', bg: 'rgba(239,68,68,.12)', bd: 'rgba(239,68,68,.32)' },
 };

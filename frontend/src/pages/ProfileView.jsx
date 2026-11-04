@@ -57,7 +57,7 @@ const fmtDateTime = (d) => d ? new Date(d).toLocaleString('en-IN', { day: 'numer
 
 const Avatar = ({ name = '?', size = 34, showRing = false }) => {
   const init = name.split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?';
-  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
+  const colors = ['#2af5d6', '#0eb39e', '#c6f36b', '#F59E0B', '#F472B6'];
   const col = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: `${col}18`, border: `1.5px solid ${showRing ? col : col + '44'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * .36 + 'px', fontWeight: 700, color: col, flexShrink: 0 }}>
@@ -209,7 +209,7 @@ const ChangePasswordModal = ({ onClose, onSuccess }) => {
   };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(2,4,9,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Change Password</p>
@@ -287,7 +287,7 @@ const DeleteAccountModal = ({ onClose }) => {
   const blocked = preview && !preview.canDelete;
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(2,4,9,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 470, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid rgba(239,68,68,0.35)' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: '#f87171' }}>Delete Account</p>
@@ -408,7 +408,7 @@ const ManageSessionsModal = ({ onClose, onChanged }) => {
   const others = (sessions || []).filter(s => !s.isCurrent).length;
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(3,5,12,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(2,4,9,0.78)', backdropFilter: 'blur(4px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <p style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--t1)' }}>Active Sessions</p>
@@ -614,7 +614,7 @@ export default function ProfileView() {
                 </div>
               </div>
               <div className="cf-profile-header-actions" style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
-                <Btn size="sm" onClick={startEdit}><I n="pencil" s={13} c="#08090c" /> Edit Profile</Btn>
+                <Btn size="sm" onClick={startEdit}><I n="pencil" s={13} c="#05080f" /> Edit Profile</Btn>
                 <Btn size="sm" variant="ghost" onClick={() => setShowPasswordModal(true)}><I n="lock" s={13} c="var(--t1)" /> Change Password</Btn>
               </div>
             </div>
@@ -668,14 +668,14 @@ export default function ProfileView() {
                         </Field>
                         <Field label="Time Zone">
                           <FSelect value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))}>
-                            <option value="" style={{ background: '#0a0b0e' }}>Select time zone</option>
-                            {ALL_TIMEZONES.map(tz => <option key={tz} value={tz} style={{ background: '#0a0b0e' }}>{tz}</option>)}
+                            <option value="" style={{ background: '#05080f' }}>Select time zone</option>
+                            {ALL_TIMEZONES.map(tz => <option key={tz} value={tz} style={{ background: '#05080f' }}>{tz}</option>)}
                           </FSelect>
                         </Field>
                         <Field label="Language">
                           <FSelect value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))}>
-                            <option value="" style={{ background: '#0a0b0e' }}>Select language</option>
-                            {LANGUAGES.map(([code, label]) => <option key={code} value={code} style={{ background: '#0a0b0e' }}>{label}</option>)}
+                            <option value="" style={{ background: '#05080f' }}>Select language</option>
+                            {LANGUAGES.map(([code, label]) => <option key={code} value={code} style={{ background: '#05080f' }}>{label}</option>)}
                           </FSelect>
                         </Field>
                       </div>

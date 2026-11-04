@@ -175,7 +175,7 @@ export default function BlockedNumbers({ isAdmin }) {
                 {isAdmin && (
                   <th style={{ padding:'8px 12px', width:36 }}>
                     <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all blocked numbers"
-                      disabled={blockedRows.length === 0} style={{ accentColor:'#35e8f2', cursor:'pointer' }} />
+                      disabled={blockedRows.length === 0} style={{ accentColor:'#2af5d6', cursor:'pointer' }} />
                   </th>
                 )}
                 {['Phone Number','Blocked Date','Time','Keyword','Reason','Blocked By',''].map(h => (
@@ -190,7 +190,7 @@ export default function BlockedNumbers({ isAdmin }) {
                     <td style={{ padding:'10px 12px' }}>
                       {row.active && (
                         <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row.id)}
-                          aria-label={`Select ${row.phoneNumber}`} style={{ accentColor:'#35e8f2', cursor:'pointer' }} />
+                          aria-label={`Select ${row.phoneNumber}`} style={{ accentColor:'#2af5d6', cursor:'pointer' }} />
                       )}
                     </td>
                   )}

@@ -60,7 +60,7 @@ const Bubble = ({ role, content, error }) => {
         borderRadius: mine ? '12px 12px 3px 12px' : '12px 12px 12px 3px',
         background: mine ? 'var(--green)' : 'rgba(255,255,255,0.045)',
         border: mine ? 'none' : `1px solid ${error ? 'rgba(248,113,113,0.32)' : 'var(--bd)'}`,
-        color: mine ? '#08090c' : error ? '#f87171' : 'var(--t1)',
+        color: mine ? '#05080f' : error ? '#f87171' : 'var(--t1)',
         fontSize: 13.5,
         lineHeight: 1.62,
         // The model answers in plain prose but uses "- " lists, and its line
@@ -233,7 +233,7 @@ export default function SiteAssistant() {
         onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.06)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
       >
-        <I n="bot" s={22} c="#08090c" w={2} />
+        <I n="bot" s={22} c="#05080f" w={2} />
       </button>
     );
   }
@@ -252,7 +252,7 @@ export default function SiteAssistant() {
           width: 386, maxWidth: 'calc(100vw - 32px)',
           height: 560, maxHeight: 'calc(100vh - 44px)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          background: 'var(--surf-solid, #0c0d11)',
+          background: 'var(--surf-solid, #0c1320)',
           border: '1px solid var(--glass-bd)',
           borderRadius: 'var(--rxl)',
           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 24px 70px rgba(0,0,0,0.62)',
@@ -359,7 +359,7 @@ export default function SiteAssistant() {
               transition: 'background .15s ease',
             }}
           >
-            <I n="send" s={15} c={draft.trim() && !sending ? '#08090c' : 'var(--t3)'} />
+            <I n="send" s={15} c={draft.trim() && !sending ? '#05080f' : 'var(--t3)'} />
           </button>
         </div>
       </section>

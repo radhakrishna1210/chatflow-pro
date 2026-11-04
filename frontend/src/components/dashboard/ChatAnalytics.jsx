@@ -60,7 +60,7 @@ const SectionTitle = ({ title, sub }) => (
 
 const Avatar = ({ name = '?', size = 28 }) => {
   const init = name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
-  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
+  const colors = ['#2af5d6', '#0eb39e', '#c6f36b', '#F59E0B', '#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: `${c}18`, border: `1.5px solid ${c}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.33 + 'px', fontWeight: 700, color: c, flexShrink: 0 }}>
@@ -165,7 +165,7 @@ export default function ChatAnalytics({ workspaceId }) {
                   cursor: 'pointer',
                   fontSize: 12,
                   fontWeight: active ? 700 : 500,
-                  color: active ? '#08090c' : 'var(--t2)',
+                  color: active ? '#05080f' : 'var(--t2)',
                   background: active ? 'var(--green)' : 'transparent',
                   fontFamily: "'Manrope',sans-serif",
                 }}>
@@ -193,12 +193,12 @@ export default function ChatAnalytics({ workspaceId }) {
             {/* Stat cards — bot and manual are surfaced as separate cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
               <StatCard icon="send" color="var(--green)" label="Messages sent (outbound)" value={fmt(messages.sent)} sub="From Message.direction" />
-              <StatCard icon="msg" color="#9d6bff" label="Messages received" value={fmt(messages.received)} sub="Inbound messages" />
-              <StatCard icon="bot" color="#c4ff46" label="Sent by Bot / Automation" value={fmt(messages.bot)} sub="Outbound, senderUserId is null" />
+              <StatCard icon="msg" color="#0eb39e" label="Messages received" value={fmt(messages.received)} sub="Inbound messages" />
+              <StatCard icon="bot" color="#c6f36b" label="Sent by Bot / Automation" value={fmt(messages.bot)} sub="Outbound, senderUserId is null" />
               <StatCard icon="user" color="var(--green)" label="Sent Manually" value={fmt(messages.manual)} sub="Outbound, senderUserId set" />
-              <StatCard icon="users" color="#c4ff46" label="Open conversations" value={fmt(conversations.open)} sub={`${fmt(conversations.pending)} pending · ${fmt(conversations.resolved)} resolved`} />
+              <StatCard icon="users" color="#c6f36b" label="Open conversations" value={fmt(conversations.open)} sub={`${fmt(conversations.pending)} pending · ${fmt(conversations.resolved)} resolved`} />
               <StatCard icon="bell" color="#fbbf24" label="Avg unread (open)" value={Number(conversations.averageUnreadOpen || 0).toFixed(1)} sub="Per open conversation" />
-              <StatCard icon="checkc" color="#9d6bff" label="Campaign read rate" value={pct(campaigns.readRate)} sub={`${fmt(campaigns.read)} of ${fmt(campaigns.sent)} read`} />
+              <StatCard icon="checkc" color="#0eb39e" label="Campaign read rate" value={pct(campaigns.readRate)} sub={`${fmt(campaigns.read)} of ${fmt(campaigns.sent)} read`} />
               <StatCard icon="alertc" color="#f87171" label="Campaign failed rate" value={pct(campaigns.failedRate)} sub={`${fmt(campaigns.failed)} failed`} />
               <StatCard icon="ban" color="#F472B6" label="Opt-out rate" value={pct(contacts.optOutRate)} sub={`${fmt(contacts.optedOut)} of ${fmt(contacts.total)} contacts`} />
             </div>
@@ -219,7 +219,7 @@ export default function ChatAnalytics({ workspaceId }) {
                     />
                     <Legend wrapperStyle={{ fontSize: 12, color: 'var(--t2)' }} />
                     <Bar dataKey="sent" name="Sent (outbound)" fill="var(--green)" radius={[5, 5, 0, 0]} />
-                    <Bar dataKey="received" name="Received (inbound)" fill="#9d6bff" radius={[5, 5, 0, 0]} />
+                    <Bar dataKey="received" name="Received (inbound)" fill="#0eb39e" radius={[5, 5, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

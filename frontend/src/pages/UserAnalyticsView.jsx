@@ -45,7 +45,7 @@ const SectionTitle = ({ title, sub, right }) => (
 
 const Avatar = ({ name = '?', size = 30 }) => {
   const init = String(name).split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?';
-  const colors = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6'];
+  const colors = ['#2af5d6', '#0eb39e', '#c6f36b', '#F59E0B', '#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size * 0.34, fontWeight:700, color:c, flexShrink:0 }}>
@@ -105,7 +105,7 @@ const CohortGrid = ({ cohorts, columns }) => (
               // A future week is drawn as absence, not as zero — the difference
               // between "nobody came back" and "that week hasn't happened".
               background: cell == null ? 'rgba(255,255,255,0.02)' : `rgba(var(--accent-rgb),${0.08 + (cell / 100) * 0.55})`,
-              color: cell == null ? 'var(--t3)' : cell > 45 ? '#06110f' : '#8fecf3',
+              color: cell == null ? 'var(--t3)' : cell > 45 ? '#06110f' : '#86f9e6',
               border: cell == null ? '1px dashed var(--bd)' : '1px solid transparent',
             }}>
               {cell == null ? '—' : `${cell}%`}
@@ -188,9 +188,9 @@ export default function UserAnalyticsView() {
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:12 }}>
               <StatCard title="Total contacts" value={audience.total.toLocaleString('en-IN')}
                 subtitle={`${audience.addedThisMonth.toLocaleString('en-IN')} added in the last 30 days`} />
-              <StatCard title="Opt-in rate" value={`${audience.optInRate}%`} color="#c4ff46" icon="checkc"
+              <StatCard title="Opt-in rate" value={`${audience.optInRate}%`} color="#c6f36b" icon="checkc"
                 subtitle={`${audience.optedIn.toLocaleString('en-IN')} reachable contacts`} />
-              <StatCard title="30-day retention" value={audience.retention30 == null ? '—' : `${audience.retention30}%`} color="#9d6bff" icon="rotate"
+              <StatCard title="30-day retention" value={audience.retention30 == null ? '—' : `${audience.retention30}%`} color="#0eb39e" icon="rotate"
                 subtitle={audience.retention30 == null
                   ? 'Needs two months of history to compare'
                   : 'Conversations active this month vs last'} />

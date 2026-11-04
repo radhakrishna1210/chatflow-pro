@@ -102,7 +102,7 @@ export default function InviteAccept() {
   const btnStyle = (primary) => ({
     width: '100%', padding: '11px', borderRadius: 9, border: primary ? 'none' : '1px solid var(--bd)',
     cursor: 'pointer', fontFamily: "'Manrope',sans-serif", fontSize: 14, fontWeight: 700,
-    color: primary ? '#0a0b0e' : 'var(--t1)', background: primary ? 'var(--green)' : 'rgba(255,255,255,0.035)',
+    color: primary ? '#05080f' : 'var(--t1)', background: primary ? 'var(--green)' : 'rgba(255,255,255,0.035)',
     boxShadow: primary ? 'var(--glow)' : 'none',
   });
 

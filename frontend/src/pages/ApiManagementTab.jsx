@@ -63,7 +63,7 @@ const isSecretKey = (key) => /KEY|TOKEN|SECRET|PASSWORD/.test(key);
 // answerable without reading server logs.
 const SOURCE_TONE = {
   database:    { label: 'Database', fg: 'var(--green)', bg: 'var(--gbg)', bd: 'var(--gbd)' },
-  environment: { label: 'Env',      fg: '#9d6bff', bg: 'rgba(var(--violet-rgb),.08)', bd: 'rgba(var(--violet-rgb),.25)' },
+  environment: { label: 'Env',      fg: '#0eb39e', bg: 'rgba(var(--violet-rgb),.08)', bd: 'rgba(var(--violet-rgb),.25)' },
   unset:       { label: 'Not set',  fg: 'var(--t3)', bg: 'rgba(255,255,255,.03)', bd: 'var(--bd)' },
 };
 

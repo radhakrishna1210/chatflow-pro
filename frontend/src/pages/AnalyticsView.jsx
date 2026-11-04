@@ -22,7 +22,7 @@ const KpiCard = ({ icon, iconColor, label, value, suffix = '' }) => (
 
 const Avatar = ({ name='?', size=28 }) => {
   const init = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
+  const colors = ['#2af5d6','#0eb39e','#c6f36b','#F59E0B','#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
@@ -237,9 +237,9 @@ export default function AnalyticsView() {
         <div className="rgrid-4" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
           {kpi ? <>
             <KpiCard icon="msg"   iconColor="var(--green)"  label="Messages Sent"  value={(kpi.messagesSent ?? 0).toLocaleString()} />
-            <KpiCard icon="chart" iconColor="#9d6bff"       label="Delivery Rate"  value={kpi.deliveryRate ?? 0} suffix="%" />
+            <KpiCard icon="chart" iconColor="#0eb39e"       label="Delivery Rate"  value={kpi.deliveryRate ?? 0} suffix="%" />
             <KpiCard icon="ban"   iconColor="#f87171"       label="Opt-out Rate"   value={kpi.optOutRate   ?? 0} suffix="%" />
-            <KpiCard icon="users" iconColor="#c4ff46"       label="Total Contacts" value={(kpi.totalContacts ?? 0).toLocaleString()} />
+            <KpiCard icon="users" iconColor="#c6f36b"       label="Total Contacts" value={(kpi.totalContacts ?? 0).toLocaleString()} />
           </> : (
             <div style={{ gridColumn:'1/-1', textAlign:'center', padding:'20px', color:'var(--t2)', fontSize:13 }}>No overview data yet.</div>
           )}
@@ -268,7 +268,7 @@ export default function AnalyticsView() {
                     </div>
                     <div style={{ height:9, borderRadius:9, background:'rgba(255,255,255,0.06)', overflow:'hidden' }}>
                       <div style={{ width:`${Math.max(stage.pct, stage.value > 0 ? 1.5 : 0)}%`, height:'100%', borderRadius:9,
-                        background: ['linear-gradient(90deg,#35e8f2,#2bc4cd)','linear-gradient(90deg,#35e8f2,#6bb8f0)','linear-gradient(90deg,#9d6bff,#b98aff)','linear-gradient(90deg,#c4ff46,#a8e63a)','linear-gradient(90deg,#25d366,#1fb356)'][i] }} />
+                        background: ['linear-gradient(90deg,#2af5d6,#2bc4cd)','linear-gradient(90deg,#2af5d6,#6bb8f0)','linear-gradient(90deg,#0eb39e,#b98aff)','linear-gradient(90deg,#c6f36b,#a8e63a)','linear-gradient(90deg,#25d366,#1fb356)'][i] }} />
                     </div>
                     <p style={{ fontSize:10.5, color:'var(--t3)', marginTop:4 }}>{stage.note}</p>
                   </div>

@@ -1,74 +1,70 @@
-:root {
-  /* ── Svann palette ──────────────────────────────────────────────────
-     Token *names* are unchanged from the previous theme so the ~2,800
-     existing var() call sites across the app re-skin themselves. Only the
-     values moved. --green keeps its name but now carries the Svann accent
-     (cyan); --accent is the preferred alias for new code. */
-  --bg:   #0a0b0e;
-  /* Every card is built from `background: var(--surf)`, so the sheen that
-     turns a flat panel into a pane of glass is applied here, once, rather
-     than edited into fourteen page files. It is a paint, not a colour — use
-     --surf-solid anywhere a colour is required (an SVG stroke, say). */
-  --surf: linear-gradient(158deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)), #0c0d11;
-  --surf-solid: #0c0d11;
-  --surf2:#0d0f13;
-  --surf3:#14161c;
-  --bd:  rgba(255,255,255,0.07);
-  --bdm: rgba(255,255,255,0.10);
-  --bds: rgba(255,255,255,0.16);
-  --t1:  #eef0f3;
-  --t2:  #8b909b;
-  /* Svann specifies #565c66 here, which measures 2.9:1 on a panel — below
-     the 4.5:1 WCAG AA asks for, and --t3 is used for 330 labels most of which
-     are set at 10-12px. Lifted within the same hue to 4.9:1. This is the one
-     deliberate deviation from the mockups' literal values; the previous theme
-     carried an identical note about the identical bug. */
-  --t3:  #7a808c;
-  --t3-faint: #565c66;   /* exact mockup shade — decorative/large text only */
+/* ── Svann palette ────────────────────────────────────────────────────
+   Taken from svann.in's stylesheet: midnight-navy surfaces, ice-white text,
+   a bright mint highlight, teal as the brand/control colour and lime as the
+   secondary highlight. Token *names* predate the rebrand (--green, --violet
+   …) and are kept so the ~2,800 var() call sites re-skin themselves; the
+   comments say what each one is now.
 
-  /* Accent. Svann leads with cyan, with violet and lime as the secondary
-     and tertiary voices. */
-  /* Brand colours are defined ONCE here as RGB triples, and everything else
-     (including the rgba() washes all over the app) is derived from them via
-     rgba(var(--accent-rgb), a). Re-skinning the product to a new palette means
-     editing these three lines and --on-accent — nothing else. */
-  --accent-rgb: 53,232,242;   /* primary  */
-  --violet-rgb: 157,107,255;  /* secondary */
-  --lime-rgb:   196,255,70;   /* tertiary  */
-  --on-accent:  #08090c;      /* text/icons placed on an accent fill */
+   svann.in reference
+     #05080F midnight navy  (page)      #DCE8F7 ice white   (primary text)
+     #080D17 deep navy      (secondary) #8FA3BD blue grey   (secondary text)
+     #0C1320 navy blue      (cards)     #8094B0 muted blue  (supporting text)
+     #121B2B slate navy     (raised)    #2AF5D6 bright mint (highlight)
+     #0EB39E teal           (brand)     #C6F36B lime        (2nd highlight) */
+:root {
+  --bg:   #05080f;
+  /* Every card is built from `background: var(--surf)`, so the faint sheen
+     is applied here once. It is a paint, not a colour — use --surf-solid
+     anywhere a colour is required (an SVG stroke, say). */
+  --surf: linear-gradient(158deg, rgba(220,232,247,0.035), rgba(220,232,247,0.008)), #0c1320;
+  --surf-solid: #0c1320;
+  --surf2:#080d17;
+  --surf3:#121b2b;
+  --bd:  rgba(143,163,189,0.12);
+  --bdm: rgba(143,163,189,0.18);
+  --bds: rgba(143,163,189,0.28);
+  --t1:  #dce8f7;
+  --t2:  #8fa3bd;
+  --t3:  #8094b0;        /* 5.8:1 on a card — fine for small labels */
+  --t3-faint: #5d6f88;   /* decorative/large text only */
+
+  /* Brand colours are defined ONCE as RGB triples; everything else,
+     including the rgba() washes across the app, derives from them via
+     rgba(var(--accent-rgb), a). */
+  --accent-rgb: 42,245,214;   /* bright mint — highlight accent        */
+  --violet-rgb: 14,179,158;   /* teal — brand colour & controls (legacy name) */
+  --lime-rgb:   198,243,107;  /* lime — secondary highlight             */
+  --on-accent:  #05080f;      /* text/icons placed on an accent fill    */
   --cyan:  rgb(var(--accent-rgb));
   --violet:rgb(var(--violet-rgb));
+  --teal:  rgb(var(--violet-rgb));
   --lime:  rgb(var(--lime-rgb));
   --accent:rgb(var(--accent-rgb));
   --green: rgb(var(--accent-rgb));          /* legacy name, accent role */
   --wa-green:#25d366;        /* WhatsApp brand mark — stays green */
-  /* Status green. The accent is cyan now, so a "Completed"/"Delivered" badge
-     painted with --green would have lost the green-good/amber-warn/red-fail
-     convention that the badge sits inside. Svann keeps a green in its own
-     palette for exactly this; status badges use it, accents do not. */
+  /* Status green stays a true green so Completed/Delivered badges keep the
+     green-good / amber-warn / red-fail convention, distinct from the mint. */
   --success:#25d366;
   --sbg: rgba(37,211,102,0.08);
   --sbd: rgba(37,211,102,0.22);
   --gbg: rgba(var(--accent-rgb),0.08);
-  --gbd: rgba(var(--accent-rgb),0.20);
-  --glow:0 0 56px rgba(var(--accent-rgb),0.18);
-  /* Gradients. The design set leans on exactly two: a lime→cyan wash for
-     primary calls to action (its single most repeated treatment), and a
-     violet→cyan wash for identity marks — avatars, workspace badges. Both are
-     painted on dark ink rather than white, which is what keeps them legible. */
-  --grad-cta: linear-gradient(135deg, var(--lime), var(--accent));
-  --grad-cta-hot: linear-gradient(135deg, color-mix(in srgb, var(--lime) 80%, #fff), color-mix(in srgb, var(--accent) 80%, #fff));
+  --gbd: rgba(var(--accent-rgb),0.22);
+  --glow:0 0 56px rgba(var(--accent-rgb),0.16);
+  /* Primary buttons on svann.in are a mint → teal wash with navy text;
+     identity marks (avatars, badges) use teal → mint. */
+  --grad-cta: linear-gradient(135deg, var(--accent), var(--teal));
+  --grad-cta-hot: linear-gradient(135deg, color-mix(in srgb, var(--accent) 82%, #fff), color-mix(in srgb, var(--teal) 82%, #fff));
   --accent-soft: color-mix(in srgb, var(--accent) 68%, #fff);
-  --grad-identity: linear-gradient(135deg, var(--violet), var(--accent));
+  --grad-identity: linear-gradient(135deg, var(--teal), var(--accent));
   --grad-wa: linear-gradient(135deg, #25d366, #0f9d58);
-  --ink: #06110f;                /* text/icons that sit on a gradient */
+  --ink: #05080f;                /* text/icons that sit on a gradient */
   --card-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 30px rgba(0,0,0,0.45);
   --r:9px; --rl:12px; --rxl:18px;
 
   /* Frosted surfaces. Same palette as the solid cards above — this is the
      same material seen through glass, not a second theme. */
   --glass:    linear-gradient(158deg, rgba(255,255,255,0.055), rgba(255,255,255,0.015));
-  --glass-bd: rgba(255,255,255,0.10);
+  --glass-bd: rgba(143,163,189,0.16);
   --glass-sh: inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 50px rgba(0,0,0,0.50);
   --blur:     blur(18px) saturate(150%);
   /* Numbers, ticks, payloads and eyebrows. A machine voice next to the two
@@ -476,4 +472,20 @@ tbody tr:hover { background: rgba(255,255,255,0.022); }
   .subnav-rail > * { flex-shrink: 0; }
   .subnav-rail > div:not(.subnav-rail-title) { flex-direction: row !important; }
   .subnav-rail-title { display: none !important; }
+}
+
+/* Svann's mark — a teal ring with a mint dot — for places that draw the logo
+   inline rather than through <Logo>. Size it with --mark (default 22px). */
+.svann-mark {
+  --mark: 22px;
+  width: var(--mark); height: var(--mark); flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  border: 1.5px solid rgba(var(--violet-rgb), 0.8);
+  background: rgba(var(--violet-rgb), 0.12);
+  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.22);
+}
+.svann-mark::after {
+  content: ''; width: 32%; height: 32%; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent);
 }

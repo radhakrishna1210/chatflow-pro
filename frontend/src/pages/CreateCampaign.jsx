@@ -189,7 +189,7 @@ const SMART_SCHEDULE = [
 
 const CAT_STYLE = {
   MARKETING:      { bg: 'rgba(var(--lime-rgb),.12)', bd: 'rgba(var(--lime-rgb),.3)',  c: '#d8ff8a' },
-  UTILITY:        { bg: 'rgba(14,165,233,.12)',  bd: 'rgba(14,165,233,.3)',   c: '#9d6bff' },
+  UTILITY:        { bg: 'rgba(var(--violet-rgb),.12)',  bd: 'rgba(var(--violet-rgb),.3)',   c: '#0eb39e' },
   AUTHENTICATION: { bg: 'rgba(245,158,11,.12)',  bd: 'rgba(245,158,11,.3)',   c: '#fbbf24' },
 };
 
@@ -237,7 +237,7 @@ const Chev = ({ open }) => (
 );
 
 const InfoAlert = ({ children }) => (
-  <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(14,165,233,.06)', border: '1px solid rgba(14,165,233,.18)', color: '#9d6bff', fontSize: '12px', lineHeight: 1.55, display: 'flex', gap: '9px', alignItems: 'flex-start' }}>
+  <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(var(--violet-rgb),.06)', border: '1px solid rgba(var(--violet-rgb),.18)', color: '#0eb39e', fontSize: '12px', lineHeight: 1.55, display: 'flex', gap: '9px', alignItems: 'flex-start' }}>
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: '1px' }}>
       <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
     </svg>
@@ -260,8 +260,8 @@ const SLabel = ({ children }) => (
 // ─── accordion wrapper ─────────────────────────────────────────
 const StepHeader = ({ n, title, done, open, locked, onToggle }) => (
   <div onClick={locked ? undefined : onToggle} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '15px 20px', cursor: locked ? 'not-allowed' : 'pointer', userSelect: 'none', opacity: locked ? 0.45 : 1 }}>
-    <div style={{ width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, background: done ? 'var(--green)' : open ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${done ? 'var(--green)' : open ? 'var(--bdm)' : 'var(--bd)'}`, color: done ? '#08090c' : 'var(--t2)', transition: 'all .2s' }}>
-      {done ? <I n="check" s={13} c="#08090c" w={2.5} /> : n}
+    <div style={{ width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, background: done ? 'var(--green)' : open ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${done ? 'var(--green)' : open ? 'var(--bdm)' : 'var(--bd)'}`, color: done ? '#05080f' : 'var(--t2)', transition: 'all .2s' }}>
+      {done ? <I n="check" s={13} c="#05080f" w={2.5} /> : n}
     </div>
     <div style={{ flex: 1 }}>
       <span style={{ fontSize: '14px', fontWeight: 600, color: open ? 'var(--t1)' : done ? 'var(--t1)' : 'var(--t2)', transition: 'color .15s' }}>{title}</span>
@@ -305,7 +305,7 @@ const Step1 = ({ campaignType, setCampaignType, numbers, selectedNumberId, setSe
                 <StatusBadge s={n.status === 'ACTIVE' ? 'Active' : (n.status ?? 'Active')} />
                 {sel && (
                   <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <I n="check" s={9} c="#08090c" w={3} />
+                    <I n="check" s={9} c="#05080f" w={3} />
                   </div>
                 )}
               </div>
@@ -360,7 +360,7 @@ const GoalStep = ({ goal, setGoal, onNext }) => (
             </span>
             <span style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                            background: on ? 'var(--green)' : 'transparent', border: `1px solid ${on ? 'var(--green)' : 'var(--bd)'}` }}>
-              {on && <I n="check" s={10} c="#08090c" w={3} />}
+              {on && <I n="check" s={10} c="#05080f" w={3} />}
             </span>
           </button>
         );
@@ -642,7 +642,7 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
                   onMouseEnter={e => { if (!sel) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
                   onMouseLeave={e => { if (!sel) e.currentTarget.style.background = sel ? 'rgba(var(--accent-rgb),0.05)' : 'transparent'; }}>
                   <div style={{ width: '16px', height: '16px', borderRadius: '4px', border: `1.5px solid ${sel ? 'var(--green)' : 'var(--bd)'}`, background: sel ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
-                    {sel && <I n="check" s={9} c="#08090c" w={3} />}
+                    {sel && <I n="check" s={9} c="#05080f" w={3} />}
                   </div>
                   <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--t1)', flex: 1 }}>{c.name}</span>
                   <span style={{ fontSize: '12px', color: 'var(--t2)' }}>{c.phoneNumber ?? c.phone}</span>
@@ -723,17 +723,17 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
               </>
             )}
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9d6bff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, background:'rgba(var(--violet-rgb),.06)', border:'1px solid rgba(var(--violet-rgb),.18)' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0eb39e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             <span style={{ fontSize:12, color:'#b9a3ff', lineHeight:1.5 }}>
               Phone numbers must include country code (e.g. <code style={{ fontFamily:'monospace', color:'#b9a3ff' }}>+919876543210</code>). Tags column is comma-separated.
             </span>
           </div>
-          <div style={{ padding:'14px 16px', borderRadius:8, background:'rgba(14,165,233,.06)', border:'1px solid rgba(14,165,233,.18)' }}>
+          <div style={{ padding:'14px 16px', borderRadius:8, background:'rgba(var(--violet-rgb),.06)', border:'1px solid rgba(var(--violet-rgb),.18)' }}>
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9d6bff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0eb39e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}>
                 <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <span style={{ fontSize:13, fontWeight:600, color:'#b9a3ff' }}>Instructions for uploading CSV</span>
@@ -1074,7 +1074,7 @@ const StepReplyFlows = ({ initial, onSaved }) => {
   };
   const addRule = () => setRules(prev => [...prev, { id: `r${Date.now()}`, enabled: true, triggerType: 'contains', keyword: '', actionType: 'reply', replyText: '' }]);
 
-  const actionColor = { reply: 'var(--green)', assign: '#9d6bff', optout: '#f87171' };
+  const actionColor = { reply: 'var(--green)', assign: '#0eb39e', optout: '#f87171' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -1268,7 +1268,7 @@ const StepRetries = ({ initial = null, onRetryToggle, onSaved, onCommit }) => {
 const CBox = ({ checked, onToggle, label }) => (
   <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
     <div style={{ width: '18px', height: '18px', borderRadius: '5px', border: `1.5px solid ${checked ? 'var(--green)' : 'var(--bd)'}`, background: checked ? 'var(--green)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s', flexShrink: 0 }}>
-      {checked && <I n="check" s={11} c="#08090c" w={3} />}
+      {checked && <I n="check" s={11} c="#05080f" w={3} />}
     </div>
     <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--t1)' }}>{label}</span>
   </div>

@@ -219,7 +219,7 @@ export default function OAuthConsent({ search = '' }) {
           disabled={busy}
           style={{
             flex: 1, padding: '11px 18px', borderRadius: '9px', cursor: busy ? 'default' : 'pointer',
-            background: 'var(--green)', border: 'none', color: '#0a0b0e',
+            background: 'var(--green)', border: 'none', color: '#05080f',
             fontFamily: "'Manrope',sans-serif", fontSize: '14px', fontWeight: 700, opacity: busy ? 0.6 : 1,
           }}
         >

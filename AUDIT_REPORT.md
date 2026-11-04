@@ -76,8 +76,10 @@ Detailed per-module reports, with one row per finding (file:line, failure scenar
   - the `X-ChatFlow-*` webhook headers, which customers verify against;
   - one localStorage key;
   - one resource URL slug.
-- **Palette:** defined once as three RGB tokens in `frontend/src/index.css` (`--accent-rgb`, `--violet-rgb`, `--lime-rgb`, plus `--on-accent`), and all rgba() washes derive from them. Hex literals remain where components append alpha digits.
-  - **The svann.in colours have not been applied yet:** the session's network policy blocks that domain.
+- **Palette (from svann.in):** midnight navy `#05080F` page, `#080D17`/`#0C1320`/`#121B2B` surfaces, ice-white `#DCE8F7` text with `#8FA3BD`/`#8094B0` secondary text, bright mint `#2AF5D6` highlight, teal `#0EB39E` brand/controls and lime `#C6F36B` secondary highlight. Primary buttons are a mint→teal wash with navy text, as on svann.in. Transactional emails use the light-theme accent `#0A9E89`.
+  - Defined once in `frontend/src/index.css` as RGB tokens (`--accent-rgb` mint, `--violet-rgb` teal, `--lime-rgb` lime, `--on-accent`); every rgba() wash derives from them, and the remaining hex literals were swapped to the same values.
+  - Svann's ring-and-dot logo replaces the old mark everywhere (app sidebar, auth pages, legal, marketing, favicon, share image). The landing page adopts svann.in's floating pill navigation, italic serif accent word in the headline, and outlined footer wordmark.
+  - Not done: svann.in's light theme (`#F3F6FA` / `#FFFFFF` / `#0F172A` / `#0A9E89`). The app is dark-only and many screens hardcode white-on-dark translucency, so a light mode is a separate piece of work.
 - **Landing page:**
   - new sections: "How it works" in three steps, a comparison table, an industries marquee;
   - new motion: scroll progress, a gradient headline, live-event toasts, all honouring reduced-motion;

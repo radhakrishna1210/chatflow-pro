@@ -16,7 +16,7 @@ const Avatar = ({ name, size=36 }) => {
   // A contact can have no name (null, not undefined, so a default parameter
   // never applied) — and one such row crashed the whole inbox.
   const init = String(name || '?').trim().split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
-  const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
+  const colors = ['#2af5d6','#0eb39e','#c6f36b','#F59E0B','#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
     <div style={{ width:size, height:size, borderRadius:'50%', background:`${c}18`, border:`1.5px solid ${c}44`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*.33+'px', fontWeight:700, color:c, flexShrink:0 }}>
@@ -128,8 +128,8 @@ const TIMELINE_COLOUR = {
   contact: 'var(--t3)',
   campaign: 'var(--wa-green)',
   ai: 'var(--accent)',
-  inbound: '#9d6bff',
-  human: '#c4ff46',
+  inbound: '#0eb39e',
+  human: '#c6f36b',
   status: 'var(--t3)',
 };
 
@@ -159,7 +159,7 @@ const ThreadContext = ({ context, onHandBackToAI, busy }) => {
               ['Exchanges', `${aiSession.turns}`, 'var(--t1)'],
               ['Session', aiSession.status === 'ACTIVE' ? 'Open' : aiSession.status === 'EXPIRED' ? 'Expired' : 'Ended',
                 aiSession.status === 'ACTIVE' ? 'var(--success)' : 'var(--t2)'],
-              ...(aiSession.handedOver ? [['Handed over', 'to a teammate', '#c4ff46']] : []),
+              ...(aiSession.handedOver ? [['Handed over', 'to a teammate', '#c6f36b']] : []),
             ].map(([k, v, colour]) => (
               <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12 }}>
                 <span style={{ color: 'var(--t2)' }}>{k}</span>
@@ -694,11 +694,11 @@ export default function InboxView() {
                         {(() => {
                           const out = (c.messages || []).find(m => (m.direction || '').toUpperCase() === 'OUTBOUND');
                           const tag = c.status === 'RESOLVED' || c.status === 'CLOSED'
-                            ? ['RESOLVED', '#8b909b']
+                            ? ['RESOLVED', '#8fa3bd']
                             : c.assignedToUserId
-                              ? ['HUMAN', '#9d6bff']
+                              ? ['HUMAN', '#0eb39e']
                               : (c.aiSessions?.length > 0 || (out && out.senderUserId == null))
-                                ? ['AI', '#35e8f2']
+                                ? ['AI', '#2af5d6']
                                 : null;
                           if (!tag) return null;
                           return (
@@ -708,7 +708,7 @@ export default function InboxView() {
                           );
                         })()}
                         {c.unreadCount > 0 && (
-                          <span style={{ padding:'1px 7px', borderRadius:10, fontSize:10, fontWeight:700, background:'var(--green)', color:'#08090c' }}>{c.unreadCount}</span>
+                          <span style={{ padding:'1px 7px', borderRadius:10, fontSize:10, fontWeight:700, background:'var(--green)', color:'#05080f' }}>{c.unreadCount}</span>
                         )}
                       </div>
                     </div>
@@ -961,7 +961,7 @@ export default function InboxView() {
                               <div style={{ display:'flex', gap:6 }}>
                                 <button disabled={sendingTemplate === t.id || templateDraft.values.slice(1).some(x => !x.trim())}
                                   onClick={() => sendTemplate(t, templateDraft.values)}
-                                  style={{ padding:'5px 12px', borderRadius:6, cursor:'pointer', background:'var(--green)', border:'none', color:'#08090c', fontSize:12, fontWeight:700 }}>
+                                  style={{ padding:'5px 12px', borderRadius:6, cursor:'pointer', background:'var(--green)', border:'none', color:'#05080f', fontSize:12, fontWeight:700 }}>
                                   Send
                                 </button>
                                 <button onClick={() => setTemplateDraft(null)}
@@ -1012,7 +1012,7 @@ export default function InboxView() {
                     onBlur={e => e.target.style.borderColor='var(--bd)'} />
                   <button onClick={send} disabled={!input.trim() || sending || (activeWindow ? !activeWindow.open : false)}
                     style={{ width:38, height:38, borderRadius:9, background:'var(--green)', border:'none', cursor: (!input.trim() || sending) ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:'0 0 14px rgba(var(--accent-rgb),0.25)', opacity: (!input.trim() || sending) ? 0.5 : 1 }}>
-                    <I n="send" s={15} c="#08090c" />
+                    <I n="send" s={15} c="#05080f" />
                   </button>
                 </div>
               </>

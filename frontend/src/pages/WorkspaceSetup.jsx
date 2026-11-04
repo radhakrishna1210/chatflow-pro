@@ -63,7 +63,7 @@ const ChoiceCard = ({ option, selected, onSelect }) => (
     </span>
     <span style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                    background: selected ? 'var(--green)' : 'transparent', border: `1px solid ${selected ? 'var(--green)' : 'var(--bd)'}` }}>
-      {selected && <I n="check" s={11} c="#08090c" w={3} />}
+      {selected && <I n="check" s={11} c="#05080f" w={3} />}
     </span>
   </button>
 );
@@ -150,7 +150,7 @@ export default function WorkspaceSetup({ onNav }) {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'radial-gradient(1000px 520px at 15% -10%, rgba(var(--accent-rgb),0.07), transparent 60%), var(--bg)' }}>
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '18px clamp(18px,4vw,44px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span className="sp-pulse" style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 12px var(--accent)' }} />
+          <span className="svann-mark" aria-hidden="true" />
           <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)', letterSpacing: '-.02em' }}>Svann</span>
         </div>
         {/* An escape hatch that does not strand anyone: there is no workspace
