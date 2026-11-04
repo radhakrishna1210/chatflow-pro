@@ -2808,11 +2808,15 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
       width: col ? '60px' : '232px', background: mobile ? 'rgba(6,9,19,0.97)' : 'rgba(6,9,19,0.72)',
       backdropFilter: 'blur(18px) saturate(140%)', WebkitBackdropFilter: 'blur(18px) saturate(140%)',
       borderRight: '1px solid var(--bd)', boxShadow: mobile ? '8px 0 40px rgba(0,0,0,0.55)' : 'inset -1px 0 0 rgba(255,255,255,0.03)',
-      display: 'flex', flexDirection: 'column', transition: mobile ? 'transform .24s ease' : 'width .22s ease',
+      display: 'flex', flexDirection: 'column', transition: mobile ? 'transform .24s ease, visibility .24s' : 'width .22s ease',
       flexShrink: 0, overflow: 'hidden', minHeight: 0,
       ...(mobile ? {
         position: 'fixed', top: 0, bottom: 0, left: 0, zIndex: 91, height: '100%',
         transform: open ? 'translateX(0)' : 'translateX(-100%)',
+        // Off-screen is not the same as gone: without this the closed drawer's
+        // thirty-odd links stayed in the Tab order and screen readers read
+        // them out, so a keyboard user tabbed through an invisible menu.
+        visibility: open ? 'visible' : 'hidden',
       } : null),
     }}>
       {/* Collapsed, this header has 60px of width minus 2x8px padding to fit a
@@ -2821,7 +2825,9 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
           sidebar — was pushed outside it and became unclickable. Collapsed, the
           logo is hidden and the button takes the row on its own. */}
       <div style={{ padding: col ? '16px 8px' : '16px 14px', display: 'flex', alignItems: 'center', justifyContent: col ? 'center' : 'flex-start', gap: '9px', borderBottom: '1px solid var(--bd)', minHeight: '62px', flexShrink: 0 }}>
-        {!col && <div onClick={() => go(isSuperAdmin ? 'admin-overview' : 'home')} style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }} title="Dashboard">
+        {!col && <div onClick={() => go(isSuperAdmin ? 'admin-overview' : 'home')} role="link" tabIndex={0} aria-label="Dashboard home"
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(isSuperAdmin ? 'admin-overview' : 'home'); } }}
+          style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }} title="Dashboard">
           <span className="sp-pulse" style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 12px var(--accent)' }} />
         </div>}
         {!col && <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>Spandan</span>}
@@ -2898,7 +2904,10 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
         ))}
       </div>
       {!col && !isSuperAdmin && (
-        <div onClick={() => go('payments')} title="Open Payments to recharge" style={{ margin: '8px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(53,232,242,0.04)', border: '1px solid rgba(53,232,242,0.15)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px', transition: 'all 0.15s', marginBottom: '4px', flexShrink: 0 }}
+        <div onClick={() => go('payments')} title="Open Payments to recharge" role="link" tabIndex={0}
+          aria-label={`Wallet balance ${balance == null ? 'loading' : `₹${balance.toFixed(2)}`}. Open Payments`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go('payments'); } }}
+          style={{ margin: '8px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(53,232,242,0.04)', border: '1px solid rgba(53,232,242,0.15)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px', transition: 'all 0.15s', marginBottom: '4px', flexShrink: 0 }}
           onMouseEnter={e => { e.currentTarget.style.background = 'rgba(53,232,242,0.08)'; e.currentTarget.style.borderColor = 'rgba(53,232,242,0.3)'; }}
           onMouseLeave={e => { e.currentTarget.style.background = 'rgba(53,232,242,0.04)'; e.currentTarget.style.borderColor = 'rgba(53,232,242,0.15)'; }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'var(--mono)', fontSize: '9.5px', fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.1em' }}>

@@ -373,7 +373,9 @@ const ManageSessionsModal = ({ onClose, onChanged }) => {
   const load = async () => {
     try {
       const currentToken = localStorage.getItem('refreshToken') || '';
-      const res = await apiFetch(`/api/v1/users/me/sessions?currentToken=${encodeURIComponent(currentToken)}`);
+      // In a header, not the query string: URLs end up in request logs, and
+      // this is a live refresh token.
+      const res = await apiFetch('/api/v1/users/me/sessions', { headers: { 'X-Current-Session': currentToken } });
       const data = await res.json().catch(() => []);
       if (!res.ok) { setErr(data.error || 'Could not load sessions'); return; }
       setSessions(Array.isArray(data) ? data : []);

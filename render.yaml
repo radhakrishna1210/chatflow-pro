@@ -44,6 +44,13 @@ services:
         value: production
       - key: PORT
         value: "10000" # Render's default injected port
+      # Render's load balancer is one proxy hop in front of the app. Without
+      # this, req.ip is the balancer for every visitor, so all rate limits
+      # (login, signup OTP, password reset) share ONE bucket: twenty wrong
+      # passwords from anyone lock everybody out. Raise it if you add a CDN
+      # (e.g. Cloudflare) in front.
+      - key: TRUST_PROXY_HOPS
+        value: "1"
 
       # Supabase pooler, session mode (port 5432 — NOT 6543/transaction mode,
       # which breaks prepared statements and `prisma migrate deploy`).
