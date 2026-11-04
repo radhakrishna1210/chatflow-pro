@@ -21,6 +21,15 @@ export default function Legal({ routePath }) {
   const active = docFromPath(routePath ?? window.location.pathname);
   const doc = LEGAL_DOCS[active];
 
+  // An unknown slug (/legal/bogus, a stale link) used to render the Terms
+  // under that URL — a soft 404 that search engines index as a duplicate of
+  // /legal. Put the address bar back on the document actually shown.
+  useEffect(() => {
+    const path = routePath ?? window.location.pathname;
+    const slug = String(path || '').replace(/^\/legal\/?/, '').split(/[?#]/)[0].replace(/\/+$/, '');
+    if (slug && !LEGAL_DOCS[slug]) navigate('/legal', { replace: true });
+  }, [routePath]);
+
   useEffect(() => {
     document.title = `${doc.title} — Spandan`;
     return () => { document.title = 'Spandan — WhatsApp Business Platform'; };

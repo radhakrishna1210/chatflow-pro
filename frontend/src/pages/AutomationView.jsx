@@ -2747,6 +2747,9 @@ const WhatsAppAIAgentTab = () => {
 // ─────────────────────────────────────────────
 const IG_SOURCES = [['dm', 'Direct Message'], ['comment', 'Post Comment'], ['story_reply', 'Story Reply']];
 
+// Effects run twice in dev (StrictMode); the reference is single-use.
+const claimedIgPending = new Set();
+
 const InstagramQuickflowsTab = () => {
   const [conn, setConn] = useState(null);
   const [flows, setFlows] = useState([]);
@@ -2773,6 +2776,18 @@ const InstagramQuickflowsTab = () => {
     if (params.get('instagram') === 'connected') setBanner({ tone:'ok', text:'Instagram account connected.' });
     const err = params.get('instagram_error');
     if (err) setBanner({ tone:'error', text:`Instagram connection failed: ${err.replace(/_/g, ' ')}.` });
+    // The callback only parks the authorization; it is finished here, signed
+    // in, so it can only land in the workspace of the person who started it.
+    const pending = params.get('instagram_pending');
+    if (pending && !claimedIgPending.has(pending)) {
+      claimedIgPending.add(pending);
+      params.delete('instagram_pending');
+      window.history.replaceState({}, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`);
+      wJson('/instagram/complete', { method:'POST', body: JSON.stringify({ pending }) }).then((r) => {
+        if (r.ok) { setBanner({ tone:'ok', text:'Instagram account connected.' }); load(); }
+        else setBanner({ tone:'error', text:`Instagram connection failed: ${r.error}` });
+      });
+    }
   }, [load]);
 
   const connect = async () => {

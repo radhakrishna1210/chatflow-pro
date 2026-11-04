@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { wFetch } from '../lib/api.js';
 import { fmtMoney, fmtMoneyShort } from '../lib/format.js';
@@ -38,6 +38,8 @@ export function CrmDashboardView({ user }) {
   const [drawerTab, setDrawerTab] = useState('actions'); // 'actions' | 'overdue'
   const [doNextExpanded, setDoNextExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  const loadSeq = useRef(0);
   const [showHealthModal, setShowHealthModal] = useState(false);
 
   // Custom Reports state
@@ -57,15 +59,24 @@ export function CrmDashboardView({ user }) {
   const [reportMsg, setReportMsg] = useState('');
 
   const loadData = () => {
+    // Only the newest request may paint: flicking 7D → 90D → All quickly let
+    // an older, slower response overwrite the range the user ended on.
+    const seq = ++loadSeq.current;
     let url = `/crm-analytics?range=${range}`;
     if (filter === 'me') url += `&userId=${user.id}`;
 
+    // A failed analytics call used to be parsed as data — `{ error }` has no
+    // kpis, so every card silently read 0 and looked like a real (empty)
+    // pipeline. It is now an explicit error with a retry.
+    const okJson = (r) => (r.ok ? r.json() : Promise.reject(new Error(`Could not load CRM analytics (${r.status}).`)));
     Promise.all([
-      wFetch(url).then(r => r.json()),
-      wFetch(`/tasks?isOverdue=true${filter === 'me' ? `&assignedToUserId=${user.id}` : ''}`).then(r => r.json()),
-      wFetch('/insights/recommendations?limit=1').then(r => r.json()).catch(() => ({ total: 0 })),
-      wFetch('/crm-analytics/reports/saved').then(r => r.json()).catch(() => ({ templates: [], saved: [] }))
+      wFetch(url).then(okJson),
+      wFetch(`/tasks?isOverdue=true${filter === 'me' ? `&assignedToUserId=${user.id}` : ''}`).then(r => (r.ok ? r.json() : { data: [] })).catch(() => ({ data: [] })),
+      wFetch('/insights/recommendations?limit=1').then(r => (r.ok ? r.json() : { total: 0 })).catch(() => ({ total: 0 })),
+      wFetch('/crm-analytics/reports/saved').then(r => (r.ok ? r.json() : { templates: [], saved: [] })).catch(() => ({ templates: [], saved: [] }))
     ]).then(([statsData, tasksData, recsData, repData]) => {
+      if (seq !== loadSeq.current) return;
+      setLoadError(null);
       setData(statsData);
       const overdueList = tasksData.data || [];
       setTasks(overdueList);
@@ -78,7 +89,8 @@ export function CrmDashboardView({ user }) {
       const totalBadge = recsTotal + overdueList.length;
       window.dispatchEvent(new CustomEvent('crm:badge-updated', { detail: totalBadge }));
     }).catch(e => {
-      console.error(e);
+      if (seq !== loadSeq.current) return;
+      setLoadError(e.message || 'Could not load CRM analytics.');
       setLoading(false);
     });
   };
@@ -120,6 +132,16 @@ export function CrmDashboardView({ user }) {
       runReport();
     }
   }, [activeTab]);
+
+  // The report query carries the range; without this a report kept showing
+  // the previous period after the range buttons changed.
+  const rangeRef = useRef(range);
+  useEffect(() => {
+    if (rangeRef.current === range) return;
+    rangeRef.current = range;
+    if (activeTab === 'custom_reports') runReport();
+    else setReportData(null);
+  }, [range]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleApplyTemplate = (tmpl) => {
     setSelectedTemplate(tmpl.id);
@@ -173,6 +195,18 @@ export function CrmDashboardView({ user }) {
   if (loading) {
     return (
       <div style={{ padding: 40, color: 'var(--t3)', fontSize: 14 }}>Loading CRM Management Dashboard...</div>
+    );
+  }
+
+  if (loadError && !data) {
+    return (
+      <div style={{ padding: 40, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+        <div role="alert" style={{ fontSize: 14, color: '#f87171' }}>{loadError}</div>
+        <button onClick={() => { setLoading(true); loadData(); }}
+          style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--bd)', background: 'rgba(255,255,255,0.04)', color: 'var(--t1)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+          Retry
+        </button>
+      </div>
     );
   }
 

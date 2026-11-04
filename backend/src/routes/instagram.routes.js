@@ -12,8 +12,12 @@ const router = Router({ mergeParams: true });
 router.use(authenticate, workspaceContext, requireFeature('automation'));
 
 router.get('/connection', ctrl.connection);
-router.post('/auth-url', ctrl.authUrl);
-router.delete('/connection', ctrl.disconnect);
+// Linking or unlinking the account is member-level work like the flows below.
+router.post('/auth-url', authorize('CLIENT'), ctrl.authUrl);
+// Finishes the OAuth round trip for the user who started it (see
+// lib/oauthPending.js) — the public callback only parks the code.
+router.post('/complete', authorize('CLIENT'), ctrl.completeConnection);
+router.delete('/connection', authorize('CLIENT'), ctrl.disconnect);
 
 router.get('/flows', ctrl.listFlows);
 router.post('/flows', authorize('CLIENT'), validate({ body: instagramSchemas.create }), ctrl.createFlow);
