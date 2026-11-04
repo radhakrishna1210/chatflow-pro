@@ -6,6 +6,176 @@
       "sourceType": "github",
       "skillPath": "skills/openfilm/SKILL.md",
       "computedHash": "a30f15632ebb29295dfff7131faf2c212e17f2bae2918a87ef0f716dcca8a157"
+    },
+    "webapp-testing": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/webapp-testing/SKILL.md",
+      "commit": "ca45fc496a3436251f191354091d557da31c15b5",
+      "installPath": ".claude/skills/webapp-testing",
+      "computedHash": "51b7349e77ec63b7744a6f63647e7566a0b4d2e301121cc10e8c2113af6556a2"
+    },
+    "e2e-testing-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-essentials/skills/e2e-testing-patterns/SKILL.md",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "installPath": ".claude/skills/e2e-testing-patterns",
+      "computedHash": "b59a3d80c852f41bb73d6941410cd0fc98bbdb63a61d2ed0da2415f8dde0e1c7"
+    },
+    "javascript-testing-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/javascript-typescript/skills/javascript-testing-patterns/SKILL.md",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "installPath": ".claude/skills/javascript-testing-patterns",
+      "computedHash": "d99e1d7344ca7b87395c7e49f6c635ea67fe16d57f4698d72c78d405020f5782"
+    },
+    "python-testing-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/python-development/skills/python-testing-patterns/SKILL.md",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "installPath": ".claude/skills/python-testing-patterns",
+      "computedHash": "a1020718f31629c2a5b20731cad1804dbb81b18800495c5cebdf16e6cac9c175"
+    },
+    "property-based-testing": {
+      "source": "trailofbits/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/property-based-testing/skills/property-based-testing/SKILL.md",
+      "commit": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e",
+      "installPath": ".claude/skills/property-based-testing",
+      "computedHash": "9448cacb65c6237a7c22dc59602667177ecae405524079ae9ff92240590b995a"
+    },
+    "dogfood": {
+      "source": "callstack/agent-device",
+      "sourceType": "github",
+      "skillPath": "skills/dogfood/SKILL.md",
+      "commit": "26a710622828b7096da2186a5dadd23daa733d07",
+      "installPath": ".claude/skills/dogfood",
+      "computedHash": "19a7a8671a9129c4d8a1bbb7e310809049fc0b9fd33342b436179abdc9dfd32d"
+    },
+    "database-migrations": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/database-migrations/SKILL.md",
+      "commit": "b38be6a7f6350964d59328b52f0624e1d1d552d1",
+      "installPath": ".claude/skills/database-migrations",
+      "computedHash": "dad2f1964295eee14a96e06213ce3f60992bbcdc1f37a50c828bbc2e1abd79dd"
+    },
+    "tdd": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/tdd/SKILL.md",
+      "commit": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+      "installPath": ".claude/skills/tdd",
+      "computedHash": "5505d25bbaa8fc14a79e4d20163936958992a2995b7f1dd1d6197edc9ed722e0"
+    },
+    "playwright-expert": {
+      "source": "jeffallan/claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills/playwright-expert/SKILL.md",
+      "commit": "078a25cc5bfd8011459be7b91d004e900c1d02d3",
+      "installPath": ".claude/skills/playwright-expert",
+      "computedHash": "d84e24b9d20e910e519a763e4dc7f0744e81497ffcc6b29cf7806dc0c07cca12"
+    },
+    "vitest": {
+      "source": "antfu/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vitest/SKILL.md",
+      "commit": "7de210b51c8d48cc405a4eac3e17cbb1396c653b",
+      "installPath": ".claude/skills/vitest",
+      "computedHash": "01c2da913702dcc3f944b93fe92cdc67d594c9126a6c919653d3fb353a5b8e48"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
+      "commit": "c9be0e931b7930f7d02126d04774d904c381e7d7",
+      "installPath": ".claude/skills/supabase-postgres-best-practices",
+      "computedHash": "ad65e776f45e761bafc609d3f506c77c1032225aa65e0c4c02f241b8071e5855"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-best-practices/SKILL.md",
+      "commit": "1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62",
+      "installPath": ".claude/skills/vercel-react-best-practices",
+      "computedHash": "71ed7794962fa6e803ee83030517b5b93a9f70fbfeb431ec4535c5480a8d8355"
+    },
+    "systematic-debugging": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/systematic-debugging/SKILL.md",
+      "commit": "22f0b463e7a5e579904dd6211a520321035526f7",
+      "installPath": ".claude/skills/systematic-debugging",
+      "computedHash": "51c6435d98c83c42c96ba7c35725a0b2c376cd487fb1a4e6bd0ddbe7e33ef202"
+    },
+    "security-review": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/security-review/SKILL.md",
+      "commit": "b38be6a7f6350964d59328b52f0624e1d1d552d1",
+      "installPath": ".claude/skills/security-review",
+      "computedHash": "b9eb6416eebc8dda046674f0a2dbb3be88aff526d182b60a0f55998d3d6d0d8d"
+    },
+    "security-and-hardening": {
+      "source": "addyosmani/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/security-and-hardening/SKILL.md",
+      "commit": "301b02b12bff98e4688e6984af6556802322bbde",
+      "installPath": ".claude/skills/security-and-hardening",
+      "computedHash": "358566859a3d791c474eb9fa36939b45875c7480d7d4650eaa092dceae2c1c37"
+    },
+    "semgrep": {
+      "source": "trailofbits/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/static-analysis/skills/semgrep/SKILL.md",
+      "commit": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e",
+      "installPath": ".claude/skills/semgrep",
+      "computedHash": "52162605593f871cf45f48f9cf00b7c2d7e0759ccb7507981088442b7cc5d76c"
+    },
+    "differential-review": {
+      "source": "trailofbits/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/differential-review/skills/differential-review/SKILL.md",
+      "commit": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e",
+      "installPath": ".claude/skills/differential-review",
+      "computedHash": "f9af6a8193fc1a9f8ca3c54bb8d19095a5f20c9472ca6d014488bbde50b67da0"
+    },
+    "codeql": {
+      "source": "trailofbits/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/static-analysis/skills/codeql/SKILL.md",
+      "commit": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e",
+      "installPath": ".claude/skills/codeql",
+      "computedHash": "1a6d919ff80f83b262daf650552af6eb6d2c32b19d0c529b70efe0c116b675cf"
+    },
+    "ci-security-scanning-with-strix": {
+      "source": "usestrix/strix",
+      "sourceType": "github",
+      "skillPath": "skills/ci-security-scanning-with-strix/SKILL.md",
+      "commit": "6b7ae2ebe4d47037a927aade23265ff4e4f27e84",
+      "installPath": ".claude/skills/ci-security-scanning-with-strix",
+      "computedHash": "57801a50398cde76a50452ea6943afd2bf0dddb9ed470dc5aedadcf698b4700d"
+    }
+  },
+  "collections": {
+    "gstack": {
+      "source": "garrytan/gstack",
+      "commit": "b244e6d11a6466650c5147cd7dc023859968c4b5",
+      "install": "git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup",
+      "note": "user-level install; not vendored (120MB, needs Bun for ./setup)"
+    },
+    "jeffallan-claude-skills": {
+      "source": "jeffallan/claude-skills",
+      "commit": "078a25cc5bfd8011459be7b91d004e900c1d02d3",
+      "install": "copy skills/* into ~/.claude/skills/"
+    },
+    "trailofbits-skills": {
+      "source": "trailofbits/skills",
+      "commit": "711af095215ad4ecde5b90cd1d0124b3f1c4ca9e",
+      "install": "copy plugins/*/skills/* into ~/.claude/skills/"
     }
   }
 }

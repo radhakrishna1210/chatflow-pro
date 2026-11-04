@@ -57,7 +57,8 @@ Thumbs.db
 frontend/node_modules/.vite/
 
 # Claude internal
-.claude/
+.claude/*
+!.claude/skills/
 
 # Local notes
 INTERAKT_COMPARISON.md
