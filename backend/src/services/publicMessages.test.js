@@ -111,7 +111,7 @@ test('only approved templates, and every {{2}}+ must have a value', async (t) =>
   });
   assert.equal(credits.consumed, consumedBefore + 1);
   const sent = sends.at(-1);
-  const params = sent.payload.template.components.find((c) => c.type === 'body').parameters.map((p) => p.text);
+  const params = sent.payload.components.find((c) => c.type === 'body').parameters.map((p) => p.text);
   assert.deepEqual(params.slice(1), ['A9', 'tomorrow']);
   assert.ok(!params.includes(''));
   const stored = await prisma.message.findUnique({ where: { id: res.id } });
@@ -125,7 +125,7 @@ test('Meta-style components are accepted in place of variables', async (t) => {
     template: { name: 'order_update', language: { code: 'en' }, components: [{ type: 'body', parameters: [{ type: 'text', text: 'Ravi' }, { type: 'text', text: 'B2' }, { type: 'text', text: 'Friday' }] }] },
   });
   assert.ok(res.id);
-  const params = sends.at(-1).payload.template.components.find((c) => c.type === 'body').parameters.map((p) => p.text);
+  const params = sends.at(-1).payload.components.find((c) => c.type === 'body').parameters.map((p) => p.text);
   assert.deepEqual(params, ['Ravi', 'B2', 'Friday']);
 });
 
