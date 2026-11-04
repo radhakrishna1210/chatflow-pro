@@ -153,6 +153,42 @@ test('ordering off: no totals in the list, no Total column in the export', async
   db.submissions = before;
 });
 
+test('pick several: a whole order conversation asks only for the picked mushrooms', async () => {
+  const schema = service.normalizeSchema([
+    { label: 'Which mushrooms do you want?', type: 'multi', options: ['Oyster', 'Button', 'Shiitake', 'Milky'] },
+    { label: 'How many kg of Oyster?', type: 'number', showIf: { question: 1, option: 'Oyster' } },
+    { label: 'How many kg of Button?', type: 'number', showIf: { question: 1, option: 'Button' } },
+    { label: 'How many kg of Shiitake?', type: 'number', showIf: { question: 1, option: 'Shiitake' } },
+    { label: 'How many kg of Milky?', type: 'number', showIf: { question: 1, option: 'Milky' } },
+    { label: 'Your full delivery address?', type: 'text' },
+  ]);
+  assert.deepEqual(schema[3].showIf, { question: 1, option: 'Shiitake' });
+  const shop = { ...form, schema, completionMessage: [
+    '{{? q2}}Oyster: {{q2}} kg = ₹{{= q2 * oyster_price}}',
+    '{{? q5}}Milky: {{q5}} kg = ₹{{= q5 * milky_price}}',
+    'Total ₹{{= q2*oyster_price + q5*milky_price}}',
+  ].join('\n') };
+
+  db.open = { id: 'm1', formId: 'f1', form: shop, cursor: 0, answers: {} };
+  const say = async (text) => {
+    await service.handleFormInbound({ workspaceId: 'ws1', conversation: { id: 'conv1', waNumberId: 'wa1' }, contact, messageBody: text });
+    const last = db.updates.at(-1)?.data;
+    if (last) db.open = { ...db.open, cursor: last.cursor ?? db.open.cursor, answers: last.answers ?? db.open.answers };
+    return db.sent.at(-1);
+  };
+
+  assert.match(await say('1, 9'), /numbers of the ones you want/); // 9 is not an option
+  assert.equal(await say('1 and 4'), 'How many kg of Oyster?');
+  assert.equal(await say('2'), 'How many kg of Milky?'); // Button and Shiitake skipped
+  assert.equal(await say('1'), 'Your full delivery address?');
+  assert.equal(await say('Narhe, Pune'), 'Oyster: 2 kg = ₹330\nMilky: 1 kg = ₹150\nTotal ₹480');
+  const saved = db.updates.at(-1).data;
+  assert.equal(saved.completed, true);
+  assert.equal(saved.answers.which_mushrooms_do_you_want, 'Oyster, Milky');
+  assert.equal(saved.answers.how_many_kg_of_button, '0');
+  assert.equal(saved.answers.__total, 480);
+});
+
 test('settings: read and switch the workspace setting', async () => {
   db.ordering = false;
   assert.deepEqual(await service.getFormSettings('ws1'), { orderingEnabled: false });

@@ -3152,7 +3152,8 @@ const VoiceAITab = () => {
 // ─────────────────────────────────────────────
 // 8. WHATSAPP FORMS
 // ─────────────────────────────────────────────
-const FIELD_TYPES = [['text', 'Text'], ['email', 'Email'], ['phone', 'Phone'], ['number', 'Number'], ['choice', 'Multiple choice']];
+const FIELD_TYPES = [['text', 'Text'], ['email', 'Email'], ['phone', 'Phone'], ['number', 'Number'], ['choice', 'Multiple choice'], ['multi', 'Pick several']];
+const HAS_OPTIONS = t => t === 'choice' || t === 'multi';
 
 // Live rendering of what the customer sees while filling the form in the
 // chat. The runtime asks one question per inbound message, so the preview
@@ -3189,10 +3190,13 @@ const FormPreview = ({ name, schema }) => {
             <>
               <p style={{ fontSize:11, color:'var(--t3)' }}>Question {active + 1} of {fields.length}</p>
               <p style={{ fontSize:13.5, fontWeight:600, color:'var(--t1)', lineHeight:1.45 }}>{field.label}</p>
-              {field.type === 'choice' && (field.options || []).length > 0 ? (
+              {HAS_OPTIONS(field.type) && (field.options || []).length > 0 ? (
                 <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                  {field.type === 'multi' && <span style={{ fontSize:10.5, color:'var(--t3)' }}>Customer replies with the numbers, e.g. 1,3</span>}
                   {(field.options || []).map((o, i) => (
-                    <div key={i} style={{ padding:'8px 11px', borderRadius:8, border:'1px solid var(--bd)', background:'rgba(255,255,255,0.03)', fontSize:12, color:'var(--t2)' }}>{o}</div>
+                    <div key={i} style={{ padding:'8px 11px', borderRadius:8, border:'1px solid var(--bd)', background:'rgba(255,255,255,0.03)', fontSize:12, color:'var(--t2)' }}>
+                      {field.type === 'multi' ? `☐ ${i + 1}. ${o}` : o}
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -3318,6 +3322,18 @@ const WhatsAppFormsTab = () => {
 
   const setField = (idx, patchField) =>
     setDraft(d => ({ ...d, schema: d.schema.map((f, i) => i === idx ? { ...f, ...patchField } : f) }));
+
+  // Removing a question renumbers the ones after it, so "Ask only if Qn"
+  // rules are renumbered too, and rules pointing at the removed one dropped.
+  const removeQuestion = idx => setDraft(d => ({
+    ...d,
+    schema: d.schema.filter((_, i) => i !== idx).map(f => {
+      if (!f.showIf) return f;
+      if (f.showIf.question === idx + 1) return { ...f, showIf: null };
+      if (f.showIf.question > idx + 1) return { ...f, showIf: { ...f.showIf, question: f.showIf.question - 1 } };
+      return f;
+    }),
+  }));
 
   // `status` is passed explicitly so "Save as Draft" and "Publish" are two
   // deliberate actions rather than a dropdown the user has to remember to set.
@@ -3616,15 +3632,41 @@ const WhatsAppFormsTab = () => {
                     Required
                   </label>
                   {draft.schema.length > 1 && (
-                    <button onClick={() => setDraft(d => ({ ...d, schema: d.schema.filter((_, i) => i !== idx) }))}
+                    <button onClick={() => removeQuestion(idx)}
                       style={{ padding:'6px 10px', borderRadius:7, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.22)', color:'#f87171', cursor:'pointer', fontSize:11 }}>Remove</button>
                   )}
                 </div>
-                {f.type === 'choice' && (
-                  <input value={(f.options || []).join(', ')}
-                    onChange={e => setField(idx, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                    placeholder="Comma-separated options, e.g. Yes, No, Maybe" style={inputStyle} />
+                {HAS_OPTIONS(f.type) && (
+                  <input value={f.optionsText ?? (f.options || []).join(', ')}
+                    onChange={e => setField(idx, { optionsText: e.target.value, options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                    placeholder={f.type === 'multi' ? 'Comma-separated options, e.g. Oyster, Button, Shiitake, Milky' : 'Comma-separated options, e.g. Yes, No, Maybe'}
+                    style={inputStyle} />
                 )}
+                {(() => {
+                  // "Ask only if": earlier Multiple choice / Pick several questions and their options.
+                  const sources = draft.schema.slice(0, idx)
+                    .map((s, i) => ({ q: i + 1, s }))
+                    .filter(({ s }) => HAS_OPTIONS(s.type) && (s.options || []).length > 0);
+                  if (sources.length === 0) return null;
+                  const value = f.showIf ? `${f.showIf.question}|${f.showIf.option}` : '';
+                  return (
+                    <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, color:'var(--t2)', flexWrap:'wrap' }}>
+                      Ask only if
+                      <select value={value} style={{ ...inputStyle, width:'auto', minWidth:220, padding:'6px 10px' }}
+                        onChange={e => {
+                          const [q, ...rest] = e.target.value.split('|');
+                          setField(idx, { showIf: e.target.value ? { question: Number(q), option: rest.join('|') } : null });
+                        }}>
+                        <option value="" style={{ background:'#0a0b0e' }}>Always ask</option>
+                        {sources.flatMap(({ q, s }) => (s.options || []).map(o => (
+                          <option key={`${q}|${o}`} value={`${q}|${o}`} style={{ background:'#0a0b0e' }}>
+                            Q{q} {s.type === 'multi' ? 'includes' : 'is'} “{o}”
+                          </option>
+                        )))}
+                      </select>
+                    </label>
+                  );
+                })()}
               </div>
             ))}
             <button onClick={() => setDraft(d => ({ ...d, schema: [...d.schema, { label:'', type:'text', required:true, options:[] }] }))}

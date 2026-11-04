@@ -313,9 +313,15 @@ export const automationSchemas = {
 const formField = z.object({
   key: z.string().trim().max(60).optional(),
   label: meaningfulText(z.string().trim().min(1).max(300), 'Question'),
-  type: z.enum(['text', 'email', 'phone', 'number', 'choice']).optional(),
+  type: z.enum(['text', 'email', 'phone', 'number', 'choice', 'multi']).optional(),
   required: z.boolean().optional(),
   options: z.array(z.string().trim().min(1).max(100)).max(10).optional(),
+  // "Ask only if question N was answered with this option"; checked in full by
+  // lib/formFlow.js#normalizeShowIf.
+  showIf: z.union([
+    z.object({ question: z.number().int().min(1).max(50), option: z.string().trim().min(1).max(100) }),
+    z.null(),
+  ]).optional(),
 });
 
 export const instagramSchemas = {

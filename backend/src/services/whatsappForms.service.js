@@ -6,12 +6,15 @@ import { sendAutomatedReply } from './outbound.service.js';
 import { renderFormMessage, closingTotal } from '../lib/formMessage.js';
 import { csvCell } from './contacts.service.js';
 import { isOrderingEnabled, setOrderingEnabled } from '../lib/ordering.js';
+import { parseMulti, advance, normalizeShowIf, MULTI_SEPARATOR } from '../lib/formFlow.js';
 
 // Where a submission's order total is kept inside `answers`. Question keys are
 // built from labels with leading underscores stripped, so none can collide.
 const TOTAL_KEY = '__total';
 
-const FIELD_TYPES = new Set(['text', 'email', 'phone', 'number', 'choice']);
+// 'multi' is "Pick several": see lib/formFlow.js.
+const FIELD_TYPES = new Set(['text', 'email', 'phone', 'number', 'choice', 'multi']);
+const HAS_OPTIONS = new Set(['choice', 'multi']);
 
 // A form used to be just a name and an integer "number of fields" — nothing
 // described what it actually asked, and `submissions` was never incremented by
@@ -21,7 +24,7 @@ export function normalizeSchema(raw) {
   const list = Array.isArray(raw) ? raw : [];
   const seen = new Set();
 
-  return list.slice(0, 50).map((field, index) => {
+  const fields = list.slice(0, 50).map((field, index) => {
     const label = String(field?.label || '').trim() || `Question ${index + 1}`;
     const type = FIELD_TYPES.has(field?.type) ? field.type : 'text';
 
@@ -33,7 +36,7 @@ export function normalizeSchema(raw) {
     while (seen.has(key)) key = `${key}_${index + 1}`;
     seen.add(key);
 
-    const options = type === 'choice'
+    const options = HAS_OPTIONS.has(type)
       ? (Array.isArray(field.options) ? field.options : []).map((o) => String(o).trim()).filter(Boolean).slice(0, 10)
       : [];
 
@@ -41,10 +44,19 @@ export function normalizeSchema(raw) {
       key,
       label,
       // A choice field with no options can never be answered — degrade to text.
-      type: type === 'choice' && options.length === 0 ? 'text' : type,
+      type: HAS_OPTIONS.has(type) && options.length === 0 ? 'text' : type,
       required: field?.required !== false,
       options,
+      rawShowIf: field?.showIf,
     };
+  });
+
+  // "Ask only if" can only point at an earlier choice / pick-several question
+  // and one of its options; anything else is dropped rather than hiding the
+  // question for good.
+  return fields.map(({ rawShowIf, ...field }, index) => {
+    const showIf = normalizeShowIf(rawShowIf, index, fields);
+    return showIf ? { ...field, showIf } : field;
   });
 }
 
@@ -253,6 +265,12 @@ function validateAnswer(field, answer) {
   if (field.type === 'choice' && !isChoiceAnswer(field, value)) {
     return `Please reply with one of: ${field.options.join(', ')}`;
   }
+  if (field.type === 'multi') {
+    const { picked, error } = parseMulti(value, field.options);
+    if (error || picked.length === 0) {
+      return `Please reply with the numbers of the ones you want, e.g. 1,3\n${field.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`;
+    }
+  }
   return null;
 }
 
@@ -262,6 +280,9 @@ function validateAnswer(field, answer) {
 const isChoiceAnswer = (field, value) => matchOption(value, field.options) !== null;
 
 function promptFor(field) {
+  if (field.type === 'multi' && field.options.length) {
+    return `${field.label}\nReply with the numbers, e.g. 1,3\n${field.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`;
+  }
   if (field.type === 'choice' && field.options.length) {
     return `${field.label}\n${field.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`;
   }
@@ -271,6 +292,7 @@ function promptFor(field) {
 // A numeric reply to a choice question is a selection, not the literal text.
 function resolveChoice(field, answer) {
   const value = String(answer || '').trim();
+  if (field.type === 'multi') return parseMulti(value, field.options).picked?.join(MULTI_SEPARATOR) || value;
   if (field.type !== 'choice') return value;
   // Store the configured option, not what the customer typed, so reports and
   // later automations see "Urgent" whether they wrote "urgently" or "2".
@@ -368,8 +390,11 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
       return true;
     }
 
-    const answers = { ...(open.answers || {}), [field.key]: resolveChoice(field, body) };
-    const nextCursor = open.cursor + 1;
+    // Questions whose "Ask only if" is not met are skipped (and a skipped
+    // Number question recorded as 0). Forms without such rules move on by one.
+    const { cursor: nextCursor, answers } = advance(
+      fields, open.cursor + 1, { ...(open.answers || {}), [field.key]: resolveChoice(field, body) },
+    );
     const done = nextCursor >= fields.length;
 
     // The order total is saved with the submission when the form finishes, so

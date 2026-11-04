@@ -9,6 +9,8 @@
 //   {{= expression}}     arithmetic on numbers and the names above. Only
 //                        numbers, names, + - * / and brackets are understood;
 //                        anything else makes that one expression render empty.
+//   {{? q2}} at the start of a line
+//                        keep the line only if q2 has an answer that is not 0.
 //
 // A message without "{{" is returned untouched, so existing forms send exactly
 // what they sent before.
@@ -113,13 +115,31 @@ function lookupFor(contact, variables) {
   };
 }
 
+// A line that starts with {{? q2}} is kept only when q2 has an answer that is
+// not 0, so a receipt lists only what the customer picked:
+//   {{? q2}}Oyster: {{q2}} kg = ₹{{= q2 * oyster_price}}
+const LINE_CONDITION = /^([ \t]*)\{\{\?\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\}\}[ \t]?/;
+
+function applyLineConditions(text, lookup) {
+  if (!text.includes('{{?')) return text;
+  const kept = [];
+  for (const line of text.split('\n')) {
+    const m = LINE_CONDITION.exec(line);
+    if (!m) { kept.push(line); continue; }
+    const value = String(lookup(m[2]) ?? '').trim();
+    const empty = value === '' || (!Number.isNaN(toNumber(value)) && toNumber(value) === 0);
+    if (!empty) kept.push(m[1] + line.slice(m[0].length));
+  }
+  return kept.join('\n');
+}
+
 // The order total: the value of the LAST {{= …}} in the closing message, which
 // is where a receipt puts its "Total to pay". Null when there is no
 // calculation or it cannot be worked out.
 export function closingTotal(text, { contact = null, fields = [], answers = {} } = {}) {
-  const expressions = [...String(text ?? '').matchAll(EXPRESSION)];
-  if (expressions.length === 0) return null;
   const lookup = lookupFor(contact, answerVariables(fields, answers));
+  const expressions = [...applyLineConditions(String(text ?? ''), lookup).matchAll(EXPRESSION)];
+  if (expressions.length === 0) return null;
   try {
     return Math.round(evaluate(expressions[expressions.length - 1][1], lookup) * 100) / 100;
   } catch {
@@ -134,7 +154,7 @@ export function renderFormMessage(text, { contact = null, fields = [], answers =
   const variables = answerVariables(fields, answers);
   const lookup = lookupFor(contact, variables);
 
-  const withMath = source.replace(EXPRESSION, (_, expression) => {
+  const withMath = applyLineConditions(source, lookup).replace(EXPRESSION, (_, expression) => {
     try {
       return formatNumber(evaluate(expression, lookup));
     } catch (err) {
