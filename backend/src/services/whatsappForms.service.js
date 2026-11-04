@@ -5,6 +5,7 @@ import { matchOption, detectControlCommand, interruptsFlow, CONTROL_REPLIES } fr
 import { sendAutomatedReply } from './outbound.service.js';
 import { renderFormMessage, closingTotal } from '../lib/formMessage.js';
 import { csvCell } from './contacts.service.js';
+import { isOrderingEnabled, setOrderingEnabled } from '../lib/ordering.js';
 
 // Where a submission's order total is kept inside `answers`. Question keys are
 // built from labels with leading underscores stripped, so none can collide.
@@ -146,8 +147,11 @@ export async function listSubmissions(workspaceId, formId) {
     orderBy: { createdAt: 'desc' },
     take: 200,
   });
-  return withCustomer(workspaceId, rows, form);
+  return withCustomer(workspaceId, rows, form, { ordering: await isOrderingEnabled(workspaceId) });
 }
+
+export const getFormSettings = async (workspaceId) => ({ orderingEnabled: await isOrderingEnabled(workspaceId) });
+export const updateFormSettings = (workspaceId, { orderingEnabled }) => setOrderingEnabled(workspaceId, orderingEnabled);
 
 // Adds who filled the form (name, phone) and the order total to each
 // submission. Submissions keep only a contactId, so contacts are looked up in
@@ -157,7 +161,9 @@ export async function listSubmissions(workspaceId, formId) {
 // without one (finished before totals were saved, or before the closing
 // message had a calculation) gets it worked out now from the closing message
 // and the customer's current prices, flagged as `totalEstimated`.
-async function withCustomer(workspaceId, rows, form = null) {
+//
+// Totals only exist in workspaces with ordering turned on (lib/ordering.js).
+async function withCustomer(workspaceId, rows, form = null, { ordering = false } = {}) {
   const ids = [...new Set(rows.map((r) => r.contactId).filter(Boolean))];
   const contacts = ids.length
     ? await prisma.contact.findMany({
@@ -170,9 +176,9 @@ async function withCustomer(workspaceId, rows, form = null) {
   return rows.map((r) => {
     const contact = byId.get(r.contactId);
     const saved = r.answers?.[TOTAL_KEY];
-    let total = typeof saved === 'number' ? saved : null;
+    let total = ordering && typeof saved === 'number' ? saved : null;
     let totalEstimated = false;
-    if (total === null && r.completed && form) {
+    if (ordering && total === null && r.completed && form) {
       total = closingTotal(form.completionMessage, { contact, fields, answers: r.answers || {} });
       totalEstimated = total !== null;
     }
@@ -208,13 +214,14 @@ export async function exportSubmissionsCsv(workspaceId, formId, { from, to, labe
   const gte = parseBound(from, 'from');
   const lt = parseBound(to, 'to');
   const createdAt = gte || lt ? { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } : undefined;
+  const ordering = await isOrderingEnabled(workspaceId);
   const rows = await withCustomer(workspaceId, await prisma.whatsappFormSubmission.findMany({
     where: { workspaceId, formId, ...(createdAt ? { createdAt } : {}) },
     orderBy: { createdAt: 'desc' },
     take: SUBMISSION_EXPORT_LIMIT,
-  }), form);
+  }), form, { ordering });
 
-  const header = ['When', 'Customer', 'Phone', ...fields.map((f) => f.label), 'Total', 'Status'];
+  const header = ['When', 'Customer', 'Phone', ...fields.map((f) => f.label), ...(ordering ? ['Total'] : []), 'Status'];
   const lines = [header.map(csvCell).join(',')];
   for (const r of rows) {
     lines.push([
@@ -222,7 +229,7 @@ export async function exportSubmissionsCsv(workspaceId, formId, { from, to, labe
       r.contactName ?? '',
       r.contactPhone ?? '',
       ...fields.map((f) => r.answers?.[f.key] ?? ''),
-      r.total ?? '',
+      ...(ordering ? [r.total ?? ''] : []),
       r.completed ? 'Complete' : `Stopped at Q${r.cursor + 1}`,
     ].map(csvCell).join(','));
   }
@@ -367,7 +374,10 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
 
     // The order total is saved with the submission when the form finishes, so
     // a later price upload does not change what an old order cost.
-    const total = done ? closingTotal(open.form.completionMessage, { contact, fields, answers }) : null;
+    // Only in workspaces with ordering turned on; elsewhere the closing message
+    // is sent exactly as written, as it always was.
+    const ordering = done ? await isOrderingEnabled(workspaceId) : false;
+    const total = ordering ? closingTotal(open.form.completionMessage, { contact, fields, answers }) : null;
     const saved = total === null ? answers : { ...answers, [TOTAL_KEY]: total };
 
     await prisma.whatsappFormSubmission.update({
@@ -392,7 +402,9 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
       });
       // {{q1}}, {{name}}, sheet columns and {{= q1 * price}} totals; a message
       // without "{{" is sent exactly as written.
-      await reply(renderFormMessage(open.form.completionMessage, { contact, fields, answers }));
+      await reply(ordering
+        ? renderFormMessage(open.form.completionMessage, { contact, fields, answers })
+        : open.form.completionMessage);
     } else {
       await reply(promptFor(fields[nextCursor]));
     }

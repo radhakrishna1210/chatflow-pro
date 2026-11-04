@@ -1,7 +1,7 @@
 // Fills in a WhatsApp Form's closing message, so it can repeat the customer's
 // answers and work out an order total:
 //
-//   Thanks {{name}}! Oyster: {{q1}} kg × ₹{{oyster_price}} = ₹{{= q1 * oyster_price}}
+//   Thanks {{name}}! {{q1}} × ₹{{price}} = ₹{{= q1 * price}}
 //
 //   {{q1}}, {{q2}} …     the answer to question 1, 2 … (also by question key)
 //   {{name}}, {{price}}  anything a workflow message can use: name, phone,

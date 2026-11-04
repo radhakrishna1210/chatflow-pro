@@ -3237,13 +3237,35 @@ const WhatsAppFormsTab = () => {
   const [pickedTemplate, setPickedTemplate] = useState(null);
   const [catOpen, setCatOpen] = useState(false);
 
+  // Workspace setting "Orders with per-customer prices": sheet columns in
+  // workflow messages, calculated totals in closing messages, Total column.
+  const [orderingEnabled, setOrderingEnabled] = useState(false);
+  const [savingOrdering, setSavingOrdering] = useState(false);
+
   const load = useCallback(async () => {
     const r = await wJson('/whatsapp-forms');
     if (r.locked) { setLocked(r.feature || 'automation'); setLoading(false); return; }
     if (r.ok && Array.isArray(r.data)) setForms(r.data);
     else if (!r.ok) setBanner({ tone:'error', text:r.error });
+    const s = await wJson('/whatsapp-forms/settings');
+    if (s.ok && s.data) setOrderingEnabled(s.data.orderingEnabled === true);
     setLoading(false);
   }, []);
+
+  const toggleOrdering = async () => {
+    const next = !orderingEnabled;
+    setSavingOrdering(true);
+    const r = await wJson('/whatsapp-forms/settings', { method:'PATCH', body: JSON.stringify({ orderingEnabled: next }) });
+    setSavingOrdering(false);
+    if (r.ok && r.data) {
+      setOrderingEnabled(r.data.orderingEnabled === true);
+      setBanner({ tone:'ok', text: r.data.orderingEnabled
+        ? 'Orders with per-customer prices is on for this workspace.'
+        : 'Orders with per-customer prices is off. Closing messages are sent exactly as written.' });
+    } else {
+      setBanner({ tone:'error', text: r.error || 'Could not save the setting' });
+    }
+  };
   useEffect(() => { load(); }, [load]);
 
   // Presets and the category vocabulary come from the server so they can't
@@ -3405,13 +3427,13 @@ const WhatsAppFormsTab = () => {
                 {fields.map(f => (
                   <th key={f.key} title={f.label} style={{ ...th, minWidth:110, maxWidth:170 }}>{f.label}</th>
                 ))}
-                <th style={{ ...th, whiteSpace:'nowrap' }}>Total</th>
+                {orderingEnabled && <th style={{ ...th, whiteSpace:'nowrap' }}>Total</th>}
                 <th style={{ ...th, whiteSpace:'nowrap' }}>Status</th>
               </tr>
             </thead>
             <tbody>
               {submissions.length === 0 && (
-                <tr><td colSpan={fields.length + 5} style={{ padding:32, textAlign:'left', color:'var(--t2)', fontSize:13 }}>No submissions yet.</td></tr>
+                <tr><td colSpan={fields.length + (orderingEnabled ? 5 : 4)} style={{ padding:32, textAlign:'left', color:'var(--t2)', fontSize:13 }}>No submissions yet.</td></tr>
               )}
               {submissions.map(s => (
                 <tr key={s.id} style={{ borderBottom:'1px solid var(--bd)' }}>
@@ -3421,10 +3443,12 @@ const WhatsAppFormsTab = () => {
                   {fields.map(f => (
                     <td key={f.key} style={{ padding:'12px 14px', fontSize:12.5, color:'var(--t1)', maxWidth:220 }}>{s.answers?.[f.key] ?? '—'}</td>
                   ))}
-                  <td style={{ padding:'12px 14px', fontSize:12.5, color:'var(--t1)', fontWeight:600, whiteSpace:'nowrap' }}
-                    title={s.totalEstimated ? "Worked out with the customer's current prices (this order was placed before totals were saved)" : undefined}>
-                    {typeof s.total === 'number' ? `₹${s.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}${s.totalEstimated ? '*' : ''}` : '—'}
-                  </td>
+                  {orderingEnabled && (
+                    <td style={{ padding:'12px 14px', fontSize:12.5, color:'var(--t1)', fontWeight:600, whiteSpace:'nowrap' }}
+                      title={s.totalEstimated ? "Worked out with the customer's current prices (this order was placed before totals were saved)" : undefined}>
+                      {typeof s.total === 'number' ? `₹${s.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}${s.totalEstimated ? '*' : ''}` : '—'}
+                    </td>
+                  )}
                   <td style={{ padding:'12px 14px' }}>
                     <Pill tone={s.completed ? 'green' : 'amber'}>{s.completed ? 'Complete' : `Q${s.cursor + 1}`}</Pill>
                   </td>
@@ -3443,6 +3467,20 @@ const WhatsAppFormsTab = () => {
         title="WhatsApp Forms" subtitle="Collect structured answers one question at a time, right inside the chat">
         {view === 'list' && <Btn onClick={openCreate} style={{ boxShadow:'var(--glow)' }}><I n="plus" s={14} c="#05080f"/> Create Form</Btn>}
       </TabHeader>
+
+      {view === 'list' && (
+        <div style={{ ...card, padding:'14px 16px', display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
+          <div style={{ flex:1, minWidth:240 }}>
+            <div style={{ fontSize:13.5, fontWeight:700, color:'var(--t1)' }}>Orders with per-customer prices</div>
+            <p style={{ fontSize:12, color:'var(--t2)', margin:'4px 0 0', lineHeight:1.55 }}>
+              For taking orders on WhatsApp. When on, workflow messages can show columns from your contact sheet
+              (each customer's own price), a form's closing message can repeat answers and work out a total,
+              and submissions show a Total column. Applies to this workspace only.
+            </p>
+          </div>
+          <Toggle on={orderingEnabled} onToggle={toggleOrdering} disabled={savingOrdering} />
+        </div>
+      )}
 
       {/* Create New Form / View All Forms */}
       <div style={{ display:'flex', gap:4, borderBottom:'1px solid var(--bd)' }}>
@@ -3599,9 +3637,11 @@ const WhatsAppFormsTab = () => {
             <label style={labelStyle}>Message after the last answer</label>
             <textarea value={draft.completionMessage} onChange={e => setDraft(d => ({ ...d, completionMessage: e.target.value }))}
               rows={4} maxLength={1000} style={{ ...inputStyle, resize:'vertical', fontFamily:'inherit' }} />
-            <p style={{ fontSize:11, color:'var(--t3)', margin:'6px 0 0', lineHeight:1.5 }}>
-              Optional: use {'{{q1}}'}, {'{{q2}}'}… for answers, {'{{name}}'} or a column from your contact sheet, and {'{{= q1 * oyster_price}}'} to work out a total.
-            </p>
+            {orderingEnabled && (
+              <p style={{ fontSize:11, color:'var(--t3)', margin:'6px 0 0', lineHeight:1.5 }}>
+                Optional: use {'{{q1}}'}, {'{{q2}}'}… for answers, {'{{name}}'} or a column from your contact sheet, and {'{{= q1 * price}}'} to work out a total.
+              </p>
+            )}
           </div>
 
           <div style={{ display:'flex', gap:8 }}>

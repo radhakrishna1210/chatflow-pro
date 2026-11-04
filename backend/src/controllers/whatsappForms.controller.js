@@ -41,6 +41,24 @@ export async function listSubmissions(req, res) {
   }
 }
 
+export async function getSettings(req, res) {
+  try {
+    res.json(await whatsappFormsService.getFormSettings(req.params.workspaceId));
+  } catch (err) {
+    console.error('[WhatsAppForms] settings error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load settings' });
+  }
+}
+
+export async function updateSettings(req, res) {
+  try {
+    res.json(await whatsappFormsService.updateFormSettings(req.params.workspaceId, req.body || {}));
+  } catch (err) {
+    console.error('[WhatsAppForms] settings update error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to save settings' });
+  }
+}
+
 export async function exportSubmissions(req, res) {
   try {
     const { from, to, label } = req.query;

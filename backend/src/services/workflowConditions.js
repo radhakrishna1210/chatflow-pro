@@ -67,7 +67,7 @@ export function evaluateCondition(node, context = {}) {
 
 // Reads a value off the contact by name: a built-in column, a custom field
 // defined by the workspace, or a column from an uploaded contact sheet
-// (Contact.attributes, e.g. {{oyster_price}}). Built-ins and custom fields win,
+// (Contact.attributes, e.g. {{price}}). Built-ins and custom fields win,
 // so existing workflows read exactly what they read before.
 function readContactValue(contact, key) {
   if (!contact || !key) return undefined;
@@ -88,7 +88,7 @@ function readContactValue(contact, key) {
   const custom = contact.customFields && typeof contact.customFields === 'object' ? contact.customFields : {};
   const fromCustom = custom[key] ?? custom[lower];
   if (fromCustom !== undefined && fromCustom !== null) return fromCustom;
-  // Sheet columns are stored under normalised keys ("Oyster Price" → oyster_price),
+  // Sheet columns are stored under normalised keys ("Unit Price" → unit_price),
   // so the token is normalised the same way. `attr.` is accepted as an explicit prefix.
   const attrs = contact.attributes && typeof contact.attributes === 'object' && !Array.isArray(contact.attributes)
     ? contact.attributes : {};

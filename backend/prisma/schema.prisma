@@ -107,6 +107,11 @@ model Workspace {
   intentMatchingEnabled Boolean @default(false)
   intentMatchThreshold  Float   @default(0.6)
 
+  // "Orders with per-customer prices": sheet columns in workflow messages,
+  // calculated totals in form closing messages, Total on submissions. Off by
+  // default; the workspace admin turns it on. See lib/ordering.js.
+  orderingEnabled Boolean @default(false)
+
   // The agent's configuration beyond name/prompt/knowledge. Split into named
   // columns rather than one JSON blob because each is edited by its own
   // section of the AI Agent page and read independently when composing a

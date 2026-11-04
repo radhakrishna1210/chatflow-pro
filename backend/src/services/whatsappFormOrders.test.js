@@ -17,7 +17,7 @@ const contact = {
   attributes: { oyster_price: '165', milky_price: '150' },
 };
 
-const db = { open: null, updates: [], sent: [], submissions: [] };
+const db = { open: null, updates: [], sent: [], submissions: [], ordering: true };
 
 let service;
 before(async () => {
@@ -40,6 +40,10 @@ before(async () => {
           update: async () => ({}),
         },
         workspaceCustomField: { findMany: async () => [] },
+        workspace: {
+          findUnique: async () => ({ orderingEnabled: db.ordering }),
+          update: async ({ data }) => { db.ordering = data.orderingEnabled; return { orderingEnabled: db.ordering }; },
+        },
       },
     },
   });
@@ -51,7 +55,7 @@ before(async () => {
   service = await import('./whatsappForms.service.js');
 });
 
-beforeEach(() => { db.updates = []; db.sent = []; });
+beforeEach(() => { db.updates = []; db.sent = []; db.ordering = true; });
 
 test('closingTotal is the last calculation in the closing message', () => {
   const answers = { oyster_kg: '2', milky_kg: '1' };
@@ -117,4 +121,41 @@ test('CSV export has customer, phone, answers, total and status', async () => {
   assert.equal(lines[0], '"When","Customer","Phone","How many kg of Oyster?","How many kg of Milky?","Total","Status"');
   assert.equal(lines[1], '"2026-11-03T13:55:00.000Z","Harshal","+919322126234","2","1","480","Complete"');
   assert.equal(lines[2], '"2026-11-03T12:00:00.000Z","Harshal","+919322126234","3","","","Stopped at Q2"');
+});
+
+// ── Workspaces without "Orders with per-customer prices" ───────────────────
+
+test('ordering off: closing message is sent exactly as written, no total saved', async () => {
+  db.ordering = false;
+  db.open = { id: 's9', formId: 'f1', form, cursor: 1, answers: { oyster_kg: '2' } };
+  await service.handleFormInbound({
+    workspaceId: 'ws1', conversation: { id: 'conv1', waNumberId: 'wa1' }, contact, messageBody: '1',
+  });
+  const saved = db.updates.find((u) => u.where.id === 's9').data;
+  assert.deepEqual(saved.answers, { oyster_kg: '2', milky_kg: '1' });
+  assert.equal(db.sent.at(-1), CLOSING);
+});
+
+test('ordering off: no totals in the list, no Total column in the export', async () => {
+  db.ordering = false;
+  const before = db.submissions;
+  db.submissions = [
+    { id: 's1', contactId: 'c1', createdAt: new Date('2026-11-03T13:55:00Z'), completed: true, cursor: 2, answers: { oyster_kg: '2', milky_kg: '1', __total: 480 } },
+  ];
+  const [row] = await service.listSubmissions('ws1', 'f1');
+  assert.equal(row.total, null);
+  assert.equal(row.totalEstimated, false);
+  assert.equal(row.contactName, 'Harshal'); // customer columns stay for everyone
+  const { csv } = await service.exportSubmissionsCsv('ws1', 'f1');
+  const [header, line] = csv.split('\r\n');
+  assert.equal(header, '"When","Customer","Phone","How many kg of Oyster?","How many kg of Milky?","Status"');
+  assert.equal(line, '"2026-11-03T13:55:00.000Z","Harshal","+919322126234","2","1","Complete"');
+  db.submissions = before;
+});
+
+test('settings: read and switch the workspace setting', async () => {
+  db.ordering = false;
+  assert.deepEqual(await service.getFormSettings('ws1'), { orderingEnabled: false });
+  assert.deepEqual(await service.updateFormSettings('ws1', { orderingEnabled: true }), { orderingEnabled: true });
+  await assert.rejects(service.updateFormSettings('ws1', { orderingEnabled: 'yes' }), /true or false/);
 });

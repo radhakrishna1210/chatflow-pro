@@ -3,6 +3,12 @@ import { keywordMatches } from './automation.service.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { evaluateCondition, skipCount, renderTemplate, tidy, CONDITION_SUBTYPES } from './workflowConditions.js';
 import { INTERACTIVE_LIMITS } from '../lib/meta.js';
+import { isOrderingEnabled, contactForWorkflows } from '../lib/ordering.js';
+
+// Sheet columns ({{price}}) reach workflow messages and conditions only in
+// workspaces with "Orders with per-customer prices" turned on.
+const workflowContact = async (run, contact) =>
+  contactForWorkflows(contact, await isOrderingEnabled(run.workspaceId));
 
 // The Workflows tab used to be a drawing surface: workflows were saved,
 // toggled active, and never executed by anything. This is the interpreter that
@@ -161,7 +167,7 @@ async function conditionContext(run) {
     : null;
   return {
     messageBody: run.triggerMessage ?? '',
-    contact: conversation?.contact ?? null,
+    contact: await workflowContact(run, conversation?.contact ?? null),
     // A contact created within the last few minutes of this run starting is the
     // closest the engine can get to "new" once the run may have been resumed
     // from a delay hours later.
@@ -252,7 +258,7 @@ async function actionMessage(run, node) {
   // `{{name}}`, `{{customer_name}}`, `{{custom.order_number}}` and anything the run has collected.
   // Without this every automated message was identical for every recipient.
   const body = tidy(renderTemplate(node.value, {
-    contact: conversation.contact,
+    contact: await workflowContact(run, conversation.contact),
     variables: run.variables && typeof run.variables === 'object' ? run.variables : {},
     messageBody: run.triggerMessage ?? '',
   }));
@@ -287,7 +293,7 @@ async function actionButtons(run, node) {
   if (!conversation?.waNumberId) return { result: 'skipped', detail: 'Conversation has no connected number' };
 
   const context = {
-    contact: conversation.contact,
+    contact: await workflowContact(run, conversation.contact),
     variables: run.variables && typeof run.variables === 'object' ? run.variables : {},
     messageBody: run.triggerMessage ?? '',
   };
@@ -657,7 +663,7 @@ export async function sendReplyReminder(runId, cursor) {
   if (!conversation?.waNumberId) return { sent: false, reason: 'Conversation has no connected number' };
 
   const body = tidy(renderTemplate(node.reminder, {
-    contact: conversation.contact,
+    contact: await workflowContact(run, conversation.contact),
     variables,
     messageBody: run.triggerMessage ?? '',
   }));
