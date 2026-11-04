@@ -8,6 +8,7 @@ import { pricingForCatalogId, pricingForOAuthProvider } from '../config/integrat
 import {
   isOAuthProvider, providerConfigured, buildAuthUrl, exchangeCode, listProviders,
 } from '../lib/oauthProviders.js';
+import { parkOAuthCallback, claimOAuthCallback } from '../lib/oauthPending.js';
 
 // Free integrations are usable on every plan; paid ones require the plan's
 // `integrations` feature flag (PRO/ENTERPRISE in the seed data).
@@ -97,38 +98,66 @@ export async function oauthStart(req, res) {
 }
 
 // GET /integrations/oauth/:provider/callback — provider redirects here.
-// Unauthenticated by nature (browser redirect), so the signed state carries the
-// workspace binding; token exchange happens server-side and the encrypted
-// tokens never touch the client.
+// Unauthenticated by nature (browser redirect), so it cannot tell who is
+// holding the code: a signed state only proves we minted it. Finishing the
+// connection here let an attacker send a victim their own authorize URL and
+// collect the victim's provider tokens in the attacker's workspace. The code is
+// parked instead (lib/oauthPending.js) and the signed-in app finishes it via
+// oauthComplete, which checks the user and workspace that started the flow.
 export async function oauthCallback(req, res) {
   const { provider } = req.params;
   const { code, state, error: providerError } = req.query;
   const fail = (reason) => res.redirect(`${env.CLIENT_URL}/dashboard/integrations?oauth_error=${encodeURIComponent(reason)}&provider=${encodeURIComponent(provider)}`);
 
   if (providerError) return fail(String(providerError));
-  if (!code) return fail('missing_code');
+  if (!code || typeof code !== 'string') return fail('missing_code');
   const payload = verifyState(state);
-  if (!payload?.workspaceId || payload.provider !== provider) return fail('invalid_state');
+  if (!payload?.workspaceId || !payload.userId || payload.provider !== provider) return fail('invalid_state');
 
   try {
-    const tokens = await exchangeCode(provider, code, payload.extra || {});
-    // Store tokens encrypted at rest; expose only "connected" to the client.
-    await prisma.workspaceIntegration.upsert({
-      where: { workspaceId_provider: { workspaceId: payload.workspaceId, provider } },
-      create: {
-        workspaceId: payload.workspaceId, provider, type: 'oauth', status: 'CONNECTED',
-        encryptedCredentials: encrypt(JSON.stringify(tokens)),
-        config: { oauth: true, ...(payload.extra || {}), connectedBy: payload.userId },
-      },
-      update: {
-        type: 'oauth', status: 'CONNECTED',
-        encryptedCredentials: encrypt(JSON.stringify(tokens)),
-        config: { oauth: true, ...(payload.extra || {}), connectedBy: payload.userId },
-      },
+    const pending = await parkOAuthCallback({
+      kind: `integration:${provider}`,
+      workspaceId: payload.workspaceId,
+      userId: payload.userId,
+      data: { code, extra: payload.extra || {} },
     });
-    return res.redirect(`${env.CLIENT_URL}/dashboard/integrations?oauth_connected=${encodeURIComponent(provider)}`);
+    return res.redirect(`${env.CLIENT_URL}/dashboard/integrations?oauth_pending=${encodeURIComponent(pending)}&provider=${encodeURIComponent(provider)}`);
   } catch (err) {
     console.error(`[oauth:${provider}]`, err.message);
     return fail('exchange_failed');
   }
+}
+
+// POST /workspaces/:id/integrations/oauth/:provider/complete { pending }
+export async function oauthComplete(req, res) {
+  const { provider, workspaceId } = req.params;
+  if (!isOAuthProvider(provider)) return res.status(404).json({ error: `"${provider}" does not support OAuth.` });
+  let data;
+  try {
+    data = await claimOAuthCallback(req.body?.pending, { kind: `integration:${provider}`, workspaceId, userId: req.user?.id });
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message, code: err.code });
+  }
+  await assertIntegrationAccess(workspaceId, pricingForOAuthProvider(provider));
+  let tokens;
+  try {
+    tokens = await exchangeCode(provider, data.code, data.extra || {});
+  } catch (err) {
+    console.error(`[oauth:${provider}]`, err.message);
+    return res.status(502).json({ error: 'Token exchange with the provider failed. Check the app credentials and try again.', code: 'OAUTH_EXCHANGE_FAILED' });
+  }
+  // Store tokens encrypted at rest; expose only "connected" to the client.
+  const config = { oauth: true, ...(data.extra || {}), connectedBy: req.user.id };
+  await prisma.workspaceIntegration.upsert({
+    where: { workspaceId_provider: { workspaceId, provider } },
+    create: {
+      workspaceId, provider, type: 'oauth', status: 'CONNECTED',
+      encryptedCredentials: encrypt(JSON.stringify(tokens)), config,
+    },
+    update: {
+      type: 'oauth', status: 'CONNECTED',
+      encryptedCredentials: encrypt(JSON.stringify(tokens)), config,
+    },
+  });
+  res.json({ ok: true, provider });
 }

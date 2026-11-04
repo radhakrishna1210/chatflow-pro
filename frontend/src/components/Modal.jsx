@@ -3,6 +3,10 @@ import { I } from './Icons.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
+// Open dialogs, innermost last, so Escape closes only the top one even when
+// focus has wandered outside it (a click on the backdrop, a lost focus).
+const openStack = [];
+
 const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])';
 
 // The shared dialog. It used to be a bare overlay: no dialog role, Escape did
@@ -19,6 +23,14 @@ export const Modal = ({ title, onClose, children, footer, width = 540 }) => {
   closeRef.current = onClose;
 
   useEffect(() => {
+    const token = {};
+    openStack.push(token);
+    const onWindowKey = (e) => {
+      if (e.key !== 'Escape' || openStack[openStack.length - 1] !== token) return;
+      if (ref.current?.contains(e.target)) return; // handled by onKeyDown below
+      closeRef.current?.();
+    };
+    window.addEventListener('keydown', onWindowKey);
     const opener = document.activeElement;
     const node = ref.current;
     // Prefer the first form field over the header's close button.
@@ -28,6 +40,9 @@ export const Modal = ({ title, onClose, children, footer, width = 540 }) => {
       (field || node.querySelector(FOCUSABLE) || node).focus();
     });
     return () => {
+      window.removeEventListener('keydown', onWindowKey);
+      const i = openStack.indexOf(token);
+      if (i !== -1) openStack.splice(i, 1);
       if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus();
     };
   }, []);

@@ -692,6 +692,9 @@ function IntegrationCard({ intg, isConnected, locked, onAction, onDisconnect }) 
 }
 
 // ─── Main View ────────────────────────────────────────────────────────────────
+// Effects run twice in dev (StrictMode); an OAuth reference is single-use.
+const claimedOAuthPending = new Set();
+
 export default function IntegrationsView() {
   const [connected, setConnected] = useState({});
   const [activeCategory, setActiveCategory] = useState('All');
@@ -746,6 +749,23 @@ export default function IntegrationsView() {
 
     // Parse ?oauth_connected= / ?oauth_error=&provider= from the callback redirect.
     const q = new URLSearchParams(window.location.search);
+    // The provider callback only parks the authorization; it is finished here,
+    // signed in, so the tokens can only land in the workspace of the person who
+    // started the connection.
+    const pending = q.get('oauth_pending');
+    const pendingProvider = q.get('provider');
+    if (pending && pendingProvider && !claimedOAuthPending.has(pending)) {
+      claimedOAuthPending.add(pending);
+      window.history.replaceState({}, '', window.location.pathname);
+      wFetch(`/integrations/oauth/${encodeURIComponent(pendingProvider)}/complete`, { method: 'POST', body: JSON.stringify({ pending }) })
+        .then(async (res) => {
+          const d = await res.json().catch(() => ({}));
+          if (res.ok) setOauthBanner({ ok: `Connected ${pendingProvider} successfully.` });
+          else setOauthBanner({ error: `${d.error || 'The connection could not be completed.'} (${pendingProvider})` });
+          loadIntegrations().catch(e => setLoadError(e.message));
+        })
+        .catch(e => setOauthBanner({ error: e.message || 'The connection could not be completed.' }));
+    }
     if (q.get('oauth_connected')) {
       setOauthBanner({ ok: `Connected ${q.get('oauth_connected')} successfully.` });
     } else if (q.get('oauth_error')) {

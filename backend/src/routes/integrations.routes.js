@@ -13,6 +13,8 @@ router.use(authenticate, workspaceContext);
 router.get('/', controller.list);
 router.get('/oauth/providers', controller.oauthProviders);
 router.post('/oauth/:provider/start', controller.oauthStart);
+// Finishes a connection the public callback parked, for the user who started it.
+router.post('/oauth/:provider/complete', controller.oauthComplete);
 router.post('/:provider', controller.connect);
 router.delete('/:provider', controller.disconnect);
 
