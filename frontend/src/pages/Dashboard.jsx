@@ -2802,6 +2802,12 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
   // over the page the user just asked for is the classic drawer bug.
   const go = (id) => { setPage(id); if (mobile) onClose?.(); };
   const legalOn = page === 'legal';
+  // Opening the drawer moves focus into it, so Escape/Tab act on the menu the
+  // user just opened rather than on the page hidden behind the scrim.
+  const closeBtnRef = useRef(null);
+  useEffect(() => {
+    if (mobile && open) requestAnimationFrame(() => closeBtnRef.current?.focus());
+  }, [mobile, open]);
 
   const panel = (
     <div role="navigation" aria-label="Main navigation" style={{
@@ -2832,7 +2838,7 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
         </div>}
         {!col && <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: '15px', color: 'var(--t1)', whiteSpace: 'nowrap', letterSpacing: '-.02em' }}>Spandan</span>}
         {mobile && (
-          <button onClick={onClose} aria-label="Close navigation" style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', padding: '4px', display: 'flex' }}>
+          <button ref={closeBtnRef} onClick={onClose} aria-label="Close navigation" style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t2)', padding: '4px', display: 'flex' }}>
             <I n="x" s={15} c="var(--t2)" />
           </button>
         )}
@@ -2989,8 +2995,31 @@ function sectionFromPath(path, user) {
   if (rest === 'campaigns/create') return 'campaigns-create';
   if (rest === 'platform') return 'admin-overview'; // pre-restructure bookmark
   const section = rest.split('/')[0];
-  return VALID_SECTIONS.has(section) ? section : defaultSection;
+  // An unknown or mistyped URL used to render Home silently, with the bad
+  // address left in the bar and Home highlighted — a broken link looked like
+  // it worked. Sections that belong to the other kind of account (platform
+  // admin pages for a workspace user, workspace pages for a super admin, who
+  // has no workspace to load them from) are equally not there for this user.
+  if (!VALID_SECTIONS.has(section)) return 'not-found';
+  const superAdmin = user?.superAdmin === true;
+  if (section.startsWith('admin-') && !superAdmin) return 'not-found';
+  if (superAdmin && !section.startsWith('admin-') && !SUPERADMIN_EXTRA_SECTIONS.has(section)) return 'not-found';
+  return section;
 }
+
+// What a super admin can open outside the Platform Admin sections.
+const SUPERADMIN_EXTRA_SECTIONS = new Set([...SUPERADMIN_NAV.map(n => n.id), 'profile', 'resources']);
+
+const NotFoundView = ({ home }) => (
+  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <DashHeader title="Page not found" />
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14, color: 'var(--t2)', padding: 24, textAlign: 'center' }}>
+      <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>This page doesn't exist</h2>
+      <p style={{ fontSize: 13, maxWidth: 380 }}>The link may be mistyped, or it points to a section your account doesn't have.</p>
+      <Btn size="sm" onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: home }))}>Go to the dashboard</Btn>
+    </div>
+  </div>
+);
 
 // `subTab` becomes a `?tab=` query param so a Quick Link can deep-link into a
 // specific sub-tab of a tabbed page (e.g. Automation's "WhatsApp AI Agent",
@@ -3115,10 +3144,10 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
         />
       );
     }
+    if (page === 'not-found') return <NotFoundView home={user?.superAdmin === true ? 'admin-overview' : 'home'} />;
     if (page.startsWith('admin-')) {
-      // Each Platform Admin section is its own sidebar item now; regular users fall through.
-      if (user?.superAdmin === true) return <SuperAdminView tab={page.slice('admin-'.length)} />;
-      return <PlaceholderView title="Platform Admin" icon="chart" />;
+      // sectionFromPath only hands admin-* sections to super admins.
+      return <SuperAdminView tab={page.slice('admin-'.length)} />;
     }
     if (page === 'home')       return <HomeView />;
     if (page === 'inbox')      return <InboxView />;
@@ -3238,7 +3267,9 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
           aria-label="Ask your CRM"
           className="m-lift"
           style={{
-            position: 'fixed', right: 22, bottom: 22, zIndex: 90,
+            // On a phone the bottom tab bar owns the last ~62px; at 22px this
+            // sat on top of the "Analytics" tab and swallowed its taps.
+            position: 'fixed', right: mobile ? 14 : 22, bottom: mobile ? 'calc(76px + env(safe-area-inset-bottom, 0px))' : 22, zIndex: 90,
             display: 'inline-flex', alignItems: 'center', gap: 8,
             padding: '11px 16px', borderRadius: 999, cursor: 'pointer',
             background: 'var(--green)', color: '#060A10', border: 'none',

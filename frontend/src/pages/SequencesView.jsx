@@ -452,6 +452,20 @@ export const SequencesView = () => {
     load();
   };
 
+  // The API has always supported deleting a sequence (refused while contacts
+  // are still in it), but the page offered no way to do it.
+  const remove = async (sequence) => {
+    if (!window.confirm(`Delete the sequence "${sequence.name}"? This cannot be undone.`)) return;
+    setErr(null);
+    const res = await wFetch(`/sequences/${sequence.id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setErr(d.error || 'Could not delete the sequence');
+      return;
+    }
+    load();
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
       <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', gap: 12, flexWrap: 'wrap' }}>
@@ -506,6 +520,9 @@ export const SequencesView = () => {
                 )}
                 {s.status === 'PAUSED' && (
                   <Btn size="sm" onClick={() => changeStatus(s, 'PUBLISHED')}>Resume</Btn>
+                )}
+                {s.status !== 'PUBLISHED' && (
+                  <Btn size="sm" variant="ghost" onClick={() => remove(s)}>Delete</Btn>
                 )}
               </div>
             </div>

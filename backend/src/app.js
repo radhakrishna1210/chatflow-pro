@@ -28,11 +28,27 @@ app.set('trust proxy', env.TRUST_PROXY_HOPS);
 
 app.use(securityHeaders);
 
+// Request logs must not become a credential store. Invite tokens travel in the
+// path (/invitations/:token) and OAuth codes, states and the legacy session
+// token in the query string; each of those is usable by whoever reads the log.
+const SECRET_QUERY_KEYS = /^(code|state|token|currentToken|refreshToken|access_token|req|invite)$/i;
+function redactUrl(url) {
+  try {
+    const u = new URL(url, 'http://x');
+    let path = u.pathname.replace(/(\/invitations\/)[^/]+/, '$1[redacted]');
+    for (const key of [...u.searchParams.keys()]) if (SECRET_QUERY_KEYS.test(key)) u.searchParams.set(key, '[redacted]');
+    const qs = u.searchParams.toString();
+    return path + (qs ? `?${qs}` : '');
+  } catch {
+    return '[unparseable url]';
+  }
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    logToFile(`${req.method} ${req.url} - Status: ${res.statusCode} (${duration}ms)`);
+    logToFile(`${req.method} ${redactUrl(req.originalUrl || req.url)} - Status: ${res.statusCode} (${duration}ms)`);
   });
   next();
 });
@@ -77,7 +93,7 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Current-Session');
     res.setHeader('Access-Control-Max-Age', '600');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);

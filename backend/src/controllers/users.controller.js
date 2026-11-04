@@ -17,7 +17,10 @@ export async function changePassword(req, res) {
 }
 
 export async function listSessions(req, res) {
-  const currentToken = typeof req.query.currentToken === 'string' ? req.query.currentToken : null;
+  // Sent as a header so a live refresh token never sits in a URL (request
+  // logs, proxies). The query form is still read for older clients.
+  const header = req.get('x-current-session');
+  const currentToken = header || (typeof req.query.currentToken === 'string' ? req.query.currentToken : null);
   const result = await usersService.listSessions(req.user.id, currentToken);
   res.json(result);
 }

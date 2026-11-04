@@ -1,10 +1,18 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { Modal } from '../components/Modal.jsx';
 import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
+import { canManage } from '../lib/permissions.js';
+import MobileNavButton from '../components/MobileNavButton.jsx';
+
+// What the "Log Engagement" form sends as `type`. Video calls and visits are
+// both MEETING rows server-side (the structured engagementType keeps them
+// apart); a Note is a NOTE — it used to fall through to MEETING and come back
+// listed as a "Video Call".
+const RAW_TYPE = { Call: 'CALL', 'Video Call': 'MEETING', Visit: 'MEETING', Message: 'EMAIL', Note: 'NOTE' };
 
 // Social / Channel icons helper
 const ChannelIcon = ({ source = 'INCOMING' }) => {
@@ -115,6 +123,19 @@ export default function EngagementsView({ user, initialTab }) {
   });
   const [scope, setScope] = useState('ALL'); // 'MY' | 'ALL'
   const [search, setSearch] = useState('');
+  // One request per pause in typing, not per keystroke — and see the
+  // request-id guard below for responses that come back out of order.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  const reqId = useRef(0);
+  // Logging writes a CRM activity: members and admins only on the server
+  // (routes/activities.routes.js + roleCapabilities), so only they see it.
+  const mayLog = canManage(user);
+  const [total, setTotal] = useState(0);
+  const [saveErr, setSaveErr] = useState(null);
   const [engagements, setEngagements] = useState([]);
   const [counts, setCounts] = useState({ ALL: 0, CALL: 0, VIDEO_CALL: 0, MESSAGES: 0, VISITS: 0 });
   const [loading, setLoading] = useState(true);
@@ -138,6 +159,7 @@ export default function EngagementsView({ user, initialTab }) {
 
   // Fetch engagements from backend
   const fetchEngagements = useCallback(async () => {
+    const id = ++reqId.current;
     setLoading(true);
     setError(null);
     try {
@@ -150,17 +172,22 @@ export default function EngagementsView({ user, initialTab }) {
       if (scope === 'MY' && user?.id) {
         q.set('ownerUserId', user.id);
       }
-      if (search.trim().length >= 1) {
-        q.set('search', search.trim());
+      if (debouncedSearch) {
+        q.set('search', debouncedSearch);
       }
 
       const res = await wFetch(`/activities?${q.toString()}`);
       if (!res.ok) throw new Error('Failed to load engagements');
       const data = await res.json();
+      if (id !== reqId.current) return; // a newer query has already answered
       setEngagements(data.data || []);
+      setTotal(data.total || 0);
+      setSelectedIds(new Set());
       if (data.counts) {
         setCounts({
-          ALL: data.total || 0,
+          // counts.ALL is the whole workspace; `total` is only the current
+          // tab+search, which made the "All" badge change with every tab.
+          ALL: data.counts.ALL ?? data.total ?? 0,
           CALL: data.counts.CALL || 0,
           VIDEO_CALL: data.counts.VIDEO_CALL || 0,
           MESSAGES: data.counts.MESSAGES || 0,
@@ -168,30 +195,30 @@ export default function EngagementsView({ user, initialTab }) {
         });
       }
     } catch (err) {
-      console.error('[EngagementsView] Error:', err);
+      if (id !== reqId.current) return;
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (id === reqId.current) setLoading(false);
     }
-  }, [activeTab, scope, search, user?.id]);
+  }, [activeTab, scope, debouncedSearch, user?.id]);
 
   useEffect(() => {
     fetchEngagements();
   }, [fetchEngagements]);
 
-  // Pre-fetch leads for logging modal
+  // Leads for the logging modal. Once — it used to depend on selectedLeadId,
+  // so picking a lead in the dropdown refetched the whole list each time.
   useEffect(() => {
+    if (!mayLog) return;
     wFetch('/leads?limit=100')
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
         const list = Array.isArray(data) ? data : data?.data || [];
         setLeadsList(list);
-        if (list.length > 0 && !selectedLeadId) {
-          setSelectedLeadId(list[0].id);
-        }
+        setSelectedLeadId((cur) => cur || list[0]?.id || '');
       })
       .catch(() => {});
-  }, [selectedLeadId]);
+  }, [mayLog]);
 
   // Select all checkbox handler
   const handleToggleSelectAll = () => {
@@ -212,10 +239,17 @@ export default function EngagementsView({ user, initialTab }) {
 
   // Submit new engagement
   const handleSaveEngagement = async () => {
+    if (saving) return;
     if (!selectedLeadId) {
-      alert('Please select a lead');
+      setSaveErr('Pick the lead this engagement was with.');
       return;
     }
+    const mins = durationMins === '' ? null : Number(durationMins);
+    if (mins !== null && (!Number.isInteger(mins) || mins < 0)) {
+      setSaveErr('Duration must be a whole number of minutes.');
+      return;
+    }
+    setSaveErr(null);
     setSaving(true);
     try {
       const selLead = leadsList.find((l) => l.id === selectedLeadId);
@@ -225,10 +259,10 @@ export default function EngagementsView({ user, initialTab }) {
         body: JSON.stringify({
           leadId: selectedLeadId,
           contactId: selLead?.contactId,
-          type: engagementType === 'Call' ? 'CALL' : engagementType === 'Message' ? 'EMAIL' : 'MEETING',
+          type: RAW_TYPE[engagementType] || 'NOTE',
           engagementType,
           status: engagementStatus,
-          duration: durationMins ? parseInt(durationMins, 10) : null,
+          duration: mins,
           notes: notes.trim() || `${engagementType} with lead`,
           content: notes.trim() || `${engagementType} logged`,
         }),
@@ -244,7 +278,7 @@ export default function EngagementsView({ user, initialTab }) {
       setDurationMins('');
       fetchEngagements();
     } catch (err) {
-      alert(`Could not log engagement: ${err.message}`);
+      setSaveErr(`Could not log engagement: ${err.message}`);
     } finally {
       setSaving(false);
     }

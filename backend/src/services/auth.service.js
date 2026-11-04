@@ -102,16 +102,23 @@ export async function register({ name, email, password, role = 'CLIENT', inviteT
   };
 }
 
+// A real bcrypt hash (of a random string nobody knows) at the configured cost,
+// so a lookup miss costs the same as a wrong password.
+const TIMING_DUMMY_HASH = bcrypt.hashSync(randomUUID(), env.BCRYPT_SALT_ROUNDS);
+
 export async function login({ email, password }) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  // Always pay for one bcrypt comparison. Answering an unknown address without
+  // hashing anything took ~1ms against ~100ms+ for a real account, so response
+  // time alone said which emails are registered.
+  const valid = await bcrypt.compare(String(password), user?.passwordHash || TIMING_DUMMY_HASH);
   if (!user || !user.passwordHash) {
     const err = new Error('Invalid credentials');
     err.status = 401;
     throw err;
   }
 
-  const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
     const err = new Error('Invalid credentials');
     err.status = 401;
