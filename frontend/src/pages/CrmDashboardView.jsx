@@ -218,6 +218,11 @@ export function CrmDashboardView({ user }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      {loadError && (
+        <div role="alert" style={{ padding: '8px 28px', background: 'rgba(239,68,68,.08)', borderBottom: '1px solid rgba(239,68,68,.22)', color: '#f87171', fontSize: 12.5 }}>
+          {loadError} The figures below are from the last successful load.
+        </div>
+      )}
       {/* Top Header Bar */}
       <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 28px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
