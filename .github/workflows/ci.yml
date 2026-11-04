@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: svann_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    # Dummy values only: env.js requires these to be present, and the tests
+    # never reach Meta, Google or Razorpay.
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/svann_ci
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/svann_ci
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret-0123456789abcdef0123456789
+      JWT_REFRESH_SECRET: ci-refresh-secret-0123456789abcdef012345678
+      ADMIN_EMAIL: admin@example.com
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+      META_APP_ID: ci
+      META_APP_SECRET: ci-meta-secret
+      META_BUSINESS_ID: ci
+      META_WABA_ID: ci
+      META_SYSTEM_USER_ID: ci
+      META_SYSTEM_USER_TOKEN: ci
+      META_DISPLAY_NAME: Svann
+      META_WEBHOOK_VERIFY_TOKEN: ci-verify
+      GOOGLE_CLIENT_ID: ci
+      GOOGLE_CLIENT_SECRET: ci
+      BCRYPT_SALT_ROUNDS: '4'
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --legacy-peer-deps
+      # Exercises the same path a fresh deploy takes.
+      - run: node scripts/migrate-or-bootstrap.js
+      - run: npm test
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build

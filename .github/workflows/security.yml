@@ -1,0 +1,85 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 3 * * 1'   # weekly, catches newly published advisories
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep (SAST)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      # --metrics=off: no telemetry. Rules come from the public registry.
+      - run: >
+          semgrep scan --metrics=off --error --severity ERROR
+          --config p/javascript --config p/nodejs --config p/react
+          --config p/expressjs --config p/jwt --config p/secrets
+          --sarif --output semgrep.sarif
+          backend/src frontend/src
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Backend (production deps, blocks on critical)
+        run: npm audit --omit=dev --audit-level=critical
+        working-directory: backend
+      - name: Frontend (blocks on critical)
+        run: npm audit --audit-level=critical
+        working-directory: frontend
+
+  # Diff-scoped AI pentest of each pull request (see .claude/skills/ci-security-scanning-with-strix).
+  # Runs only once the repository has the STRIX_LLM and LLM_API_KEY secrets;
+  # until then it reports a skip instead of failing every PR.
+  strix:
+    name: Strix (PR pentest)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for Strix credentials
+        id: creds
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          if [ -n "$LLM_API_KEY" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; else echo "::notice::Strix skipped: add STRIX_LLM and LLM_API_KEY repository secrets to enable it."; fi
+      - name: Install Strix
+        if: steps.creds.outputs.ready == 'true'
+        run: curl -sSL https://strix.ai/install | bash
+      - name: Run diff-scoped scan
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          STRIX_LLM: ${{ secrets.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: strix -n -t ./ --scan-mode quick --scope-mode diff --diff-base "origin/${{ github.base_ref }}" --fail-on high --max-budget 10
+      - name: Fail unless the scan completed
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          run_json=$(ls -t strix_runs/*/run.json | head -1)
+          status=$(jq -r .status "$run_json")
+          if [ "$status" != "completed" ]; then
+            echo "Strix run status is '$status' — the scan did not complete. Raise --max-budget." >&2
+            exit 1
+          fi
