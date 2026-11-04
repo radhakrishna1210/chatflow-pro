@@ -480,7 +480,12 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
     e.details = { requiredVariables: required, missingVariables: missing };
     throw e;
   }
-  const nameResolver = contactVariableResolver(conversation.contact);
+  // A contact created from a bare number (an API send, an inbound message with
+  // no profile name) is "named" its phone number — "Hi +919876543210" is worse
+  // than the documented "Hi there".
+  const contactName = String(conversation.contact?.name || '');
+  const nameIsPhone = !/[\p{L}]/u.test(contactName) && normalizePhone(contactName) === normalizePhone(conversation.contact?.phoneNumber);
+  const nameResolver = contactVariableResolver(nameIsPhone ? { ...conversation.contact, name: '' } : conversation.contact);
   const resolve = (i, component) => supplied[i] || (i === 0 ? nameResolver(0, component) : '');
 
   const credit = await consumeMessageCredit(workspaceId, {

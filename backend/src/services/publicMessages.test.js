@@ -148,3 +148,10 @@ test('a national-format number is sent with the sending number\'s country code',
   const res = await sendPublicMessage(workspaceId, { to: `86${tail}`, type: 'template', template: { name: 'order_update', language: { code: 'en' }, variables: ['a', 'b', 'c'] } });
   assert.equal(res.to, `9186${tail}`);
 });
+
+test('an empty {{1}} for a contact named only by its number reads "there", not the number', async (t) => {
+  if (skip(t)) return;
+  await sendPublicMessage(workspaceId, { to: `+9187${tail}`, type: 'template', template: { name: 'order_update', language: { code: 'en' }, variables: ['', 'b', 'c'] } });
+  const params = sends.at(-1).payload.components.find((c) => c.type === 'body').parameters.map((p) => p.text);
+  assert.equal(params[0], 'there');
+});
