@@ -141,8 +141,6 @@ export default function EngagementsView({ user, initialTab }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Selection
-  const [selectedIds, setSelectedIds] = useState(new Set());
 
   // New Engagement Modal
   const [showLogModal, setShowLogModal] = useState(false);
@@ -182,7 +180,6 @@ export default function EngagementsView({ user, initialTab }) {
       if (id !== reqId.current) return; // a newer query has already answered
       setEngagements(data.data || []);
       setTotal(data.total || 0);
-      setSelectedIds(new Set());
       if (data.counts) {
         setCounts({
           // counts.ALL is the whole workspace; `total` is only the current
@@ -219,23 +216,6 @@ export default function EngagementsView({ user, initialTab }) {
       })
       .catch(() => {});
   }, [mayLog]);
-
-  // Select all checkbox handler
-  const handleToggleSelectAll = () => {
-    if (selectedIds.size === engagements.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(engagements.map((e) => e.id)));
-    }
-  };
-
-  const handleToggleSelectOne = (id) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
 
   // Submit new engagement
   const handleSaveEngagement = async () => {
@@ -303,9 +283,10 @@ export default function EngagementsView({ user, initialTab }) {
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
       {/* ── TOP PAGE HEADER ── */}
       <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
-        <div>
+        <MobileNavButton />
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Engagements</span>
+            <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)', margin: 0 }}>Engagements</h1>
             <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{counts.ALL || 0}</span>
           </div>
           <p style={{ margin: '2px 0 0', color: 'var(--t3)', fontSize: 11.5 }}>
@@ -313,16 +294,18 @@ export default function EngagementsView({ user, initialTab }) {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Btn size="sm" onClick={() => setShowLogModal(true)}>
-            <I n="plus" s={14} c="#060A10" /> Log Engagement
-          </Btn>
-        </div>
+        {mayLog && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Btn size="sm" onClick={() => { setSaveErr(null); setShowLogModal(true); }}>
+              <I n="plus" s={14} c="#060A10" /> Log Engagement
+            </Btn>
+          </div>
+        )}
       </div>
 
       {/* ── SUB-TABS RIBBON ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', borderBottom: '1px solid var(--bd)', background: 'rgba(255,255,255,0.01)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 24px', borderBottom: '1px solid var(--bd)', background: 'rgba(255,255,255,0.01)' }}>
+        <div role="tablist" aria-label="Engagement type" style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', minWidth: 0 }}>
           {[
             { id: 'ALL', label: 'All Engagements', count: counts.ALL },
             { id: 'CALLS', label: 'Calls', count: counts.CALL },
@@ -334,6 +317,8 @@ export default function EngagementsView({ user, initialTab }) {
             return (
               <button
                 key={tab.id}
+                role="tab"
+                aria-selected={isSel}
                 onClick={() => setActiveTab(tab.id)}
                 style={{
                   padding: '6px 14px',
@@ -375,6 +360,7 @@ export default function EngagementsView({ user, initialTab }) {
           onClick={fetchEngagements}
           disabled={loading}
           title="Refresh engagements"
+          aria-label="Refresh engagements"
           style={{
             width: 32,
             height: 32,
@@ -407,17 +393,6 @@ export default function EngagementsView({ user, initialTab }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          {/* Checkbox select all */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--t2)', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={engagements.length > 0 && selectedIds.size === engagements.length}
-              onChange={handleToggleSelectAll}
-              style={{ cursor: 'pointer', width: 16, height: 16, accentColor: 'var(--accent, #35e8f2)' }}
-            />
-            <span>Select All</span>
-          </label>
-
           {/* Scope Toggle: My vs All */}
           <div
             style={{
@@ -429,6 +404,7 @@ export default function EngagementsView({ user, initialTab }) {
             }}
           >
             <button
+              aria-pressed={scope === 'MY'}
               onClick={() => setScope('MY')}
               style={{
                 padding: '4px 12px',
@@ -445,6 +421,7 @@ export default function EngagementsView({ user, initialTab }) {
               My
             </button>
             <button
+              aria-pressed={scope === 'ALL'}
               onClick={() => setScope('ALL')}
               style={{
                 padding: '4px 12px',
@@ -464,11 +441,12 @@ export default function EngagementsView({ user, initialTab }) {
         </div>
 
         {/* Right Search Input: "Type first 3 letters..." */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 280 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 220px', maxWidth: 360 }}>
           <div style={{ position: 'relative', width: '100%' }}>
             <input
               type="text"
-              placeholder="Type first 3 letters..."
+              placeholder="Search lead, owner or notes…"
+              aria-label="Search engagements"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               style={{
@@ -488,6 +466,7 @@ export default function EngagementsView({ user, initialTab }) {
             </div>
             {search && (
               <button
+                aria-label="Clear search"
                 onClick={() => setSearch('')}
                 style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)' }}
               >
@@ -514,14 +493,6 @@ export default function EngagementsView({ user, initialTab }) {
                 zIndex: 10,
               }}
             >
-              <th style={{ padding: '12px 10px', width: 34 }}>
-                <input
-                  type="checkbox"
-                  checked={engagements.length > 0 && selectedIds.size === engagements.length}
-                  onChange={handleToggleSelectAll}
-                  style={{ cursor: 'pointer', accentColor: 'var(--accent, #35e8f2)' }}
-                />
-              </th>
               <th style={{ padding: '12px 10px', minWidth: 200 }}>Lead</th>
               <th style={{ padding: '12px 10px', minWidth: 130 }}>Lead Source</th>
               <th style={{ padding: '12px 10px', minWidth: 140 }}>Engagement Type</th>
@@ -534,38 +505,52 @@ export default function EngagementsView({ user, initialTab }) {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} style={{ padding: 40, textAlign: 'center', color: 'var(--t2)' }}>
+                <td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--t2)' }}>
                   <div style={{ width: 22, height: 22, border: '2px solid var(--accent, #35e8f2)', borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 10px', animation: 'spin 1s linear infinite' }} />
                   <div style={{ fontSize: 13 }}>Loading engagements...</div>
                 </td>
               </tr>
+            ) : error ? (
+              <tr>
+                <td colSpan={7} role="alert" style={{ padding: 40, textAlign: 'center', color: '#f87171', fontSize: 13 }}>
+                  Couldn't load engagements. <button onClick={fetchEngagements} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Try again</button>
+                </td>
+              </tr>
             ) : engagements.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ padding: 48, textAlign: 'center', color: 'var(--t3)' }}>
+                <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: 'var(--t3)' }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--t2)', marginBottom: 6 }}>No engagements found</div>
                   <div style={{ fontSize: 12.5, color: 'var(--t3)' }}>Log a call, video meeting, visit or message to start tracking team touchpoints.</div>
-                  <div style={{ marginTop: 14 }}>
-                    <Btn size="sm" onClick={() => setShowLogModal(true)}>
-                      <I n="plus" s={14} c="#060A10" /> Log First Engagement
-                    </Btn>
-                  </div>
+                  {mayLog && !debouncedSearch && (
+                    <div style={{ marginTop: 14, display: 'flex', justifyContent: 'center' }}>
+                      <Btn size="sm" onClick={() => { setSaveErr(null); setShowLogModal(true); }}>
+                        <I n="plus" s={14} c="#060A10" /> Log First Engagement
+                      </Btn>
+                    </div>
+                  )}
                 </td>
               </tr>
             ) : (
               engagements.map((item) => {
-                const isSelected = selectedIds.has(item.id);
-                const leadName = item.leadName || item.lead?.contact?.name || item.contact?.name || item.lead?.contact?.phoneNumber || 'Investor Contact';
-                const leadSource = item.leadSource || item.lead?.source || 'INBOUND';
+                const isSelected = false;
+                // No invented names: a missing owner or team reads as a dash,
+                // not as "Sales Rep" / "Enterprise Growth Team".
+                const leadName = item.leadName || item.lead?.contact?.name || item.contact?.name || item.lead?.contact?.phoneNumber || 'Unknown contact';
+                const leadSource = item.leadSource || item.lead?.source || '—';
                 const leadStage = item.leadStage || (item.lead?.status === 'QUALIFIED' ? 'Qualified Leads' : 'Opportunity Lead');
                 const engType = item.engagementType || (item.type === 'MEETING' ? 'Video Call' : item.type === 'CALL' ? 'Call' : item.type === 'EMAIL' ? 'Message' : 'Note');
                 const engStatus = item.engagementStatus || 'Completed';
-                const ownerName = item.createdByUser?.name || 'Sales Rep';
-                const teamName = item.teamName || 'Enterprise Growth Team';
+                const ownerName = item.createdByUser?.name || '—';
+                const teamName = item.teamName && item.teamName !== 'Enterprise Growth Team' ? item.teamName : '—';
+                const open = () => setViewingItem({ ...item, leadName, leadSource, leadStage, engagementType: engType, engagementStatus: engStatus, teamName });
 
                 return (
                   <tr
                     key={item.id}
-                    onClick={() => setViewingItem({ ...item, leadName, leadSource, leadStage, engagementType: engType, engagementStatus: engStatus, teamName })}
+                    tabIndex={0}
+                    aria-label={`${engType} with ${leadName} — open details`}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
+                    onClick={open}
                     style={{
                       borderBottom: '1px solid var(--bd)',
                       background: isSelected ? 'rgba(53, 232, 242, 0.05)' : 'transparent',
@@ -579,15 +564,6 @@ export default function EngagementsView({ user, initialTab }) {
                       if (!isSelected) e.currentTarget.style.background = 'transparent';
                     }}
                   >
-                    <td style={{ padding: '12px 10px' }} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => handleToggleSelectOne(item.id)}
-                        style={{ cursor: 'pointer', accentColor: 'var(--accent, #35e8f2)' }}
-                      />
-                    </td>
-
                     {/* Lead Column (Avatar + Name + Stage Tag) */}
                     <td style={{ padding: '12px 10px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -687,15 +663,28 @@ export default function EngagementsView({ user, initialTab }) {
             )}
           </tbody>
         </table>
+        {/* The list endpoint pages (200 rows by default) and this screen does
+            not, so say when there is more than is shown. */}
+        {!loading && !error && total > engagements.length && (
+          <p style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 10 }}>
+            Showing the latest {engagements.length} of {total}. Narrow it down with a tab or search.
+          </p>
+        )}
       </div>
 
       {/* ── MODAL: LOG NEW ENGAGEMENT ── */}
       {showLogModal && (
         <Modal title="Log New Engagement" onClose={() => setShowLogModal(false)} width={500}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {saveErr && (
+              <div role="alert" style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.1)', color: '#f87171', borderRadius: 6, fontSize: 12 }}>{saveErr}</div>
+            )}
             <div>
               <FLabel required>Target Lead</FLabel>
-              <FSelect value={selectedLeadId} onChange={(e) => setSelectedLeadId(e.target.value)}>
+              {leadsList.length === 0 && (
+                <p style={{ fontSize: 12, color: 'var(--t3)', margin: '0 0 6px' }}>No leads yet — an engagement is logged against a lead, so create one in Leads first.</p>
+              )}
+              <FSelect value={selectedLeadId} onChange={(e) => setSelectedLeadId(e.target.value)} aria-label="Target lead">
                 {leadsList.map((l) => (
                   <option key={l.id} value={l.id} style={{ background: '#1e293b', color: '#fff' }}>
                     {l.contact?.name || l.contact?.phoneNumber} ({l.source || 'Incoming'}) · Score: {l.score}
@@ -730,6 +719,8 @@ export default function EngagementsView({ user, initialTab }) {
               <FLabel>Duration (Minutes, Optional)</FLabel>
               <FInput
                 type="number"
+                min={0}
+                step={1}
                 placeholder="e.g. 15"
                 value={durationMins}
                 onChange={(e) => setDurationMins(e.target.value)}
@@ -784,7 +775,7 @@ export default function EngagementsView({ user, initialTab }) {
               </div>
               <div>
                 <div style={{ fontSize: 11, color: 'var(--t3)', textTransform: 'uppercase' }}>Logged By</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', marginTop: 2 }}>{viewingItem.createdByUser?.name || 'Rep'}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', marginTop: 2 }}>{viewingItem.createdByUser?.name || '—'}</div>
               </div>
               <div>
                 <div style={{ fontSize: 11, color: 'var(--t3)', textTransform: 'uppercase' }}>Team</div>

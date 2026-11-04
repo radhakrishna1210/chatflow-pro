@@ -211,9 +211,9 @@ const CONNECT_CONFIG = {
   'xendit':           { type: 'apikey',  fields: [{ key: 'secret_key', label: 'Secret Key', placeholder: 'xnd_production_xxxxxxxxxxxx' }] },
   'cashfree':         { type: 'apikey',  fields: [{ key: 'app_id', label: 'App ID', placeholder: 'Your Cashfree App ID' }, { key: 'secret_key', label: 'Secret Key', placeholder: 'Enter your secret key', password: true }] },
   'stripe':           { type: 'apikey',  fields: [{ key: 'secret_key', label: 'Secret Key', placeholder: 'sk_live_xxxxxxxxxxxx' }, { key: 'webhook_secret', label: 'Webhook Secret', placeholder: 'whsec_xxxxxxxxxxxx' }] },
-  'pabbly':           { type: 'webhook', hint: 'Copy this webhook URL into your Pabbly Connect workflow as a Webhook trigger.' },
-  'integromat':       { type: 'webhook', hint: 'Copy this URL into your Make (Integromat) scenario as a Custom Webhook module.' },
-  'zapier':           { type: 'webhook', hint: 'Copy this URL into your Zapier Zap using the "Webhooks by Zapier" Catch Hook trigger.' },
+  'pabbly':           { type: 'webhook', hint: 'In your Pabbly Connect workflow, add an "API by Pabbly" action that POSTs to this URL.' },
+  'integromat':       { type: 'webhook', hint: 'In your Make (Integromat) scenario, add an HTTP "Make a request" module that POSTs to this URL.' },
+  'zapier':           { type: 'webhook', hint: 'In your Zap, add a "Webhooks by Zapier" POST action that sends to this URL.' },
   'google-sheets':    { type: 'oauth',   provider: 'Google' },
   'shopify-sales':    { type: 'apikey',  fields: [{ key: 'shop_url', label: 'Shop URL', placeholder: 'yourstore.myshopify.com' }, { key: 'api_key', label: 'API Key', placeholder: 'Your Shopify Admin API key' }, { key: 'api_secret', label: 'API Secret Key', placeholder: 'Enter your API secret key', password: true }] },
   'shopify-marketing':{ type: 'apikey',  fields: [{ key: 'shop_url', label: 'Shop URL', placeholder: 'yourstore.myshopify.com' }, { key: 'api_key', label: 'API Key', placeholder: 'Your Shopify Admin API key' }, { key: 'api_secret', label: 'API Secret Key', placeholder: 'Enter your API secret key', password: true }] },
@@ -440,7 +440,7 @@ function ConnectModal({ intg, onClose, onSave }) {
                 <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.65 }}>{cfg.hint}</p>
               </div>
               <div>
-                <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--t2)', marginBottom: 8 }}>Your Webhook URL</p>
+                <p style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--t2)', marginBottom: 8 }}>Endpoint URL</p>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <code style={{ flex: 1, padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 11.5, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {wUrl}

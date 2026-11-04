@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { Modal } from './Modal.jsx';
 import { Btn } from './Btn.jsx';
-import { FInput, FLabel, FSelect } from './Form.jsx';
+import { FInput, FLabel } from './Form.jsx';
 import { wFetch } from '../lib/api.js';
 
 export function BulkTaskModal({ leadIds = [], onClose, onCreated }) {
   const [title, setTitle] = useState('Follow-up with lead');
   const [dueDate, setDueDate] = useState(new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10));
-  const [priority, setPriority] = useState('NORMAL');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
 
   const handleSubmit = async () => {
+    if (saving) return;
     if (!title.trim()) { setErr('Task title is required'); return; }
     setSaving(true);
     setErr(null);
@@ -19,7 +19,7 @@ export function BulkTaskModal({ leadIds = [], onClose, onCreated }) {
       const res = await wFetch('/leads/bulk-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: leadIds, title: title.trim(), dueDate, priority }),
+        body: JSON.stringify({ ids: leadIds, title: title.trim(), dueDate: dueDate || null }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -48,23 +48,11 @@ export function BulkTaskModal({ leadIds = [], onClose, onCreated }) {
           <FInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Call for qualification, Send contract" />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div>
-            <FLabel>Due Date</FLabel>
-            <FInput type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-          </div>
-          <div>
-            <FLabel>Priority</FLabel>
-            <FSelect
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              options={[
-                { value: 'HIGH', label: '🔴 High Priority' },
-                { value: 'NORMAL', label: '🟡 Normal' },
-                { value: 'LOW', label: '⚪ Low' },
-              ]}
-            />
-          </div>
+        {/* There was a Priority picker here. Tasks carry no priority (see
+            leadSchemas.bulkTask), so whatever was chosen was thrown away. */}
+        <div>
+          <FLabel>Due Date</FLabel>
+          <FInput type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>

@@ -56,6 +56,15 @@ export function LogInteractionModal({ lead, onClose, onLogged }) {
       ? visitOutcomes.map(o => ({ value: o.name, label: o.name, sentiment: o.sentiment }))
       : OUTCOMES.map(o => ({ value: o, label: o, sentiment: 'NEUTRAL' }));
 
+  // The outcome list changes with the type (and when the workspace's own
+  // outcomes arrive). Keep the selection one the list actually offers — the
+  // select would otherwise show its first option while a different, stale
+  // outcome was what got saved.
+  const optionKey = activeOutcomeOptions.map(o => o.value).join('|');
+  useEffect(() => {
+    if (!activeOutcomeOptions.some(o => o.value === outcome)) handleOutcomeChange(activeOutcomeOptions[0]?.value || '');
+  }, [optionKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleOutcomeChange = (newOutcomeName) => {
     setOutcome(newOutcomeName);
     const matched = activeOutcomeOptions.find(o => o.value === newOutcomeName);
@@ -65,6 +74,7 @@ export function LogInteractionModal({ lead, onClose, onLogged }) {
   };
 
   const handleSubmit = async () => {
+    if (saving) return;
     setSaving(true);
     setErr(null);
     try {
@@ -85,7 +95,8 @@ export function LogInteractionModal({ lead, onClose, onLogged }) {
           content,
           outcome,
           sentiment,
-          duration,
+          // Duration is already in `content`. Sent on its own it would make
+          // createActivity re-wrap the content as engagement JSON.
         }),
       });
 

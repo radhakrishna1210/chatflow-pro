@@ -80,3 +80,37 @@ test('AI Agents Hub - executeAction is scoped to the caller workspace', async ()
     await prisma.workspace.deleteMany({ where: { id: { in: [wsA.id, wsB.id] } } });
   }
 });
+
+// Editing or deleting one starter agent must not make the others disappear,
+// and a deleted starter must stay deleted.
+test('AI Agents Hub - starters survive edits and deletes of their siblings', async () => {
+  const { prisma } = await import('../lib/prisma.js');
+  const svc = await import('./aiAgents.service.js');
+  const ws = await prisma.workspace.create({ data: { name: `agents_${Date.now()}` } });
+  try {
+    const edited = await svc.updateAgent(ws.id, 'agent_investor_support', { name: 'Support (edited)', systemPrompt: 'x'.repeat(10_000), junk: 'y' });
+    let list = await svc.listAgents(ws.id);
+    assert.equal(list.length, 4, 'three starters plus the edited copy');
+    assert.ok(list.some((a) => a.name === 'Support (edited)'));
+    assert.ok(!list.some((a) => a.id === 'agent_investor_support'), 'the edited starter is replaced, not duplicated');
+    assert.ok(edited.systemPrompt.length <= 4000);
+    assert.equal(edited.junk, undefined);
+
+    // Second edit of the same starter updates the copy.
+    await svc.updateAgent(ws.id, 'agent_investor_support', { name: 'Support v2' });
+    list = await svc.listAgents(ws.id);
+    assert.equal(list.length, 4);
+
+    await svc.deleteAgent(ws.id, 'agent_fund_info');
+    list = await svc.listAgents(ws.id);
+    assert.equal(list.length, 3);
+    assert.ok(!list.some((a) => a.id === 'agent_fund_info'));
+
+    const copy = list.find((a) => a.name === 'Support v2');
+    await svc.deleteAgent(ws.id, copy.id);
+    list = await svc.listAgents(ws.id);
+    assert.equal(list.length, 2, 'deleting the copy does not resurrect the starter');
+  } finally {
+    await prisma.workspace.delete({ where: { id: ws.id } });
+  }
+});

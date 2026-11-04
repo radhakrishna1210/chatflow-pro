@@ -118,12 +118,18 @@ export async function listAgents(workspaceId) {
     orderBy: { createdAt: 'asc' },
   });
 
-  if (views.length === 0) {
-    return DEFAULT_AGENTS;
-  }
+  // The starter agents used to be returned only while the workspace had no
+  // saved agent at all: editing one starter (which saves a copy) or creating
+  // a single custom agent made the other three vanish, and deleting a starter
+  // "succeeded" while it stayed on the list. A saved row now records which
+  // starter it replaces (`baseId`), and a deleted starter leaves a `deleted`
+  // marker, so each starter is shown until it is edited or removed.
+  const filtersOf = (v) => (typeof v.filters === 'object' && v.filters !== null ? v.filters : {});
+  const replaced = new Set(views.map((v) => filtersOf(v).baseId).filter(Boolean));
+  const defaults = DEFAULT_AGENTS.filter((d) => !replaced.has(d.id));
 
-  return views.map((v) => {
-    const data = typeof v.filters === 'object' && v.filters !== null ? v.filters : {};
+  const custom = views.filter((v) => !filtersOf(v).deleted).map((v) => {
+    const data = filtersOf(v);
     return {
       id: v.id,
       name: v.name,
@@ -137,40 +143,63 @@ export async function listAgents(workspaceId) {
       model: data.model || 'gemini-1.5-flash',
       enabled: data.enabled !== false,
       isDefault: false,
+      ...(data.baseId ? { baseId: data.baseId } : {}),
       createdAt: v.createdAt,
       updatedAt: v.updatedAt,
     };
   });
+  return [...defaults, ...custom];
 }
 
+// Only these fields are an agent. The body used to be spread straight into the
+// stored JSON, so any key of any size rode along, and the system prompt — which
+// is sent to the model on every test — had no length limit.
+const KNOWN_ACTIONS = new Set(ACTION_REGISTRY.map((a) => a.id));
+function sanitiseAgentFields(input = {}) {
+  const out = {};
+  const text = (v, max) => String(v ?? '').trim().slice(0, max);
+  const list = (v, max, itemMax) => (Array.isArray(v) ? v : [])
+    .map((x) => text(x, itemMax)).filter(Boolean).slice(0, max);
+  if (input.name !== undefined) out.name = text(input.name, 80);
+  if (input.description !== undefined) out.description = text(input.description, 500);
+  if (input.purpose !== undefined) out.purpose = text(input.purpose, 2000);
+  if (input.systemPrompt !== undefined) out.systemPrompt = text(input.systemPrompt, 4000);
+  if (input.guidelines !== undefined) out.guidelines = list(input.guidelines, 30, 200);
+  if (input.actions !== undefined) out.actions = list(input.actions, 20, 60).filter((a) => KNOWN_ACTIONS.has(a));
+  if (input.knowledgeTypes !== undefined) out.knowledgeTypes = list(input.knowledgeTypes, 20, 60);
+  if (input.model !== undefined) out.model = text(input.model, 60);
+  if (input.enabled !== undefined) out.enabled = input.enabled !== false;
+  return out;
+}
+
+// Never falls back to an arbitrary user: the old last resort,
+// `prisma.user.findFirst()`, stamped another tenant's user as the author.
 async function resolveUserId(workspaceId, explicitUserId) {
   if (explicitUserId) return explicitUserId;
   const member = await prisma.workspaceMember.findFirst({
     where: { workspaceId },
     select: { userId: true },
   });
-  if (member?.userId) return member.userId;
-  const user = await prisma.user.findFirst({ select: { id: true } });
-  return user?.id || null;
+  return member?.userId || null;
 }
 
 /**
  * Create a new custom AI agent for the workspace
  */
 export async function createAgent(workspaceId, userId, agentData = {}) {
-  const name = String(agentData.name || 'New Chat Agent').trim();
-  const description = String(agentData.description || '').trim();
+  const clean = sanitiseAgentFields(agentData || {});
+  const name = clean.name || 'New Chat Agent';
 
   const payload = {
     role: 'AGENT',
-    description,
-    purpose: agentData.purpose || '',
-    systemPrompt: agentData.systemPrompt || '',
-    guidelines: Array.isArray(agentData.guidelines) ? agentData.guidelines : ['g_polite_tone'],
-    actions: Array.isArray(agentData.actions) ? agentData.actions : ['crm.escalate_human'],
-    knowledgeTypes: Array.isArray(agentData.knowledgeTypes) ? agentData.knowledgeTypes : ['FAQ'],
-    model: agentData.model || 'gemini-1.5-flash',
-    enabled: agentData.enabled !== false,
+    description: clean.description || '',
+    purpose: clean.purpose || '',
+    systemPrompt: clean.systemPrompt || '',
+    guidelines: clean.guidelines ?? ['g_polite_tone'],
+    actions: clean.actions ?? ['crm.escalate_human'],
+    knowledgeTypes: clean.knowledgeTypes ?? ['FAQ'],
+    model: clean.model || 'gemini-1.5-flash',
+    enabled: clean.enabled !== false,
   };
 
   const validUserId = await resolveUserId(workspaceId, userId);
@@ -199,10 +228,16 @@ export async function createAgent(workspaceId, userId, agentData = {}) {
  */
 export async function updateAgent(workspaceId, agentId, patch, userId) {
   // If editing a default template for the first time, save it as a real custom record
+  patch = sanitiseAgentFields(patch || {});
   const isDefault = DEFAULT_AGENTS.some((d) => d.id === agentId);
   if (isDefault) {
     const base = DEFAULT_AGENTS.find((d) => d.id === agentId);
-    const merged = { ...base, ...patch };
+    const merged = { ...base, ...patch, name: patch.name || base.name };
+    // Editing the same starter twice must update the saved copy, not create a
+    // second one.
+    const already = (await prisma.savedView.findMany({ where: { workspaceId, entity: 'ai_agent' } }))
+      .find((v) => v.filters?.baseId === agentId && !v.filters?.deleted);
+    if (already) return updateAgent(workspaceId, already.id, patch, userId);
     const validUserId = await resolveUserId(workspaceId, userId);
     const created = await prisma.savedView.create({
       data: {
@@ -219,12 +254,13 @@ export async function updateAgent(workspaceId, agentId, patch, userId) {
           knowledgeTypes: merged.knowledgeTypes,
           model: merged.model,
           enabled: merged.enabled,
+          baseId: agentId,
         },
         isShared: true,
         createdByUserId: validUserId,
       },
     });
-    return { id: created.id, ...merged };
+    return { ...merged, id: created.id, isDefault: false, baseId: agentId };
   }
 
   const existing = await prisma.savedView.findFirst({
@@ -264,13 +300,26 @@ export async function deleteAgent(workspaceId, agentId) {
     where: { id: agentId, workspaceId, entity: 'ai_agent' },
   });
   if (!existing) {
-    // If it's a default agent id, we just acknowledge
+    const base = DEFAULT_AGENTS.find((d) => d.id === agentId);
+    if (!base) { const e = new Error('Agent not found'); e.status = 404; throw e; }
+    // A starter has no row of its own; a marker hides it from the list.
+    await prisma.savedView.create({
+      data: {
+        workspaceId, entity: 'ai_agent', name: base.name,
+        filters: { baseId: agentId, deleted: true },
+        isShared: false, createdByUserId: await resolveUserId(workspaceId, null),
+      },
+    });
     return { success: true };
   }
 
-  await prisma.savedView.delete({
-    where: { id: agentId },
-  });
+  // A deleted copy of a starter must not bring the starter back.
+  const baseId = existing.filters?.baseId;
+  if (baseId) {
+    await prisma.savedView.update({ where: { id: agentId }, data: { filters: { baseId, deleted: true } } });
+  } else {
+    await prisma.savedView.delete({ where: { id: agentId } });
+  }
 
   return { success: true };
 }
