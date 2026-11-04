@@ -1,7 +1,7 @@
 /**
- * ChatFlow as an OAuth authorization server.
+ * Svann as an OAuth authorization server.
  *
- * Everything else here called OAuth points the other way — ChatFlow as a client
+ * Everything else here called OAuth points the other way — Svann as a client
  * of Google, Meta, Instagram. This is the outbound direction: another
  * application sends a user here, the user approves, and the application walks
  * away with a scoped ApiKey instead of copying one out of Settings by hand.
@@ -75,12 +75,12 @@ export async function validateAuthorizeRequest({ clientId, redirectUri, response
 
   const client = await prisma.oAuthClient.findUnique({ where: { clientId: String(clientId) } });
   if (!client || client.disabledAt) {
-    throw new OAuthRenderError('Unknown application. This link was not issued by anything ChatFlow recognises.');
+    throw new OAuthRenderError('Unknown application. This link was not issued by anything Svann recognises.');
   }
 
   const registered = parseJsonArray(client.redirectUris);
   if (!redirectUri || !registered.includes(String(redirectUri))) {
-    throw new OAuthRenderError(`${client.name} asked to be sent somewhere ChatFlow has not registered for it. Nothing has been shared.`);
+    throw new OAuthRenderError(`${client.name} asked to be sent somewhere Svann has not registered for it. Nothing has been shared.`);
   }
 
   // Past this point the redirect URI is trusted, so failures can be reported there.
@@ -88,7 +88,7 @@ export async function validateAuthorizeRequest({ clientId, redirectUri, response
     throw new OAuthRedirectError('unsupported_response_type', 'Only the authorization code flow is supported.');
   }
 
-  // Spandan sends scopes space-joined (its buildAuthUrl). Trim to what this
+  // Svann sends scopes space-joined (its buildAuthUrl). Trim to what this
   // client is registered for rather than refusing outright: a newer version of
   // the client asking for one extra scope should degrade, not break, and the
   // consent screen only ever shows and grants the intersection.
@@ -106,7 +106,7 @@ export async function validateAuthorizeRequest({ clientId, redirectUri, response
  * Pack the request into a signed blob that survives the detour through signup,
  * workspace creation and number connection.
  *
- * There are no cookies anywhere in ChatFlow, so a server-side session is not an
+ * There are no cookies anywhere in Svann, so a server-side session is not an
  * option — the signed blob rides in the query string and every intermediate page
  * is responsible for carrying it. It is HMAC-signed, so a user who edits it in
  * the address bar gets a rejected request rather than an altered one.
@@ -300,7 +300,7 @@ export async function exchangeAuthorizationCode({ code, clientId, clientSecret, 
     throw new OAuthRedirectError(
       'server_error',
       /limit/i.test(err.message || '')
-        ? 'This ChatFlow workspace has reached its API key limit. Revoke an unused key and try connecting again.'
+        ? 'This Svann workspace has reached its API key limit. Revoke an unused key and try connecting again.'
         // Only our own deliberate errors carry a status; anything else (a
         // Prisma failure) is written for us, not for a third-party client.
         : err.status ? `Could not issue an API key: ${err.message}` : 'Could not issue an API key. Try connecting again.',

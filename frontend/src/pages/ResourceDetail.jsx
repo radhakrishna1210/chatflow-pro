@@ -28,7 +28,7 @@ const SLUG_TO_JOURNEY = {
 
 // Restores the tab title and description a resource page replaced once the
 // page unmounts. Without it, leaving the Resource Center for any dashboard
-// screen kept "<article> — Spandan Resource Center" in the tab and the
+// screen kept "<article> — Svann Resource Center" in the tab and the
 // article's description in <meta name="description">.
 function useRestoreMeta() {
   useEffect(() => {
@@ -88,8 +88,8 @@ export default function ResourceDetail({ slug }) {
   useRestoreMeta();
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
-    if (!resource) { setMeta('Resource not found — Spandan', 'The requested resource could not be found.'); return; }
-    setMeta(`${resource.title} — Spandan Resource Center`, resource.description || resource.intro || resource.title);
+    if (!resource) { setMeta('Resource not found — Svann', 'The requested resource could not be found.'); return; }
+    setMeta(`${resource.title} — Svann Resource Center`, resource.description || resource.intro || resource.title);
     try {
       const saved = localStorage.getItem(helpfulKey(slug));
       setHelpful(saved === 'yes' || saved === 'no' ? saved : null);
@@ -166,7 +166,7 @@ export default function ResourceDetail({ slug }) {
           <div className="rc-detail-meta">
             {resource.duration && <span><I n="play" s={13} c="var(--t3)" /> {resource.duration} read</span>}
             <span><I n="file" s={13} c="var(--t3)" /> {catName}</span>
-            <span><I n="check" s={13} c="var(--t3)" /> Based on the live Spandan product flow</span>
+            <span><I n="check" s={13} c="var(--t3)" /> Based on the live Svann product flow</span>
           </div>
         </header>
 

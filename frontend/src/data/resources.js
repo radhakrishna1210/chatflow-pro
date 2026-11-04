@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   Spandan — Resource Center content & data layer
+   Svann — Resource Center content & data layer
    ---------------------------------------------------------------------------
    Content is kept fully separate from presentation. Today this is a static
    module; the exported shape (CATEGORIES, RESOURCES, TUTORIALS, JOURNEYS,
@@ -7,11 +7,11 @@
    so this file can later be swapped for an API/CMS response without touching
    the components.
 
-   Every resource maps to a real Spandan module (see ADMIN_NAV in
+   Every resource maps to a real Svann module (see ADMIN_NAV in
    Dashboard.jsx). No invented features.
    ──────────────────────────────────────────────────────────────────────────── */
 
-// Where "Open in Spandan" CTAs deep-link to, per category.
+// Where "Open in Svann" CTAs deep-link to, per category.
 export const MODULE_ROUTE = {
   'getting-started': '/dashboard',
   'whatsapp-numbers': '/dashboard/setup',
@@ -38,7 +38,7 @@ export const CATEGORIES = [
   {
     id: 'getting-started', name: 'Getting Started', icon: 'home',
     blurb: 'Create a workspace, connect a number and send your first message.',
-    overview: 'Getting Started is the orientation layer for Spandan. It covers the path from an empty account to a delivered campaign, and the order to tackle each module in.',
+    overview: 'Getting Started is the orientation layer for Svann. It covers the path from an empty account to a delivered campaign, and the order to tackle each module in.',
     useFor: [
       'Onboarding a brand-new workspace from scratch',
       'Understanding how number, template, contacts, wallet and campaign depend on each other',
@@ -48,7 +48,7 @@ export const CATEGORIES = [
     features: [
       { title: 'End-to-end journey map', body: 'A single walkthrough of all nine stages so every later guide has context.' },
       { title: 'One-time vs. recurring work', body: 'A clear split between setup you do once (number, template approval) and work you repeat (campaigns).' },
-      { title: 'Guided AI onboarding', body: 'Describe your flow in plain language and Spandan drafts the templates and campaign scaffolding.' },
+      { title: 'Guided AI onboarding', body: 'Describe your flow in plain language and Svann drafts the templates and campaign scaffolding.' },
       { title: 'Prerequisite checks', body: 'Every step lists what must already be true before it will work.' },
     ],
   },
@@ -230,7 +230,7 @@ export const CATEGORIES = [
   {
     id: 'integrations', name: 'Integrations', icon: 'plug',
     blurb: 'Connect Shopify, HubSpot, Zapier and more to sync data and trigger sends.',
-    overview: 'Integrations connect Spandan to the tools you already run — to sync contacts, trigger campaigns on external events, and push conversation data out.',
+    overview: 'Integrations connect Svann to the tools you already run — to sync contacts, trigger campaigns on external events, and push conversation data out.',
     useFor: [
       'Syncing contacts from your CRM or store',
       'Triggering messages on orders, signups or tickets',
@@ -353,14 +353,14 @@ export const QUICK_TYPES = [
 export const RESOURCES = [
   {
     slug: 'getting-started-with-chatflow-pro',
-    title: 'Getting Started with Spandan',
+    title: 'Getting Started with Svann',
     category: 'getting-started', type: 'guide', difficulty: 'beginner', duration: '6 min',
     description: 'The whole picture: from creating an account to a delivered campaign, and how the modules fit together.',
     tags: ['overview', 'onboarding', 'workspace', 'setup'],
     featured: true, popular: true,
-    intro: 'Spandan is a WhatsApp Business API platform. This guide walks the end-to-end journey once — account, workspace, number, template, contacts, wallet, campaign, inbox, analytics — so every other guide has context.',
+    intro: 'Svann is a WhatsApp Business API platform. This guide walks the end-to-end journey once — account, workspace, number, template, contacts, wallet, campaign, inbox, analytics — so every other guide has context.',
     learn: [
-      'The nine stages of the Spandan journey and which module owns each one',
+      'The nine stages of the Svann journey and which module owns each one',
       'What has to be done once (number, template approval) vs. repeatedly (campaigns)',
       'Where message costs are incurred and how the wallet gates sending',
       'How inbound replies land in the Shared Inbox and can be automated',
@@ -387,7 +387,7 @@ export const RESOURCES = [
     description: 'Set up the workspace that holds your number, contacts, templates, team and wallet.',
     tags: ['workspace', 'settings', 'account'],
     popular: true,
-    intro: 'Everything in Spandan is scoped to a workspace. This guide covers creating one, the settings worth setting early, and how joining an existing workspace differs from starting your own.',
+    intro: 'Everything in Svann is scoped to a workspace. This guide covers creating one, the settings worth setting early, and how joining an existing workspace differs from starting your own.',
     learn: [
       'What a workspace contains and why data is isolated per workspace',
       'The settings to configure before inviting anyone: display name, timezone, business details',
@@ -407,7 +407,7 @@ export const RESOURCES = [
     description: 'Three ways to connect a WhatsApp Business number, and how to pick the right one.',
     tags: ['number', 'meta', 'embedded signup', 'waba', 'setup'],
     featured: true, popular: true,
-    intro: 'A verified WhatsApp Business number is the prerequisite for everything else. Spandan supports Meta embedded signup, instant pool numbers, and bring-your-own WABA credentials.',
+    intro: 'A verified WhatsApp Business number is the prerequisite for everything else. Svann supports Meta embedded signup, instant pool numbers, and bring-your-own WABA credentials.',
     learn: [
       'The trade-offs between embedded signup, a pool number and your own WABA',
       'What Meta verification checks and how long it usually takes',
@@ -510,7 +510,7 @@ export const RESOURCES = [
     intro: 'Campaigns need an audience. The fastest way to build one is a CSV import. This guide covers the file format, phone-number normalisation and how re-imports are de-duplicated.',
     learn: [
       'The required and optional columns, and accepted phone number formats',
-      'How Spandan matches rows to existing contacts on re-import',
+      'How Svann matches rows to existing contacts on re-import',
       'Applying tags during import so the data is segment-ready',
     ],
     steps: [
@@ -541,7 +541,7 @@ export const RESOURCES = [
     category: 'contacts', type: 'guide', difficulty: 'intermediate', duration: '4 min',
     description: 'How opt-outs are captured, honoured and reported.',
     tags: ['opt-out', 'consent', 'compliance', 'stop'],
-    intro: 'Messaging people who opted out damages your quality rating and breaks WhatsApp policy. This guide covers how Spandan records opt-outs and keeps them out of future sends.',
+    intro: 'Messaging people who opted out damages your quality rating and breaks WhatsApp policy. This guide covers how Svann records opt-outs and keeps them out of future sends.',
     learn: [
       'How inbound "STOP"-style messages and manual flags mark a contact opted-out',
       'That opted-out contacts are automatically excluded from every campaign',
@@ -596,7 +596,7 @@ export const RESOURCES = [
     category: 'campaigns', type: 'troubleshooting', difficulty: 'intermediate', duration: '7 min',
     description: 'Work through the reasons messages show Sent but never reach Delivered.',
     tags: ['delivery', 'failed', 'webhook', 'quality', 'fix'],
-    intro: 'Sent means Spandan handed the message to Meta; Delivered means Meta reached the handset. This guide covers the gap between the two.',
+    intro: 'Sent means Svann handed the message to Meta; Delivered means Meta reached the handset. This guide covers the gap between the two.',
     learn: [
       'How to tell a webhook delay apart from a real delivery failure',
       'Common per-recipient failure reasons (no WhatsApp account, blocked, invalid number)',
@@ -643,7 +643,7 @@ export const RESOURCES = [
     category: 'automation', type: 'guide', difficulty: 'beginner', duration: '5 min',
     description: 'Auto-reply to specific words with a canned message — no flow required.',
     tags: ['keyword', 'trigger', 'auto-reply', 'automation'],
-    intro: 'Keyword triggers are the simplest automation: when an inbound message matches a word or phrase, Spandan sends a reply. Use them for FAQs and menu prompts.',
+    intro: 'Keyword triggers are the simplest automation: when an inbound message matches a word or phrase, Svann sends a reply. Use them for FAQs and menu prompts.',
     learn: [
       'Exact-match vs. contains matching, and case sensitivity',
       'Ordering and precedence when multiple keywords could match',
@@ -778,7 +778,7 @@ export const RESOURCES = [
     category: 'integrations', type: 'guide', difficulty: 'beginner', duration: '4 min',
     description: 'Link Shopify, HubSpot, Zapier and others to sync data and trigger sends.',
     tags: ['integrations', 'shopify', 'zapier', 'hubspot', 'sync'],
-    intro: 'Integrations connect Spandan to the tools you already use — to sync contacts, trigger campaigns on external events, or push conversation data out.',
+    intro: 'Integrations connect Svann to the tools you already use — to sync contacts, trigger campaigns on external events, or push conversation data out.',
     learn: [
       'The connection flow (OAuth or API key) and what each integration can access',
       'Which integrations are included vs. paid add-ons',
@@ -836,7 +836,7 @@ export const RESOURCES = [
       'The event types: message status (sent/delivered/read/failed) and inbound messages',
       'Verifying the request signature before trusting a payload',
       'Responding quickly and processing asynchronously so deliveries are not retried',
-      'How Spandan itself consumes Meta’s webhook — the same pattern applies to yours',
+      'How Svann itself consumes Meta’s webhook — the same pattern applies to yours',
     ],
     tips: [
       'Return 2xx fast. Do the real work in a queue, or the sender will retry and you will double-process.',
@@ -870,7 +870,7 @@ export const RESOURCES = [
     description: 'Per-message pricing by template category, launch-time reservation, and refunds.',
     tags: ['billing', 'pricing', 'category', 'reservation', 'refund'],
     popular: true,
-    intro: 'Spandan passes through Meta’s per-message pricing with no markup. This guide explains what you pay, when you pay it, and what gets refunded.',
+    intro: 'Svann passes through Meta’s per-message pricing with no markup. This guide explains what you pay, when you pay it, and what gets refunded.',
     learn: [
       'How price varies by template category (Marketing / Utility / Authentication) and destination',
       'That a campaign reserves its full estimated cost at launch',
@@ -885,7 +885,7 @@ export const RESOURCES = [
     category: 'analytics', type: 'guide', difficulty: 'beginner', duration: '5 min',
     description: 'What each analytics screen shows and how to act on it.',
     tags: ['analytics', 'reports', 'funnel', 'retention', 'chat activity'],
-    intro: 'Spandan’s analytics cover three angles: campaign delivery funnels, chat activity, and customer retention. This guide explains each and what a healthy chart looks like.',
+    intro: 'Svann’s analytics cover three angles: campaign delivery funnels, chat activity, and customer retention. This guide explains each and what a healthy chart looks like.',
     learn: [
       'The campaign funnel: sent → delivered → read → replied, and where drop-off matters',
       'Chat activity: volume, response time and resolution over time',
@@ -986,7 +986,7 @@ export const JOURNEYS = [
       { title: 'Run Meta Embedded Signup', module: 'whatsapp-numbers',
         detail: 'Complete Meta’s popup flow: business verification, phone ownership, display-name submission.',
         prerequisites: ['Admin access to a Meta Business account'],
-        result: 'Meta returns the number to Spandan in Pending state.',
+        result: 'Meta returns the number to Svann in Pending state.',
         errors: ['Popup blocked by the browser', 'Business not verified with Meta'] },
       { title: 'Verify Phone Ownership', module: 'whatsapp-numbers',
         detail: 'Enter the OTP Meta sends to the number by SMS or call.',

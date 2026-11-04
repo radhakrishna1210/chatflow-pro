@@ -241,7 +241,7 @@ export async function updateAuthenticationConfiguration(
   }
 
   /*
-   * A template belongs to a WhatsApp number in ChatFlow.
+   * A template belongs to a WhatsApp number in Svann.
    * Prevent configuration from pairing the template with
    * a different number.
    */

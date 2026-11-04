@@ -1,4 +1,4 @@
-# Deploying Spandan to Render
+# Deploying Svann to Render
 
 Single-service deploy: one Node web service runs the Express API **and** serves the
 built Vite SPA from `frontend/dist`. The frontend's relative `/api/...` calls are
@@ -112,7 +112,7 @@ Expected log sequence:
 [Worker] Campaign worker started
 [Worker] Email worker started
 [Worker] Billing worker started
-[Server] Spandan backend running on port 10000
+[Server] Svann backend running on port 10000
 ```
 
 `server.js` calls `process.exit(1)` if Postgres **or** Redis is unreachable, so a

@@ -1,13 +1,13 @@
-/* Single source of truth for the Spandan brand mark, so the pulse dot and
+/* Single source of truth for the Svann brand mark, so the pulse dot and
    wordmark are identical everywhere they appear (sidebar, resource centre
    footer). Mirrors the treatment used in the dashboard sidebar header. */
 export function Logo({
   size = 32,           // px, the hit area around the pulse dot
-  text = true,         // render the "Spandan" wordmark alongside
+  text = true,         // render the "Svann" wordmark alongside
   textSize,            // px, defaults to a size-relative value
   onClick,
   style = {},
-  ariaLabel = 'Spandan',
+  ariaLabel = 'Svann',
 }) {
   const dot = Math.max(9, Math.round(size * 0.32));
   return (
@@ -55,7 +55,7 @@ export function Logo({
             whiteSpace: 'nowrap',
           }}
         >
-          Spandan
+          Svann
         </span>
       )}
     </div>

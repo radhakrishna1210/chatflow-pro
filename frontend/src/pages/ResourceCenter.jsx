@@ -43,7 +43,7 @@ function useReveal(depsKey) {
 
 // Restores the tab title and description a resource page replaced once the
 // page unmounts. Without it, leaving the Resource Center for any dashboard
-// screen kept "<article> — Spandan Resource Center" in the tab and the
+// screen kept "<article> — Svann Resource Center" in the tab and the
 // article's description in <meta name="description">.
 function useRestoreMeta() {
   useEffect(() => {
@@ -109,8 +109,8 @@ export default function ResourceCenter({ slug }) {
   useRestoreMeta();
   useEffect(() => {
     setMeta(
-      'Resource Center — Spandan',
-      'Guides, tutorials, interactive product journeys and developer reference for every part of Spandan — from your first campaign to your first webhook.'
+      'Resource Center — Svann',
+      'Guides, tutorials, interactive product journeys and developer reference for every part of Svann — from your first campaign to your first webhook.'
     );
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, []);
@@ -217,8 +217,8 @@ export default function ResourceCenter({ slug }) {
       <main>
         {/* ── HERO ─────────────────────────────────────────────── */}
         <section className="rc-hero rc-wrap">
-          <span className="rc-eyebrow"><span className="dot" /> Spandan Resource Center</span>
-          <h1>Learn how to get the most out of <span>Spandan</span></h1>
+          <span className="rc-eyebrow"><span className="dot" /> Svann Resource Center</span>
+          <h1>Learn how to get the most out of <span>Svann</span></h1>
           <p>Practical guides, interactive product journeys and developer resources for every part of your WhatsApp messaging workflow.</p>
           <form
             className="rc-search"
@@ -279,7 +279,7 @@ export default function ResourceCenter({ slug }) {
         {/* ── KNOWLEDGE BASE / CATEGORY GRID ───────────────────── */}
         <section className="rc-section rc-wrap" id="topics" style={{ scrollMarginTop: 80 }}>
           <div className="rc-section-head rc-reveal">
-            <span className="k">Explore Spandan</span>
+            <span className="k">Explore Svann</span>
             <h2>Browse the knowledge base by topic</h2>
             <p>Every topic has its own page — what it is, what you use it for, its key features and every guide in that area.</p>
           </div>
@@ -416,7 +416,7 @@ export default function ResourceCenter({ slug }) {
           <div className="rc-section-head rc-reveal">
             <span className="k">Do it step by step</span>
             <h2>Interactive product journeys</h2>
-            <p>Click through the real Spandan flow — every step shows the module, prerequisites, expected result and the errors people hit.</p>
+            <p>Click through the real Svann flow — every step shows the module, prerequisites, expected result and the errors people hit.</p>
           </div>
           <div className="rc-reveal">
             <InteractiveWorkflow />
@@ -428,7 +428,7 @@ export default function ResourceCenter({ slug }) {
           <div className="rc-section-head rc-reveal">
             <span className="k">For developers</span>
             <h2>Developer resources</h2>
-            <p>Spandan is API-first. Authenticate with a workspace API key, send messages programmatically and receive webhooks. Exact endpoint paths and payloads for your workspace live on the API Keys screen in-app.</p>
+            <p>Svann is API-first. Authenticate with a workspace API key, send messages programmatically and receive webhooks. Exact endpoint paths and payloads for your workspace live on the API Keys screen in-app.</p>
           </div>
           <div className="rc-res-grid">
             {devResources.map((r) => (
@@ -457,7 +457,7 @@ export default function ResourceCenter({ slug }) {
           <div className="rc-section-head rc-reveal">
             <span className="k">Most read</span>
             <h2>Popular resources</h2>
-            <p>What Spandan teams open most often.</p>
+            <p>What Svann teams open most often.</p>
           </div>
           <div className="rc-res-grid">
             {pop.map((r) => (
@@ -470,7 +470,7 @@ export default function ResourceCenter({ slug }) {
         <section className="rc-section">
           <div className="rc-cta-band rc-reveal">
             <h2>Ready to put this into practice?</h2>
-            <p>Jump back into Spandan, or follow the Getting Started journey end to end.</p>
+            <p>Jump back into Svann, or follow the Getting Started journey end to end.</p>
             <div className="rc-cta-actions" style={{ marginTop: 24 }}>
               <button className="rc-btn rc-btn-cta rc-btn-lg" onClick={() => navigate('/dashboard')}>
                 Open your dashboard <I n="arrow" s={14} c="#060A10" />

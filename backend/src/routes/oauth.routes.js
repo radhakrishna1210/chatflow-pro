@@ -1,5 +1,5 @@
 /**
- * ChatFlow's OAuth authorization endpoints.
+ * Svann's OAuth authorization endpoints.
  *
  * Mounted unauthenticated at /oauth. Auth is applied per-route rather than to
  * the whole router, because the entire point of `authorize` is to accept a

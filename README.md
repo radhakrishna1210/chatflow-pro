@@ -1,4 +1,4 @@
-# Spandan
+# Svann
 
 A full-stack, multi-tenant WhatsApp Business messaging platform — conversations (inbox), bulk campaigns, contacts/segments, message templates, automation workflows, analytics, a wallet/billing ledger, and platform-level super-admin tools. Built with Node.js/Express on the backend and React (Vite, no router library — custom history-based router) on the frontend, backed by PostgreSQL, Redis/BullMQ, and the Meta WhatsApp Business (Cloud API) platform.
 
@@ -59,7 +59,7 @@ spandan/
 ├── tests-e2e-v2.mjs               End-to-end test suite (v2, newer features)
 ├── BUGS.md / BUGS-v2.md           Historical bug audits from prior stabilization sprints
 ├── STABILIZATION_REPORT.md / _V2.md  Write-ups of what was fixed in each stabilization pass
-└── Spandan.html              Standalone static demo/landing page (not part of the app build)
+└── Svann.html              Standalone static demo/landing page (not part of the app build)
 ```
 
 ---
@@ -159,7 +159,7 @@ Defined and validated in `backend/src/config/env.js` (Zod schema — the app **w
 | `OLLAMA_URL` | no | `http://127.0.0.1:11434` | Local LLM fallback |
 | `OLLAMA_MODEL` | no | `phi3` | |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_USER` / `SMTP_PASSWORD` | no | `SMTP_PORT=587`, `SMTP_SECURE=false` | Transactional email (welcome, OTP, invites, campaign-complete, etc.) — email sending is skipped gracefully if unconfigured |
-| `EMAIL_FROM_NAME` | no | `Spandan` | |
+| `EMAIL_FROM_NAME` | no | `Svann` | |
 | `EMAIL_FROM` | no | — | |
 | `APP_URL` | no | `http://localhost:{PORT}` | Backend's own public URL, used to derive default OAuth/webhook callback URLs |
 
@@ -201,7 +201,7 @@ All routes are mounted under `/api/v1` (see `backend/src/app.js` + `backend/src/
 
 ### 5.1 Website Assistant (RAG chatbot)
 
-A retrieval-grounded chatbot that answers questions about Spandan from the site's own content. It is not a general-purpose assistant: asked about anything the indexed content does not cover, it declines rather than answering from the model's world knowledge.
+A retrieval-grounded chatbot that answers questions about Svann from the site's own content. It is not a general-purpose assistant: asked about anything the indexed content does not cover, it declines rather than answering from the model's world knowledge.
 
 ```
 site content + help guides + Plan table

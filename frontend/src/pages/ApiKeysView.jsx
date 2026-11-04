@@ -250,7 +250,7 @@ export default function ApiKeysView() {
               <p style={{ fontSize:13, color:'var(--t2)', marginBottom:4 }}>No API keys yet.</p>
               <p style={{ fontSize:12, color:'var(--t3)' }}>
                 {isAdmin
-                  ? 'Generate one below to start calling the Spandan API.'
+                  ? 'Generate one below to start calling the Svann API.'
                   : 'Ask a workspace admin to generate an API key for you.'}
               </p>
             </div>
@@ -318,7 +318,7 @@ export default function ApiKeysView() {
                   <p style={{ fontSize:11, color:'var(--t3)', marginTop:8, lineHeight:1.5 }}>
                     Ticked by default is what an ordinary key gets. Add
                     <span style={{ color:'var(--t2)' }}> Manage templates </span>
-                    if this key belongs to an app that creates templates and submits them to Meta — Spandan does.
+                    if this key belongs to an app that creates templates and submits them to Meta — Svann does.
                   </p>
                 </div>
               )}

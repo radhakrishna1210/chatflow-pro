@@ -118,7 +118,7 @@ const hasUnavailableHistoricalAuthenticationMetrics = (campaign, hasLinkedTransa
 
 // A URL button opens the approved destination inside WhatsApp. Meta does not
 // send an inbound webhook for that action, so it cannot be honestly counted
-// without a destination URL that was approved as a ChatFlow tracking redirect.
+// without a destination URL that was approved as a Svann tracking redirect.
 // Keep this description alongside the detail report so the UI can distinguish
 // "no clicks yet" from "this button type has no observable click event".
 const buttonTrackingInfo = (components) => {
@@ -152,7 +152,7 @@ const buttonTrackingInfo = (components) => {
   return {
     mode: hasUrlButtons ? 'UNAVAILABLE' : 'WEBHOOK',
     reason: hasUrlButtons
-      ? 'This campaign uses WhatsApp URL buttons. WhatsApp opens those links directly and does not send ChatFlow a click webhook. Tracking requires a ChatFlow redirect URL to be approved in the template before it is sent.'
+      ? 'This campaign uses WhatsApp URL buttons. WhatsApp opens those links directly and does not send Svann a click webhook. Tracking requires a Svann redirect URL to be approved in the template before it is sent.'
       : null,
     buttons: definitions,
   };

@@ -228,7 +228,7 @@ export async function dispatchWebhook(workspaceId, event, data, opts = {}) {
   const body = JSON.stringify(payload);
   const headers = {
     'Content-Type': 'application/json',
-    'User-Agent': 'ChatFlowPro-Webhook/1',
+    'User-Agent': 'SvannPro-Webhook/1',
     'X-ChatFlow-Event': event,
     'X-ChatFlow-Delivery': deliveryId,
     'X-ChatFlow-Signature-256': signPayload(body, secret),

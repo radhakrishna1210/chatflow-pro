@@ -19,7 +19,7 @@ const AUTHENTICATION_OTP_EXPIRATION_MINUTES = 10;
 /**
  * Authentication OTPs are valid for ten minutes.
  *
- * This value controls the ChatFlow verification transaction.
+ * This value controls the Svann verification transaction.
  * The configured Meta Authentication template controls
  * the expiry information displayed to the customer.
  */
@@ -218,12 +218,12 @@ function buildAuthenticationPayload(template, otp) {
 }
 
 /**
- * Generate and send a ChatFlow Authentication OTP.
+ * Generate and send a Svann Authentication OTP.
  *
  * Production Mode 1:
- * - ChatFlow generates the OTP.
- * - ChatFlow stores only the OTP hash.
- * - ChatFlow sends the OTP through the configured
+ * - Svann generates the OTP.
+ * - Svann stores only the OTP hash.
+ * - Svann sends the OTP through the configured
  *   Authentication template and WhatsApp number.
  * - The raw OTP is NEVER returned to the API caller.
  */
@@ -334,7 +334,7 @@ export async function sendAuthenticationOtp(
 }
 
 /**
- * Verify a ChatFlow-generated Authentication OTP.
+ * Verify a Svann-generated Authentication OTP.
  */
 export async function verifyAuthenticationOtp(
   workspaceId,

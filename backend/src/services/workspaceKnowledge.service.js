@@ -101,7 +101,7 @@ export async function fetchSourceContent(url) {
       timeoutMs: FETCH_TIMEOUT_MS,
       maxBytes: MAX_FETCH_BYTES,
       // Some sites serve a different (or no) page to an unrecognised client.
-      userAgent: 'SpandanBot/1.0 (+website widget indexer)',
+      userAgent: 'SvannBot/1.0 (+website widget indexer)',
       accept: 'text/html,*/*',
     });
     if (res.status < 200 || res.status >= 300) {

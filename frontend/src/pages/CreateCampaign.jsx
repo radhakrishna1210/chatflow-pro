@@ -1415,7 +1415,7 @@ const StepFallback = ({ retriesActive, onSaved }) => {
 const PhonePreview = ({ template, templateBody: rawBody, ctaLabel = '', variableMapping = null, previewContact = null }) => {
   const slots = templateVariableSlots(template?.components);
   const templateBody = slots.length ? fillPreview(rawBody, 'BODY', slots, variableMapping, previewContact) : rawBody;
-  const [businessName, setBusinessName] = useState('Spandan');
+  const [businessName, setBusinessName] = useState('Svann');
   const [headerPreview, setHeaderPreview] = useState(null);
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 

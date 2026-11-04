@@ -1,7 +1,7 @@
 import * as authenticationService from './authentication.service.js';
 
 /**
- * Generate and send a ChatFlow-generated Authentication OTP.
+ * Generate and send a Svann-generated Authentication OTP.
  *
  * The Authentication template and WhatsApp number are resolved
  * from the workspace Authentication configuration.
@@ -21,7 +21,7 @@ export async function generateOtp(req, res) {
 }
 
 /**
- * Verify a ChatFlow-generated Authentication OTP.
+ * Verify a Svann-generated Authentication OTP.
  */
 export async function verifyOtp(req, res) {
   const { phone, code } = req.body || {};

@@ -4,7 +4,7 @@
  * `authorize` and `token` are public — an authorization request arrives as a
  * browser navigation from another application, and the token exchange is a
  * server-to-server call authenticated by the client's own secret. `consentInfo`
- * and `decide` require a logged-in ChatFlow user, because they are the point at
+ * and `decide` require a logged-in Svann user, because they are the point at
  * which a real person grants access to a workspace they belong to.
  *
  * See services/oauth.service.js for why an unvalidated redirect_uri gets an
@@ -181,7 +181,7 @@ export async function decide(req, res) {
  * POST /oauth/token
  *
  * Form-encoded in, JSON out — that is what a standard OAuth client expects, and
- * specifically what Spandan's generic `exchangeCode` sends and parses.
+ * specifically what Svann's generic `exchangeCode` sends and parses.
  */
 export async function token(req, res) {
   const {

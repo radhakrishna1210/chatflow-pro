@@ -16,7 +16,7 @@ router.post(
   authenticationController.generateOtp
 );
 
-// Verify a ChatFlow-generated Authentication OTP.
+// Verify a Svann-generated Authentication OTP.
 router.post(
   '/verify',
   requireScope('authentication:send'),

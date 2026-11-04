@@ -98,7 +98,7 @@ router.get('/pricing', (req, res) =>
 
 router.use('/auth', authRoutes);
 
-// ChatFlow as an OAuth authorization server: another application sends a user
+// Svann as an OAuth authorization server: another application sends a user
 // here to approve access, and receives a scoped ApiKey rather than the user
 // copying one out of Settings. Public — an authorization request arrives as a
 // browser navigation, and the token exchange authenticates with a client secret.

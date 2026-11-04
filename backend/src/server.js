@@ -375,7 +375,7 @@ async function main() {
   }
 
   httpServer = app.listen(env.PORT, () => {
-    console.log(`[Server] Spandan backend running on port ${env.PORT}`);
+    console.log(`[Server] Svann backend running on port ${env.PORT}`);
     console.log(`[Server] Environment: ${env.NODE_ENV}`);
   });
 }

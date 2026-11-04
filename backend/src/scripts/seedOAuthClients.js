@@ -1,5 +1,5 @@
 /**
- * Register the applications allowed to ask ChatFlow users for access.
+ * Register the applications allowed to ask Svann users for access.
  *
  *   node src/scripts/seedOAuthClients.js
  *
@@ -13,7 +13,7 @@
  * intended trade: a secret this script could read back is a secret anyone with
  * database access could use to impersonate the application.
  *
- * Copy the printed value into Spandan's .env as CHATFLOW_CLIENT_SECRET.
+ * Copy the printed value into Svann's .env as CHATFLOW_CLIENT_SECRET.
  */
 import { PrismaClient } from '@prisma/client';
 import { randomBytes, createHash } from 'crypto';
@@ -34,15 +34,15 @@ const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 const CLIENTS = [
   {
     clientId: 'spandan',
-    name: 'Spandan',
+    name: 'Svann',
     redirectUris: [
       'https://spandan.mannmate.com/api/v1/integrations/chatflow/callback',
-      // Local development against a ChatFlow on the same machine.
+      // Local development against a Svann on the same machine.
       'http://localhost:5173/api/v1/integrations/chatflow/callback',
       'http://localhost:4300/api/v1/integrations/chatflow/callback',
     ],
-    // The ceiling, not the request. Spandan asks for these four today; anything
-    // beyond this list is refused server-side however Spandan is configured.
+    // The ceiling, not the request. Svann asks for these four today; anything
+    // beyond this list is refused server-side however Svann is configured.
     allowedScopes: ['templates:read', 'templates:write', 'messages:send', 'webhooks:write'],
   },
 ];
@@ -88,7 +88,7 @@ async function main() {
     if (r.secret) {
       console.log(`    CHATFLOW_CLIENT_ID=${r.clientId}`);
       console.log(`    CHATFLOW_CLIENT_SECRET=${r.secret}`);
-      console.log('    ^ shown once and never again. Put it in Spandan\'s .env now.\n');
+      console.log('    ^ shown once and never again. Put it in Svann\'s .env now.\n');
     }
   }
   if (!results.some((r) => r.secret)) {

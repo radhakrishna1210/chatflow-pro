@@ -42,7 +42,7 @@ function hashesMatch(left, right) {
 }
 
 /**
- * Create a ChatFlow-generated authentication transaction.
+ * Create a Svann-generated authentication transaction.
  *
  * The raw OTP is returned only to the authentication service
  * so it can be sent through Meta.
@@ -208,7 +208,7 @@ export async function attachMetaMessageId(
 }
 
 /**
- * Verify a ChatFlow-generated authentication transaction.
+ * Verify a Svann-generated authentication transaction.
  *
  * The lookup is scoped to `workspaceId`. Without it, two workspaces that had
  * both sent an OTP to the same phone number would share a single pool of

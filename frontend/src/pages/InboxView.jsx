@@ -762,7 +762,7 @@ export default function InboxView() {
                   <div style={{ display:'flex', alignItems:'center', gap:5, minWidth:0 }}>
                     {!mobile && <I n="phone" s={10} c="var(--t2)" />}
                     <p style={{ fontSize:11, color: mobile ? 'rgba(255,255,255,0.85)' : 'var(--t2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                      {mobile && isBot ? 'Spandan AI active' : active.contact.phoneNumber}
+                      {mobile && isBot ? 'Svann AI active' : active.contact.phoneNumber}
                     </p>
                   </div>
                 </div>
