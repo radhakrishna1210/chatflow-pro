@@ -121,19 +121,26 @@ export const newVisitorKey = () => `wv_${crypto.randomBytes(16).toString('hex')}
 // Finds or creates the visitor's session. The key comes from the browser, so
 // it is scoped to the widget on lookup — a key from one site cannot be used to
 // read a session belonging to another widget.
+// Only keys this server could have issued are honoured. The key is the only
+// thing standing between a session and whoever else presents it, so a
+// browser-chosen one ("a", "test") would let any visitor who guesses it pick up
+// that session's transcript — the handoff message quotes the last question.
+const VISITOR_KEY_RE = /^wv_[0-9a-f]{32}$/;
+
 export async function loadSession(widget, visitorKey, { pageUrl } = {}) {
   const key = String(visitorKey || '').trim();
-  if (key) {
-    const existing = await prisma.widgetSession.findFirst({
-      where: { visitorKey: key, widgetId: widget.id },
-    });
-    if (existing) return existing;
+  if (VISITOR_KEY_RE.test(key)) {
+    const existing = await prisma.widgetSession.findUnique({ where: { visitorKey: key } });
+    if (existing && existing.widgetId === widget.id) return existing;
+    // A key belonging to another widget is never reused: visitorKey is unique
+    // across the table, so creating a row with it would fail with a 500, and
+    // the visitor simply gets a fresh session for this site instead.
   }
   return prisma.widgetSession.create({
     data: {
       widgetId: widget.id,
       workspaceId: widget.workspaceId,
-      visitorKey: key || newVisitorKey(),
+      visitorKey: newVisitorKey(),
       pageUrl: String(pageUrl || '').slice(0, 500) || null,
       transcript: [],
     },
@@ -148,10 +155,26 @@ const EVENT_TYPES = new Set(['IMPRESSION', 'OPEN', 'QUESTION', 'ANSWER', 'WHATSA
 
 // Fire-and-forget: an analytics write must never be the reason a visitor's
 // question fails.
+// The /event beacon is public, so its `meta` is whatever an anonymous caller
+// sends — up to the JSON body limit per request, 120 times a minute. Anything
+// larger than an analytics payload plausibly needs is dropped, not stored.
+const MAX_EVENT_META_CHARS = 2000;
+
+function boundedMeta(meta) {
+  if (meta === null || meta === undefined) return null;
+  try {
+    const json = JSON.stringify(meta);
+    return json && json.length <= MAX_EVENT_META_CHARS ? meta : null;
+  } catch {
+    return null;
+  }
+}
+
 export function recordEvent(widget, type, { visitorKey = null, meta = null } = {}) {
   if (!EVENT_TYPES.has(type)) return Promise.resolve(null);
+  const key = typeof visitorKey === 'string' ? visitorKey.slice(0, 64) : null;
   return prisma.widgetEvent.create({
-    data: { widgetId: widget.id, workspaceId: widget.workspaceId, type, visitorKey, meta },
+    data: { widgetId: widget.id, workspaceId: widget.workspaceId, type, visitorKey: key, meta: boundedMeta(meta) },
   }).catch((err) => {
     console.warn('[widget] event write failed:', err.message);
     return null;
@@ -247,8 +270,10 @@ export async function handoff(widget, { visitorKey, pageUrl } = {}) {
 
   // If the visitor already left their details we have a Contact, so the
   // handoff can be planted in the Inbox for an agent to see before the
-  // visitor's first WhatsApp message even arrives.
-  if (session.contactId) {
+  // visitor's first WhatsApp message even arrives. Once per session: the
+  // endpoint is public, and re-posting it used to add another unread Inbox
+  // message every time (30 a minute per IP).
+  if (session.contactId && !session.handedOff) {
     await seedInboxContext(widget, session, { reason: 'whatsapp_handoff' }).catch((err) => {
       console.warn('[widget] inbox handoff context failed:', err.message);
     });

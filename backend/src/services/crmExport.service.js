@@ -34,6 +34,9 @@ export function toCsv(rows, columns, options = {}) {
   return [header, ...body].join('\r\n');
 }
 
+// Capped so one export cannot try to hold an unbounded workspace in memory.
+export const EXPORT_LIMIT = 50_000;
+
 const isoDate = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
 
 const EXPORTS = {
@@ -44,6 +47,7 @@ const EXPORTS = {
         where: { workspaceId },
         include: { contact: true, owner: { select: { name: true, email: true } } },
         orderBy: { createdAt: 'desc' },
+        take: EXPORT_LIMIT,
       });
     },
     columns: [
@@ -65,6 +69,7 @@ const EXPORTS = {
         where: { workspaceId },
         include: { contact: { select: { name: true } }, owner: { select: { name: true, email: true } } },
         orderBy: { createdAt: 'desc' },
+        take: EXPORT_LIMIT,
       });
     },
     columns: [
@@ -87,6 +92,7 @@ const EXPORTS = {
         where: { workspaceId },
         include: { assignedTo: { select: { name: true, email: true } }, deal: { select: { title: true } } },
         orderBy: { createdAt: 'desc' },
+        take: EXPORT_LIMIT,
       });
     },
     columns: [
@@ -102,7 +108,7 @@ const EXPORTS = {
   products: {
     filename: 'products',
     async fetch(workspaceId) {
-      return prisma.product.findMany({ where: { workspaceId }, orderBy: { name: 'asc' } });
+      return prisma.product.findMany({ where: { workspaceId }, orderBy: { name: 'asc' }, take: EXPORT_LIMIT });
     },
     columns: [
       { label: 'Name', value: (p) => p.name },
@@ -130,5 +136,6 @@ export async function exportEntity(workspaceId, entity, options = {}) {
     csv: toCsv(rows, spec.columns, options),
     filename: `${spec.filename}-${new Date().toISOString().slice(0, 10)}.csv`,
     count: rows.length,
+    truncated: rows.length === EXPORT_LIMIT,
   };
 }

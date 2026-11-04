@@ -143,7 +143,7 @@ export async function login({ email, password }) {
 export async function refresh(token) {
   let payload;
   try {
-    payload = jwt.verify(token, env.JWT_REFRESH_SECRET);
+    payload = jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] });
   } catch {
     const err = new Error('Invalid refresh token');
     err.status = 401;
@@ -151,14 +151,24 @@ export async function refresh(token) {
   }
 
   const stored = await prisma.refreshToken.findUnique({ where: { token } });
-  if (!stored || stored.expiresAt < new Date()) {
+  if (!stored || stored.userId !== payload.sub || stored.expiresAt < new Date()) {
     if (stored) await prisma.refreshToken.delete({ where: { token } }).catch(() => {});
     const err = new Error('Refresh token expired or not found');
     err.status = 401;
     throw err;
   }
 
-  await prisma.refreshToken.delete({ where: { token } });
+  // Rotation is a single conditional delete: whoever removes the row is the one
+  // request allowed to mint a successor. A read-then-delete let two concurrent
+  // refreshes (two tabs, a retried request) race — the losers crashed with an
+  // unhandled P2025 and answered 500, which the client treats as transient.
+  const { count: claimed } = await prisma.refreshToken.deleteMany({ where: { id: stored.id } });
+  if (claimed !== 1) {
+    const err = new Error('Refresh token already used');
+    err.status = 401;
+    err.code = 'REFRESH_TOKEN_REUSED';
+    throw err;
+  }
 
   const member = await prisma.workspaceMember.findFirst({
     where: { userId: payload.sub },
@@ -192,16 +202,30 @@ export async function logout(token) {
   }
 }
 
-export async function findOrCreateGoogleUser({ googleId, email, name, inviteToken }) {
+export async function findOrCreateGoogleUser({ googleId, email, name, inviteToken, emailVerified = false }) {
   const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
+  // An address Google has not verified proves nothing about who owns it: a
+  // Google account can be registered on any address. Matching on it would let
+  // someone sign straight into an existing password account (or, for
+  // ADMIN_EMAIL, the platform super-admin) without ever reading that inbox.
+  // Only a verified address may link to or create an account; an existing
+  // googleId link still signs in as before.
+  const emailTrusted = !!normalizedEmail && emailVerified === true;
   let user = await prisma.user.findFirst({
     where: {
       OR: [
         { googleId },
-        ...(normalizedEmail ? [{ email: normalizedEmail }] : []),
+        ...(emailTrusted ? [{ email: normalizedEmail }] : []),
       ],
     },
   });
+
+  if (!user && !emailTrusted) {
+    const e = new Error('Your Google account has no verified email address.');
+    e.status = 403;
+    e.code = 'email_unverified';
+    throw e;
+  }
 
   const isNewUser = !user;
   let joined = null;
@@ -217,12 +241,12 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
     try {
       if (inviteToken) {
         user = await prisma.$transaction(async (tx) => {
-          const created = await tx.user.create({ data: { name, email, googleId } });
+          const created = await tx.user.create({ data: { name, email: normalizedEmail, googleId } });
           joined = await consumeInvitationAtomically(tx, inviteToken, normalizedEmail, created.id);
           return created;
         });
       } else {
-        user = await prisma.user.create({ data: { name, email, googleId } });
+        user = await prisma.user.create({ data: { name, email: normalizedEmail, googleId } });
       }
     } catch (err) {
       // A concurrent callback (double-click, browser retry, two OAuth popups)
@@ -230,7 +254,7 @@ export async function findOrCreateGoogleUser({ googleId, email, name, inviteToke
       // hits a unique violation instead of a real error. Converge onto
       // whichever row won instead of surfacing a 500.
       if (err.code !== 'P2002') throw err;
-      user = await prisma.user.findFirst({ where: { OR: [{ googleId }, ...(normalizedEmail ? [{ email: normalizedEmail }] : [])] } });
+      user = await prisma.user.findFirst({ where: { OR: [{ googleId }, { email: normalizedEmail }] } });
       if (!user) throw err;
       joined = null;
     }
@@ -392,12 +416,11 @@ export async function startSignup({ name, email, password }) {
     },
     orderBy: { createdAt: 'desc' },
   });
-  if (recent) {
-    const e = new Error('A code was just sent — please wait a minute before requesting another.');
-    e.status = 429;
-    e.code = 'OTP_COOLDOWN';
-    throw e;
-  }
+  // Inside the cooldown the code already sent stays live and nothing new is
+  // mailed — but the answer is the same 200 as above. A 429 here could only
+  // happen for an address *without* an account (that branch returns first), so
+  // it was an enumeration oracle of its own.
+  if (recent) return { email: normalizedEmail, message: 'Verification code sent' };
 
   // Any earlier pending code for this address stops working the moment a new
   // one is issued, so only the most recent code is ever live.
@@ -537,7 +560,10 @@ export async function startPasswordReset({ email }) {
     where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', consumed: false, createdAt: { gt: new Date(Date.now() - RESEND_COOLDOWN_MS) } },
     orderBy: { createdAt: 'desc' },
   });
-  if (recent) { const e = new Error('A code was just sent — please wait a minute before requesting another.'); e.status = 429; throw e; }
+  // Answered exactly like a fresh send. A 429 here only ever happened for a
+  // real account (the unknown-address branch above returns before it), so two
+  // quick requests told anyone whether an address was registered.
+  if (recent) return { message: 'If an account exists for this email, a reset code has been sent.' };
 
   await prisma.emailOtp.updateMany({ where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', consumed: false }, data: { consumed: true } });
 

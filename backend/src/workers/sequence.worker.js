@@ -3,18 +3,11 @@ import { createBullConnection } from '../lib/redis.js';
 import { prisma } from '../lib/prisma.js';
 import { advanceEnrollment, findDueEnrollments } from '../services/sequenceEngine.service.js';
 import { enqueueAdvance } from '../queues/sequence.queue.js';
-import { sendTextMessage } from '../lib/meta.js';
-import { decrypt } from '../lib/encryption.js';
+import { sendAutomatedReply } from '../services/outbound.service.js';
 
-// Sends one sequence message. Kept here rather than in the engine so the
-// engine stays free of provider concerns and testable without a live number.
-//
-// Messages are written into the contact's existing conversation so a sequence
-// message and a human reply sit in one thread, which is what makes
-// exit-on-reply meaningful.
-async function sendSequenceMessage({ enrollment, body }) {
-  const contact = await prisma.contact.findUnique({
-    where: { id: enrollment.contactId },
+export async function sendSequenceMessage({ enrollment, body }, { sendReply = sendAutomatedReply } = {}) {
+  const contact = await prisma.contact.findFirst({
+    where: { id: enrollment.contactId, workspaceId: enrollment.workspaceId },
     select: { id: true, phoneNumber: true, optedOut: true },
   });
   if (!contact) throw new Error('Contact no longer exists');
@@ -23,7 +16,6 @@ async function sendSequenceMessage({ enrollment, body }) {
   let conversation = await prisma.conversation.findFirst({
     where: { workspaceId: enrollment.workspaceId, contactId: contact.id },
     orderBy: { lastMessageAt: 'desc' },
-    include: { waNumber: true },
   });
 
   if (!conversation) {
@@ -32,55 +24,37 @@ async function sendSequenceMessage({ enrollment, body }) {
     });
     conversation = await prisma.conversation.create({
       data: { workspaceId: enrollment.workspaceId, contactId: contact.id, status: 'OPEN', waNumberId: waNumber?.id },
-      include: { waNumber: true },
     });
   } else if (!conversation.waNumberId) {
     const waNumber = await prisma.waNumber.findFirst({
       where: { workspaceId: enrollment.workspaceId, status: 'ACTIVE' },
     });
     if (waNumber) {
-      await prisma.conversation.update({
+      conversation = await prisma.conversation.update({
         where: { id: conversation.id },
         data: { waNumberId: waNumber.id },
       });
-      conversation.waNumber = waNumber;
-      conversation.waNumberId = waNumber.id;
     }
   }
+  if (!conversation.waNumberId) throw new Error('No connected WhatsApp number to send from');
 
-  let metaMsgId = null;
-  if (conversation.waNumber?.encryptedAccessToken && conversation.waNumber?.metaPhoneNumberId) {
-    try {
-      const accessToken = decrypt(conversation.waNumber.encryptedAccessToken);
-      const res = await sendTextMessage(
-        conversation.waNumber.metaPhoneNumberId,
-        accessToken,
-        contact.phoneNumber,
-        body
-      );
-      metaMsgId = res?.messages?.[0]?.id || null;
-    } catch (err) {
-      console.error('[SequenceWorker] Failed to dispatch WhatsApp message via Meta API:', err.message);
-    }
+  // Sent through the same path as every other automated message. This used to
+  // call Meta directly, swallow any error, and then record the message as
+  // OUTBOUND "DELIVERED" and the step as SENT — so a missing token, a closed
+  // 24-hour window or a Meta rejection all showed in the inbox and the step
+  // history as a message the customer had received. sendAutomatedReply checks
+  // the opt-out list and the customer-service window, and stores the message
+  // only once Meta has accepted it.
+  const sent = await sendReply({
+    conversationId: conversation.id,
+    waNumberId: conversation.waNumberId,
+    toPhone: contact.phoneNumber,
+    body,
+  });
+  if (!sent) {
+    throw new Error('Message not sent — the 24-hour window is closed, the number is opted out, or Meta rejected it');
   }
-
-  await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      body,
-      direction: 'OUTBOUND',
-      sentAt: new Date(),
-      status: metaMsgId ? 'SENT' : 'DELIVERED',
-      metaMessageId: metaMsgId,
-    },
-  });
-
-  await prisma.conversation.update({
-    where: { id: conversation.id },
-    data: { lastMessageAt: new Date() },
-  });
-
-  return `Dispatched to ${contact.phoneNumber}${metaMsgId ? ` (Meta ID: ${metaMsgId})` : ''}`;
+  return `Sent to ${contact.phoneNumber}${sent.metaMessageId ? ` (Meta ID: ${sent.metaMessageId})` : ''}`;
 }
 
 export function startSequenceWorker() {

@@ -1,6 +1,4 @@
 import { prisma } from '../lib/prisma.js';
-import { queueMemberInvitedEmail } from './email.service.js';
-import { assertWithinLimit } from './subscription.service.js';
 
 export async function listMembers(workspaceId) {
   const members = await prisma.workspaceMember.findMany({
@@ -24,39 +22,20 @@ export async function listMembers(workspaceId) {
   }));
 }
 
-export async function inviteMember(workspaceId, { email, role }, inviterName) {
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
-
-  const existing = await prisma.workspaceMember.findUnique({
-    where: { userId_workspaceId: { userId: user.id, workspaceId } },
+// Every role change and removal runs inside one transaction that first locks
+// the workspace's membership rows. Counting admins and then writing are two
+// statements, so without the lock two admins demoting each other at the same
+// moment would each see "one other admin left" and both succeed, leaving the
+// workspace with none.
+async function withMembershipLock(workspaceId, fn) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "userId" FROM "WorkspaceMember" WHERE "workspaceId" = ${workspaceId} FOR UPDATE`;
+    return fn(tx);
   });
-  if (existing) { const e = new Error('User already a member'); e.status = 409; throw e; }
-
-  await assertWithinLimit(workspaceId, 'member');
-
-  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } });
-
-  const member = await prisma.workspaceMember.create({
-    data: { userId: user.id, workspaceId, role },
-    include: { user: { select: { id: true, name: true, email: true } } },
-  });
-
-  queueMemberInvitedEmail({
-    inviteeEmail: user.email,
-    inviteeName: user.name,
-    inviterName: inviterName || 'A workspace admin',
-    workspaceId,
-    workspaceName: workspace?.name || 'your workspace',
-  }).catch(() => {});
-
-  return member;
 }
 
-// Counts admins in one query so the "last admin" checks below can't be raced
-// by two concurrent demotions.
-async function countAdmins(workspaceId, excludeUserId = null) {
-  return prisma.workspaceMember.count({
+async function countAdmins(tx, workspaceId, excludeUserId = null) {
+  return tx.workspaceMember.count({
     where: {
       workspaceId,
       role: 'ADMIN',
@@ -65,63 +44,91 @@ async function countAdmins(workspaceId, excludeUserId = null) {
   });
 }
 
+// The owner is the earliest-joined admin — the same rule listMembers() uses to
+// badge them. Admins are otherwise equal, but an admin someone invited (or who
+// joined through a shared admin link) must not be able to demote or remove the
+// person who created the workspace and take it over.
+async function ownerUserId(tx, workspaceId) {
+  const owner = await tx.workspaceMember.findFirst({
+    where: { workspaceId, role: 'ADMIN' },
+    orderBy: { joinedAt: 'asc' },
+    select: { userId: true },
+  });
+  return owner?.userId ?? null;
+}
+
+function ownerProtected(action) {
+  const e = new Error(`The workspace owner can't be ${action} by another admin.`);
+  e.status = 403;
+  e.code = 'OWNER_PROTECTED';
+  return e;
+}
+
 // A workspace must always keep at least one admin. Without this guard the sole
 // admin could switch their own role to CLIENT and instantly lock everyone out
 // of the workspace — there would be nobody left with permission to promote
 // them back. Demoting yourself is refused outright; only another admin can
 // change your role.
 export async function updateMemberRole(workspaceId, userId, role, actingUserId = null) {
-  const member = await prisma.workspaceMember.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId } },
-  });
-  if (!member) { const e = new Error('Member not found'); e.status = 404; throw e; }
-  if (member.role === role) return member;
+  return withMembershipLock(workspaceId, async (tx) => {
+    const member = await tx.workspaceMember.findUnique({
+      where: { userId_workspaceId: { userId, workspaceId } },
+    });
+    if (!member) { const e = new Error('Member not found'); e.status = 404; throw e; }
+    if (member.role === role) return member;
 
-  if (member.role === 'ADMIN' && role !== 'ADMIN') {
-    if (actingUserId && actingUserId === userId) {
-      const e = new Error("You can't change your own role. Ask another admin to do it.");
-      e.status = 403;
-      e.code = 'CANNOT_CHANGE_OWN_ROLE';
-      throw e;
+    if (member.role === 'ADMIN' && role !== 'ADMIN') {
+      if (actingUserId && actingUserId === userId) {
+        const e = new Error("You can't change your own role. Ask another admin to do it.");
+        e.status = 403;
+        e.code = 'CANNOT_CHANGE_OWN_ROLE';
+        throw e;
+      }
+      if (actingUserId && (await ownerUserId(tx, workspaceId)) === userId) throw ownerProtected('demoted');
+      const otherAdmins = await countAdmins(tx, workspaceId, userId);
+      if (otherAdmins === 0) {
+        const e = new Error('This is the only admin in the workspace. Promote another member to admin first.');
+        e.status = 409;
+        e.code = 'LAST_ADMIN';
+        throw e;
+      }
     }
-    const otherAdmins = await countAdmins(workspaceId, userId);
-    if (otherAdmins === 0) {
-      const e = new Error('This is the only admin in the workspace. Promote another member to admin first.');
-      e.status = 409;
-      e.code = 'LAST_ADMIN';
-      throw e;
-    }
-  }
 
-  return prisma.workspaceMember.update({
-    where: { userId_workspaceId: { userId, workspaceId } },
-    data: { role },
+    return tx.workspaceMember.update({
+      where: { userId_workspaceId: { userId, workspaceId } },
+      data: { role },
+    });
   });
 }
 
 // Same protection for deletion: removing the last admin would leave the
 // workspace with no one who can manage it.
 export async function removeMember(workspaceId, userId, actingUserId = null) {
-  const member = await prisma.workspaceMember.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId } },
-  });
-  if (!member) { const e = new Error('Member not found'); e.status = 404; throw e; }
+  await withMembershipLock(workspaceId, async (tx) => {
+    const member = await tx.workspaceMember.findUnique({
+      where: { userId_workspaceId: { userId, workspaceId } },
+    });
+    if (!member) { const e = new Error('Member not found'); e.status = 404; throw e; }
 
-  if (member.role === 'ADMIN') {
-    const otherAdmins = await countAdmins(workspaceId, userId);
-    if (otherAdmins === 0) {
-      const e = new Error(
-        actingUserId === userId
-          ? "You're the only admin in this workspace and can't remove yourself. Promote another member to admin first."
-          : 'This is the only admin in the workspace and cannot be removed. Promote another member to admin first.'
-      );
-      e.status = 409;
-      e.code = 'LAST_ADMIN';
-      throw e;
+    if (member.role === 'ADMIN') {
+      if (actingUserId && actingUserId !== userId && (await ownerUserId(tx, workspaceId)) === userId) {
+        throw ownerProtected('removed');
+      }
+      const otherAdmins = await countAdmins(tx, workspaceId, userId);
+      if (otherAdmins === 0) {
+        const e = new Error(
+          actingUserId === userId
+            ? "You're the only admin in this workspace and can't remove yourself. Promote another member to admin first."
+            : 'This is the only admin in the workspace and cannot be removed. Promote another member to admin first.'
+        );
+        e.status = 409;
+        e.code = 'LAST_ADMIN';
+        throw e;
+      }
     }
-  }
 
-  await prisma.workspaceMember.delete({
-    where: { userId_workspaceId: { userId, workspaceId } },
+    await tx.workspaceMember.delete({
+      where: { userId_workspaceId: { userId, workspaceId } },
+    });
   });
 }

@@ -7,6 +7,7 @@ const OAUTH_ERROR_MESSAGES = {
   denied: 'Google sign-in was cancelled.',
   invalid_state: 'Sign-in session expired — please try again.',
   session_store_failed: 'Could not complete sign-in. Please try again.',
+  email_unverified: 'Your Google account’s email address is not verified. Verify it with Google, or sign up with email instead.',
 };
 
 export default function Login({ onNav, mode = 'login' }) {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as contactsController from '../controllers/contacts.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
+import { authorize } from '../middleware/authorize.js';
 import { validate, contactSchemas } from '../validators/index.js';
 import { uploader, verifyFileContents, ACCEPTS } from '../lib/uploadGuard.js';
 
@@ -17,7 +18,10 @@ router.post('/import', upload.single('file'), verifyFileContents, contactsContro
 // Literal path before '/:id' so it is not read as a contact id.
 router.get('/tags', contactsController.tags);
 // Literal path, before '/:id'. Takes the same filters as the list endpoint.
-router.get('/export', contactsController.exportCsv);
+// Exporting the whole contact book is a bulk data-egress action, not inbox
+// work: members and admins only (the CRM export is admin-only). Agents and
+// viewers can still read contacts one screen at a time.
+router.get('/export', authorize('CLIENT'), contactsController.exportCsv);
 // Literal path, before '/:id'. What a campaign can fill template variables with.
 router.get('/variable-sources', contactsController.variableSources);
 router.get('/:id', contactsController.getOne);

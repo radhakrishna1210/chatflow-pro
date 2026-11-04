@@ -72,6 +72,27 @@ async function hit(key, windowMs) {
   return hitMemory(key, windowMs);
 }
 
+// Gives back an attempt that turned out not to be a failure (countFailuresOnly).
+// Only decrements a bucket that still exists: a plain DECR on a key whose
+// window just expired would recreate it at -1 with no TTL, a permanent bonus
+// attempt for that bucket.
+const DECR_IF_EXISTS = "if redis.call('EXISTS', KEYS[1]) == 1 then return redis.call('DECR', KEYS[1]) end return 0";
+async function unhitRedis(key) {
+  await redis.eval(DECR_IF_EXISTS, 1, key);
+}
+
+function unhitMemory(key) {
+  const bucket = buckets.get(key);
+  if (bucket && bucket.count > 0) bucket.count -= 1;
+}
+
+async function unhit(key) {
+  try {
+    if (redis.status === 'ready') return await unhitRedis(key);
+  } catch { /* fall through to memory */ }
+  return unhitMemory(key);
+}
+
 async function peek(key) {
   try {
     if (redis.status === 'ready') return await peekRedis(key);
@@ -129,10 +150,21 @@ export function rateLimit({
 
     // Count only failures: a correct password must never spend a legitimate
     // user's allowance, but every wrong one has to be paid for.
+    //
+    // The attempt is charged *up front* and refunded once it turns out to have
+    // succeeded. Charging only after the response let a burst through: every
+    // request in a few hundred fired at once passed the peek above before the
+    // first one had finished and been counted, so the limit only applied to
+    // attackers polite enough to wait for each answer.
+    const ipHits = await hit(ipKey, windowMs);
+    const subHits = subjectKey ? await hit(subjectKey, windowMs) : null;
+    if (ipHits.count > max || (subHits && subjectMax && subHits.count > subjectMax)) {
+      return tooMany(res, Math.max(ipHits.resetAt, subHits?.resetAt ?? 0));
+    }
     res.on('finish', () => {
-      if (res.statusCode < 400 || res.statusCode === 429) return;
-      hit(ipKey, windowMs).catch(() => {});
-      if (subjectKey) hit(subjectKey, windowMs).catch(() => {});
+      if (res.statusCode >= 400 && res.statusCode !== 429) return;
+      unhit(ipKey).catch(() => {});
+      if (subjectKey) unhit(subjectKey).catch(() => {});
     });
     next();
   };

@@ -124,6 +124,19 @@ export function simulateInbound(req, res) {
   return handle(res, () => conversationsService.simulateInboundMessage(req.params.workspaceId, req.params.id, req.body || {}), 'Failed to simulate inbound message');
 }
 
+// Types a browser may render inline from this origin. Anything else — HTML,
+// SVG (which can carry script), XML, unknown — is served as an opaque download.
+const INLINE_MEDIA = /^(image\/(jpeg|png|webp|gif)|audio\/(ogg|mpeg|mp4|aac|amr|opus)|video\/(mp4|3gpp))$/;
+
+export function safeMediaHeaders(mimeType) {
+  const base = String(mimeType || '').split(';')[0].trim().toLowerCase();
+  if (INLINE_MEDIA.test(base)) {
+    // Keep parameters like "codecs=opus" — the audio element needs them.
+    return { contentType: String(mimeType).trim(), inline: true };
+  }
+  return { contentType: 'application/octet-stream', inline: false };
+}
+
 export async function streamMedia(req, res) {
   try {
     const { buffer, mimeType } = await conversationsService.getMessageMediaStream(
@@ -131,9 +144,16 @@ export async function streamMedia(req, res) {
       req.params.id,
       req.params.messageId,
     );
-    res.setHeader('Content-Type', mimeType);
+    const { contentType, inline } = safeMediaHeaders(mimeType);
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', buffer.length);
-    res.setHeader('Accept-Ranges', 'bytes');
+    // The bytes are whatever the customer sent, and the type is whatever their
+    // phone declared. Rendering, say, a text/html "document" inline from the
+    // API origin would be stored XSS — so only image/audio/video play inline,
+    // everything else is a download, and the response is sandboxed either way.
+    res.setHeader('Content-Disposition', inline ? 'inline' : 'attachment');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cache-Control', 'private, no-store');
     res.send(buffer);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to fetch media' });

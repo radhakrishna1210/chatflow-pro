@@ -56,3 +56,45 @@ export async function resolveCrmReferences(workspaceId, body, { includeAssignee 
   await Promise.all(checks);
   return resolved;
 }
+
+// An owner/assignee id arrives straight from the client. Without this check a
+// lead, deal or ticket could be "owned" by a user of another workspace — whose
+// name and email the record's `owner` include then reads back — and record
+// scoping (which keys off the owner) would hide it from everyone here.
+export async function assertWorkspaceMember(workspaceId, userId, label = 'Owner') {
+  if (!userId) return;
+  const member = await prisma.workspaceMember.findUnique({
+    where: { userId_workspaceId: { userId, workspaceId } },
+    select: { userId: true },
+  });
+  if (!member) {
+    const e = new Error(`${label} is not a member of this workspace`);
+    e.status = 400;
+    throw e;
+  }
+}
+
+// AND-combines Prisma `where` fragments. Record scope is itself an `OR`, so it
+// can never be spread next to another `OR` (a status or stage filter, a search)
+// — the later key silently replaces the earlier one and the scope disappears.
+export function andWhere(...parts) {
+  const real = parts.filter((p) => p && Object.keys(p).length > 0);
+  return real.length ? { AND: real } : {};
+}
+
+// Runs a create that takes the next sequential number (Q-0042, T-0042). Two
+// concurrent creates both read the same "last" number inside their own
+// transactions — read committed does not serialise them — and the loser hit
+// the (workspaceId, number) unique constraint as a bare 500. The unique index
+// is the real arbiter, so on a collision the whole create is simply retried.
+export async function withSequentialNumber(run, { attempts = 5 } = {}) {
+  for (let i = 1; ; i += 1) {
+    try {
+      return await run();
+    } catch (err) {
+      const target = String(err?.meta?.target ?? '');
+      const numberClash = err?.code === 'P2002' && /number/i.test(target);
+      if (!numberClash || i >= attempts) throw err;
+    }
+  }
+}

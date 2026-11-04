@@ -153,6 +153,47 @@ export async function describePendingRequest(reqToken) {
 }
 
 /**
+ * The workspace a signed-in user may connect an application to, checked live.
+ *
+ * Approving a request ends in a scoped API key, so it is the same act as
+ * creating one under Settings → API keys — member-level work. The JWT's
+ * workspaceId and role are only what was true at sign-in: a user removed from
+ * the workspace, or a VIEWER/AGENT (who cannot create keys), must not be able to
+ * mint one by going through the consent screen instead.
+ *
+ * @returns {{ workspace: { id, name } }} or throws an error with status/code.
+ */
+const ROLES_THAT_MAY_GRANT = new Set(['CLIENT', 'ADMIN']);
+
+export async function resolveGrantingWorkspace(userId, workspaceId) {
+  if (!workspaceId) {
+    const e = new Error('Create a workspace before connecting an application.');
+    e.status = 409; e.code = 'NO_WORKSPACE';
+    throw e;
+  }
+  const member = await prisma.workspaceMember.findUnique({
+    where: { userId_workspaceId: { userId, workspaceId } },
+    include: { workspace: { select: { id: true, name: true, suspended: true } } },
+  });
+  if (!member) {
+    const e = new Error('You are no longer a member of this workspace. Sign in again.');
+    e.status = 403; e.code = 'NOT_A_MEMBER';
+    throw e;
+  }
+  if (member.workspace.suspended) {
+    const e = new Error('This workspace has been suspended. Please contact support.');
+    e.status = 403; e.code = 'WORKSPACE_SUSPENDED';
+    throw e;
+  }
+  if (!ROLES_THAT_MAY_GRANT.has(member.role)) {
+    const e = new Error('Only workspace members and admins can connect applications. Ask a workspace admin to do this.');
+    e.status = 403; e.code = 'ROLE_NOT_PERMITTED';
+    throw e;
+  }
+  return { workspace: { id: member.workspace.id, name: member.workspace.name }, role: member.role };
+}
+
+/**
  * Mint a single-use authorization code.
  *
  * `userId` and `workspaceId` come from the caller's verified JWT, never from the
@@ -255,11 +296,14 @@ export async function exchangeAuthorizationCode({ code, clientId, clientSecret, 
     // assertWithinLimit throws here when the workspace is at its plan's API key
     // limit. Reaching the user as a bare 500 mid-connect reads as nonsense, so
     // say the actual thing that is wrong.
+    if (!err.status) console.error('[OAuth] Could not issue an API key:', err);
     throw new OAuthRedirectError(
       'server_error',
       /limit/i.test(err.message || '')
         ? 'This ChatFlow workspace has reached its API key limit. Revoke an unused key and try connecting again.'
-        : `Could not issue an API key: ${err.message}`,
+        // Only our own deliberate errors carry a status; anything else (a
+        // Prisma failure) is written for us, not for a third-party client.
+        : err.status ? `Could not issue an API key: ${err.message}` : 'Could not issue an API key. Try connecting again.',
     );
   }
 

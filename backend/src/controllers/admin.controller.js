@@ -9,14 +9,38 @@ import * as audit from '../services/audit.service.js';
 // held the token and not who the request claimed to be.
 const actorOf = (req) => ({ id: req.user?.id, email: req.user?.email });
 
+// Pool rows carry the number's encrypted Meta access token. Ciphertext is not
+// the token, but it has no business in a browser either — and it becomes the
+// token for anyone who later obtains ENCRYPTION_KEY.
+const safePoolEntry = (entry) => {
+  if (!entry || typeof entry !== 'object') return entry;
+  const { encryptedAccessToken, ...rest } = entry;
+  return { ...rest, hasAccessToken: !!encryptedAccessToken };
+};
+
+const badRequest = (res, error) => res.status(400).json({ error });
+
+// `new Date('garbage')` is an Invalid Date, which Prisma rejects with a 500.
+const invalidDate = (...values) => values.some((v) => v !== undefined && v !== '' && Number.isNaN(new Date(v).getTime()));
+
 export async function getPool(req, res) {
   const result = await adminService.getPoolSummary();
-  res.json(result);
+  res.json({ ...result, pool: (result.pool || []).map(safePoolEntry) });
 }
 
 export async function addNumber(req, res) {
+  const { phoneNumber, accessToken } = req.body || {};
+  if (typeof phoneNumber !== 'string' || !/^\+?[0-9]{6,20}$/.test(phoneNumber.replace(/[\s()-]/g, ''))) {
+    return badRequest(res, 'phoneNumber must be a phone number in international format');
+  }
+  if (typeof accessToken !== 'string' || !accessToken.trim()) {
+    return badRequest(res, 'accessToken is required');
+  }
   const entry = await adminService.addToPool(req.body);
-  res.status(201).json(entry);
+  await audit.record({
+    actor: actorOf(req), action: 'number.add', targetType: 'number', targetLabel: entry?.phoneNumber || phoneNumber,
+  });
+  res.status(201).json(safePoolEntry(entry));
 }
 
 export async function requestOtp(req, res) {
@@ -26,17 +50,24 @@ export async function requestOtp(req, res) {
 
 export async function verifyOtp(req, res) {
   const entry = await adminService.verifyOtpAndAdd(req.body);
-  res.status(201).json(entry);
+  res.status(201).json(safePoolEntry(entry));
 }
 
 export async function resetAllAssignments(req, res) {
   const result = await adminService.resetAllAssignments();
+  // Disconnects every workspace's WhatsApp number at once — the single most
+  // destructive button on the console, so it leaves a trace like the rest.
+  await audit.record({ actor: actorOf(req), action: 'number.reset-all', targetType: 'number', targetLabel: 'all' });
   res.json(result);
 }
 
 export async function resetPoolEntry(req, res) {
   const entry = await adminService.resetPoolEntry(req.params.id);
-  res.json(entry);
+  await audit.record({
+    actor: actorOf(req), action: 'number.reset', targetType: 'number',
+    targetLabel: entry?.phoneNumber || req.params.id,
+  });
+  res.json(safePoolEntry(entry));
 }
 
 export async function banPoolEntry(req, res) {
@@ -45,12 +76,16 @@ export async function banPoolEntry(req, res) {
     actor: actorOf(req), action: 'number.ban', targetType: 'number',
     targetLabel: entry?.phoneNumber || req.params.id,
   });
-  res.json(entry);
+  res.json(safePoolEntry(entry));
 }
 
 export async function unbanPoolEntry(req, res) {
   const entry = await adminService.unbanPoolEntry(req.params.id);
-  res.json(entry);
+  await audit.record({
+    actor: actorOf(req), action: 'number.unban', targetType: 'number',
+    targetLabel: entry?.phoneNumber || req.params.id,
+  });
+  res.json(safePoolEntry(entry));
 }
 
 export async function twilioSync(req, res) {
@@ -101,7 +136,11 @@ export async function listWorkspacesDetailed(req, res) {
 }
 
 export async function suspendWorkspace(req, res) {
-  const { suspended, reason } = req.body;
+  const { suspended, reason } = req.body || {};
+  // Must be a real boolean: `!!"false"` is true, so a string here used to
+  // suspend the workspace the caller was trying to reinstate.
+  if (typeof suspended !== 'boolean') return badRequest(res, 'suspended must be true or false');
+  if (reason != null && typeof reason !== 'string') return badRequest(res, 'reason must be text');
   const result = await adminService.setWorkspaceSuspended(req.params.id, suspended, reason);
   await audit.record({
     actor: actorOf(req),
@@ -119,7 +158,14 @@ export async function listTickets(req, res) {
 }
 
 export async function updateTicket(req, res) {
-  const ticket = await adminService.updateTicket(req.params.id, req.body || {});
+  const { status, adminNote } = req.body || {};
+  if (status !== undefined && !['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].includes(status)) {
+    return badRequest(res, 'status must be one of OPEN, IN_PROGRESS, RESOLVED, CLOSED');
+  }
+  if (adminNote !== undefined && adminNote !== null && (typeof adminNote !== 'string' || adminNote.length > 4000)) {
+    return badRequest(res, 'adminNote must be text of at most 4000 characters');
+  }
+  const ticket = await adminService.updateTicket(req.params.id, { status, adminNote });
   await audit.record({
     actor: actorOf(req), action: 'ticket.update', targetType: 'ticket',
     targetLabel: ticket?.subject || req.params.id,
@@ -130,6 +176,7 @@ export async function updateTicket(req, res) {
 
 export async function transactionAnalysis(req, res) {
   const { workspaceId, from, to, type } = req.query;
+  if (invalidDate(from, to)) return badRequest(res, 'from/to must be valid dates');
   res.json(await adminService.getTransactionAnalysis({ workspaceId, from, to, type }));
 }
 
@@ -148,6 +195,7 @@ export async function workspaceAnalytics(req, res) {
 
 export async function paymentsAnalysis(req, res) {
   const { workspaceId, from, to } = req.query;
+  if (invalidDate(from, to)) return badRequest(res, 'from/to must be valid dates');
   res.json(await adminService.getPaymentsAnalysis({ workspaceId, from, to }));
 }
 
@@ -162,16 +210,28 @@ export async function workspaceMembers(req, res) {
 // the inviter.
 export async function workspaceInvite(req, res) {
   const invitation = await invitationsService.createInvitation(req.params.id, req.body, req.user.id);
+  await audit.record({
+    actor: actorOf(req), action: 'invite.create', targetType: 'workspace', targetLabel: req.params.id,
+    meta: { workspaceId: req.params.id, email: req.body?.email, role: req.body?.role },
+  });
   res.status(201).json(invitation);
 }
 
 export async function workspaceInviteLink(req, res) {
   const invitation = await invitationsService.createLinkInvitation(req.params.id, req.body, req.user.id);
+  await audit.record({
+    actor: actorOf(req), action: 'invite.link', targetType: 'workspace', targetLabel: req.params.id,
+    meta: { workspaceId: req.params.id, role: req.body?.role, maxUses: req.body?.maxUses ?? null },
+  });
   res.status(201).json(invitation);
 }
 
 export async function workspaceRevokeInvite(req, res) {
   await invitationsService.revokeInvitation(req.params.id, req.params.invitationId);
+  await audit.record({
+    actor: actorOf(req), action: 'invite.revoke', targetType: 'workspace', targetLabel: req.params.id,
+    meta: { workspaceId: req.params.id, invitationId: req.params.invitationId },
+  });
   res.status(204).send();
 }
 
@@ -265,7 +325,18 @@ export async function checkSystemCredentials(req, res) {
 }
 
 export async function updateSystemSettings(req, res) {
-  const result = await platformSettings.updateSettings(req.body || {});
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  const result = await platformSettings.updateSettings(body);
+  // Rotating a platform credential (Meta token, Razorpay secret, SMTP…) is
+  // as sensitive as anything else on this console, so it is audited too —
+  // key names only, never values.
+  if (result.updated.length || result.cleared.length) {
+    await audit.record({
+      actor: actorOf(req), action: 'platform.settings.update', targetType: 'platform',
+      targetLabel: [...result.updated, ...result.cleared].join(', '),
+      meta: { updated: result.updated, cleared: result.cleared },
+    });
+  }
   res.json({ success: true, ...result, settings: await platformSettings.getAllSettings() });
 }
 

@@ -1,5 +1,16 @@
 import { prisma } from '../lib/prisma.js';
 import { stageProbabilities, CLOSED_STAGES } from './pipelineStages.service.js';
+import { scopeFilter } from './recordScope.service.js';
+
+// A bare YYYY-MM-DD as the period end means the whole of that day; read as
+// midnight it silently dropped every deal expected to close on the last day.
+function periodEndFrom(value) {
+  const d = new Date(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value).trim()) && !Number.isNaN(d.getTime())) {
+    d.setUTCHours(23, 59, 59, 999);
+  }
+  return d;
+}
 
 const toNumber = (v) => Number(v || 0);
 
@@ -35,10 +46,10 @@ function emptyBucket() {
  * with no amount contributes nothing rather than an imputed average — §40
  * forbids inventing predictions where there is insufficient information.
  */
-export async function getForecast(workspaceId, { from, to, ownerUserId } = {}) {
+export async function getForecast(workspaceId, { from, to, ownerUserId } = {}, user = null) {
   const now = new Date();
   const periodStart = from ? new Date(from) : new Date(now.getFullYear(), now.getMonth(), 1);
-  const periodEnd = to ? new Date(to) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  const periodEnd = to ? periodEndFrom(to) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
   if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime())) {
     const e = new Error('Invalid period'); e.status = 400; throw e;
@@ -49,7 +60,10 @@ export async function getForecast(workspaceId, { from, to, ownerUserId } = {}) {
 
   const probabilities = await stageProbabilities(workspaceId);
 
-  const scope = { workspaceId, ...(ownerUserId ? { ownerUserId } : {}) };
+  // Same record visibility as the deal list: a forecast is a sum over deals,
+  // and per-owner totals would otherwise expose colleagues' pipelines.
+  const visibility = user ? await scopeFilter(workspaceId, user) : {};
+  const scope = { workspaceId, ...visibility, ...(ownerUserId ? { ownerUserId } : {}) };
 
   const [open, closed] = await Promise.all([
     // Open deals expected to close in the period. A deal with no expected
@@ -57,7 +71,7 @@ export async function getForecast(workspaceId, { from, to, ownerUserId } = {}) {
     // rather than being silently dropped or silently included.
     prisma.deal.findMany({
       where: { ...scope, stage: { notIn: CLOSED_STAGES }, expectedCloseDate: { gte: periodStart, lte: periodEnd } },
-      select: { id: true, stage: true, value: true, ownerUserId: true, owner: { select: { id: true, name: true, email: true } } },
+      select: { id: true, stage: true, customFields: true, value: true, ownerUserId: true, owner: { select: { id: true, name: true, email: true } } },
     }),
     prisma.deal.findMany({
       where: { ...scope, stage: { in: CLOSED_STAGES }, closedAt: { gte: periodStart, lte: periodEnd } },
@@ -86,7 +100,11 @@ export async function getForecast(workspaceId, { from, to, ownerUserId } = {}) {
 
   for (const deal of open) {
     const value = toNumber(deal.value);
-    const probability = probabilities.get(deal.stage) ?? 0;
+    // A deal on a custom pipeline stage stores QUALIFICATION in the enum and
+    // its real stage in customFields.stageKey; weighting it by the enum gave
+    // every custom-stage deal Qualification's probability.
+    const effectiveStage = deal.customFields?.stageKey || deal.stage;
+    const probability = probabilities.get(effectiveStage) ?? probabilities.get(deal.stage) ?? 0;
     const weighted = (value * probability) / 100;
     const bucket = categorise(probability);
 

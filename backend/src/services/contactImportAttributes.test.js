@@ -39,3 +39,22 @@ test('extra CSV columns are stored and update existing contacts', async () => {
   // Existing contact: new price, other columns kept.
   assert.deepEqual(db.updates[0], { where: { id: 'c_old' }, data: { attributes: { price: '165', city: 'Pune' } } });
 });
+
+test('semicolon sheets, header variants and ragged rows import instead of silently dropping', async () => {
+  db.created = null; db.updates = [];
+  const csv = Buffer.from([
+    'NAME;Mobile Number;City',
+    'Asha;+91 98111 22233;Delhi',
+    'Ravi;+919811122244', // short row: no City cell
+    'NoPhone;;Mumbai', // no number at all — counted as invalid
+    ';;', // blank filler row — ignored
+  ].join('\r\n'));
+  const result = await importContacts('ws_1', csv);
+
+  assert.equal(result.invalid, 1);
+  assert.deepEqual(result.attributeKeys, ['city']);
+  assert.deepEqual(db.created.map((d) => [d.name, d.phoneNumber, d.attributes ?? null]), [
+    ['Asha', '+919811122233', { city: 'Delhi' }],
+    ['Ravi', '+919811122244', null],
+  ]);
+});

@@ -20,6 +20,10 @@ export async function estimate(req, res) {
     contactIds: req.body?.contactIds,
     campaignId: req.body?.campaignId,
     templateId: req.body?.templateId,
+    // Without this the wizard's estimate ignored the mapping picked in the
+    // audience step, so it never reported (or priced out) the contacts that
+    // launch would then skip for a missing value.
+    variableMapping: req.body?.variableMapping,
   });
   res.json(summary);
 }

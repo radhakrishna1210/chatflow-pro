@@ -3,7 +3,7 @@ import * as integrationHealthService from '../services/integrationHealth.service
 
 export async function getAnalytics(req, res) {
   const { userId, range } = req.query;
-  const data = await crmAnalyticsService.getCrmAnalytics(req.params.workspaceId, { userId, range });
+  const data = await crmAnalyticsService.getCrmAnalytics(req.params.workspaceId, { userId, range }, req.user);
   res.json(data);
 }
 

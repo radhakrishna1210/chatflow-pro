@@ -1,10 +1,11 @@
 import * as crmSalesInboxService from '../services/crmSalesInbox.service.js';
 import { prisma } from '../lib/prisma.js';
 import { computeLeadCategory } from '../services/leadSegmentation.service.js';
+import { assertInScope } from '../services/recordScope.service.js';
 
 export async function getSegments(req, res, next) {
   try {
-    const data = await crmSalesInboxService.getInboxSegments(req.workspace.id);
+    const data = await crmSalesInboxService.getInboxSegments(req.workspace.id, req.user);
     res.json(data);
   } catch (err) {
     next(err);
@@ -19,7 +20,7 @@ export async function reviewAudience(req, res, next) {
       source,
       status,
       search,
-    });
+    }, req.user);
     res.json(data);
   } catch (err) {
     next(err);
@@ -29,6 +30,8 @@ export async function reviewAudience(req, res, next) {
 export async function recalculateLeadCategory(req, res, next) {
   try {
     const { leadId } = req.params;
+    // Returns the lead with its contact, so it must be one the caller can see.
+    await assertInScope(req.workspace.id, req.user, 'lead', leadId);
     const updated = await computeLeadCategory(req.workspace.id, leadId);
     res.json(updated);
   } catch (err) {

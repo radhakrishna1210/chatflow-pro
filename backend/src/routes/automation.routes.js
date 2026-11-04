@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { authorize } from '../middleware/authorize.js';
 import { requireFeature } from '../middleware/requireFeature.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import { validate, automationSchemas } from '../validators/index.js';
 
 const router = Router({ mergeParams: true });
@@ -22,9 +23,12 @@ router.delete('/triggers/:id', authorize('CLIENT'), automationController.remove)
 
 router.get('/basic', automationController.getBasicAutomations);
 router.patch('/basic', authorize('CLIENT'), validate({ body: automationSchemas.updateBasic }), automationController.updateBasicAutomations);
-router.post('/workflows/ai-preview', authorize('CLIENT'), automationController.generateWorkflowPreview);
+// Each call is a model generation, and a bare URL is a crawl of up to six
+// pages of someone else's site from our servers — limited like the other AI
+// endpoints so a script cannot spend the quota or use us to hammer a host.
+router.post('/workflows/ai-preview', authorize('CLIENT'), rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'wf-ai-preview' }), automationController.generateWorkflowPreview);
 router.get('/voice', automationController.getVoiceSettings);
-router.patch('/voice', authorize('CLIENT'), automationController.updateVoiceSettings);
+router.patch('/voice', authorize('CLIENT'), validate({ body: automationSchemas.updateVoice }), automationController.updateVoiceSettings);
 router.get('/voice/calls', voiceController.listCalls);
 
 

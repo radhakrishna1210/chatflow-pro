@@ -117,7 +117,8 @@ export async function markRead(userId, workspaceId, notificationId) {
     if (row.userId !== userId) { const e = new Error('Notification not found'); e.status = 404; throw e; }
     await prisma.notification.update({ where: { id: row.id }, data: { readAt: row.readAt ?? new Date() } });
   } else {
-    if (workspaceId && row.workspaceId !== workspaceId) { const e = new Error('Notification not found'); e.status = 404; throw e; }
+    // No workspace in the session means no workspace-wide notification is ours.
+    if (!workspaceId || row.workspaceId !== workspaceId) { const e = new Error('Notification not found'); e.status = 404; throw e; }
     await prisma.notificationRead.upsert({
       where: { notificationId_userId: { notificationId: row.id, userId } },
       update: {},

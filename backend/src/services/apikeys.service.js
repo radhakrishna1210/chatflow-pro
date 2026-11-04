@@ -285,7 +285,13 @@ export async function createApiKey(
     },
   });
 
-  if (user) {
+  // req.user (from the JWT) carries only an id — no email or name — so the
+  // security notice was being queued to `undefined` and never arrived.
+  if (user?.id && !user.email) {
+    user = await prisma.user.findUnique({ where: { id: user.id }, select: { email: true, name: true } }).catch(() => null);
+  }
+
+  if (user?.email) {
     queueApiKeyCreatedEmail({
       userEmail: user.email,
       userName: user.name,

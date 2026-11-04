@@ -132,11 +132,16 @@ export default function OAuthConsent({ search = '' }) {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.redirectUrl) throw new Error(body.error || 'Could not complete the request.');
+      // The server only ever returns a registered redirect URI, but never hand
+      // the window a javascript:/data: URL even if one were registered by mistake.
+      let dest;
+      try { dest = new URL(body.redirectUrl); } catch { dest = null; }
+      if (!dest || !['https:', 'http:'].includes(dest.protocol)) throw new Error('The application returned an invalid address.');
 
       clearPendingOAuthRequest();
       // Whether this is a popup or the whole window, the destination is the
       // application's own callback — it closes the popup itself once done.
-      window.location.href = body.redirectUrl;
+      window.location.href = dest.toString();
     } catch (err) {
       setError(err.message || 'Could not complete the request.');
       setState('ready');

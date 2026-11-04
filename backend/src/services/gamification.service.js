@@ -210,7 +210,7 @@ export async function leaderboard(workspaceId, { limit = 10 } = {}) {
     where: { workspaceId },
     _sum: { points: true },
     orderBy: { _sum: { points: 'desc' } },
-    take: Math.min(limit, 50),
+    take: Math.min(Math.max(Number(limit) || 10, 1), 50),
   });
 
   const users = await prisma.user.findMany({

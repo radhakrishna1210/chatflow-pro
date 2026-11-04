@@ -9,10 +9,16 @@ import { CustomFieldAdmin } from '../components/CustomFields.jsx';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
-const monthBounds = (d = new Date()) => ({
-  from: new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10),
-  to: new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10),
-});
+// Month bounds as plain YYYY-MM-DD in the viewer's calendar. These used to go
+// through toISOString(), which converts local midnight to UTC: east of UTC
+// (all of India) "November" came out as 31 Oct – 29 Nov, so the 30th's deals
+// fell out of the forecast and the previous month's last day crept in.
+const ymd = (y, m, day) => `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+const monthBounds = (d = new Date()) => {
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  return { from: ymd(y, m, 1), to: ymd(y, m, new Date(y, m + 1, 0).getDate()) };
+};
 
 const ErrorBanner = ({ children, onDismiss }) => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 14px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.22)', color: '#f87171', fontSize: 12.5 }}>
@@ -50,6 +56,10 @@ const StageSettings = ({ stages, isAdmin, onSaved }) => {
   const save = async (key) => {
     const patch = draft[key];
     if (!patch) return;
+    if (!Number.isInteger(patch.probability) || patch.probability < 0 || patch.probability > 100) {
+      setErr('Probability must be a whole number from 0 to 100.');
+      return;
+    }
     setSaving(key);
     setErr(null);
     try {
@@ -85,19 +95,20 @@ const StageSettings = ({ stages, isAdmin, onSaved }) => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
         {stages.map(s => {
           const locked = s.key === 'CLOSED_WON' || s.key === 'CLOSED_LOST';
-          const value = draft[s.key]?.probability ?? s.probability;
+          const drafted = draft[s.key]?.probability;
+          const value = drafted === undefined ? s.probability : (Number.isNaN(drafted) ? '' : drafted);
           const dirty = draft[s.key] !== undefined;
           return (
             <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ flex: 1, fontSize: 12.5, color: 'var(--t2)' }}>{s.label}</span>
               <div style={{ flex: 2, height: 4, borderRadius: 2, background: 'var(--bd)', overflow: 'hidden' }}>
-                <div style={{ width: `${value}%`, height: '100%', background: locked ? 'var(--t3)' : 'var(--green)' }} />
+                <div style={{ width: `${Math.max(0, Math.min(100, Number(value) || 0))}%`, height: '100%', background: locked ? 'var(--t3)' : 'var(--green)' }} />
               </div>
               <input
                 type="number" min={0} max={100} value={value}
                 disabled={locked || !isAdmin}
                 aria-label={`${s.label} probability`}
-                onChange={e => setDraft(prev => ({ ...prev, [s.key]: { probability: Number(e.target.value) } }))}
+                onChange={e => setDraft(prev => ({ ...prev, [s.key]: { probability: e.target.value === '' ? NaN : Number(e.target.value) } }))}
                 style={{ width: 62, background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 6, color: locked ? 'var(--t3)' : 'var(--t1)', fontSize: 12, padding: '5px 7px', outline: 'none' }}
               />
               <span style={{ fontSize: 11, color: 'var(--t3)', width: 12 }}>%</span>
@@ -125,7 +136,10 @@ export const ForecastView = ({ user }) => {
 
   const isAdmin = user?.role === 'ADMIN' || user?.superAdmin === true;
 
+  const rangeInvalid = !range.from || !range.to || range.from > range.to;
+
   const load = useCallback(() => {
+    if (!range.from || !range.to || range.from > range.to) return;
     setLoading(true);
     setErr(null);
     const qs = new URLSearchParams({ from: range.from, to: range.to });
@@ -147,8 +161,10 @@ export const ForecastView = ({ user }) => {
   useEffect(() => { loadStages(); }, [loadStages]);
 
   const shiftMonth = (delta) => {
-    const base = new Date(range.from);
-    setRange(monthBounds(new Date(base.getFullYear(), base.getMonth() + delta, 1)));
+    // Parse the parts directly: new Date('2026-11-01') is UTC midnight, which
+    // is still 31 October anywhere west of UTC.
+    const [y, m] = (range.from || monthBounds().from).split('-').map(Number);
+    setRange(monthBounds(new Date(y, m - 1 + delta, 1)));
   };
 
   const totals = data?.totals;
@@ -162,16 +178,17 @@ export const ForecastView = ({ user }) => {
             Weighted by stage probability. Only deals with an expected close date in the period are counted.
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-          <Btn size="sm" variant="ghost" onClick={() => shiftMonth(-1)} aria-label="Previous month">←</Btn>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          <Btn size="sm" variant="ghost" onClick={() => shiftMonth(-1)}><span aria-hidden="true">←</span><span className="sr-only">Previous month</span></Btn>
           <div><FLabel>From</FLabel><FInput type="date" value={range.from} onChange={e => setRange(r => ({ ...r, from: e.target.value }))} /></div>
           <div><FLabel>To</FLabel><FInput type="date" value={range.to} onChange={e => setRange(r => ({ ...r, to: e.target.value }))} /></div>
-          <Btn size="sm" variant="ghost" onClick={() => shiftMonth(1)} aria-label="Next month">→</Btn>
+          <Btn size="sm" variant="ghost" onClick={() => shiftMonth(1)}><span aria-hidden="true">→</span><span className="sr-only">Next month</span></Btn>
         </div>
       </div>
 
       <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {err && <ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner>}
+        {rangeInvalid && <ErrorBanner>Choose a start date on or before the end date.</ErrorBanner>}
         {loading && <div style={{ fontSize: 12.5, color: 'var(--t3)' }}>Loading forecast…</div>}
 
         {totals && (
@@ -203,8 +220,8 @@ export const ForecastView = ({ user }) => {
               </div>
             )}
 
-            <div style={{ ...card, overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div style={{ ...card, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--bd)' }}>
                     {['Owner', 'Commit', 'Best case', 'Pipeline', 'Closed won', 'Projected'].map((h, i) => (

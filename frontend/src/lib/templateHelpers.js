@@ -11,7 +11,7 @@ export const getBodyText = (components) => {
 
 export const statusLabel = s => {
   if (!s) return 'Pending';
-  const m = { APPROVED: 'Approved', PENDING: 'Pending', REJECTED: 'Rejected' };
+  const m = { APPROVED: 'Approved', PENDING: 'Pending', REJECTED: 'Rejected', DELETED: 'Deleted' };
   return m[s.toUpperCase()] ?? s;
 };
 

@@ -80,11 +80,15 @@ export const updateCampaign = async (req, res, next) => {
     }
     // updateMany with the workspace filter guarantees scoping (compound
     // `where: { id, workspaceId }` is not a unique selector for `update`).
+    // Only a campaign that never started may be flipped here. This used to
+    // match any status, so it could mark a RUNNING campaign CANCELLED without
+    // stopping its queue jobs, or turn a COMPLETED one back into a DRAFT that
+    // could then be launched to the same audience again.
     const result = await prisma.campaign.updateMany({
-      where: { id, workspaceId },
+      where: { id: String(id || ''), workspaceId, status: { in: ['DRAFT', 'CANCELLED'] } },
       data: { status },
     });
-    if (result.count === 0) return res.status(404).json({ error: 'Campaign not found' });
+    if (result.count === 0) return res.status(404).json({ error: 'Campaign not found, or it has already started' });
     res.json(await prisma.campaign.findUnique({ where: { id } }));
   } catch (error) {
     next(error);
@@ -97,11 +101,14 @@ export const updateTemplate = async (req, res, next) => {
     await assertMembership(userId, workspaceId);
     const { id, body } = req.body;
     if (!body) return res.status(400).json({ error: 'body is required' });
+    // An APPROVED template is what Meta holds; rewriting its body locally and
+    // marking it PENDING made every campaign using it refuse to send, while
+    // Meta never saw the change. Only drafts awaiting review are editable here.
     const result = await prisma.template.updateMany({
-      where: { id, workspaceId },
+      where: { id: String(id || ''), workspaceId, status: { in: ['PENDING', 'REJECTED'] } },
       data: { components: [{ type: 'BODY', text: body }], status: 'PENDING' },
     });
-    if (result.count === 0) return res.status(404).json({ error: 'Template not found' });
+    if (result.count === 0) return res.status(404).json({ error: 'Template not found, or it is already approved' });
     res.json(await prisma.template.findUnique({ where: { id } }));
   } catch (error) {
     next(error);

@@ -12,8 +12,10 @@ const labelCfg = {
   billing:  { bg:'rgba(245,158,11,.08)', bd:'rgba(245,158,11,.22)', c:'#fbbf24' },
 };
 
-const Avatar = ({ name='?', size=36 }) => {
-  const init = name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+const Avatar = ({ name, size=36 }) => {
+  // A contact can have no name (null, not undefined, so a default parameter
+  // never applied) — and one such row crashed the whole inbox.
+  const init = String(name || '?').trim().split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
   const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
@@ -28,6 +30,73 @@ const LabelBadge = ({ label }) => {
   const v = labelCfg[label] || {};
   return <span style={{ padding:'2px 7px', borderRadius:10, fontSize:10, fontWeight:700, background:v.bg, border:`1px solid ${v.bd}`, color:v.c }}>{label}</span>;
 };
+
+// Conversations per "page" of the list. The server caps a single request.
+const PAGE_SIZE = 50;
+const MAX_LIST = 200;
+
+// Message media is served by an authenticated API route, so a bare
+// <audio src>/<img src> can never load it — the browser sends no bearer token
+// and every voice note answered 401. The bytes are fetched through the
+// authenticated client and shown from a blob URL instead.
+function MessageMedia({ conversationId, message }) {
+  const auto = message.type === 'IMAGE' || message.type === 'STICKER' || message.type === 'AUDIO';
+  const [state, setState] = useState({ url: null, loading: false, error: null });
+  const urlRef = useRef(null);
+
+  const load = useCallback(async ({ download = false } = {}) => {
+    if (urlRef.current && !download) return;
+    setState(s => ({ ...s, loading: true, error: null }));
+    try {
+      const res = await wFetch(`/conversations/${conversationId}/messages/${message.id}/media`);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Could not load the attachment (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = urlRef.current || URL.createObjectURL(blob);
+      urlRef.current = url;
+      setState({ url, loading: false, error: null });
+      if (download) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = message.mediaFilename || `attachment-${message.id}`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      }
+    } catch (e) {
+      setState({ url: null, loading: false, error: e.message });
+    }
+  }, [conversationId, message.id, message.mediaFilename]);
+
+  useEffect(() => { if (auto) load(); }, [auto, load]);
+  useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
+
+  if (state.error) {
+    return (
+      <div style={{ margin:'6px 0', fontSize:11, color:'#f87171' }}>
+        {state.error} <button onClick={() => load()} style={{ background:'none', border:'none', color:'var(--green)', cursor:'pointer', fontSize:11, padding:0 }}>Retry</button>
+      </div>
+    );
+  }
+  if ((message.type === 'IMAGE' || message.type === 'STICKER') && state.url) {
+    return <img src={state.url} alt={message.mediaFilename || 'Photo from the conversation'} style={{ display:'block', maxWidth:240, maxHeight:240, borderRadius:8, margin:'6px 0' }} />;
+  }
+  if (message.type === 'AUDIO' && state.url) {
+    return <audio controls preload="metadata" src={state.url} style={{ height:32, maxWidth:240, width:'100%', margin:'6px 0' }} />;
+  }
+  if (message.type === 'VIDEO' && state.url) {
+    return <video controls src={state.url} style={{ display:'block', maxWidth:260, borderRadius:8, margin:'6px 0' }} />;
+  }
+  return (
+    <button
+      onClick={() => load({ download: message.type === 'DOCUMENT' })}
+      disabled={state.loading}
+      style={{ margin:'6px 0', fontSize:11, fontWeight:600, padding:'4px 10px', borderRadius:6, cursor: state.loading ? 'wait' : 'pointer',
+               background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)' }}>
+      {state.loading ? 'Loading…' : message.type === 'DOCUMENT' ? 'Download' : message.type === 'VIDEO' ? 'Play video' : 'Load'}
+    </button>
+  );
+}
 
 const fmtTime = (iso) => {
   if (!iso) return '';
@@ -253,25 +322,44 @@ export default function InboxView() {
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
-  // initial + polling fetch of conversation list
+  // initial + polling fetch of conversation list.
+  //
+  // This used to request the default page (20 rows) and search only within
+  // it, so the 21st conversation was unreachable — no paging, and searching
+  // for a customer whose thread had gone quiet found nothing. The search now
+  // runs on the server, and "Load more" widens the window.
+  const [listLimit, setListLimit] = useState(PAGE_SIZE);
+  const [convTotal, setConvTotal] = useState(0);
+  const [listLoaded, setListLoaded] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  useEffect(() => { setListLimit(PAGE_SIZE); }, [debouncedSearch]);
+
   useEffect(() => {
     let stopped = false;
+    const qs = new URLSearchParams({ limit: String(listLimit) });
+    if (debouncedSearch) qs.set('search', debouncedSearch);
     const loadConvs = () =>
-      wFetch('/conversations')
+      wFetch(`/conversations?${qs}`)
         .then(r => r.ok && r.json())
         .then(d => {
           if (stopped) return;
           const list = d?.data ?? d;
           if (Array.isArray(list)) {
             setConvs(list);
+            setConvTotal(typeof d?.total === 'number' ? d.total : list.length);
             setActiveId(prev => prev ?? (mobileRef.current ? null : (list[0]?.id ?? null)));
           }
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => { if (!stopped) setListLoaded(true); });
     loadConvs();
     const interval = setInterval(loadConvs, 5000);
     return () => { stopped = true; clearInterval(interval); };
-  }, []);
+  }, [listLimit, debouncedSearch]);
 
   // initial + polling fetch of active conversation messages
   useEffect(() => {
@@ -361,6 +449,9 @@ export default function InboxView() {
         ? { ...c, assignedToUserId: updated?.assignedToUserId ?? null, assignedTo: updated?.assignedTo ?? null }
         : c)));
       loadContext(activeId);
+    } else {
+      const d = await res?.json().catch(() => ({}));
+      setSendError(d?.error || 'Could not assign the conversation');
     }
   };
 
@@ -374,6 +465,9 @@ export default function InboxView() {
     if (res?.ok) {
       setConvs(list => list.map(c => (c.id === activeId ? { ...c, status } : c)));
       loadContext(activeId);
+    } else {
+      const d = await res?.json().catch(() => ({}));
+      setSendError(d?.error || 'Could not update the conversation');
     }
   };
 
@@ -386,6 +480,10 @@ export default function InboxView() {
     }).catch(() => null);
     setSavingNote(false);
     if (res?.ok) { setNoteDraft(''); loadNotes(activeId); }
+    else {
+      const d = await res?.json().catch(() => ({}));
+      setSendError(d?.error || 'Could not save the note');
+    }
   };
 
   const send = async () => {
@@ -487,10 +585,16 @@ export default function InboxView() {
     return true;
   };
 
+  // The server already searched (name, phone, email); this only keeps the list
+  // honest while the debounce catches up with the typing.
+  const q = search.trim().toLowerCase();
+  const qDigits = q.replace(/\D/g, '');
   const filtered = convs.filter(matchesFilter).filter(c =>
-    !search ||
-    c.contact?.name?.toLowerCase().includes(search.toLowerCase()) ||
-    c.contact?.phoneNumber?.includes(search)
+    !q ||
+    c.contact?.name?.toLowerCase().includes(q) ||
+    c.contact?.email?.toLowerCase().includes(q) ||
+    c.contact?.phoneNumber?.includes(q) ||
+    (qDigits.length >= 3 && String(c.contact?.phoneNumber || '').replace(/\D/g, '').includes(qDigits))
   );
   const active = convs.find(c => c.id === activeId);
   const activeMsgs = msgs[activeId] || [];
@@ -533,9 +637,12 @@ export default function InboxView() {
             </div>
           </div>
           <div style={{ flex:1, overflowY:'auto' }}>
-            {filtered.length === 0 && (
+            {!listLoaded && (
+              <div style={{ padding:'30px 18px', textAlign:'center', color:'var(--t3)', fontSize:12 }}>Loading conversations…</div>
+            )}
+            {listLoaded && filtered.length === 0 && (
               <div style={{ padding:'30px 18px', textAlign:'center', color:'var(--t3)', fontSize:12, lineHeight:1.6 }}>
-                {convs.length === 0
+                {convs.length === 0 && !debouncedSearch
                   ? <>No conversations yet.<br/><span style={{ color:'var(--t2)', fontSize:11 }}>When someone messages your WhatsApp number, it'll appear here.</span></>
                   : 'No conversations match your search.'}
               </div>
@@ -587,6 +694,19 @@ export default function InboxView() {
                 </div>
               );
             })}
+            {listLoaded && convTotal > convs.length && listLimit < MAX_LIST && (
+              <div style={{ padding:'12px 14px', textAlign:'center' }}>
+                <button onClick={() => setListLimit(l => Math.min(l + PAGE_SIZE, MAX_LIST))}
+                  style={{ fontSize:12, fontWeight:600, padding:'6px 14px', borderRadius:100, cursor:'pointer', background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t2)' }}>
+                  Load more ({convTotal - convs.length} older)
+                </button>
+              </div>
+            )}
+            {listLoaded && convTotal > convs.length && listLimit >= MAX_LIST && (
+              <div style={{ padding:'12px 14px', textAlign:'center', fontSize:11, color:'var(--t3)' }}>
+                Showing the {convs.length} most recent — search to find older conversations.
+              </div>
+            )}
           </div>
         </div>
 
@@ -721,15 +841,8 @@ export default function InboxView() {
                               </span>
                             </div>
                           )}
-                          {m.type === 'AUDIO' && m.mediaId && (
-                            <div style={{ margin:'6px 0' }}>
-                              <audio
-                                controls
-                                preload="none"
-                                style={{ height:32, maxWidth:240, width:'100%' }}
-                                src={`/api/v1/workspaces/${active.workspaceId}/conversations/${active.id}/messages/${m.id}/media`}
-                              />
-                            </div>
+                          {m.mediaId && !m._pending && ['IMAGE', 'STICKER', 'AUDIO', 'VIDEO', 'DOCUMENT'].includes(m.type) && (
+                            <MessageMedia conversationId={active.id} message={m} />
                           )}
                           {m.type === 'AUDIO' ? (
                             <div style={{ marginTop:4, padding:'4px 8px', borderRadius:6, background:'rgba(34,197,94,0.06)', border:'1px solid rgba(34,197,94,0.18)' }}>

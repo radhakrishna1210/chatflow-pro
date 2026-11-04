@@ -158,8 +158,20 @@ async function processRetryJob(job) {
     console.log(`[CampaignRetry] Campaign ${campaignId} not found — skipping retry`);
     return;
   }
-  if (isAuthenticationCampaign(campaign) ? campaign.status !== 'RUNNING' : campaign.status === 'CANCELLED') {
-    console.log(`[CampaignRetry] Campaign ${campaignId} was cancelled — skipping retry for ${recipientId}`);
+  if (isAuthenticationCampaign(campaign) ? campaign.status !== 'RUNNING' : ['CANCELLED', 'FAILED'].includes(campaign.status)) {
+    console.log(`[CampaignRetry] Campaign ${campaignId} is ${campaign.status} — skipping retry for ${recipientId}`);
+    // A cancelled or failed campaign has already been settled: this
+    // recipient's unsent share went back to the wallet. Sending now would be
+    // a message nobody pays for, and leaving it RETRYING would show it as
+    // still in flight forever. Close it off as unsent instead.
+    if (!isAuthenticationCampaign(campaign)) {
+      const reason = `Campaign was ${campaign.status.toLowerCase()} before this retry ran`;
+      const closed = await prisma.campaignRecipient.updateMany({
+        where: { id: recipientId, status: 'RETRYING' },
+        data: { status: 'FAILED', failedAt: new Date(), failReason: reason, lastFailureReason: reason, retryStatus: 'CANCELLED', nextRetryAt: null },
+      });
+      if (closed.count > 0) await markRecipientNotCharged(recipientId);
+    }
     return;
   }
   if (!campaign.waNumber) {
@@ -361,7 +373,8 @@ if (isAuthenticationCampaign(campaign)) {
   }
 }
 
-async function processCampaign(job) {
+// Exported for tests; BullMQ calls it through startCampaignWorker().
+export async function processCampaign(job) {
   if (job.name === 'retry-recipient' || job.data?.type === 'retry') {
     await processRetryJob(job);
     return;
@@ -388,7 +401,10 @@ async function processCampaign(job) {
     return;
   }
   if (!campaign.waNumber) {
-    await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'FAILED' } });
+    // Thrown without marking FAILED here: the 'failed' handler below does
+    // that on the final attempt *and* refunds the launch charge, but only for
+    // a campaign it can still move out of DRAFT/SCHEDULED/RUNNING. Setting
+    // FAILED first made it skip the refund, keeping the whole charge.
     throw new Error(`Campaign ${campaignId} has no WhatsApp number`);
   }
 
@@ -404,8 +420,14 @@ async function processCampaign(job) {
     // double launch) could both claim it and both iterate the same PENDING
     // recipients — sending every message twice. A resume is the one legitimate
     // way back into RUNNING, and it comes through resumeCampaign().
-    const current = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
-    if (current?.status === 'RUNNING' && !job.data?.resume) {
+    const current = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true, queueJobId: true } });
+    // The job the campaign itself points at may always continue it: that is
+    // the same job being retried after an error, or redelivered after its
+    // worker stalled or the process restarted. Refusing it stranded the
+    // campaign RUNNING forever. Recipients are claimed individually below, so
+    // continuing can never send anyone a second message.
+    const ownsCampaign = current?.queueJobId != null && String(job.id) === String(current.queueJobId);
+    if (current?.status === 'RUNNING' && !job.data?.resume && !ownsCampaign) {
       console.warn(`[CampaignWorker] Campaign ${campaignId} is already being sent by another job — refusing to send it twice.`);
       return;
     }
@@ -426,7 +448,12 @@ async function processCampaign(job) {
   let cancelled = false;
   let paused = false;
   let processed = 0;
+  // The recipient this run has claimed (SENDING) but not yet resolved. If the
+  // loop dies on an unexpected error, that claim is handed back so the job's
+  // retry can pick the recipient up instead of leaving it stranded.
+  let inFlight = null;
 
+  try {
   for (const recipient of recipients) {
     const refreshed = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
     if (refreshed?.status === 'CANCELLED') { cancelled = true; break; }
@@ -450,6 +477,7 @@ async function processCampaign(job) {
       console.log(`[CampaignWorker] Recipient ${recipient.id} already claimed elsewhere — skipping duplicate.`);
       continue;
     }
+    inFlight = recipient.id;
     processed += 1;
 
     // Re-checked per recipient rather than only at launch: a customer can
@@ -633,8 +661,18 @@ if (isAuthenticationCampaign(campaign)) {
       await recordAttempt(recipient.id, { attempt: 0, ok: false, reason, metaCode: metaErr?.code ?? null });
       await handleRecipientFailure(campaign, recipient, reason, metaErr?.code);
     }
+    inFlight = null;
 
     await new Promise((r) => setTimeout(r, RATE_DELAY_MS));
+  }
+  } catch (err) {
+    if (inFlight) {
+      await prisma.campaignRecipient.updateMany({
+        where: { id: inFlight, status: 'SENDING', sentAt: null },
+        data: { status: 'PENDING' },
+      }).catch(() => {});
+    }
+    throw err;
   }
 
   // A cancelled campaign must stay CANCELLED — never flip it to COMPLETED.

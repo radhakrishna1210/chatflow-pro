@@ -19,8 +19,10 @@ export async function remove(req, res) {
 }
 
 // ── Public (unauthenticated) ───────────────────────────────────────────────
-const clientIp = (req) =>
-  req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || null;
+// req.ip, not the raw X-Forwarded-For header: Express derives it from that
+// header only as far as the configured `trust proxy` hops, whereas the header
+// itself is whatever the submitter chose to send.
+const clientIp = (req) => req.ip || req.socket?.remoteAddress || null;
 
 export async function publicGet(req, res) {
   res.json(await formsService.getPublicForm(req.params.workspaceId, req.params.slug));

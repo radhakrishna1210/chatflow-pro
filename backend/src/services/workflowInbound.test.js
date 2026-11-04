@@ -170,6 +170,13 @@ prisma.workflowRun.update = async ({ where, data }) => {
   db.runs.set(where.id, run);
   return clone(run);
 };
+// Conditional claim used by advanceRun (WAITING → RUNNING at a cursor).
+prisma.workflowRun.updateMany = async ({ where, data }) => {
+  const run = db.runs.get(where.id);
+  if (!run || (where.status && run.status !== where.status) || (where.cursor !== undefined && run.cursor !== where.cursor)) return { count: 0 };
+  db.runs.set(where.id, { ...run, ...clone(data) });
+  return { count: 1 };
+};
 const runFilter = (where) => [...db.runs.values()].filter((r) => r.workspaceId === where.workspaceId
   && (!where.conversationId || r.conversationId === where.conversationId)
   && statusMatches(r.status, where.status));

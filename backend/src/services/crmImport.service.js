@@ -2,6 +2,13 @@ import { parse } from 'csv-parse/sync';
 import { prisma } from '../lib/prisma.js';
 import { normalizePhone, isValidPhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
+import { assertWorkspaceMember } from './crmReferences.js';
+import { assertWithinLimit } from './subscription.service.js';
+
+// Each row is several queries run in sequence, so a file is capped at a size
+// that finishes inside one request rather than holding it open for minutes.
+export const MAX_IMPORT_ROWS = 5000;
+const clip = (v, n) => (v == null ? v : String(v).slice(0, n));
 
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST'];
 
@@ -58,6 +65,11 @@ export function previewLeadImport(buffer, { limit = 20 } = {}) {
   const records = parseCsv(buffer);
   if (records.length === 0) {
     const e = new Error('That file has no rows'); e.status = 400; throw e;
+  }
+  if (records.length > MAX_IMPORT_ROWS) {
+    const e = new Error(`That file has ${records.length} rows; import at most ${MAX_IMPORT_ROWS} at a time.`);
+    e.status = 400;
+    throw e;
   }
 
   const headers = Object.keys(records[0]);
@@ -130,6 +142,9 @@ export function previewLeadImport(buffer, { limit = 20 } = {}) {
  * that is already a lead is left alone.
  */
 export async function importLeads(workspaceId, buffer, { ownerUserId = null } = {}) {
+  // The owner comes from a form field; without this every imported lead could
+  // be handed to a user of another workspace.
+  await assertWorkspaceMember(workspaceId, ownerUserId);
   const { mapping } = previewLeadImport(buffer, { limit: 0 });
   const records = parseCsv(buffer);
 
@@ -154,13 +169,32 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
 
     const status = mapping.status ? String(record[mapping.status] || '').trim().toUpperCase().replace(/\s+/g, '_') : '';
     candidates.push({
+      line,
       phoneNumber,
-      name: (mapping.name ? String(record[mapping.name] || '').trim() : '') || phoneNumber,
-      email: mapping.email ? String(record[mapping.email] || '').trim() || null : null,
+      name: clip((mapping.name ? String(record[mapping.name] || '').trim() : '') || phoneNumber, 120),
+      email: clip(mapping.email ? String(record[mapping.email] || '').trim() || null : null, 200),
       status: LEAD_STATUSES.includes(status) ? status : 'NEW',
-      source: mapping.source ? String(record[mapping.source] || '').trim() || null : null,
-      notes: mapping.notes ? String(record[mapping.notes] || '').trim() || null : null,
+      source: clip(mapping.source ? String(record[mapping.source] || '').trim() || null : null, 60),
+      notes: clip(mapping.notes ? String(record[mapping.notes] || '').trim() || null : null, 2000),
     });
+  }
+
+  // The plan's contact limit covers imported contacts too. Checked up front
+  // for the whole file — the same all-or-nothing rule the contact import uses
+  // — rather than discovered part-way through.
+  if (candidates.length) {
+    const existing = await prisma.contact.findMany({
+      where: { workspaceId, phoneNumber: { in: candidates.map((c) => c.phoneNumber) } },
+      select: { phoneNumber: true },
+    });
+    const have = new Set(existing.map((c) => c.phoneNumber));
+    const newCount = candidates.filter((c) => !have.has(c.phoneNumber)).length;
+    if (newCount > 0) {
+      await assertWithinLimit(workspaceId, 'contact', {
+        additional: newCount,
+        message: `This import would add ${newCount} new contact(s), which exceeds your plan's contact limit. Upgrade your plan or reduce the import size.`,
+      });
+    }
   }
 
   let contactsCreated = 0;
@@ -168,40 +202,49 @@ export async function importLeads(workspaceId, buffer, { ownerUserId = null } = 
   let alreadyLeads = 0;
 
   for (const row of candidates) {
-    let contact = await prisma.contact.findFirst({
-      where: { workspaceId, phoneNumber: row.phoneNumber },
-      select: { id: true },
-    });
-
-    if (!contact) {
-      contact = await prisma.contact.create({
-        data: { workspaceId, name: row.name, phoneNumber: row.phoneNumber, email: row.email },
+    // One row failing (a concurrent edit took the number, say) is reported and
+    // skipped; it used to abort the run half-way with a 500, leaving the user
+    // no way to know which rows had already landed.
+    try {
+      let contact = await prisma.contact.findFirst({
+        where: { workspaceId, phoneNumber: row.phoneNumber },
         select: { id: true },
       });
-      contactsCreated += 1;
+
+      if (!contact) {
+        contact = await prisma.contact.create({
+          data: { workspaceId, name: row.name, phoneNumber: row.phoneNumber, email: row.email },
+          select: { id: true },
+        });
+        contactsCreated += 1;
+      }
+
+      const existingLead = await prisma.lead.findUnique({ where: { contactId: contact.id }, select: { id: true } });
+      if (existingLead) { alreadyLeads += 1; continue; }
+
+      // Score on import so the list is immediately sortable rather than showing
+      // a wall of zeroes until someone recalculates.
+      const score = await computeLeadScore(workspaceId, contact.id).catch(() => null);
+
+      await prisma.lead.create({
+        data: {
+          workspaceId,
+          contactId: contact.id,
+          status: row.status,
+          source: row.source,
+          notes: row.notes,
+          ownerUserId,
+          score: score?.score ?? 0,
+          scoreFactors: score?.factors ?? undefined,
+          scoreComputedAt: score ? new Date() : null,
+        },
+      });
+      leadsCreated += 1;
+    } catch (err) {
+      if (err.code === 'P2002') { alreadyLeads += 1; continue; }
+      console.error('[crmImport] row failed:', row.line, err.message);
+      errors.push({ line: row.line, reason: 'Could not be imported', value: row.phoneNumber });
     }
-
-    const existingLead = await prisma.lead.findUnique({ where: { contactId: contact.id }, select: { id: true } });
-    if (existingLead) { alreadyLeads += 1; continue; }
-
-    // Score on import so the list is immediately sortable rather than showing
-    // a wall of zeroes until someone recalculates.
-    const score = await computeLeadScore(workspaceId, contact.id).catch(() => null);
-
-    await prisma.lead.create({
-      data: {
-        workspaceId,
-        contactId: contact.id,
-        status: row.status,
-        source: row.source,
-        notes: row.notes,
-        ownerUserId,
-        score: score?.score ?? 0,
-        scoreFactors: score?.factors ?? undefined,
-        scoreComputedAt: score ? new Date() : null,
-      },
-    });
-    leadsCreated += 1;
   }
 
   return {

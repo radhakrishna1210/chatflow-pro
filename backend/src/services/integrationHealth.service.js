@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { env } from '../config/env.js';
 
 /**
  * Checks connectivity and configuration health of primary CRM ingestion and messaging integrations:
@@ -11,7 +12,7 @@ export async function getIntegrationHealth(workspaceId) {
   const [waNumbers, fbIntegration, formsCount, sheetsIntegration] = await Promise.all([
     prisma.waNumber.findMany({
       where: { workspaceId },
-      select: { id: true, phoneNumber: true, displayName: true, createdAt: true },
+      select: { id: true, phoneNumber: true, displayName: true, createdAt: true, appSubscribed: true },
     }),
     prisma.workspaceIntegration.findFirst({
       where: { workspaceId, provider: 'facebook-lead' },
@@ -20,8 +21,10 @@ export async function getIntegrationHealth(workspaceId) {
     prisma.leadForm.count({
       where: { workspaceId },
     }),
+    // The real OAuth grant is stored under the backend provider id 'google'
+    // (integrations.controller.js), not the catalogue id 'google-sheets'.
     prisma.workspaceIntegration.findFirst({
-      where: { workspaceId, provider: 'google-sheets' },
+      where: { workspaceId, provider: { in: ['google', 'google-sheets'] }, status: 'CONNECTED' },
       select: { id: true, status: true, connectedAt: true, updatedAt: true },
     }),
   ]);
@@ -42,8 +45,9 @@ export async function getIntegrationHealth(workspaceId) {
       displayName: n.displayName || 'Official Business Line',
       status: 'ACTIVE',
     })),
-    webhook: waConnected ? 'ACTIVE' : 'INACTIVE',
-    lastPing: new Date().toISOString(),
+    // Webhooks only arrive once the app is subscribed to the WABA — report
+    // that, rather than claiming ACTIVE for any connected number.
+    webhook: waConnected && waNumbers.every((n) => n.appSubscribed) ? 'ACTIVE' : 'INACTIVE',
   };
 
   // Facebook Lead Ads
@@ -70,22 +74,25 @@ export async function getIntegrationHealth(workspaceId) {
     status: sheetsConnected ? 'HEALTHY' : 'STANDBY',
     statusCode: sheetsConnected ? 'CONNECTED' : 'NOT_CONFIGURED',
     details: sheetsConnected
-      ? 'Bidirectional spreadsheet sync online'
+      ? 'Google account connected'
       : 'Ready to connect spreadsheet for real-time lead sync',
     connectedAt: sheetsIntegration?.connectedAt || null,
   };
 
-  // Meta Graph API
+  // Meta Graph API. This used to be a hardcoded HEALTHY with an invented
+  // 42 ms latency and a stale API version; it now reports only what is known
+  // without a network call — whether platform credentials are configured.
+  const metaConfigured = !!env.META_SYSTEM_USER_TOKEN;
   const metaGraphHealth = {
     name: 'Meta Graph API & Platform Gateway',
     provider: 'meta-graph',
     category: 'Core Infrastructure',
-    status: 'HEALTHY',
-    statusCode: 'OPERATIONAL',
-    details: 'v20.0 API Endpoints Operating Normally',
-    apiVersion: 'v20.0',
-    latencyMs: 42,
-    rateLimitStatus: 'NORMAL (<10% threshold)',
+    status: metaConfigured ? 'HEALTHY' : 'DISCONNECTED',
+    statusCode: metaConfigured ? 'CONFIGURED' : 'ACTION_REQUIRED',
+    details: metaConfigured
+      ? `Platform credentials configured (Graph API ${env.META_API_VERSION})`
+      : 'Platform Meta credentials are not configured',
+    apiVersion: env.META_API_VERSION,
   };
 
   const integrations = [whatsappHealth, facebookHealth, sheetsHealth, metaGraphHealth];
@@ -98,7 +105,6 @@ export async function getIntegrationHealth(workspaceId) {
     overallStatus,
     healthyCount,
     totalIntegrations: integrations.length,
-    uptime: '99.98%',
     lastCheckedAt: new Date().toISOString(),
     integrations,
   };

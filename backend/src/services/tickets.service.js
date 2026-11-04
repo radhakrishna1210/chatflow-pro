@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { scopeFilter } from './recordScope.service.js';
 import { awardXp } from './gamification.service.js';
 import { getSection } from './crmCustomization.service.js';
+import { assertWorkspaceMember, withSequentialNumber } from './crmReferences.js';
 
 // Customer-facing support tickets.
 //
@@ -13,6 +14,10 @@ export const SLA_HOURS = { URGENT: 2, HIGH: 8, NORMAL: 24, LOW: 72 };
 // Statuses where the clock has stopped. A resolved ticket cannot be overdue,
 // and a ticket waiting on the customer is not waiting on us.
 const SETTLED = ['RESOLVED', 'CLOSED'];
+// Statuses that cannot breach. WAITING (on the customer) is still an open
+// ticket, but the comment above was never true in code: a ticket parked while
+// the customer replied was reported overdue, and counted against the team.
+const CLOCK_STOPPED = [...SETTLED, 'WAITING'];
 
 const ALLOWED_TRANSITIONS = {
   NEW: ['OPEN', 'WAITING', 'RESOLVED', 'CLOSED'],
@@ -56,7 +61,7 @@ function viewFilter(view, userId) {
   switch (view) {
     case 'mine':       return { ownerUserId: userId };
     case 'unassigned': return { ownerUserId: null, status: { notIn: SETTLED } };
-    case 'overdue':    return { status: { notIn: SETTLED }, dueAt: { lt: new Date() } };
+    case 'overdue':    return { status: { notIn: CLOCK_STOPPED }, dueAt: { lt: new Date() } };
     case 'open':       return { status: { notIn: SETTLED } };
     case 'all':
     default:           return {};
@@ -88,7 +93,7 @@ export async function listTickets(workspaceId, { view = 'open', status = '', pri
   return {
     data: data.map((t) => ({
       ...t,
-      isOverdue: !SETTLED.includes(t.status) && !!t.dueAt && t.dueAt < now,
+      isOverdue: !CLOCK_STOPPED.includes(t.status) && !!t.dueAt && t.dueAt < now,
     })),
     total,
   };
@@ -110,6 +115,7 @@ export async function createTicket(workspaceId, body) {
     const row = await prisma[model].findFirst({ where: { id: body[field], workspaceId }, select: { id: true } });
     if (!row) { const e = new Error(`${model} not found in this workspace`); e.status = 404; throw e; }
   }
+  await assertWorkspaceMember(workspaceId, body.ownerUserId);
 
   const priority = body.priority || 'NORMAL';
 
@@ -129,7 +135,7 @@ export async function createTicket(workspaceId, body) {
     }
   }
 
-  return prisma.$transaction(async (tx) => {
+  return withSequentialNumber(() => prisma.$transaction(async (tx) => {
     const ticketNumber = await nextTicketNumber(tx, workspaceId);
     return tx.crmTicket.create({
       data: {
@@ -148,7 +154,7 @@ export async function createTicket(workspaceId, body) {
       },
       include: TICKET_INCLUDE,
     });
-  });
+  }));
 }
 
 export async function updateTicket(workspaceId, id, updates, user = null) {
@@ -158,6 +164,11 @@ export async function updateTicket(workspaceId, id, updates, user = null) {
     select: { id: true, priority: true, createdAt: true, status: true },
   });
   if (!ticket) { const e = new Error('Ticket not found'); e.status = 404; throw e; }
+  if (updates.ownerUserId !== undefined) await assertWorkspaceMember(workspaceId, updates.ownerUserId);
+  if (updates.teamId) {
+    const team = await prisma.team.findFirst({ where: { id: updates.teamId, workspaceId }, select: { id: true } });
+    if (!team) { const e = new Error('team not found in this workspace'); e.status = 404; throw e; }
+  }
 
   const data = { ...updates };
 

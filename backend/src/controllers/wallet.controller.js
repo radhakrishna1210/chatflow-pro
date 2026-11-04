@@ -1,5 +1,6 @@
 import * as walletService from '../services/wallet.service.js';
 import { notifyWorkspace } from '../services/notification.service.js';
+import { env } from '../config/env.js';
 
 export async function getWallet(req, res) {
   const wallet = await walletService.getWallet(req.params.workspaceId);
@@ -17,7 +18,15 @@ export async function getSummary(req, res) {
 // In production, replace with a gateway checkout + webhook that calls
 // walletService.credit() only after the charge is confirmed. It is ADMIN-only
 // and bounded so it can't be used to mint arbitrary balance from the client.
+//
+// A workspace ADMIN is the customer, so in production this endpoint would let
+// any customer mint up to ₹1,00,000 of free balance per call. It is therefore
+// closed in production to everyone but a platform super-admin; real top-ups
+// go through /checkout + /checkout/verify.
 export async function recharge(req, res) {
+  if (env.NODE_ENV === 'production' && !req.user?.superAdmin) {
+    return res.status(403).json({ error: 'Manual recharge is disabled. Use the Razorpay checkout to add funds.', code: 'DEMO_RECHARGE_DISABLED' });
+  }
   const amount = Number(req.body?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'amount must be a positive number' });
   if (amount > 100000) return res.status(400).json({ error: 'Demo recharge is limited to 100000 per transaction' });

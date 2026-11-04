@@ -79,8 +79,27 @@ export default function PublicForm({ workspaceId, slug }) {
     return () => { cancelled = true; };
   }, [workspaceId, slug]);
 
+  // The tab title is what a visitor sees in their tab bar and what a link
+  // preview shows; it used to stay as the app's generic marketing title.
+  useEffect(() => {
+    const prev = document.title;
+    if (status === 'ready' && form?.name) document.title = form.name;
+    else if (status === 'missing') document.title = 'Form not available';
+    return () => { document.title = prev; };
+  }, [status, form?.name]);
+
   const submit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
+    // The form is noValidate (so the browser's bubbles don't fight our own
+    // styling), which meant an empty required field went to the server and came
+    // back as a generic error. Name the field instead.
+    const list = Array.isArray(form?.fields) ? form.fields : [];
+    const missing = list.find((f) => f.required && !String(answers[f.key] ?? '').trim());
+    if (missing) { setError(`Please fill in “${missing.label}”.`); return; }
+    const badEmail = list.find((f) => f.type === 'email' && String(answers[f.key] ?? '').trim()
+      && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(answers[f.key]).trim()));
+    if (badEmail) { setError(`“${badEmail.label}” doesn't look like an email address.`); return; }
     setSubmitting(true);
     setError(null);
     try {

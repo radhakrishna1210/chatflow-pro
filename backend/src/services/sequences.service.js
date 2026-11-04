@@ -179,7 +179,13 @@ export async function enrollContacts(workspaceId, sequenceId, { contactIds = [],
         nextRunAt: now,
       },
       select: { id: true, contactId: true },
+    }).catch((err) => {
+      // A concurrent enrol of the same contact won the (sequenceId, contactId)
+      // unique; that is "already in", not a 500 half-way through the batch.
+      if (err.code === 'P2002') return null;
+      throw err;
     });
+    if (!created) { skipped.push({ contactId: contact.id, name: contact.name, reason: 'Already in this sequence' }); continue; }
     enrolled.push(created);
   }
 

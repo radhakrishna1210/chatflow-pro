@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { assertWithinLimit } from './subscription.service.js';
 
 // List all segments for a workspace. Contacts are capped per segment and a
 // _count is included, so a 10k-contact segment no longer ships 10k rows on
@@ -53,14 +54,17 @@ export async function deleteSegment(workspaceId, segmentId) {
   await prisma.segment.delete({ where: { id: segmentId } });
 }
 
-// Normalize an inbound phone value: trim, drop formatting, keep a leading +.
+// Normalize an inbound phone value the way contacts.service.js stores it
+// (always "+<digits>"). Keeping a "+" only when one was typed meant
+// "919812345678" here and "+919812345678" from the importer were two different
+// contacts for one person — and a campaign to both messaged them twice.
 function normalizePhone(value) {
   if (value === undefined || value === null) return null;
-  const raw = String(value).trim();
-  if (!raw) return null;
-  const digits = raw.replace(/[^\d]/g, '');
-  if (!digits) return null;
-  return raw.startsWith('+') ? `+${digits}` : digits;
+  const digits = String(value).replace(/[^\d]/g, '');
+  // 7–15 digits, as contacts.service.js#isValidPhone requires everywhere else
+  // — "12" was accepted here and stored as a contact.
+  if (digits.length < 7 || digits.length > 15) return null;
+  return `+${digits}`;
 }
 
 // Add a contact to a segment. If contactId provided, link existing contact; otherwise, create new contact.
@@ -80,6 +84,8 @@ export async function addContactToSegment(workspaceId, segmentId, contactData) {
         await prisma.contact.update({ where: { id: existing.id }, data: { name: contactData.name } });
       }
     } else {
+      // Creating a contact here counts against the plan like any other.
+      await assertWithinLimit(workspaceId, 'contact');
       const newContact = await prisma.contact.create({ data: { workspaceId, name: contactData.name || null, phoneNumber, email: contactData.email || null, tags: contactData.tags || [] } });
       contactId = newContact.id;
     }
@@ -110,7 +116,11 @@ export async function updateContactInSegment(workspaceId, segmentId, contactId, 
     if (!phoneNumber) { const e = new Error('Phone number is required'); e.status = 400; throw e; }
     data.phoneNumber = phoneNumber;
   }
-  return prisma.contact.update({ where: { id: contactId }, data });
+  return prisma.contact.update({ where: { id: contactId }, data }).catch((err) => {
+    // (workspaceId, phoneNumber) is unique — a clash was a bare 500.
+    if (err.code === 'P2002') { const e = new Error('A contact with this phone number already exists'); e.status = 409; throw e; }
+    throw err;
+  });
 }
 
 // Remove contact from segment (does not delete contact entirely)

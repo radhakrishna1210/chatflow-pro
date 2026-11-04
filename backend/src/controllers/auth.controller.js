@@ -83,8 +83,9 @@ export async function exchangeOneTimeCode(req, res) {
   let raw = null;
   
   if (redis.status === 'ready') {
-    raw = await redis.get(key);
-    if (raw) await redis.del(key);
+    // One atomic read-and-delete: a GET followed by a DEL let two concurrent
+    // exchanges of the same code both receive the session.
+    raw = await redis.getdel(key);
   } else {
     raw = memoryCodes.get(code);
     memoryCodes.delete(code);

@@ -14,7 +14,17 @@ import { MANAGED_SETTING_KEYS, isManagedSettingKey, setSystemSettings, systemSet
 // receives a secret in full, so it cannot send one back either — a field the
 // admin did not touch arrives as its own mask and must be left alone rather
 // than saved literally, which would overwrite a working key with "sk-1...4f2a".
-const looksMasked = (value, masked) => value === '********' || (masked != null && value === masked);
+const MASK = '********';
+// Exactly the mask this screen was given, or one from an earlier load (the
+// old first-4/last-4 shape included), means "unchanged". A rotated key makes
+// the browser's copy stale, so equality with the *current* mask alone would
+// let a stale preview be saved literally over the new key.
+const looksMasked = (value, masked) => value === MASK
+  || (masked != null && value === masked)
+  || /^\*{8}.{0,4}$/.test(value)
+  || /^.{4}\.\.\..{4}$/.test(value);
+// Typed onto the end of a mask: neither the old value nor a usable new one.
+const editedMask = (value) => value.startsWith(MASK);
 
 export async function loadPlatformSettings() {
   try {
@@ -93,7 +103,14 @@ export async function updateSettings(input = {}) {
     if (raw === undefined || raw === null) continue;
 
     const value = String(raw).trim();
-    if (looksMasked(value, masked[key])) continue;
+    if (isSecret(key) && looksMasked(value, masked[key])) continue;
+    if (!isSecret(key) && value === masked[key]) continue;
+    if (isSecret(key) && editedMask(value)) {
+      const e = new Error(`${key} was not saved — clear the field and paste the full new value, not an edit of the masked preview`);
+      e.status = 400;
+      e.code = 'INVALID_PLATFORM_CREDENTIAL';
+      throw e;
+    }
 
     if (value === '') {
       await prisma.systemSetting.deleteMany({ where: { key } });
@@ -134,8 +151,10 @@ export async function updateSettings(input = {}) {
 const isSecret = (key) => /KEY|TOKEN|SECRET|PASSWORD/.test(key);
 
 // Enough for the admin screen to show what is configured, without ever
-// returning a credential. A secret comes back as its first and last four
-// characters; anything short enough for that to give it away is fully masked.
+// returning a credential. A secret comes back as a fixed mask plus its last
+// four characters (enough to tell two keys apart); anything shorter than 16
+// characters is fully masked. The old first-4 + last-4 preview disclosed up
+// to two thirds of a 13-character secret.
 export async function getAllSettings() {
   const { env } = await import('../config/env.js');
   const overridden = new Set(systemSettingKeys());
@@ -145,7 +164,7 @@ export async function getAllSettings() {
     const value = String(env[key] ?? '');
     if (!value) { out[key] = ''; continue; }
     out[key] = isSecret(key)
-      ? (value.length > 12 ? `${value.slice(0, 4)}...${value.slice(-4)}` : '********')
+      ? (value.length >= 16 ? `${MASK}${value.slice(-4)}` : MASK)
       : value;
   }
 

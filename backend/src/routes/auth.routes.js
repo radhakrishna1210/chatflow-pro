@@ -143,14 +143,55 @@ router.post(
 // carries an in-flight invite token through the round trip to Google, so
 // "Continue with Google" from an invite link doesn't silently drop the invite.
 
+// The signature alone only proves *we* minted the state, not that the browser
+// returning it is the one that started the flow: an attacker could start a
+// sign-in with their own Google account, stop at the callback, and send the
+// victim that URL — logging the victim into the attacker's account (login CSRF),
+// where anything they connect or type lands in the attacker's workspace. So the
+// nonce in the state is also set as an httpOnly cookie and must come back with
+// it. Cookies ignore the port, so this works whenever the SPA (which starts the
+// flow through its /api proxy) and the callback share a hostname — the
+// single-service deploy and local localhost:5173 → localhost:4000 alike.
+const GOOGLE_NONCE_COOKIE = 'g_oauth_nonce';
+const hostnameOf = (u) => { try { return new URL(u).hostname; } catch { return null; } };
+const googleStateBoundToBrowser = () =>
+  !!hostnameOf(env.CLIENT_URL) && hostnameOf(env.CLIENT_URL) === hostnameOf(env.GOOGLE_CALLBACK_URL);
+
+function readCookie(req, name) {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const i = part.indexOf('=');
+    if (i === -1) continue;
+    if (part.slice(0, i).trim() === name) {
+      try { return decodeURIComponent(part.slice(i + 1).trim()); } catch { return null; }
+    }
+  }
+  return null;
+}
+
 router.get('/google', (req, res, next) => {
   const inviteToken =
     typeof req.query.invite === 'string'
       ? req.query.invite
       : null;
 
+  const nonce = randomBytes(16).toString('hex');
+  const bound = googleStateBoundToBrowser();
+  if (bound) {
+    res.cookie(GOOGLE_NONCE_COOKIE, nonce, {
+      httpOnly: true,
+      // Lax is what lets it ride along on Google's top-level redirect back.
+      sameSite: 'lax',
+      secure: env.GOOGLE_CALLBACK_URL.startsWith('https://'),
+      maxAge: 10 * 60_000,
+      path: '/api/v1/auth/google',
+    });
+  }
+
   const state = signState({
-    n: randomBytes(8).toString('hex'),
+    n: nonce,
+    b: bound ? 1 : 0,
     ts: Date.now(),
     inviteToken,
   });
@@ -177,6 +218,18 @@ router.get('/google/callback', (req, res, next) => {
     return res.redirect(
       `${env.CLIENT_URL}/login?oauth_error=invalid_state`
     );
+  }
+
+  // Browser binding (see GOOGLE_NONCE_COOKIE above). Decided from config, never
+  // from anything the request carries, so a state minted without the cookie
+  // cannot be replayed into a deployment that expects one.
+  if (googleStateBoundToBrowser()) {
+    const cookieNonce = readCookie(req, GOOGLE_NONCE_COOKIE);
+    res.clearCookie(GOOGLE_NONCE_COOKIE, { path: '/api/v1/auth/google' });
+    if (statePayload.b !== 1 || !cookieNonce || cookieNonce !== statePayload.n) {
+      console.warn('[Google OAuth] Rejected callback: state was not started from this browser');
+      return res.redirect(`${env.CLIENT_URL}/login?oauth_error=invalid_state`);
+    }
   }
 
   // Read by the passport strategy (`passReqToCallback: true`) so a pending

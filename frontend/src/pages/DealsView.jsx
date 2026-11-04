@@ -9,6 +9,7 @@ import { FInput, FLabel, FSelect, FTextarea } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
 import { SavedViews } from '../components/SavedViews.jsx';
 import { ImportExport } from '../components/ImportExport.jsx';
+import { useIsMobile } from '../lib/useMediaQuery.js';
 
 const DEFAULT_STAGES = [
   { key: 'QUALIFICATION', label: 'Qualification', tone: 'blue', color: '#3b82f6' },
@@ -44,8 +45,21 @@ const StageBadge = ({ stageKey, stages = [] }) => {
 
 const pretty = s => String(s || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 const fmtMoney = v => (v == null ? '—' : `₹${Number(v).toLocaleString('en-IN')}`);
-const fmtDate = d => (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
+// Expected close is a calendar date: the date input sends "YYYY-MM-DD", which
+// the server stores as UTC midnight. Rendering it in the viewer's zone moved it
+// back a day for anyone west of UTC, so it is read back in UTC on both paths.
+const fmtDate = d => (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—');
 const toDateInput = d => (d ? new Date(d).toISOString().slice(0, 10) : '');
+
+// Engagements logged from the Engagements screen store a JSON envelope in
+// `content` ({ engagementType, notes, … }); show the note, not the raw JSON.
+const activityText = (content) => {
+  const raw = String(content ?? '');
+  if (raw.startsWith('{') && raw.endsWith('}')) {
+    try { const m = JSON.parse(raw); return m.notes || m.content || m.engagementType || ''; } catch { /* plain text */ }
+  }
+  return raw;
+};
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
@@ -190,8 +204,10 @@ const HealthPanel = ({ health }) => {
   );
 };
 
-const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages = [] }) => {
+const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, onStageChange, stages = [] }) => {
   const [deal, setDeal] = useState(null);
+  const [stageDraft, setStageDraft] = useState('');
+  const [lostReason, setLostReason] = useState('');
   const [title, setTitle] = useState('');
   const [value, setValue] = useState('');
   const [closeDate, setCloseDate] = useState('');
@@ -211,6 +227,8 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages 
         setValue(d.value == null ? '' : String(d.value));
         setCloseDate(toDateInput(d.expectedCloseDate));
         setOwner(d.ownerUserId || '');
+        setStageDraft(d.stage);
+        setLostReason(d.lostReason || '');
       })
       .catch(e => setErr(e.message));
 
@@ -239,7 +257,26 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages 
     } catch (e) { setErr(e.message); } finally { setSaving(false); }
   };
 
+  // Dragging is the only other way to move a deal, and HTML5 drag-and-drop
+  // does not fire on touch screens — without this a phone user could never
+  // advance a deal.
+  const changeStage = async () => {
+    if (!deal || !stageDraft || (stageDraft === deal.stage && stageDraft !== 'CLOSED_LOST')) return;
+    setErr(null); setSaving(true);
+    try {
+      const res = await wFetch(`/deals/${dealId}/stage`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stageDraft === 'CLOSED_LOST' ? { stage: stageDraft, lostReason: lostReason.trim() || null } : { stage: stageDraft }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Could not move deal'); }
+      const updated = await res.json();
+      setDeal(prev => ({ ...prev, ...updated }));
+      onStageChange?.(updated);
+    } catch (e) { setErr(e.message); } finally { setSaving(false); }
+  };
+
   const remove = async () => {
+    if (!window.confirm(`Delete "${deal?.title || 'this deal'}"? This cannot be undone.`)) return;
     setErr(null); setSaving(true);
     try {
       const res = await wFetch(`/deals/${dealId}`, { method: 'DELETE' });
@@ -291,10 +328,27 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages 
               <FSelect value={ownerUserId} onChange={e => setOwner(e.target.value)} placeholder="Unassigned"
                 options={members.map(m => ({ value: m.user.id, label: m.user.name || m.user.email }))} />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--t3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--t3)', flexWrap: 'wrap' }}>
               <span>Current stage</span>
               <StageBadge stageKey={deal.stage} stages={stages} />
               {deal.lostReason && <span>· {deal.lostReason}</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <FLabel>Move to stage</FLabel>
+                <FSelect value={stageDraft} onChange={e => setStageDraft(e.target.value)} aria-label="Move to stage"
+                  options={stages.map(s => ({ value: s.key, label: s.label || pretty(s.key) }))} />
+              </div>
+              {stageDraft === 'CLOSED_LOST' && (
+                <div style={{ flex: 1, minWidth: 160 }}>
+                  <FLabel>Lost reason</FLabel>
+                  <FInput value={lostReason} onChange={e => setLostReason(e.target.value)} placeholder="Optional" maxLength={500} />
+                </div>
+              )}
+              <Btn size="sm" variant="outline" onClick={changeStage}
+                disabled={saving || (stageDraft === deal.stage && (stageDraft !== 'CLOSED_LOST' || lostReason.trim() === (deal.lostReason || '')))}>
+                Move
+              </Btn>
             </div>
           </div>
 
@@ -321,7 +375,7 @@ const DealDetailModal = ({ dealId, members, onClose, onSaved, onDeleted, stages 
                   </div>
                   {a.feedType === 'ACTIVITY' && (
                     <div style={{ fontSize: 12.5, color: 'var(--t1)', marginTop: 4, background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.05)' }}>
-                      {a.content}
+                      {activityText(a.content)}
                     </div>
                   )}
                   <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 4 }}>
@@ -429,6 +483,7 @@ const NewDealModal = ({ members, onClose, onCreated, stages = [] }) => {
 };
 
 export default function DealsView({ initialTab }) {
+  const mobile = useIsMobile();
   const [tab, setTab] = useState(initialTab === 'table' ? 'table' : 'board');
   const [stages, setStages] = useState(DEFAULT_STAGES);
   const [deals, setDeals] = useState([]);
@@ -524,12 +579,12 @@ export default function DealsView({ initialTab }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 28px', flexShrink: 0, background: 'var(--surf)' }}>
+      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: mobile ? '10px 16px' : '10px 28px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Deals</span>
           <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{deals.length}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ width: 170 }}>
             <FSelect value={owner} onChange={e => setOwner(e.target.value)} placeholder="All owners"
               options={members.map(m => ({ value: m.user.id, label: m.user.name || m.user.email }))} />
@@ -552,12 +607,12 @@ export default function DealsView({ initialTab }) {
         </div>
       </div>
 
-      {err && <div style={{ padding: '12px 28px 0' }}><ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner></div>}
+      {err && <div style={{ padding: mobile ? '12px 16px 0' : '12px 28px 0' }}><ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner></div>}
 
       {loading && deals.length === 0 ? (
         <div style={{ padding: 28, fontSize: 12.5, color: 'var(--t3)' }}>Loading deals…</div>
       ) : tab === 'board' ? (
-        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: '18px 28px' }}>
+        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: mobile ? '14px 16px' : '18px 28px' }}>
           <div style={{ display: 'flex', gap: 14, height: '100%', minWidth: 'min-content' }}>
             {stages.map(stageObj => {
               const stage = stageObj.key;
@@ -582,7 +637,7 @@ export default function DealsView({ initialTab }) {
                     setDraggingId(null);
                     if (id) moveTo(id, stage);
                   }}
-                  style={{ width: 268, flexShrink: 0, display: 'flex', flexDirection: 'column',
+                  style={{ width: mobile ? 'min(268px, calc(100vw - 48px))' : 268, flexShrink: 0, display: 'flex', flexDirection: 'column',
                     borderRadius: 'var(--rl)', padding: 10,
                     background: isOver ? 'rgba(30,191,94,0.06)' : 'rgba(255,255,255,0.015)',
                     border: `1px solid ${isOver ? 'var(--gbd)' : 'var(--bd)'}`,
@@ -624,9 +679,9 @@ export default function DealsView({ initialTab }) {
           </div>
         </div>
       ) : (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '18px 28px' }}>
-          <div style={{ ...card, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: mobile ? '14px 16px' : '18px 28px' }}>
+          <div style={{ ...card, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)', background: 'rgba(255,255,255,0.02)' }}>
                   <ColHead>Deal</ColHead>
@@ -640,6 +695,8 @@ export default function DealsView({ initialTab }) {
               <tbody>
                 {deals.map(d => (
                   <tr key={d.id} onClick={() => setOpenDealId(d.id)}
+                    tabIndex={0} aria-label={`Open ${d.title}`}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenDealId(d.id); } }}
                     style={{ borderBottom: '1px solid var(--bd)', cursor: 'pointer' }}>
                     <td style={{ padding: '11px 16px', fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{d.title}</td>
                     <td style={{ padding: '11px 16px', fontSize: 12.5, color: 'var(--t2)' }}>{d.contact?.name || '—'}</td>
@@ -669,6 +726,7 @@ export default function DealsView({ initialTab }) {
             setDeals(prev => prev.map(d => (d.id === updated.id ? { ...d, ...updated } : d)));
             setOpenDealId(null);
           }}
+          onStageChange={(updated) => setDeals(prev => prev.map(d => (d.id === updated.id ? { ...d, ...updated } : d)))}
           onDeleted={(id) => { setDeals(prev => prev.filter(d => d.id !== id)); setOpenDealId(null); }} />
       )}
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { Modal } from '../components/Modal.jsx';
@@ -33,7 +33,15 @@ const ProductModal = ({ product, onClose, onSaved }) => {
 
   const set = (k) => (e) => setDraft(d => ({ ...d, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
 
+  const priceNum = Number(draft.unitPrice);
+  const taxNum = Number(draft.taxRate || 0);
+  const invalid = !Number.isFinite(priceNum) || priceNum < 0 ? 'Unit price must be zero or more.'
+    : !Number.isFinite(taxNum) || taxNum < 0 || taxNum > 100 ? 'Tax rate must be between 0 and 100%.'
+    : null;
+
   const save = async () => {
+    if (saving) return;
+    if (invalid) { setErr(invalid); return; }
     setSaving(true);
     setErr(null);
     try {
@@ -74,8 +82,8 @@ const ProductModal = ({ product, onClose, onSaved }) => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div><FLabel required>Name</FLabel><FInput value={draft.name} onChange={set('name')} /></div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div><FLabel required>Unit price (INR)</FLabel><FInput type="number" value={draft.unitPrice} onChange={set('unitPrice')} /></div>
-          <div><FLabel>Tax rate (%)</FLabel><FInput type="number" value={draft.taxRate} onChange={set('taxRate')} /></div>
+          <div><FLabel required>Unit price (INR)</FLabel><FInput type="number" min="0" step="any" value={draft.unitPrice} onChange={set('unitPrice')} aria-label="Unit price" /></div>
+          <div><FLabel>Tax rate (%)</FLabel><FInput type="number" min="0" max="100" step="any" value={draft.taxRate} onChange={set('taxRate')} aria-label="Tax rate" /></div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div><FLabel>SKU</FLabel><FInput value={draft.sku} onChange={set('sku')} /></div>
@@ -96,6 +104,9 @@ export const ProductsView = () => {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
+  // The query only follows the box after typing pauses: one request per
+  // keystroke let a slow early response overwrite the list for the final term.
+  const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState(undefined); // undefined = closed, null = new
@@ -103,22 +114,52 @@ export const ProductsView = () => {
   const [err, setErr] = useState(null);
   const [notice, setNotice] = useState(null);
 
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const reqSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++reqSeq.current;
     setLoading(true);
     const qs = new URLSearchParams();
-    if (search) qs.set('search', search);
+    if (query) qs.set('search', query);
     if (category) qs.set('category', category);
     if (showInactive) qs.set('includeInactive', 'true');
     wFetch(`/products?${qs}`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error('Could not load products'))))
-      .then(d => { setProducts(d.data ?? []); setCategories(d.categories ?? []); })
-      .catch(e => setErr(e.message))
-      .finally(() => setLoading(false));
-  }, [search, category, showInactive]);
+      .then(d => {
+        if (seq !== reqSeq.current) return;
+        setErr(null);
+        setProducts(d.data ?? []);
+        setCategories(d.categories ?? []);
+      })
+      .catch(e => { if (seq === reqSeq.current) setErr(e.message); })
+      .finally(() => { if (seq === reqSeq.current) setLoading(false); });
+  }, [query, category, showInactive]);
 
   useEffect(() => { load(); }, [load]);
 
+  const reactivate = async (product) => {
+    setErr(null);
+    setNotice(null);
+    try {
+      const res = await wFetch(`/products/${product.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isActive: true }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Could not reactivate this product');
+      }
+      load();
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
   const remove = async (product) => {
+    if (!window.confirm(`Remove “${product.name}”? A product already used on deals or quotes is deactivated instead of deleted.`)) return;
     setErr(null);
     setNotice(null);
     try {
@@ -170,8 +211,8 @@ export const ProductsView = () => {
           </div>
         )}
 
-        <div style={{ ...card, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div style={{ ...card, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
             <thead><tr style={{ borderBottom: '1px solid var(--bd)' }}>
               <ColHead>Name</ColHead><ColHead>SKU</ColHead><ColHead>Category</ColHead>
               <ColHead align="right">Price</ColHead><ColHead align="right">Tax</ColHead>
@@ -205,9 +246,15 @@ export const ProductsView = () => {
                     <button onClick={() => setEditing(p)} aria-label={`Edit ${p.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5 }}>
                       <I n="pencil" s={14} c="var(--t2)" />
                     </button>
-                    <button onClick={() => remove(p)} aria-label={`Remove ${p.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5 }}>
-                      <I n="trash" s={14} c="#f87171" />
-                    </button>
+                    {p.isActive ? (
+                      <button onClick={() => remove(p)} aria-label={`Remove ${p.name}`} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5 }}>
+                        <I n="trash" s={14} c="#f87171" />
+                      </button>
+                    ) : (
+                      <button onClick={() => reactivate(p)} aria-label={`Reactivate ${p.name}`} title="Reactivate" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5 }}>
+                        <I n="rotate" s={14} c="var(--green)" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

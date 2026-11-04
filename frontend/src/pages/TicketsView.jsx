@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { Modal } from '../components/Modal.jsx';
@@ -214,6 +214,13 @@ const TicketDetail = ({ ticket, members, onClose, onChanged }) => {
   const [priority, setPriority] = useState(ticket.priority);
   const [ownerUserId, setOwnerUserId] = useState(ticket.ownerUserId ?? '');
 
+  // The detail is refetched after every change; keep the pickers on what the
+  // server now says instead of the values the modal first opened with.
+  useEffect(() => {
+    setPriority(ticket.priority);
+    setOwnerUserId(ticket.ownerUserId ?? '');
+  }, [ticket.id, ticket.priority, ticket.ownerUserId]);
+
   const due = relativeDue(ticket.dueAt);
   const settled = SETTLED.includes(ticket.status);
   const moves = ALLOWED_TRANSITIONS[ticket.status] ?? [];
@@ -361,7 +368,11 @@ export default function TicketsView() {
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState(null);
 
+  const reqSeq = useRef(0);
   const load = useCallback(async (which = view) => {
+    // Switching queues quickly could let the slower, older response land last
+    // and show "Open" tickets under the "Overdue" tab.
+    const seq = ++reqSeq.current;
     try {
       const [listRes, countRes] = await Promise.all([
         wFetch(`/tickets?view=${which}`),
@@ -369,10 +380,13 @@ export default function TicketsView() {
       ]);
       if (!listRes.ok) throw new Error(`Could not load tickets (${listRes.status}).`);
       const body = await listRes.json();
+      const countBody = countRes.ok ? await countRes.json() : null;
+      if (seq !== reqSeq.current) return;
       setTickets(body.data ?? []);
-      if (countRes.ok) setCounts(await countRes.json());
+      if (countBody) setCounts(countBody);
       setError(null);
     } catch (e) {
+      if (seq !== reqSeq.current) return;
       setError(e.message);
     }
     setLoading(false);
@@ -430,7 +444,7 @@ export default function TicketsView() {
           const active = v.id === view;
           const n = counts[v.id];
           return (
-            <button key={v.id} onClick={() => setView(v.id)}
+            <button key={v.id} onClick={() => setView(v.id)} aria-pressed={active}
               style={{
                 padding: '7px 13px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600,
                 border: `1px solid ${active ? 'var(--gbd)' : 'var(--bd)'}`,

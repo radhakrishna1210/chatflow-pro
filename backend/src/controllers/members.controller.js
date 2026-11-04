@@ -1,13 +1,19 @@
 import * as membersService from '../services/members.service.js';
+import * as invitationsService from '../services/invitations.service.js';
 
 export async function list(req, res) {
   const members = await membersService.listMembers(req.params.workspaceId);
   res.json(members);
 }
 
+// Kept for API compatibility, but it now *invites*: it used to insert a
+// WorkspaceMember for any existing account straight away, so an admin of any
+// workspace could pull a stranger into it without their consent, and its 404
+// "User not found" told anyone with a workspace which addresses have accounts.
+// The person now has to accept, exactly as with POST /invitations.
 export async function invite(req, res) {
-  const member = await membersService.inviteMember(req.params.workspaceId, req.body, req.user?.name);
-  res.status(201).json(member);
+  const invitation = await invitationsService.createInvitation(req.params.workspaceId, req.body, req.user.id);
+  res.status(201).json(invitation);
 }
 
 export async function updateRole(req, res) {

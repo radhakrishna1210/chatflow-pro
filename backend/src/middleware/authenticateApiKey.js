@@ -19,11 +19,25 @@ export async function authenticateApiKey(req, res, next) {
         keyHash: hash,
         revokedAt: null
       },
-      select: { id: true, name: true, workspaceId: true, scopes: true }
+      select: {
+        id: true, name: true, workspaceId: true, scopes: true,
+        workspace: { select: { suspended: true, subscription: { select: { status: true } } } },
+      }
     });
 
     if (!apiKey) {
       return res.status(401).json({ error: 'Invalid or revoked API key' });
+    }
+
+    // The same gate workspaceContext applies to the dashboard. Without it a
+    // suspended workspace — or one whose plan has lapsed — was locked out of
+    // the UI but could keep sending messages and launching campaigns through
+    // any key it had already issued.
+    if (apiKey.workspace?.suspended) {
+      return res.status(403).json({ error: 'This workspace has been suspended. Please contact support.', code: 'WORKSPACE_SUSPENDED' });
+    }
+    if (['CANCELLED', 'EXPIRED'].includes(apiKey.workspace?.subscription?.status)) {
+      return res.status(403).json({ error: "This workspace's subscription is inactive. Renew the plan to use the API.", code: 'SUBSCRIPTION_INACTIVE' });
     }
 
     // Update lastUsedAt asynchronously (fire and forget to not block the request)

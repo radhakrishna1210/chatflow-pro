@@ -195,7 +195,8 @@ const ChangePasswordModal = ({ onClose, onSuccess }) => {
     try {
       const res = await apiFetch('/api/v1/users/me/password', {
         method: 'POST',
-        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+        // Names this session so the server keeps it while signing out every other one.
+        body: JSON.stringify({ currentPassword: current, newPassword: next, refreshToken: localStorage.getItem('refreshToken') || undefined }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setErr(data.error || 'Could not change password'); return; }

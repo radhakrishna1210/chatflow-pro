@@ -19,7 +19,7 @@ import { GoogleGenAI } from '@google/genai';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
 import { carouselCards, buildCardBodyComponent, buildCardButtonComponents } from '../lib/templateParams.js';
-import { uploadPhoneMedia } from '../lib/meta.js';
+import { uploadPhoneMedia, isMetaCdnUrl, metaOnlyRedirects } from '../lib/meta.js';
 
 let _ai = null;
 let _aiKey = null;
@@ -520,7 +520,10 @@ const HANDLE_FETCH_TIMEOUT_MS = 20000;
 const handleUrl = (header) => {
   const raw = header?.example?.header_handle;
   const value = Array.isArray(raw) ? raw[0] : raw;
-  return /^https?:\/\//i.test(String(value || '')) ? String(value) : null;
+  // Meta's own CDN only. header_handle is plain template JSON that a client
+  // can write, so an arbitrary URL here would make the server fetch whatever
+  // address it names — internal services included (SSRF).
+  return isMetaCdnUrl(value) ? String(value) : null;
 };
 
 async function adoptMediaFromHandle(workspaceId, header, { label }) {
@@ -529,7 +532,12 @@ async function adoptMediaFromHandle(workspaceId, header, { label }) {
 
   let res;
   try {
-    res = await axios.get(url, { responseType: 'arraybuffer', timeout: HANDLE_FETCH_TIMEOUT_MS });
+    res = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: HANDLE_FETCH_TIMEOUT_MS,
+      maxContentLength: MAX_IMAGE_BYTES,
+      ...metaOnlyRedirects,
+    });
   } catch (err) {
     console.warn(`[TemplateImage] Could not re-fetch ${label} from its approved sample: ${err.message}`);
     return null;

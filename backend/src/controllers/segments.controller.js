@@ -1,30 +1,32 @@
 import * as segmentsService from '../services/segments.service.js';
 
 // List all segments with optional pagination (not implemented for simplicity)
-export async function listSegments(req, res) {
+export async function listSegments(req, res, next) {
   try {
     const workspaceId = req.params.workspaceId;
     const segments = await segmentsService.listSegments(workspaceId);
     res.json(segments);
   } catch (err) {
-    console.error('[Segments] list error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Failed to list segments' });
+    // The shared error handler keeps a 4xx message and replaces a 5xx (a raw
+    // Prisma error, say) with a reference, rather than echoing it to the client.
+    next(err);
   }
 }
 
-export async function createSegment(req, res) {
+export async function createSegment(req, res, next) {
   try {
     const workspaceId = req.params.workspaceId;
     const { name, desc, color } = req.body;
     const segment = await segmentsService.createSegment(workspaceId, { name, desc, color });
     res.status(201).json(segment);
   } catch (err) {
-    console.error('[Segments] create error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Failed to create segment' });
+    // The shared error handler keeps a 4xx message and replaces a 5xx (a raw
+    // Prisma error, say) with a reference, rather than echoing it to the client.
+    next(err);
   }
 }
 
-export async function updateSegment(req, res) {
+export async function updateSegment(req, res, next) {
   try {
     const workspaceId = req.params.workspaceId;
     const segmentId = req.params.id;
@@ -32,25 +34,27 @@ export async function updateSegment(req, res) {
     const segment = await segmentsService.updateSegment(workspaceId, segmentId, updates);
     res.json(segment);
   } catch (err) {
-    console.error('[Segments] update error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Failed to update segment' });
+    // The shared error handler keeps a 4xx message and replaces a 5xx (a raw
+    // Prisma error, say) with a reference, rather than echoing it to the client.
+    next(err);
   }
 }
 
-export async function deleteSegment(req, res) {
+export async function deleteSegment(req, res, next) {
   try {
     const workspaceId = req.params.workspaceId;
     const segmentId = req.params.id;
     await segmentsService.deleteSegment(workspaceId, segmentId);
     res.status(204).send();
   } catch (err) {
-    console.error('[Segments] delete error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Failed to delete segment' });
+    // The shared error handler keeps a 4xx message and replaces a 5xx (a raw
+    // Prisma error, say) with a reference, rather than echoing it to the client.
+    next(err);
   }
 }
 
 // Contact association
-export async function addContactToSegment(req, res) {
+export async function addContactToSegment(req, res, next) {
   try {
     const workspaceId = req.params.workspaceId;
     const segmentId = req.params.id;
@@ -58,12 +62,13 @@ export async function addContactToSegment(req, res) {
     const result = await segmentsService.addContactToSegment(workspaceId, segmentId, contactData);
     res.status(201).json(result);
   } catch (err) {
-    console.error('[Segments] addContact error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Failed to add contact to segment' });
+    // The shared error handler keeps a 4xx message and replaces a 5xx (a raw
+    // Prisma error, say) with a reference, rather than echoing it to the client.
+    next(err);
   }
 }
 
-export async function updateContactInSegment(req, res) {
+export async function updateContactInSegment(req, res, next) {
   try {
     const workspaceId = req.params.workspaceId;
     const segmentId = req.params.id;
@@ -72,12 +77,13 @@ export async function updateContactInSegment(req, res) {
     const updated = await segmentsService.updateContactInSegment(workspaceId, segmentId, contactId, updates);
     res.json(updated);
   } catch (err) {
-    console.error('[Segments] updateContact error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Failed to update contact in segment' });
+    // The shared error handler keeps a 4xx message and replaces a 5xx (a raw
+    // Prisma error, say) with a reference, rather than echoing it to the client.
+    next(err);
   }
 }
 
-export async function removeContactFromSegment(req, res) {
+export async function removeContactFromSegment(req, res, next) {
   try {
     const workspaceId = req.params.workspaceId;
     const segmentId = req.params.id;
@@ -85,7 +91,8 @@ export async function removeContactFromSegment(req, res) {
     await segmentsService.removeContactFromSegment(workspaceId, segmentId, contactId);
     res.status(204).send();
   } catch (err) {
-    console.error('[Segments] removeContact error:', err);
-    res.status(err.status || 500).json({ error: err.message || 'Failed to remove contact from segment' });
+    // The shared error handler keeps a 4xx message and replaces a 5xx (a raw
+    // Prisma error, say) with a reference, rather than echoing it to the client.
+    next(err);
   }
 }

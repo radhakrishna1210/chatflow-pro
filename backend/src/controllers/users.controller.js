@@ -11,8 +11,8 @@ export async function updateMe(req, res) {
 }
 
 export async function changePassword(req, res) {
-  const { currentPassword, newPassword } = req.body;
-  const result = await usersService.changePassword(req.user.id, currentPassword, newPassword);
+  const { currentPassword, newPassword, refreshToken } = req.body;
+  const result = await usersService.changePassword(req.user.id, currentPassword, newPassword, refreshToken ?? null);
   res.json(result);
 }
 

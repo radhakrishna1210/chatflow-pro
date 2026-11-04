@@ -57,7 +57,7 @@ export async function updateProfile(userId, data) {
   };
 }
 
-export async function changePassword(userId, currentPassword, newPassword) {
+export async function changePassword(userId, currentPassword, newPassword, keepRefreshToken = null) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
 
@@ -69,14 +69,24 @@ export async function changePassword(userId, currentPassword, newPassword) {
 
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!valid) {
+    // 400, not 401: the client reads a 401 as "your session expired", refreshes,
+    // retries, gets 401 again and signs the user out — for a typo.
     const e = new Error('Current password is incorrect');
-    e.status = 401;
+    e.status = 400;
+    e.code = 'WRONG_PASSWORD';
     throw e;
   }
 
   const passwordHash = await bcrypt.hash(newPassword, env.BCRYPT_SALT_ROUNDS);
   await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
-  return { message: 'Password updated successfully' };
+  // Changing a password is what someone does when they think it leaked, so
+  // every other session ends here — otherwise whoever had it keeps a refresh
+  // token that renews their access for another week. The caller's own session
+  // (named by its refresh token) is the one that is kept.
+  const { count: signedOut } = await prisma.refreshToken.deleteMany({
+    where: keepRefreshToken ? { userId, token: { not: keepRefreshToken } } : { userId },
+  });
+  return { message: 'Password updated successfully', otherSessionsSignedOut: signedOut };
 }
 
 // `currentToken` (the caller's own refresh token) is only ever compared
@@ -158,7 +168,7 @@ export async function deleteAccount(userId, { password, confirmEmail } = {}) {
   if (user.passwordHash) {
     if (!password) { const e = new Error('Your password is required to delete your account'); e.status = 400; throw e; }
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) { const e = new Error('Password is incorrect'); e.status = 401; throw e; }
+    if (!valid) { const e = new Error('Password is incorrect'); e.status = 400; e.code = 'WRONG_PASSWORD'; throw e; }
   } else {
     // Google sign-in — no password exists, so confirm by typing the address.
     if (String(confirmEmail || '').trim().toLowerCase() !== user.email.toLowerCase()) {

@@ -237,22 +237,43 @@ export const templateSchemas = {
   }).strict().superRefine((v, ctx) => checkBodyText(v.components, ctx)),
 };
 
+// Steps stay open-ended (the canvas adds `pos`, buttons carry `options`), but
+// they must be a bounded list of objects. `z.any()` accepted a string, a
+// number or a multi-megabyte array, all of which saved fine and then made the
+// workflow list and the engine choke on every inbound message.
+const workflowNode = z.object({
+  type: z.string().max(40),
+  subtype: z.string().max(40).optional(),
+}).passthrough();
+const workflowNodes = z.array(workflowNode).max(60);
+const workflowEdges = z.array(z.any()).max(200);
+
 export const workflowSchemas = {
   create: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Workflow name'),
-    nodes: z.any(),
-    edges: z.any().optional().default([]),
+    nodes: workflowNodes.optional().default([]),
+    edges: workflowEdges.optional().default([]),
     isActive: z.boolean().optional(),
   }),
   update: z.object({
     name: meaningfulText(z.string().trim().min(1).max(120), 'Workflow name').optional(),
-    nodes: z.any().optional(),
-    edges: z.any().optional(),
+    nodes: workflowNodes.optional(),
+    edges: workflowEdges.optional(),
     isActive: z.boolean().optional(),
   }).strict(),
 };
 
 export const automationSchemas = {
+  // Voice AI settings. Unvalidated, a string for the on/off switch or an
+  // object for the name was a Prisma 500, and the prompt had no length cap.
+  updateVoice: z.object({
+    voiceAiEnabled: z.boolean().optional(),
+    voiceAiName: z.string().trim().max(80).optional(),
+    voiceAiPrompt: z.string().max(4000).optional(),
+    voiceAiPhone: z.string().trim().max(32).optional(),
+    voiceAiInboundPhone: z.string().trim().max(32).optional(),
+    voiceAiGreeting: z.string().max(1000).optional(),
+  }),
   createTrigger: z.object({
     keyword: meaningfulText(z.string().trim().min(1).max(80), 'Keyword'),
     responseTemplate: meaningfulText(z.string().trim().min(1).max(1000), 'Response message'),
@@ -409,6 +430,10 @@ export const settingsSchemas = {
     timezone: z.string().trim().min(1).max(64).optional(),
     brandColor: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Use a 6-digit hex colour').optional(),
     brandLogoUrl: z.union([z.string().trim().url().max(500), z.literal('')]).optional(),
+    // Settings → Leads "create a lead when someone replies". The service
+    // allow-lists it, but zod strips unknown keys first, so without this line
+    // the toggle saved nothing and flipped back off on reload.
+    autoLeadFromReply: z.boolean().optional(),
   }),
 };
 
@@ -441,6 +466,9 @@ export const userSchemas = {
     newPassword: z.string().min(8, 'Password must be at least 8 characters').max(128)
       .regex(/[a-zA-Z]/, 'Password must include at least one letter')
       .regex(/[0-9]/, 'Password must include at least one number'),
+    // The caller's own refresh token: that session survives the change, every
+    // other one is signed out.
+    refreshToken: z.string().max(4096).optional(),
   }).refine((v) => v.newPassword !== v.currentPassword, {
     message: 'New password must be different from your current password',
     path: ['newPassword'],
@@ -539,8 +567,23 @@ const leadFormField = z.object({
   placeholder: z.string().optional(),
 });
 
-const CUSTOM_FIELD_TYPES = ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN', 'SELECT'];
-const SAVED_VIEW_ENTITIES = ['CONTACT', 'LEAD', 'DEAL', 'TICKET', 'TASK'];
+// Must match services/customFields.service.js (CUSTOM_FIELD_TYPES), which is
+// what the Custom Fields screen offers. The old five-value list refused every
+// type but those (Dropdown, Currency, URL…), and let 'SELECT' through as a type
+// the service does not know — stored with its options discarded, so any text
+// was accepted into a "select". 'SELECT' is kept as an alias for DROPDOWN.
+const CUSTOM_FIELD_TYPES = [
+  'TEXT', 'TEXTAREA', 'NUMBER', 'CURRENCY', 'DATE', 'BOOLEAN',
+  'DROPDOWN', 'MULTISELECT', 'URL', 'EMAIL', 'PHONE', 'USER',
+];
+const customFieldType = z.union([
+  z.enum(CUSTOM_FIELD_TYPES),
+  z.literal('SELECT').transform(() => 'DROPDOWN'),
+]);
+// Must match services/savedViews.service.js, which is what the list screens
+// send ('leads', 'deals', 'tasks'). The singular upper-case enum here refused
+// every save from the UI with a 400.
+const SAVED_VIEW_ENTITIES = ['leads', 'deals', 'tasks'];
 
 const TASK_STATUSES = ['PENDING', 'COMPLETED'];
 const CRM_ACTIVITY_TYPES = ['NOTE', 'CALL', 'EMAIL', 'MEETING'];
@@ -583,6 +626,29 @@ export const leadSchemas = {
     industry: z.union([z.string().trim().max(100), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     company: z.union([z.string().trim().max(120), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     qualificationAnswers: z.record(z.any()).optional(),
+  }).strict(),
+  // Bulk actions: ids are bounded so one request cannot fan out into an
+  // unbounded IN list, and every value is checked here rather than reaching
+  // Prisma as an unknown enum (which answered 500).
+  bulkIds: z.object({ ids: z.array(id).min(1, 'At least one lead ID is required').max(1000) }).strict(),
+  bulkAssign: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    ownerUserId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => v || null),
+  }).strict(),
+  bulkStatus: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    status: z.enum(LEAD_STATUSES),
+  }).strict(),
+  bulkCategory: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    category: z.enum(['HOT', 'WARM', 'COLD']),
+  }).strict(),
+  bulkTask: z.object({
+    ids: z.array(id).min(1, 'At least one lead ID is required').max(1000),
+    title: z.string().trim().min(1, 'Task title is required').max(200),
+    dueDate: z.coerce.date().optional().nullable(),
+    // Accepted for older clients; tasks carry no priority.
+    priority: z.string().max(20).optional(),
   }).strict(),
   convert: z.object({
     title: z.string().trim().min(1, 'Deal title is required').max(160),
@@ -770,7 +836,7 @@ export const customFieldSchemas = {
   create: z.object({
     entity: z.enum(['lead', 'deal']),
     label: z.string().trim().min(1, 'A field needs a label').max(60),
-    type: z.enum(CUSTOM_FIELD_TYPES).optional(),
+    type: customFieldType.optional(),
     options: z.array(z.string().trim().min(1).max(80)).max(100).optional(),
     helpText: z.union([z.string().trim().max(200), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : (v || null))),
     required: z.boolean().optional(),

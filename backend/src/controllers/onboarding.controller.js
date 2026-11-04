@@ -85,15 +85,17 @@ async function generateTemplateBody(prompt) {
 // ACTIVE workflow that can never fire — triggerFires() returns false for an
 // unknown trigger subtype, and an unknown action is skipped at run time — so
 // the model's output is clamped to these rather than trusted.
-const ALLOWED_TRIGGER_SUBTYPES = new Set(['keyword', 'welcome', 'missed']);
+// `missed` is left out: nothing delivers a missed-call event to the engine,
+// so a workflow built on it saves, shows ACTIVE and never fires.
+const ALLOWED_TRIGGER_SUBTYPES = new Set(['keyword', 'welcome']);
 const ALLOWED_ACTION_SUBTYPES = new Set(['message', 'delay', 'tag', 'agent']);
 
 // Build a workflow (trigger + action steps) from the user's description.
 async function generateWorkflowSpec(prompt) {
   const system = `Design a simple WhatsApp automation as JSON: {"name": string, "nodes": [{"type":"trigger"|"action","subtype":string,"value":string}]}.
-trigger subtypes: keyword, welcome, missed. action subtypes: message, delay, tag, agent.
+trigger subtypes: keyword, welcome. action subtypes: message, delay, tag, agent.
 Use those subtype words exactly — no other values are accepted.
-A "keyword" trigger's value is ONE uppercase word a customer would actually send (HELP, BOOK, PRICE); "welcome" and "missed" take an empty value.
+A "keyword" trigger's value is ONE uppercase word a customer would actually send (HELP, BOOK, PRICE); "welcome" takes an empty value.
 Start with exactly one trigger, then 1-3 actions. Reply with ONLY the JSON.`;
   const spec = await llmJson(`Automation for: ${prompt}`, system);
   const nodes = Array.isArray(spec?.nodes) ? spec.nodes : [];
@@ -118,8 +120,11 @@ Start with exactly one trigger, then 1-3 actions. Reply with ONLY the JSON.`;
 
     for (const n of actionsRaw) {
       if (built.length >= 5) break;
-      let subtype = String(n?.subtype || 'message').toLowerCase();
-      if (!ALLOWED_ACTION_SUBTYPES.has(subtype)) subtype = 'message';
+      const subtype = String(n?.subtype || 'message').toLowerCase();
+      // Dropped, not coerced: turning an unknown step into "message" saved a
+      // condition like `contains "yes"` as a step that texted the customer
+      // the word "yes" (the same bug automation.service.js fixed).
+      if (!ALLOWED_ACTION_SUBTYPES.has(subtype)) continue;
       const value = String(n?.value || '').trim().slice(0, 900);
       if (!value) continue;
       built.push({ id: `step_${built.length + 1}`, type: 'action', subtype, value });
@@ -128,9 +133,16 @@ Start with exactly one trigger, then 1-3 actions. Reply with ONLY the JSON.`;
     if (built.length >= 2) return { name: String(spec.name || 'AI Workflow').slice(0, 80), nodes: built };
   }
 
-  // Deterministic fallback: keyword trigger → auto reply.
-  const kw = (prompt.match(/\b([a-z]{3,})\b/i)?.[1] || 'hello').toUpperCase();
-  const body = await generateTemplateBody(prompt);
+  // Deterministic fallback: keyword trigger → auto reply. The keyword is the
+  // word the request quotes or shouts ("when someone says HELP"), not its
+  // first word — that made "build a workflow…" fire on every message saying
+  // "build".
+  const kw = (prompt.match(/["'“]([A-Za-z0-9]{2,20})["'”]/)?.[1]
+    || prompt.match(/\b([A-Z][A-Z0-9]{1,19})\b/)?.[1]
+    || 'HELP').toUpperCase();
+  // Template drafts use Meta's positional {{1}}, which a workflow message does
+  // not fill — it would be stripped, leaving "Hi , …". {{name}} is.
+  const body = (await generateTemplateBody(prompt)).replace(/\{\{\s*1\s*\}\}/g, '{{name}}');
   return {
     name: `${kw} auto-reply`.slice(0, 80),
     nodes: [
@@ -189,6 +201,11 @@ Reply with ONLY JSON: {"choice": number, "name": string, "why": string}
 }
 
 // ─── Main chat handler ────────────────────────────────────────────────────────
+const MAX_CHAT_CHARS = 2000;
+// A campaign that is sending, scheduled or paused mid-send is not something a
+// chat message should be able to destroy.
+const UNDELETABLE_CAMPAIGN_STATUSES = ['RUNNING', 'SCHEDULED', 'PAUSED'];
+
 export const chatWithAi = async (req, res) => {
   try {
     const { message, guided = true } = req.body;
@@ -202,10 +219,39 @@ export const chatWithAi = async (req, res) => {
     // feature flag, session lookup, and number count were previously each
     // awaited one at a time). Results are only used after the membership
     // check below, so a non-member never sees any of this data.
+    if (typeof workspaceId !== 'string') return res.status(400).json({ content: 'No workspace selected.' });
+    if (message !== undefined && message !== null && typeof message !== 'string') {
+      return res.status(400).json({ content: 'Message must be text.', error: 'Message must be text' });
+    }
     const member = await prisma.workspaceMember.findUnique({
       where: { userId_workspaceId: { userId, workspaceId } },
+      include: { workspace: { select: { suspended: true, subscription: { select: { status: true } } } } },
     });
     if (!member) return res.status(403).json({ content: 'You are not a member of that workspace.' });
+    // Not behind workspaceContext, so its suspension / inactive-subscription
+    // block never applied: a suspended workspace could still create templates
+    // and campaigns through the chat.
+    if (req.user?.superAdmin !== true) {
+      if (member.workspace?.suspended) {
+        return res.status(403).json({ content: 'This workspace has been suspended. Please contact support.', error: 'Workspace suspended', suspended: true });
+      }
+      if (['CANCELLED', 'EXPIRED'].includes(member.workspace?.subscription?.status)) {
+        return res.status(403).json({ content: 'This workspace\'s subscription is inactive. Renew your plan to continue.', error: 'Subscription inactive', code: 'SUBSCRIPTION_INACTIVE' });
+      }
+    }
+    // This route is not behind workspaceContext, so the Viewer/Agent write
+    // floor never applied: a read-only Viewer could build and activate
+    // workflows, draft campaigns and delete templates through the chat.
+    if (member.role === 'VIEWER' || member.role === 'AGENT') {
+      return res.status(403).json({
+        content: 'Only workspace members and admins can build with the AI assistant.',
+        error: 'Insufficient permissions',
+        code: 'ROLE_NOT_PERMITTED',
+      });
+    }
+    if (typeof message === 'string' && message.length > MAX_CHAT_CHARS) {
+      return res.status(400).json({ content: `Please keep messages under ${MAX_CHAT_CHARS} characters.`, error: 'Message too long' });
+    }
 
     const [aiOnboardingAllowed, existingSession, numberCount] = await Promise.all([
       hasFeature(workspaceId, 'aiOnboarding'),
@@ -241,6 +287,13 @@ export const chatWithAi = async (req, res) => {
       const intent = await detectIntent(text);
 
       if (intent === 'CREATE_WORKFLOW') {
+        // The Workflows routes are gated by the plan's `workflows` flag; this
+        // path created (and activated) workflows on plans without it.
+        if (!(await hasFeature(workspaceId, 'workflows'))) {
+          state = { step: 'IDLE' };
+          await save();
+          return res.json({ content: 'Workflows are not included in your current plan. Upgrade to build automations.', code: 'PLAN_FEATURE_LOCKED', feature: 'workflows' });
+        }
         // Build a REAL workflow via the workflow service — no fake success.
         const spec = await generateWorkflowSpec(text);
         const wf = await createWorkflow(workspaceId, { name: spec.name, nodes: spec.nodes, edges: [], isActive: true });
@@ -400,15 +453,19 @@ export const chatWithAi = async (req, res) => {
       state = { step: 'IDLE' };
     }
     else if (state.step === 'DELETE_GATHER_TEMPLATE_NAME') {
-      const tpl = await prisma.template.findFirst({ where: { workspaceId, name: { contains: text, mode: 'insensitive' } } });
+      // Exact name only. A substring match meant answering "a" deleted
+      // whichever template happened to contain the letter a.
+      const tpl = text ? await prisma.template.findFirst({ where: { workspaceId, name: { equals: text, mode: 'insensitive' } } }) : null;
       if (tpl) { await prisma.template.delete({ where: { id: tpl.id } }); responseText = `Deleted template "${tpl.name}".`; }
-      else responseText = `No template matching "${text}" found.`;
+      else responseText = `No template named exactly "${text}" was found, so nothing was deleted.`;
       state = { step: 'IDLE' };
     }
     else if (state.step === 'DELETE_GATHER_CAMPAIGN_NAME') {
-      const camp = await prisma.campaign.findFirst({ where: { workspaceId, name: { contains: text, mode: 'insensitive' } } });
-      if (camp) { await prisma.campaign.delete({ where: { id: camp.id } }); responseText = `Deleted campaign "${camp.name}".`; }
-      else responseText = `No campaign matching "${text}" found.`;
+      const camp = text ? await prisma.campaign.findFirst({ where: { workspaceId, name: { equals: text, mode: 'insensitive' } } }) : null;
+      if (camp && UNDELETABLE_CAMPAIGN_STATUSES.includes(camp.status)) {
+        responseText = `"${camp.name}" is ${camp.status.toLowerCase()} — cancel it from the Campaigns page before deleting it.`;
+      } else if (camp) { await prisma.campaign.delete({ where: { id: camp.id } }); responseText = `Deleted campaign "${camp.name}".`; }
+      else responseText = `No campaign named exactly "${text}" was found, so nothing was deleted.`;
       state = { step: 'IDLE' };
     }
     else {

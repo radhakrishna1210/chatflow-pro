@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { env } from '../config/env.js';
 import { generateAgentReply } from './aiAgent.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { sendTextMessage, sendWhatsAppMessage } from '../lib/meta.js';
@@ -10,6 +11,10 @@ import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
 
 export async function listConversations(workspaceId, { page = 1, limit = 20, contactId = null, search = '' } = {}) {
+  // Bounded: each row carries its contact, number and latest messages, and an
+  // unbounded ?limit= let one request pull the whole inbox.
+  limit = Math.min(Math.max(Math.trunc(Number(limit)) || 20, 1), 200);
+  page = Math.max(Math.trunc(Number(page)) || 1, 1);
   const skip = (page - 1) * limit;
   const where = { workspaceId };
   if (contactId) {
@@ -194,7 +199,30 @@ function describeSendFailure(err) {
   return e;
 }
 
+// WhatsApp caps a text message body at 4096 characters.
+const MAX_TEXT_LENGTH = 4096;
+
+// Contact.optedOut is set directly from the Contacts screen as well as by the
+// OptOut list, and campaigns already honour both (partitionByOptOut). The inbox
+// only checked the list, so a contact flagged on their record could still be
+// messaged one-to-one.
+async function assertContactReachable(workspaceId, contact) {
+  if (contact?.optedOut === true) {
+    const e = new Error('Recipient opted out');
+    e.status = 403; e.code = 'RECIPIENT_OPTED_OUT'; e.expose = true;
+    throw e;
+  }
+  await assertNotOptedOut(workspaceId, contact?.phoneNumber);
+}
+
 export async function sendMessage(workspaceId, conversationId, userId, { type, body, contactId, phoneNumber } = {}) {
+  const text = typeof body === 'string' ? body.trim() : '';
+  if (!text) { const e = new Error('Type a message before sending'); e.status = 400; e.expose = true; throw e; }
+  if (text.length > MAX_TEXT_LENGTH) {
+    const e = new Error(`WhatsApp messages are limited to ${MAX_TEXT_LENGTH} characters (this one is ${text.length}).`);
+    e.status = 400; e.expose = true; throw e;
+  }
+
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
     include: { contact: true, waNumber: true },
@@ -220,15 +248,18 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
 
   // Opt-out is checked on every outbound path, including a human replying
   // from the inbox — a customer who sent STOP must not be messaged again.
-  await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
+  await assertContactReachable(workspaceId, conversation.contact);
 
-  // WhatsApp's 24-hour rule:
-  // Meta Cloud API is the authoritative source of truth for whether the customer
-  // service window is currently active. If lastInboundAt is null or stale in the local
-  // DB (e.g., webhook was not delivered, in local dev, or network delay), we attempt the
-  // send via Meta. If Meta rejects with 131047, describeSendFailure() refunds credit
-  // and returns OUTSIDE_24H_WINDOW. If Meta accepts, we sync lastInboundAt.
+  // WhatsApp's 24-hour rule, enforced before anything is charged or sent.
+  //
+  // This used to attempt the send regardless and, when Meta's API answered 200,
+  // stamp lastInboundAt = now. But the Cloud API accepts the request and reports
+  // an out-of-window send later, as a `failed` status webhook (131047) — so the
+  // 200 proved nothing, and writing an *inbound* timestamp for an *outbound*
+  // message fabricated a fresh window that every automated reply then trusted.
+  // lastInboundAt is only ever written by a real inbound message.
   const windowState = await getWindowState(conversationId);
+  if (!windowState.open) throw outsideWindowError(windowState);
 
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Message overage' });
   if (!credit.ok) {
@@ -244,7 +275,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
       conversation.waNumber.metaPhoneNumberId,
       accessToken,
       conversation.contact.phoneNumber,
-      body
+      text
     );
   } catch (err) {
     // The credit was consumed before the send. Nothing went out, so hand it
@@ -256,7 +287,7 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
   const message = await prisma.message.create({
     data: {
       conversationId,
-      body,
+      body: text,
       direction: 'OUTBOUND',
       type: 'TEXT',
       metaMessageId: result?.messages?.[0]?.id,
@@ -272,9 +303,6 @@ export async function sendMessage(workspaceId, conversationId, userId, { type, b
     where: { id: conversationId },
     data: {
       lastMessageAt: new Date(),
-      // If Meta accepted the free-form send, the 24-hour window is active on WhatsApp.
-      // Sync lastInboundAt so local window checks reflect this reality.
-      ...(!windowState.open ? { lastInboundAt: new Date() } : {}),
       // A person replying is a takeover. Shared inboxes work this way for a
       // reason: once an agent is in the thread, an automated reply arriving
       // between their messages reads as the company talking to itself.
@@ -320,10 +348,11 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     e.status = 409; throw e;
   }
 
-  await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
+  await assertContactReachable(workspaceId, conversation.contact);
 
-  // An attachment is a free-form message, so the same 24-hour rule applies via Meta.
+  // An attachment is a free-form message, so the same 24-hour rule applies.
   const windowState = await getWindowState(conversationId);
+  if (!windowState.open) throw outsideWindowError(windowState);
 
   const credit = await consumeMessageCredit(workspaceId, { reason: 'Media message' });
   if (!credit.ok) {
@@ -374,7 +403,6 @@ export async function sendMediaMessage(workspaceId, conversationId, userId, { bu
     where: { id: conversationId },
     data: {
       lastMessageAt: new Date(),
-      ...(!windowState.open ? { lastInboundAt: new Date() } : {}),
       ...(userId ? { humanHandoffAt: new Date() } : {}),
     },
   });
@@ -411,7 +439,7 @@ export async function sendTemplateMessage(workspaceId, conversationId, userId, {
 
   // Opt-out still applies. A template is not an exemption from someone asking
   // to be left alone — it is only an exemption from the timing rule.
-  await assertNotOptedOut(workspaceId, conversation.contact.phoneNumber);
+  await assertContactReachable(workspaceId, conversation.contact);
 
   const template = await prisma.template.findFirst({
     where: { id: templateId, workspaceId },
@@ -694,6 +722,16 @@ export async function deleteNote(workspaceId, conversationId, noteId) {
 export async function assignConversation(workspaceId, conversationId, assignedToUserId) {
   const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { id: true } });
   if (!conversation) { const e = new Error('Conversation not found'); e.status = 404; throw e; }
+  // Only to someone in this workspace. Any user id was accepted, and the
+  // response echoed that user's name back — a way to assign a thread to (and
+  // look up) people in other tenants.
+  if (assignedToUserId) {
+    const member = await prisma.workspaceMember.findUnique({
+      where: { userId_workspaceId: { userId: String(assignedToUserId), workspaceId } },
+      select: { userId: true },
+    });
+    if (!member) { const e = new Error('That person is not a member of this workspace'); e.status = 400; throw e; }
+  }
   return prisma.conversation.update({
     where: { id: conversationId },
     data: { assignedToUserId: assignedToUserId || null },
@@ -749,7 +787,22 @@ export async function setBotEnabled(workspaceId, conversationId, enabled) {
  * Explicitly reopen/sync the 24-hour reply window for a conversation.
  * Useful when the contact messaged outside webhooks or during manual sync.
  */
+// Both of these write a customer-inbound timestamp that no customer sent. On a
+// live workspace that is a way round WhatsApp's 24-hour rule for any member
+// (agents included): "reopen" the window, then free-form message someone who
+// has not written in weeks — which Meta rejects anyway, after the credit and
+// the automation have already acted on the fake window. They exist for local
+// testing without a real webhook, so that is the only place they answer.
+function assertDevOnly() {
+  if (env.NODE_ENV === 'production') {
+    const e = new Error('Not found');
+    e.status = 404;
+    throw e;
+  }
+}
+
 export async function reopenWindow(workspaceId, conversationId) {
+  assertDevOnly();
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
   });
@@ -770,7 +823,13 @@ export async function reopenWindow(workspaceId, conversationId) {
  * Simulate an inbound WhatsApp message from the contact for testing/dev environments.
  * Supports simulating audio voice notes with automatic speech-to-text.
  */
-export async function simulateInboundMessage(workspaceId, conversationId, { body = 'Hii', type = 'TEXT', mediaId, buffer, mimeType } = {}) {
+const SIMULATABLE_TYPES = new Set(['TEXT', 'AUDIO']);
+
+export async function simulateInboundMessage(workspaceId, conversationId, { body = 'Hii', type = 'TEXT', buffer, mimeType } = {}) {
+  assertDevOnly();
+  if (!SIMULATABLE_TYPES.has(type)) {
+    const e = new Error('Only TEXT or AUDIO messages can be simulated'); e.status = 400; throw e;
+  }
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
     include: { contact: true, waNumber: true },
@@ -795,11 +854,13 @@ export async function simulateInboundMessage(workspaceId, conversationId, { body
       conversationId,
       body: resolvedBody,
       direction: 'INBOUND',
-      type: isAudio ? 'AUDIO' : (type || 'TEXT'),
+      type: isAudio ? 'AUDIO' : 'TEXT',
       status: 'DELIVERED',
       statusAt: now,
       sentAt: now,
-      mediaId: mediaId || (isAudio ? 'sim_media_audio' : null),
+      // Never a caller-supplied id: the media proxy resolves mediaId against
+      // the Graph API with the number's token.
+      mediaId: null,
       mediaMimeType: isAudio ? (mimeType || 'audio/ogg') : null,
     },
   });
@@ -818,8 +879,12 @@ export async function simulateInboundMessage(workspaceId, conversationId, { body
  * Streams / downloads binary media for an existing conversation message.
  */
 export async function getMessageMediaStream(workspaceId, conversationId, messageId) {
+  // Scoped through the conversation to the caller's workspace. Without the
+  // workspace filter, any signed-in user could name another tenant's
+  // conversation and message ids in their own workspace's URL and download
+  // that tenant's customer media — fetched with the other tenant's token.
   const message = await prisma.message.findFirst({
-    where: { id: messageId, conversationId },
+    where: { id: messageId, conversationId, conversation: { workspaceId } },
     include: {
       conversation: {
         include: { waNumber: true },

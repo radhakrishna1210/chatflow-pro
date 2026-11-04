@@ -152,6 +152,7 @@ export default function SettingsView() {
   const [emailNotifs, setEmailNotifs] = useState(() => Object.fromEntries(EMAIL_NOTIF_OPTS.map(o=>[o.id,o.default])));
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [prefsSaved, setPrefsSaved]   = useState(false);
+  const [prefsError, setPrefsError]   = useState(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole]   = useState('CLIENT');
   const [showInvite, setShowInvite]   = useState(false);
@@ -226,7 +227,7 @@ export default function SettingsView() {
   };
 
   const savePreferences = async () => {
-    setSavingPrefs(true); setPrefsSaved(false);
+    setSavingPrefs(true); setPrefsSaved(false); setPrefsError(null);
     const body = {
       ...Object.fromEntries(NOTIF_OPTS.map(o => [o.field, !!notifs[o.id]])),
       ...Object.fromEntries(EMAIL_NOTIF_OPTS.map(o => [o.id, !!emailNotifs[o.id]])),
@@ -234,7 +235,12 @@ export default function SettingsView() {
     try {
       const r = await wFetch('/settings', { method:'PATCH', body:JSON.stringify(body) });
       if (r.ok) { setPrefsSaved(true); setTimeout(()=>setPrefsSaved(false), 2500); }
-    } catch {} finally { setSavingPrefs(false); }
+      else {
+        // A refused save used to look exactly like a click that did nothing.
+        const d = await r.json().catch(()=>({}));
+        setPrefsError(d.error || `Could not save preferences (${r.status})`);
+      }
+    } catch (e) { setPrefsError(e?.message || 'Could not reach the server'); } finally { setSavingPrefs(false); }
   };
 
   const reloadMembers = () =>
@@ -831,6 +837,7 @@ export default function SettingsView() {
           </div>
           {isAdmin && (
             <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:12, marginTop:16 }}>
+              {prefsError && <span style={{ fontSize:12, color:'#f87171', fontWeight:600 }}>{prefsError}</span>}
               {prefsSaved && <span style={{ fontSize:12, color:'var(--green)', fontWeight:600 }}>Saved ✓</span>}
               <Btn onClick={savePreferences} disabled={savingPrefs}>{savingPrefs ? 'Saving…' : 'Save Preferences'}</Btn>
             </div>

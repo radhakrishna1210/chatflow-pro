@@ -358,6 +358,37 @@ export async function checkSafeDeletion(workspaceId, sectionKey, itemKeyOrId) {
   return { safe: true };
 }
 
+// Pipeline stages become PipelineStage rows, so they are validated before any
+// are written: a stage without a key used to reach prisma.create and 500 after
+// earlier stages had already been changed, and removing a stage deleted it even
+// while deals sat in it (checkSafeDeletion was advisory only), stranding those
+// deals on a column the board no longer draws.
+const STAGE_KEY_RE = /^[A-Za-z0-9_]{1,50}$/;
+async function validateDealSetupStages(workspaceId, stages) {
+  const fail = (msg) => { const e = new Error(msg); e.status = 400; throw e; };
+  if (!Array.isArray(stages)) fail('stages must be a list');
+  if (stages.length > 30) fail('A pipeline can have at most 30 stages');
+  const seen = new Set();
+  for (const st of stages) {
+    if (!st || typeof st !== 'object') fail('Each stage must be an object');
+    if (typeof st.key !== 'string' || !STAGE_KEY_RE.test(st.key)) {
+      fail(`Stage key "${st?.key ?? ''}" must be 1–50 letters, digits or underscores`);
+    }
+    if (seen.has(st.key)) fail(`Duplicate stage key "${st.key}"`);
+    seen.add(st.key);
+    if (st.label !== undefined && (typeof st.label !== 'string' || st.label.length > 60)) {
+      fail(`Stage "${st.key}" needs a label of at most 60 characters`);
+    }
+  }
+  await ensureStages(workspaceId);
+  const existing = await prisma.pipelineStage.findMany({ where: { workspaceId }, select: { key: true } });
+  for (const { key } of existing) {
+    if (seen.has(key) || CLOSED_STAGES.includes(key)) continue;
+    const check = await checkSafeDeletion(workspaceId, 'deal_setup', key);
+    if (!check.safe) { const e = new Error(check.reason); e.status = 409; throw e; }
+  }
+}
+
 /**
  * Update a specific customization section.
  */
@@ -368,10 +399,20 @@ export async function updateSection(workspaceId, sectionKey, data, userId = null
     throw error;
   }
 
-  if (!data || typeof data !== 'object') {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
     const error = new Error('Invalid section data format: payload must be an object');
     error.status = 400;
     throw error;
+  }
+  // Stored whole as one JSON document and read on every lead/deal write.
+  if (JSON.stringify(data).length > 100_000) {
+    const error = new Error('This customization is too large to save');
+    error.status = 400;
+    throw error;
+  }
+
+  if (sectionKey === 'deal_setup' && data.stages !== undefined) {
+    await validateDealSetupStages(workspaceId, data.stages);
   }
 
   // Validate unique identifiers for lead sources

@@ -1,6 +1,12 @@
 import { prisma } from '../lib/prisma.js';
 import { resolveCrmReferences } from './crmReferences.js';
 import { autoGenerateOutcomeTask } from './crmCustomization.service.js';
+import { scopeFilter } from './recordScope.service.js';
+import { andWhere } from './crmReferences.js';
+
+// One page is capped, so ?limit=1000000 cannot pull a workspace's whole
+// history (with its includes) into memory in one request.
+const MAX_ACTIVITY_PAGE = 500;
 
 const ACTIVITY_INCLUDE = {
   createdByUser: {
@@ -61,8 +67,21 @@ export async function listActivities(workspaceId, {
   status,
   limit = 200,
   page = 1,
-} = {}) {
+} = {}, user = null) {
+  limit = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), MAX_ACTIVITY_PAGE);
+  page = Math.max(Number.parseInt(page, 10) || 1, 1);
   const where = { workspaceId };
+  // Notes and calls logged on a lead or deal are part of that record, so they
+  // follow its visibility. Activities on records the caller cannot open were
+  // listed in full — content included — under TEAM/OWN visibility.
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const scoped = Object.keys(scope).length > 0;
+  const visibility = scoped
+    ? andWhere(
+      { OR: [{ leadId: null }, { lead: scope }] },
+      { OR: [{ dealId: null }, { deal: scope }] },
+    )
+    : {};
   if (leadId) where.leadId = leadId;
   if (dealId) where.dealId = dealId;
   if (contactId) where.contactId = contactId;
@@ -91,6 +110,11 @@ export async function listActivities(workspaceId, {
       { createdByUser: { name: { contains: search, mode: 'insensitive' } } },
     ];
   }
+  if (scoped) {
+    const { OR: searchOr, ...rest } = where;
+    for (const k of Object.keys(where)) delete where[k];
+    Object.assign(where, rest, andWhere(visibility, searchOr ? { OR: searchOr } : {}));
+  }
 
   // If fetching strictly for a single deal and not general engagements list, keep stage history timeline merge
   if (dealId && !leadId && !contactId && !type && !search) {
@@ -101,7 +125,7 @@ export async function listActivities(workspaceId, {
         orderBy: { createdAt: 'desc' },
       }),
       prisma.dealStageHistory.findMany({
-        where: { workspaceId, dealId },
+        where: { workspaceId, dealId, ...(scoped ? { deal: scope } : {}) },
         include: { changedByUser: { select: { id: true, name: true } } },
         orderBy: { changedAt: 'desc' },
       }),
@@ -133,7 +157,7 @@ export async function listActivities(workspaceId, {
     prisma.crmActivity.count({ where }),
     prisma.crmActivity.groupBy({
       by: ['type'],
-      where: { workspaceId },
+      where: { workspaceId, ...visibility },
       _count: { _all: true },
     }),
   ]);
@@ -256,8 +280,12 @@ export async function createActivity(workspaceId, body, userId) {
 }
 
 
-export async function deleteActivity(workspaceId, id) {
-  const activity = await prisma.crmActivity.findFirst({ where: { id, workspaceId }, select: { id: true } });
+export async function deleteActivity(workspaceId, id, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const visibility = Object.keys(scope).length
+    ? andWhere({ OR: [{ leadId: null }, { lead: scope }] }, { OR: [{ dealId: null }, { deal: scope }] })
+    : {};
+  const activity = await prisma.crmActivity.findFirst({ where: { id, workspaceId, ...visibility }, select: { id: true } });
   if (!activity) { const e = new Error('Activity not found'); e.status = 404; throw e; }
   await prisma.crmActivity.delete({ where: { id } });
 }

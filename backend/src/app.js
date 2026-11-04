@@ -39,7 +39,9 @@ app.use((req, res, next) => {
 
 app.use(express.json({
   limit: env.JSON_BODY_LIMIT,
-  verify: (req, _res, buf) => { req.rawBody = buf.toString(); },
+  // Kept as the exact bytes received: webhook signatures (Meta, Instagram) are
+  // HMACs over the raw body, and a decode/re-encode round trip can change it.
+  verify: (req, _res, buf) => { req.rawBody = buf; },
 }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -112,6 +114,8 @@ passport.use(
         const result = await findOrCreateGoogleUser({
           googleId: profile.id,
           email: profile.emails?.[0]?.value,
+          // Google's own claim; an unverified address must not link accounts.
+          emailVerified: [true, 'true'].includes(profile._json?.email_verified ?? profile.emails?.[0]?.verified),
           name: profile.displayName,
           inviteToken: req.inviteToken || null,
         });

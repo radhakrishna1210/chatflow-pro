@@ -33,7 +33,9 @@ test('parseInboundMessage parses audio voice note correctly', () => {
   assert.equal(parsed.body, PLACEHOLDER.AUDIO);
   assert.equal(parsed.media.mediaId, 'media_audio_999');
   assert.equal(parsed.media.mediaMimeType, 'audio/ogg; codecs=opus');
-  assert.equal(parsed.media.voice, true);
+  assert.equal(parsed.voice, true);
+  // `media` is spread into the Message row, which has no `voice` column.
+  assert.equal('voice' in parsed.media, false);
 });
 
 test('carriesCustomerText recognises transcribed voice note as customer text', () => {

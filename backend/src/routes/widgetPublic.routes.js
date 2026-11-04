@@ -41,10 +41,17 @@ router.get('/:key/config', rateLimit({ windowMs: 60_000, max: 120, keyPrefix: 'w
 // Tighter than the rest for the same reason the platform assistant's is —
 // a person asks a question every few seconds, a script would drain the day's
 // budget in a minute.
-router.post('/:key/ask', rateLimit({ windowMs: 60_000, max: 12, keyPrefix: 'widget-ask' }), controller.ask);
+//
+// The per-IP limit alone does not bound spend: the Origin check is a browser
+// convention, so anyone with a few proxies can call a widget's key from a
+// script. The second, per-widget bucket caps what any one widget can cost (or
+// write into its workspace's contacts and Inbox) however many addresses the
+// calls come from.
+const perWidget = (req) => `w:${String(req.params.key || '').slice(0, 64)}`;
+router.post('/:key/ask', rateLimit({ windowMs: 60_000, max: 12, keyPrefix: 'widget-ask', subject: perWidget, subjectMax: 60 }), controller.ask);
 
-router.post('/:key/handoff', rateLimit({ windowMs: 60_000, max: 30, keyPrefix: 'widget-handoff' }), controller.handoff);
-router.post('/:key/lead', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'widget-lead' }), controller.lead);
+router.post('/:key/handoff', rateLimit({ windowMs: 60_000, max: 30, keyPrefix: 'widget-handoff', subject: perWidget, subjectMax: 120 }), controller.handoff);
+router.post('/:key/lead', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'widget-lead', subject: perWidget, subjectMax: 30 }), controller.lead);
 router.post('/:key/event', rateLimit({ windowMs: 60_000, max: 120, keyPrefix: 'widget-event' }), controller.event);
 
 export default router;

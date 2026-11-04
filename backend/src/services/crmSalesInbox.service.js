@@ -1,6 +1,10 @@
 import { prisma } from '../lib/prisma.js';
 import { createCampaign, setRecipients, launchCampaign } from './campaigns.service.js';
 import { normalizePhone } from './contacts.service.js';
+import { scopeFilter } from './recordScope.service.js';
+
+const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST'];
+const LEAD_CATEGORIES = ['HOT', 'WARM', 'COLD'];
 
 const MIN_MSISDN_DIGITS = 8;
 const MAX_MSISDN_DIGITS = 15;
@@ -14,15 +18,16 @@ const isSendableNumber = (phone) => {
 /**
  * Get dynamic lead counts across categories and common segment filters.
  */
-export async function getInboxSegments(workspaceId) {
+export async function getInboxSegments(workspaceId, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
   const [hotCount, warmCount, coldCount, totalCount, sources] = await Promise.all([
-    prisma.lead.count({ where: { workspaceId, category: 'HOT' } }),
-    prisma.lead.count({ where: { workspaceId, category: 'WARM' } }),
-    prisma.lead.count({ where: { workspaceId, category: 'COLD' } }),
-    prisma.lead.count({ where: { workspaceId } }),
+    prisma.lead.count({ where: { workspaceId, ...scope, category: 'HOT' } }),
+    prisma.lead.count({ where: { workspaceId, ...scope, category: 'WARM' } }),
+    prisma.lead.count({ where: { workspaceId, ...scope, category: 'COLD' } }),
+    prisma.lead.count({ where: { workspaceId, ...scope } }),
     prisma.lead.groupBy({
       by: ['source'],
-      where: { workspaceId, source: { not: null } },
+      where: { workspaceId, ...scope, source: { not: null } },
       _count: { _all: true },
     }),
   ]);
@@ -41,9 +46,20 @@ export async function getInboxSegments(workspaceId) {
 /**
  * Dynamic resolution of segment audience with detailed exclusion breakdown.
  */
-export async function reviewSegmentAudience(workspaceId, { category = '', source = '', status = '', search = '' } = {}) {
+export async function reviewSegmentAudience(workspaceId, { category = '', source = '', status = '', search = '' } = {}, user = null) {
+  // Enum filters are checked here; an unknown value reached Prisma and 500'd.
+  if (category && category !== 'ALL' && !LEAD_CATEGORIES.includes(category)) {
+    const e = new Error(`category must be one of: ${LEAD_CATEGORIES.join(', ')}`); e.status = 400; throw e;
+  }
+  if (status && !LEAD_STATUSES.includes(status)) {
+    const e = new Error(`status must be one of: ${LEAD_STATUSES.join(', ')}`); e.status = 400; throw e;
+  }
+  // The audience is a list of leads with their phone numbers, so it follows
+  // record visibility like every other lead list.
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
   const where = {
     workspaceId,
+    ...scope,
     ...(category && category !== 'ALL' ? { category } : {}),
     ...(status ? { status } : {}),
     ...(source ? { source: { contains: source, mode: 'insensitive' } } : {}),
@@ -131,7 +147,7 @@ export async function reviewSegmentAudience(workspaceId, { category = '', source
  * Launch bulk campaign targeting dynamic CRM lead segment audience.
  */
 export async function launchSegmentCampaign(workspaceId, { name, category, source, status, templateId, waNumberId }, user = null) {
-  const audience = await reviewSegmentAudience(workspaceId, { category, source, status });
+  const audience = await reviewSegmentAudience(workspaceId, { category, source, status }, user);
   const eligibleLeads = audience.leads.filter((l) => l.isEligible);
 
   if (eligibleLeads.length === 0) {

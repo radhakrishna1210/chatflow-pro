@@ -67,7 +67,7 @@ export async function bulkCategory(req, res) {
 
 export async function bulkTask(req, res) {
   const { ids, title, dueDate, priority } = req.body || {};
-  const result = await leadsService.bulkCreateTask(req.params.workspaceId, ids, { title, dueDate, priority }, req.user.id);
+  const result = await leadsService.bulkCreateTask(req.params.workspaceId, ids, { title, dueDate, priority }, req.user.id, req.user);
   res.json(result);
 }
 
@@ -77,6 +77,6 @@ export async function recalculateScore(req, res) {
 }
 
 export async function convert(req, res) {
-  const result = await leadsService.convertLead(req.params.workspaceId, req.params.id, req.body, req.user.id);
+  const result = await leadsService.convertLead(req.params.workspaceId, req.params.id, req.body, req.user.id, req.user);
   res.status(201).json(result);
 }

@@ -40,6 +40,11 @@ export function parseInboundMessage(msg) {
     body: '',
     media: null,
     location: null,
+    // Whether an audio message was recorded as a voice note. Kept out of
+    // `media` on purpose: `media` is spread straight into the Message row, and
+    // Message has no such column — carrying it there made Prisma reject every
+    // inbound image, video, audio, document and sticker.
+    voice: false,
     buttonPayload:
       msg.button?.payload
       ?? msg.interactive?.button_reply?.id
@@ -79,8 +84,8 @@ export function parseInboundMessage(msg) {
       mediaMimeType: node.mime_type ?? null,
       mediaFilename: node.filename ?? null,
       mediaSha256: node.sha256 ?? null,
-      voice: Boolean(node.voice || key === 'voice'),
     };
+    out.voice = Boolean(node.voice || key === 'voice');
     return out;
   }
 
@@ -102,7 +107,16 @@ export function parseInboundMessage(msg) {
     return out;
   }
 
-  // A type we do not handle yet (order, reaction, system, …). Recorded as
+  // A reaction is the customer tapping an emoji on one of our messages. It is
+  // not something they wrote, so it stays UNSUPPORTED (no automation reads it),
+  // but the thread should say what it was rather than "unsupported message".
+  if (msg.reaction) {
+    out.type = 'UNSUPPORTED';
+    out.body = msg.reaction.emoji ? `[reacted ${msg.reaction.emoji}]` : '[removed a reaction]';
+    return out;
+  }
+
+  // A type we do not handle yet (order, system, …). Recorded as
   // itself rather than dropped, so the thread stays honest about the fact that
   // something arrived — and `msg.type` names what it was.
   out.type = 'UNSUPPORTED';

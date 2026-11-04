@@ -59,7 +59,7 @@ function esc(value) {
 
 function btn(text, url) {
   return `<div style="text-align:center;margin-top:32px;">
-    <a href="${url}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:13px 30px;border-radius:8px;font-size:14px;font-weight:600;">${text}</a>
+    <a href="${esc(url)}" style="display:inline-block;background:#0f172a;color:#ffffff;text-decoration:none;padding:13px 30px;border-radius:8px;font-size:14px;font-weight:600;">${text}</a>
   </div>`;
 }
 
@@ -79,7 +79,7 @@ function statRow(label, value) {
 // ---------------------------------------------------------------------------
 
 function welcomeHtml({ name }) {
-  const appUrl = env.APP_URL || '#';
+  const appUrl = env.CLIENT_URL;
   return layout(`
     <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">Welcome, ${esc(name)}!</h2>
     <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">Your Spandan account is ready. Here's how to get started:</p>
@@ -130,7 +130,12 @@ function welcomeHtml({ name }) {
   `);
 }
 
-function campaignCompletedHtml({ recipientName, campaignName, sent, delivered, read, failed, totalContacts, campaignId }) {
+// Counts may arrive as null/undefined from a partially-updated campaign row;
+// `undefined.toLocaleString()` would throw inside the worker and drop the email.
+const num = (value) => Number(value) || 0;
+
+function campaignCompletedHtml({ recipientName, campaignName, sent: rawSent, delivered: rawDelivered, read: rawRead, failed: rawFailed, totalContacts: rawTotal, campaignId }) {
+  const sent = num(rawSent), delivered = num(rawDelivered), read = num(rawRead), failed = num(rawFailed), totalContacts = num(rawTotal);
   // /dashboard/campaigns is a frontend SPA route, not a backend one —
   // env.APP_URL is documented as the backend base URL (used for OAuth
   // callback derivation), so this must use CLIENT_URL instead, same as
@@ -141,8 +146,8 @@ function campaignCompletedHtml({ recipientName, campaignName, sent, delivered, r
 
   return layout(`
     <p style="margin:0 0 4px;color:#16a34a;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Campaign Completed</p>
-    <h2 style="margin:0 0 6px;color:#0f172a;font-size:22px;font-weight:700;">${campaignName}</h2>
-    <p style="margin:0 0 28px;color:#64748b;font-size:14px;">Hi ${recipientName}, your campaign has finished sending. Here's the summary:</p>
+    <h2 style="margin:0 0 6px;color:#0f172a;font-size:22px;font-weight:700;">${esc(campaignName)}</h2>
+    <p style="margin:0 0 28px;color:#64748b;font-size:14px;">Hi ${esc(recipientName)}, your campaign has finished sending. Here's the summary:</p>
 
     <table width="100%" cellpadding="0" cellspacing="0">
       ${statRow('Total Contacts', totalContacts.toLocaleString())}
@@ -162,33 +167,33 @@ function campaignFailedHtml({ recipientName, campaignName, campaignId }) {
     <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 28px;">
       <p style="margin:0;color:#991b1b;font-size:13px;font-weight:600;">Campaign Failed</p>
     </div>
-    <h2 style="margin:0 0 12px;color:#0f172a;font-size:20px;font-weight:700;">${campaignName}</h2>
-    <p style="margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;">Hi ${recipientName}, your campaign encountered an error and could not be completed. This is usually caused by a Meta API issue or an invalid WhatsApp number token.</p>
+    <h2 style="margin:0 0 12px;color:#0f172a;font-size:20px;font-weight:700;">${esc(campaignName)}</h2>
+    <p style="margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;">Hi ${esc(recipientName)}, your campaign encountered an error and could not be completed. This is usually caused by a Meta API issue or an invalid WhatsApp number token.</p>
     <p style="margin:0 0 28px;color:#475569;font-size:14px;line-height:1.6;">Please check the campaign details and try relaunching. If the issue persists, verify that your WhatsApp number connection is still active.</p>
     ${btn('Check Campaign &rarr;', appUrl)}
   `);
 }
 
 function templateApprovedHtml({ recipientName, templateName }) {
-  const appUrl = env.APP_URL || '#';
+  const appUrl = env.CLIENT_URL;
   return layout(`
     <div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 28px;">
       <p style="margin:0;color:#166534;font-size:13px;font-weight:600;">Template Approved by Meta</p>
     </div>
-    <h2 style="margin:0 0 12px;color:#0f172a;font-size:20px;font-weight:700;">${templateName}</h2>
-    <p style="margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;">Hi ${recipientName}, great news! Your message template <strong>${templateName}</strong> has been approved by Meta and is now ready to use in campaigns.</p>
+    <h2 style="margin:0 0 12px;color:#0f172a;font-size:20px;font-weight:700;">${esc(templateName)}</h2>
+    <p style="margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;">Hi ${esc(recipientName)}, great news! Your message template <strong>${esc(templateName)}</strong> has been approved by Meta and is now ready to use in campaigns.</p>
     ${btn('Start a Campaign &rarr;', appUrl)}
   `);
 }
 
 function templateRejectedHtml({ recipientName, templateName }) {
-  const appUrl = env.APP_URL || '#';
+  const appUrl = env.CLIENT_URL;
   return layout(`
     <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 28px;">
       <p style="margin:0;color:#991b1b;font-size:13px;font-weight:600;">Template Rejected by Meta</p>
     </div>
-    <h2 style="margin:0 0 12px;color:#0f172a;font-size:20px;font-weight:700;">${templateName}</h2>
-    <p style="margin:0 0 16px;color:#475569;font-size:14px;line-height:1.6;">Hi ${recipientName}, your message template <strong>${templateName}</strong> was rejected by Meta.</p>
+    <h2 style="margin:0 0 12px;color:#0f172a;font-size:20px;font-weight:700;">${esc(templateName)}</h2>
+    <p style="margin:0 0 16px;color:#475569;font-size:14px;line-height:1.6;">Hi ${esc(recipientName)}, your message template <strong>${esc(templateName)}</strong> was rejected by Meta.</p>
     <p style="margin:0 0 8px;color:#475569;font-size:14px;font-weight:600;">Common reasons for rejection:</p>
     <ul style="margin:0 0 24px;padding-left:20px;color:#64748b;font-size:14px;line-height:2;">
       <li>Promotional content in a transactional template category</li>
@@ -201,7 +206,7 @@ function templateRejectedHtml({ recipientName, templateName }) {
 }
 
 function memberInvitedHtml({ inviteeName, inviterName, workspaceName }) {
-  const appUrl = env.APP_URL || '#';
+  const appUrl = env.CLIENT_URL;
   return layout(`
     <h2 style="margin:0 0 12px;color:#0f172a;font-size:22px;font-weight:700;">You've been invited!</h2>
     <p style="margin:0 0 24px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(inviteeName)}, <strong>${esc(inviterName)}</strong> has invited you to join the <strong>${esc(workspaceName)}</strong> workspace on Spandan.</p>
@@ -253,27 +258,27 @@ function inviteWithLinkHtml({ inviterName, workspaceName, token }) {
 }
 
 function apiKeyCreatedHtml({ userName, keyName, environment, keyPrefix }) {
-  const appUrl = env.APP_URL || '#';
+  const appUrl = env.CLIENT_URL;
   return layout(`
     <div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 28px;">
       <p style="margin:0;color:#92400e;font-size:13px;font-weight:600;">Security Alert — New API Key Created</p>
     </div>
     <h2 style="margin:0 0 12px;color:#0f172a;font-size:20px;font-weight:700;">API Key Created</h2>
-    <p style="margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;">Hi ${userName}, a new API key was just created on your account. Here are the details:</p>
+    <p style="margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;">Hi ${esc(userName)}, a new API key was just created on your account. Here are the details:</p>
 
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:20px 24px;margin:0 0 24px;">
       <table width="100%" cellpadding="0" cellspacing="0">
         <tr>
           <td style="color:#64748b;font-size:13px;padding-bottom:10px;">Key Name</td>
-          <td style="color:#0f172a;font-size:13px;font-weight:600;text-align:right;padding-bottom:10px;">${keyName}</td>
+          <td style="color:#0f172a;font-size:13px;font-weight:600;text-align:right;padding-bottom:10px;">${esc(keyName)}</td>
         </tr>
         <tr>
           <td style="color:#64748b;font-size:13px;padding-bottom:10px;">Environment</td>
-          <td style="text-align:right;padding-bottom:10px;">${badge(environment, environment === 'production' ? '#fee2e2' : '#dbeafe', environment === 'production' ? '#991b1b' : '#1d4ed8')}</td>
+          <td style="text-align:right;padding-bottom:10px;">${badge(esc(environment), environment === 'production' ? '#fee2e2' : '#dbeafe', environment === 'production' ? '#991b1b' : '#1d4ed8')}</td>
         </tr>
         <tr>
           <td style="color:#64748b;font-size:13px;">Key Prefix</td>
-          <td style="color:#0f172a;font-size:13px;font-weight:600;font-family:monospace;text-align:right;">${keyPrefix}...</td>
+          <td style="color:#0f172a;font-size:13px;font-weight:600;font-family:monospace;text-align:right;">${esc(keyPrefix)}...</td>
         </tr>
       </table>
     </div>
@@ -316,7 +321,10 @@ const BUILDERS = {
 };
 
 export function buildEmailHtml(type, payload) {
-  const builder = BUILDERS[type];
+  // Own-property lookup only: `type` comes off a queue job, and a plain
+  // `BUILDERS[type]` resolves 'constructor' / '__proto__' / 'toString' to
+  // Object.prototype members and calls them as if they were templates.
+  const builder = typeof type === 'string' && Object.hasOwn(BUILDERS, type) ? BUILDERS[type] : null;
   if (!builder) throw new Error(`Unknown email type: ${type}`);
   return { subject: SUBJECTS[type], html: builder(payload) };
 }
@@ -477,7 +485,7 @@ function signupOtpHtml({ code, name }) {
 }
 
 function signupExistsHtml({ name }) {
-  const appUrl = env.APP_URL || '#';
+  const appUrl = env.CLIENT_URL;
   return layout(`
     <h2 style="margin:0 0 8px;color:#0f172a;font-size:22px;font-weight:700;">You already have an account</h2>
     <p style="margin:0 0 20px;color:#475569;font-size:15px;line-height:1.6;">Hi ${esc(name) || 'there'}, someone just tried to sign up for Spandan with this email address. You already have an account, so we did not create a second one.</p>

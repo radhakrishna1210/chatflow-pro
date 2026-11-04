@@ -4,6 +4,9 @@ import { isValidPhone, normalizePhone } from './contacts.service.js';
 import { computeLeadScore } from './leadScoring.service.js';
 import { computeLeadCategory } from './leadSegmentation.service.js';
 import { emitCrmEvent } from './workflowCrm.service.js';
+import { assertWorkspaceMember } from './crmReferences.js';
+import { assertWithinLimit } from './subscription.service.js';
+import { evaluateAndAssignLead } from './leadDistribution.service.js';
 
 
 // Public lead-capture forms.
@@ -15,6 +18,16 @@ import { emitCrmEvent } from './workflowCrm.service.js';
 // lead was actually created.
 
 export const FIELD_TYPES = ['text', 'email', 'phone', 'textarea', 'select'];
+
+// The column default in schema.prisma was saved through a wrong code page and
+// reads "Thanks ΓÇö we'll…" — which is what every visitor of a form with no
+// custom message was shown. New forms store the correct text explicitly, and
+// the garbled default is mapped to it on the way out for existing forms.
+export const DEFAULT_SUCCESS_MESSAGE = 'Thanks \u2014 we\'ll be in touch shortly.';
+const GARBLED_DEFAULT = 'Thanks \u0393\u00c7\u00f6 we\'ll be in touch shortly.';
+const successMessageOf = (form) => (
+  !form.successMessage || form.successMessage === GARBLED_DEFAULT ? DEFAULT_SUCCESS_MESSAGE : form.successMessage
+);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -98,6 +111,7 @@ export async function getForm(workspaceId, id) {
 }
 
 export async function createForm(workspaceId, body) {
+  await assertWorkspaceMember(workspaceId, body.ownerUserId);
   const fields = validateFields(body.fields);
   assertContactable(fields);
 
@@ -111,7 +125,7 @@ export async function createForm(workspaceId, body) {
     data: {
       workspaceId, slug, name: body.name, description: body.description ?? null,
       fields,
-      successMessage: body.successMessage || undefined,
+      successMessage: body.successMessage || DEFAULT_SUCCESS_MESSAGE,
       consentText: body.consentText ?? null,
       source: body.source ?? null,
       ownerUserId: body.ownerUserId ?? null,
@@ -123,6 +137,7 @@ export async function createForm(workspaceId, body) {
 export async function updateForm(workspaceId, id, updates) {
   const form = await prisma.leadForm.findFirst({ where: { id, workspaceId }, select: { id: true } });
   if (!form) { const e = new Error('Form not found'); e.status = 404; throw e; }
+  if (updates.ownerUserId !== undefined) await assertWorkspaceMember(workspaceId, updates.ownerUserId);
 
   const data = { ...updates };
   if (updates.fields !== undefined) {
@@ -149,9 +164,13 @@ export async function deleteForm(workspaceId, id) {
  * everything else internal. An inactive or unknown form is indistinguishable:
  * both 404, so the endpoint cannot be used to discover which slugs exist.
  */
+// A suspended workspace is blocked for its own members (workspaceContext);
+// its public forms must not keep writing contacts and leads into it.
+const LIVE_WORKSPACE = { workspace: { suspended: false } };
+
 export async function getPublicForm(workspaceId, slug) {
   const form = await prisma.leadForm.findFirst({
-    where: { workspaceId, slug, isActive: true },
+    where: { workspaceId, slug, isActive: true, ...LIVE_WORKSPACE },
     select: { id: true, name: true, description: true, fields: true, consentText: true, successMessage: true },
   });
   if (!form) { const e = new Error('Form not found'); e.status = 404; throw e; }
@@ -215,7 +234,7 @@ function pickAttribution(raw) {
  */
 export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   const form = await prisma.leadForm.findFirst({
-    where: { workspaceId, slug, isActive: true },
+    where: { workspaceId, slug, isActive: true, ...LIVE_WORKSPACE },
   });
   if (!form) { const e = new Error('Form not found'); e.status = 404; throw e; }
 
@@ -228,7 +247,7 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
         reason: 'Honeypot triggered', ipHash: hashIp(ip),
       },
     });
-    return { ok: true, message: form.successMessage };
+    return { ok: true, message: successMessageOf(form) };
   }
 
   const fields = Array.isArray(form.fields) ? form.fields : [];
@@ -260,7 +279,7 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
 
   if (!rawPhone && !email) {
     await record('REJECTED', 'No phone or email supplied');
-    return { ok: true, message: form.successMessage };
+    return { ok: true, message: successMessageOf(form) };
   }
 
   // A contact is identified by phone in this platform; email-only submissions
@@ -268,7 +287,7 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   // contact and a contact needs a number.
   if (!rawPhone) {
     await record('REJECTED', 'Email-only submission — no phone number to create a contact');
-    return { ok: true, message: form.successMessage };
+    return { ok: true, message: successMessageOf(form) };
   }
 
   const phoneNumber = normalizePhone(rawPhone);
@@ -276,19 +295,33 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
   let contact = await prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
   if (contact?.optedOut) {
     await record('OPTED_OUT', 'Contact has opted out', { contactId: contact.id });
-    return { ok: true, message: form.successMessage };
+    return { ok: true, message: successMessageOf(form) };
   }
 
   if (!contact) {
+    // The plan's contact limit applies to contacts a stranger creates through
+    // a public form as much as to ones a member adds. Over the limit the
+    // submission is kept (so it is not lost) but no contact is made.
+    try {
+      await assertWithinLimit(workspaceId, 'contact');
+    } catch (err) {
+      if (err.code !== 'PLAN_LIMIT_REACHED') throw err;
+      await record('REJECTED', 'Contact limit for this plan reached');
+      return { ok: true, message: successMessageOf(form) };
+    }
     contact = await prisma.contact.create({
-      data: { workspaceId, name: name || phoneNumber, phoneNumber, email: email || null, tags: [] },
+      data: { workspaceId, name: (name || phoneNumber).slice(0, 120), phoneNumber, email: email || null, tags: [] },
+    }).catch(async (err) => {
+      // Two submissions with the same number racing: the other one won.
+      if (err.code !== 'P2002') throw err;
+      return prisma.contact.findFirst({ where: { workspaceId, phoneNumber } });
     });
   }
 
   const existingLead = await prisma.lead.findUnique({ where: { contactId: contact.id }, select: { id: true } });
   if (existingLead) {
     await record('DUPLICATE', 'This contact is already a lead', { contactId: contact.id, leadId: existingLead.id });
-    return { ok: true, message: form.successMessage };
+    return { ok: true, message: successMessageOf(form) };
   }
 
   const { score, factors, computedAt } = await computeLeadScore(workspaceId, contact.id);
@@ -306,11 +339,20 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
       notes: attribution ? `Attribution: ${JSON.stringify(attribution)}` : null,
     },
     select: { id: true },
-  });
+  }).catch((err) => (err.code === 'P2002' ? null : Promise.reject(err)));
+  if (!lead) {
+    await record('DUPLICATE', 'This contact is already a lead', { contactId: contact.id });
+    return { ok: true, message: successMessageOf(form) };
+  }
 
   await record('CREATED', null, { contactId: contact.id, leadId: lead.id });
   await computeLeadCategory(workspaceId, lead.id).catch((err) => console.error('[LeadForms] Category compute failed:', err.message));
+  // Form leads are exactly what distribution rules exist for; they were the
+  // one creation path that skipped them and sat unowned.
+  if (!form.ownerUserId) {
+    await evaluateAndAssignLead(workspaceId, lead.id).catch((err) => console.error('[LeadForms] Distribution failed:', err.message));
+  }
   emitCrmEvent(workspaceId, 'lead_created', { leadId: lead.id, contactId: contact.id, score });
 
-  return { ok: true, message: form.successMessage };
+  return { ok: true, message: successMessageOf(form) };
 }

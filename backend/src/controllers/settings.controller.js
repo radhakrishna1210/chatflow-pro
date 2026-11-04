@@ -25,6 +25,11 @@ export async function downloadInvoice(req, res) {
   const doc = await settingsService.getInvoiceDocument(req.params.workspaceId, req.params.invoiceId);
   res.setHeader('Content-Type', doc.contentType);
   res.setHeader('Content-Disposition', `attachment; filename="${doc.filename}"`);
+  // Every interpolated value in the document is escaped (settings.service.js),
+  // and it is served as a download. Belt and braces for the browser that
+  // renders it inline anyway: no scripts, no same-origin access to the API.
+  res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.send(doc.html);
 }
 

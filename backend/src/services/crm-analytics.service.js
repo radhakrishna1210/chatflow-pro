@@ -1,4 +1,6 @@
 import { prisma } from '../lib/prisma.js';
+import { scopeFilter } from './recordScope.service.js';
+import { andWhere } from './crmReferences.js';
 
 const CLOSED_STAGES = ['CLOSED_WON', 'CLOSED_LOST'];
 const MONTHS_ON_CHART = 6;
@@ -27,8 +29,22 @@ function bucketByMonth(rows, dateField, now) {
   return buckets;
 }
 
-export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {}) {
-  const baseWhere = { workspaceId };
+export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {}, user = null) {
+  // The dashboard aggregates the same leads, deals, activities and tasks the
+  // lists show, so it is scoped by the same record-visibility rule. Unscoped,
+  // a member in TEAM/OWN mode saw colleagues' top deals (titles, values,
+  // contacts) and their activity feed here.
+  const [scope, taskScope] = user
+    ? await Promise.all([
+      scopeFilter(workspaceId, user),
+      scopeFilter(workspaceId, user, { ownerField: 'assignedToUserId' }),
+    ])
+    : [{}, {}];
+  const scoped = Object.keys(scope).length > 0;
+  const activityScope = scoped
+    ? andWhere({ OR: [{ leadId: null }, { lead: scope }] }, { OR: [{ dealId: null }, { deal: scope }] })
+    : {};
+  const baseWhere = { workspaceId, ...scope };
   if (userId) baseWhere.ownerUserId = userId;
 
   const now = new Date();
@@ -92,7 +108,7 @@ export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {
   // Batch 3: Feeds and leads (3 queries)
   const [activities, stageChanges, allLeadsForSource] = await Promise.all([
     prisma.crmActivity.findMany({
-      where: { workspaceId, ...(userId ? { createdByUserId: userId } : {}) },
+      where: { workspaceId, ...activityScope, ...(userId ? { createdByUserId: userId } : {}) },
       orderBy: { createdAt: 'desc' },
       take: 10,
       include: {
@@ -101,7 +117,7 @@ export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {
       },
     }),
     prisma.dealStageHistory.findMany({
-      where: { workspaceId, ...(userId ? { changedByUserId: userId } : {}) },
+      where: { workspaceId, ...(scoped ? { deal: scope } : {}), ...(userId ? { changedByUserId: userId } : {}) },
       orderBy: { changedAt: 'desc' },
       take: 10,
       include: {
@@ -110,7 +126,7 @@ export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {
       },
     }),
     prisma.lead.findMany({
-      where: { workspaceId, ...(startDate ? { createdAt: { gte: startDate } } : {}) },
+      where: { workspaceId, ...scope, ...(startDate ? { createdAt: { gte: startDate } } : {}) },
       select: {
         id: true,
         source: true,
@@ -132,13 +148,14 @@ export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {
   const [activityGroups, overdueTasks, dueTodayTasks, completedTasks] = await Promise.all([
     prisma.crmActivity.groupBy({
       by: ['type'],
-      where: { workspaceId, ...(startDate ? { createdAt: { gte: startDate } } : {}) },
+      where: { workspaceId, ...activityScope, ...(startDate ? { createdAt: { gte: startDate } } : {}) },
       _count: { _all: true },
     }),
-    prisma.task.count({ where: { workspaceId, status: 'PENDING', dueDate: { lt: now } } }),
+    prisma.task.count({ where: { workspaceId, ...taskScope, status: 'PENDING', dueDate: { lt: now } } }),
     prisma.task.count({
       where: {
         workspaceId,
+        ...taskScope,
         status: 'PENDING',
         dueDate: {
           gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
@@ -146,7 +163,7 @@ export async function getCrmAnalytics(workspaceId, { userId, range = '30d' } = {
         },
       },
     }),
-    prisma.task.count({ where: { workspaceId, status: 'COMPLETED', ...(startDate ? { completedAt: { gte: startDate } } : {}) } }),
+    prisma.task.count({ where: { workspaceId, ...taskScope, status: 'COMPLETED', ...(startDate ? { completedAt: { gte: startDate } } : {}) } }),
   ]);
 
   const actCountMap = {};

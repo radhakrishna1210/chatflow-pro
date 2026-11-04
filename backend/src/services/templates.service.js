@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { createMetaTemplate, deleteMetaTemplate, getWabaTemplates, uploadTemplateMedia } from '../lib/meta.js';
+import { createMetaTemplate, editMetaTemplate, deleteMetaTemplate, getWabaTemplates, uploadTemplateMedia } from '../lib/meta.js';
 import { decrypt } from '../lib/encryption.js';
 import { TEMPLATE_LIBRARY, findLibraryTemplate } from '../data/templateLibrary.js';
 import { normalizeTemplateComponents, detectTemplateType, toMetaComponents, preserveInternalFields } from '../lib/templateStructure.js';
@@ -288,12 +288,35 @@ export async function getTemplate(workspaceId, id) {
   return { ...template, templateType: detectTemplateType(template.components) };
 }
 
+function metaRejection(err, prefix) {
+  const m = err.response?.data?.error;
+  const reason = m ? `${m.message}${m.error_user_msg ? ' — ' + m.error_user_msg : ''} (code ${m.code}${m.error_subcode ? '/' + m.error_subcode : ''})` : err.message;
+  const e = new Error(`${prefix}: ${reason}`);
+  e.status = err.response?.status && err.response.status < 500 ? 400 : 502;
+  e.expose = true;
+  return e;
+}
+
+// Editing a template is editing what Meta reviewed, so every content change
+// goes to Meta first and is stored only once Meta has taken it.
+//
+// Before, an edit to an APPROVED (or in-review) template was written locally
+// and nowhere else, keeping its APPROVED status. Every later send then built
+// its payload from components Meta had never seen — a different variable
+// count, header or button set — and failed, or went out as something other
+// than what the user was looking at. A REJECTED template was "resubmitted"
+// with a create call under the same name (which Meta refuses as a duplicate),
+// the error was swallowed, and the row sat at PENDING forever.
 export async function updateTemplate(workspaceId, id, updates) {
   const template = await prisma.template.findFirst({ where: { id, workspaceId } });
   if (!template) { const err = new Error('Template not found'); err.status = 404; throw err; }
+  if (template.status === 'DELETED') {
+    const e = new Error('Restore this template before editing it.'); e.status = 409; e.expose = true; throw e;
+  }
 
   // Never allow the number binding to be mutated via update.
   delete updates.waNumberId;
+  delete updates.status;
 
   // A resubmitted template goes through the same structural checks as a new
   // one, so an edit cannot smuggle past what create would have rejected.
@@ -301,22 +324,65 @@ export async function updateTemplate(workspaceId, id, updates) {
     updates.components = normalizeTemplateComponents(updates.category || template.category, updates.components);
   }
 
-  if (template.status === 'REJECTED' && (updates.components || updates.name)) {
-    // Resubmit against THIS template's own number, not "the newest number".
-    const waNumber = template.waNumberId
-      ? await prisma.waNumber.findFirst({ where: { id: template.waNumberId, workspaceId } })
-      : await resolveWaNumber(workspaceId, null, { required: false });
-    if (waNumber) {
-      await createMetaTemplate(waNumber.wabaId, {
-        name: updates.name || template.name,
-        category: updates.category || template.category,
-        language: updates.language || template.language,
-        components: toMetaComponents(updates.components || template.components),
-      }, decrypt(waNumber.encryptedAccessToken)).catch(() => null);
-    }
-    updates.status = 'PENDING';
+  const changes = (field) => updates[field] !== undefined
+    && JSON.stringify(updates[field]) !== JSON.stringify(template[field]);
+  const contentChanged = changes('components') || changes('category') || changes('name') || changes('language');
+  if (!contentChanged) {
+    const { name, language, category, components, ...rest } = updates;
+    return Object.keys(rest).length ? prisma.template.update({ where: { id }, data: rest }) : template;
   }
-  return prisma.template.update({ where: { id }, data: updates });
+
+  const waNumber = template.waNumberId
+    ? await prisma.waNumber.findFirst({ where: { id: template.waNumberId, workspaceId } })
+    : await resolveWaNumber(workspaceId, null, { required: false });
+  if (!waNumber) {
+    const e = new Error('Connect the WhatsApp number this template belongs to before editing it — every edit is reviewed by Meta.');
+    e.status = 409; e.expose = true; throw e;
+  }
+  const accessToken = decrypt(waNumber.encryptedAccessToken);
+  const next = {
+    name: updates.name ?? template.name,
+    category: updates.category ?? template.category,
+    language: updates.language ?? template.language,
+    components: updates.components ?? template.components,
+  };
+
+  let metaTemplateId = template.metaTemplateId;
+  if (metaTemplateId) {
+    if (changes('name') || changes('language')) {
+      const e = new Error("A submitted template's name and language can't be changed on WhatsApp. Duplicate it to make a new one instead.");
+      e.status = 409; e.expose = true; throw e;
+    }
+    if (template.status === 'APPROVED' && changes('category')) {
+      const e = new Error("An approved template's category can't be changed. Duplicate it to submit it under another category.");
+      e.status = 409; e.expose = true; throw e;
+    }
+    try {
+      await editMetaTemplate(metaTemplateId, {
+        components: toMetaComponents(next.components),
+        ...(template.status !== 'APPROVED' ? { category: next.category } : {}),
+      }, accessToken);
+    } catch (err) {
+      throw metaRejection(err, 'Meta rejected the edit');
+    }
+  } else {
+    // Never submitted (a duplicate, or a library draft whose submit failed):
+    // this edit is its first submission.
+    try {
+      const created = await createMetaTemplate(waNumber.wabaId, {
+        name: next.name, category: next.category, language: next.language,
+        components: toMetaComponents(next.components),
+      }, accessToken);
+      metaTemplateId = created?.id ?? null;
+    } catch (err) {
+      throw metaRejection(err, 'Meta rejected the template');
+    }
+  }
+
+  return prisma.template.update({
+    where: { id },
+    data: { ...next, metaTemplateId, status: 'PENDING', rejectedReason: null },
+  });
 }
 
 export async function deleteTemplate(workspaceId, id) {
@@ -426,7 +492,9 @@ export async function duplicateTemplate(workspaceId, id) {
   return prisma.template.create({
     data: {
       workspaceId, waNumberId: template.waNumberId,
-      name: `${template.name}_copy`, category: template.category, language: template.language,
+      // Meta caps template names at 64 characters; a long name plus "_copy"
+      // would produce a copy that can never be submitted.
+      name: `${template.name.slice(0, 59)}_copy`, category: template.category, language: template.language,
       components: template.components, status: 'PENDING',
     },
   });

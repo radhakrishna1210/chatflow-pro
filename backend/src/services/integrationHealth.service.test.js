@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../lib/prisma.js';
 import { getIntegrationHealth } from './integrationHealth.service.js';
+import { env } from '../config/env.js';
 
 let dbAvailable = false;
 let workspaceId;
@@ -65,5 +66,6 @@ test('Integration Health - Retrieves status and detects active WhatsApp numbers'
   const meta = result.integrations.find((i) => i.provider === 'meta-graph');
   assert.ok(meta);
   assert.equal(meta.status, 'HEALTHY');
-  assert.equal(meta.apiVersion, 'v20.0');
+  assert.equal(meta.apiVersion, env.META_API_VERSION);
+  assert.equal(meta.latencyMs, undefined, 'no invented latency');
 });

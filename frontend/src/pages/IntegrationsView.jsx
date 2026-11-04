@@ -252,8 +252,17 @@ const OAUTH_PROVIDER_MAP = {
 // actually exists (also means shopify-sales/shopify-marketing correctly
 // show as connected together, since one Shopify OAuth grant covers both).
 function connectionKey(intg) {
+  // Only OAuth connections live under the backend provider id. Shopify's two
+  // catalogue entries are API-key connections saved under their own ids, so
+  // mapping them to 'shopify' made a successful save look disconnected and
+  // sent Disconnect to a row that does not exist.
+  if (CONNECT_CONFIG[intg.id]?.type !== 'oauth') return intg.id;
   return OAUTH_PROVIDER_MAP[intg.id] || intg.id;
 }
+
+// A PENDING row is a recorded request for a provider whose OAuth is not wired
+// yet — it holds no token, so it must not render as "Connected".
+const isLive = (row) => !!row && (row.status || 'CONNECTED') === 'CONNECTED';
 
 const CATEGORY_ICONS = {
   'Payment Provider':        'credit',
@@ -272,13 +281,11 @@ const CATEGORY_ICONS = {
 const LOGO_COLORS = ['#35e8f2', '#9d6bff', '#c4ff46', '#F59E0B', '#F472B6', '#c4ff46', '#60A5FA', '#FB923C'];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function getWorkspaceId() {
-  try { return JSON.parse(localStorage.getItem('user') || '{}').workspaceId || 'ws'; } catch { return 'ws'; }
-}
-
-function webhookUrl(id) {
-  // Points at the real deployed API origin, not a non-existent subdomain.
-  return `${window.location.origin}/api/v1/webhook/integration/${getWorkspaceId()}/${id}`;
+function webhookUrl() {
+  // Connector platforms push into the public REST API with an API key. This
+  // used to show /api/v1/webhook/integration/<ws>/<id>, a route that does not
+  // exist, so every Zap/scenario pointed at it got a 404.
+  return `${window.location.origin}/api/v1/public/contacts`;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -328,7 +335,7 @@ function ConnectModal({ intg, onClose, onSave }) {
 
   const setField = (key, val) => setValues(v => ({ ...v, [key]: val }));
 
-  const wUrl = webhookUrl(intg.id);
+  const wUrl = webhookUrl();
 
   const canSave = () => {
     if (cfg.type === 'apikey') return cfg.fields.every(f => values[f.key]?.trim());
@@ -445,8 +452,13 @@ function ConnectModal({ intg, onClose, onSave }) {
                   </button>
                 </div>
               </div>
+              <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.6 }}>
+                Send a <strong style={{ color: 'var(--t1)' }}>POST</strong> with JSON <code style={{ fontFamily: 'monospace' }}>{'{ "name": "…", "phoneNumber": "+91…" }'}</code> and
+                an <code style={{ fontFamily: 'monospace' }}>x-api-key</code> header holding a key with the <code style={{ fontFamily: 'monospace' }}>contacts:write</code> scope
+                (create one under Connect → API Keys). Each call adds a contact to this workspace.
+              </p>
               <p style={{ fontSize: 12, color: 'var(--t3)', lineHeight: 1.6 }}>
-                After pasting the URL into {intg.name}, click <strong style={{ color: 'var(--t2)' }}>Activate</strong> below to mark this integration as active.
+                After setting up the request in {intg.name}, click <strong style={{ color: 'var(--t2)' }}>Activate</strong> below to mark this integration as active.
               </p>
             </div>
           )}
@@ -784,6 +796,10 @@ export default function IntegrationsView() {
       }
       setConnected(prev => ({ ...prev, [id]: data }));
       setConnectModal(null);
+      if (data.status === 'PENDING') {
+        const name = INTEGRATIONS.find(i => i.id === id)?.name || id;
+        setOauthBanner({ ok: `${name} can't be connected directly yet — your request has been recorded and we'll enable it for this workspace.` });
+      }
     } catch (e) {
       setSaveError(e.message);
     }
@@ -806,7 +822,15 @@ export default function IntegrationsView() {
         setSaveError(data.error || `Could not start OAuth (${res.status})`);
         return 'error';
       }
-      window.location.href = data.url;
+      // Only ever navigate to an https provider consent page — never to
+      // whatever scheme a response happens to carry (javascript:, data:, …).
+      let target;
+      try { target = new URL(data.url); } catch { target = null; }
+      if (!target || target.protocol !== 'https:') {
+        setSaveError('The provider returned an invalid authorization URL.');
+        return 'error';
+      }
+      window.location.assign(target.href);
       return 'redirecting';
     } catch (e) {
       setSaveError(e.message);
@@ -815,12 +839,20 @@ export default function IntegrationsView() {
   };
 
   async function handleDisconnect(id) {
+    const name = INTEGRATIONS.find(i => connectionKey(i) === id)?.name || id;
+    if (!window.confirm(`Disconnect ${name}? Its stored credentials will be deleted.`)) return;
     try {
       const res = await wFetch(`/integrations/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (res.ok) {
         setConnected(prev => { const u = { ...prev }; delete u[id]; return u; });
+        setOauthBanner({ ok: `Disconnected ${name}.` });
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setOauthBanner({ error: d.error || `Could not disconnect ${name} (${res.status}).` });
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      setOauthBanner({ error: e.message || `Could not disconnect ${name}.` });
+    }
   }
 
   function openConnectFromInfo(intg) {
@@ -928,7 +960,7 @@ export default function IntegrationsView() {
               <IntegrationCard
                 key={intg.id}
                 intg={intg}
-                isConnected={!!connected[connectionKey(intg)]}
+                isConnected={isLive(connected[connectionKey(intg)])}
                 locked={isLocked(intg)}
                 onAction={handleAction}
                 onDisconnect={handleDisconnect}
@@ -949,7 +981,7 @@ export default function IntegrationsView() {
       {infoModal && (
         <InfoModal
           intg={infoModal}
-          isConnected={!!connected[connectionKey(infoModal)]}
+          isConnected={isLive(connected[connectionKey(infoModal)])}
           locked={isLocked(infoModal)}
           onClose={() => setInfoModal(null)}
           onConnectClick={() => openConnectFromInfo(infoModal)}

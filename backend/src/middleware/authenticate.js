@@ -11,7 +11,7 @@ export async function authenticate(req, res, next) {
 
   let payload;
   try {
-    payload = jwt.verify(token, env.JWT_ACCESS_SECRET);
+    payload = jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
@@ -43,7 +43,7 @@ export function authenticateOptional(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) return next();
   try {
-    const payload = jwt.verify(authHeader.slice(7), env.JWT_ACCESS_SECRET);
+    const payload = jwt.verify(authHeader.slice(7), env.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
     req.user = {
       id: payload.sub,
       workspaceId: payload.workspaceId,

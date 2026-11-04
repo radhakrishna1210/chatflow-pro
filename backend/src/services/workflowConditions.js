@@ -113,7 +113,9 @@ export function renderTemplate(text, context = {}) {
 
     // Values the run has collected take precedence: they are the most specific
     // thing known about this particular conversation.
-    if (variables && key in variables) return String(variables[key] ?? '');
+    // Own keys only: `in` also matched inherited names, so {{constructor}}
+    // rendered as "function Object() { [native code] }" to the customer.
+    if (variables && Object.hasOwn(variables, key)) return String(variables[key] ?? '');
     if (lower === 'message') return String(messageBody ?? '');
 
     if (lower.startsWith('custom.')) {

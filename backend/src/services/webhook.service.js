@@ -30,7 +30,7 @@ export async function processWebhook(body) {
       if (!value) continue;
 
       if (change.field === 'message_template_status_update') {
-        await handleTemplateStatusUpdate(entry.id, value);
+        await isolate('template status update', () => handleTemplateStatusUpdate(entry.id, value));
         continue;
       }
 
@@ -38,22 +38,41 @@ export async function processWebhook(body) {
       // categories. Nothing consumed this before, so the stored category went
       // stale and campaigns kept quoting the old per-message price.
       if (change.field === 'message_template_category_update') {
-        await handleTemplateCategoryUpdate(entry.id, value);
+        await isolate('template category update', () => handleTemplateCategoryUpdate(entry.id, value));
         continue;
       }
 
-      if (value.messages) {
+      // Each item is handled on its own. The webhook has already been answered
+      // 200 by the time this runs, so Meta will not redeliver: one message that
+      // threw used to abort every message and status behind it in the same
+      // delivery, and those were lost for good.
+      if (Array.isArray(value.messages)) {
         for (const msg of value.messages) {
-          await handleInboundMessage(value, msg);
+          await isolate(`message ${msg?.id}`, () => handleInboundMessage(value, msg));
         }
       }
 
-      if (value.statuses) {
+      if (Array.isArray(value.statuses)) {
         for (const status of value.statuses) {
-          await handleStatusUpdate(status);
+          await isolate(`status ${status?.id}`, () => handleStatusUpdate(status));
         }
       }
+
+      // Meta reports account- or number-level failures as a top-level errors
+      // array on the change. Nothing read it, so they vanished without a log.
+      if (Array.isArray(value.errors) && value.errors.length > 0) {
+        console.error(`[Webhook] Meta reported errors for phone_number_id=${value.metadata?.phone_number_id ?? '?'}:`,
+          JSON.stringify(value.errors).slice(0, 1000));
+      }
     }
+  }
+}
+
+async function isolate(label, fn) {
+  try {
+    await fn();
+  } catch (err) {
+    console.error(`[Webhook] Failed to process ${label}:`, err);
   }
 }
 
@@ -91,15 +110,28 @@ async function handleTemplateStatusUpdate(wabaId, value) {
     console.warn('[Template] update lacked id and name — ignoring.');
     return;
   }
+  // A template deleted here stays deleted — the same rule sync follows. Meta
+  // can still send a late APPROVED for it, which used to resurrect it.
+  const updateWhere = { ...where, status: { not: 'DELETED' } };
 
+  // Meta says why on a rejection (`reason`, e.g. INCORRECT_CATEGORY). It was
+  // dropped here, so a template rejected by webhook — the normal path — showed
+  // "rejected" with no reason until someone happened to run a manual sync.
+  const reason = value.reason && String(value.reason).toUpperCase() !== 'NONE'
+    ? String(value.reason).slice(0, 500)
+    : null;
   const result = await prisma.template.updateMany({
-    where,
-    data: { status: newStatus },
+    where: updateWhere,
+    data: {
+      status: newStatus,
+      ...(newStatus === 'REJECTED' ? { rejectedReason: reason } : {}),
+      ...(newStatus === 'APPROVED' ? { rejectedReason: null } : {}),
+    },
   });
   console.log(`[Template] Updated ${result.count} row(s) to ${newStatus}.`);
 
   if (result.count > 0 && templateName) {
-    const affectedTemplates = await prisma.template.findMany({ where, select: { workspaceId: true, name: true } });
+    const affectedTemplates = await prisma.template.findMany({ where: { ...where, status: newStatus }, select: { workspaceId: true, name: true } });
     const seen = new Set();
     for (const t of affectedTemplates) {
       if (seen.has(t.workspaceId)) continue;
@@ -256,6 +288,14 @@ async function handleInboundMessage(value, msg) {
   }
   console.log(`[Inbound] matched waNumber id=${waNumber.id} workspace=${waNumber.workspaceId} — writing message to DB`);
 
+  // A redelivery of a message already stored. The authoritative guard is the
+  // unique metaMessageId on create below; this cheap read just stops a retry
+  // from paying for a second speech-to-text transcription first.
+  if (msg.id && await prisma.message.findUnique({ where: { metaMessageId: msg.id }, select: { id: true } })) {
+    console.log(`[Inbound] Duplicate delivery of ${msg.id} — already processed, ignoring.`);
+    return;
+  }
+
   // When the customer sends a voice note (audio message), transcribe and translate it to text
   if (parsed.type === 'AUDIO' && parsed.media?.mediaId) {
     try {
@@ -384,7 +424,10 @@ async function handleInboundMessage(value, msg) {
   //
   // `metaMessageId` is unique now, so the create fails on a repeat. Bailing out
   // here rather than at the write is what stops the automation re-running.
-  const sentAt = new Date(parseInt(msg.timestamp, 10) * 1000);
+  // A missing or garbled timestamp would be an Invalid Date, which Prisma
+  // refuses — losing the message. Arrival time is the honest fallback.
+  const parsedTs = parseInt(msg.timestamp, 10);
+  const sentAt = Number.isFinite(parsedTs) && parsedTs > 0 ? new Date(parsedTs * 1000) : new Date();
   // Attribute only when Meta provides exact evidence: the CTA payload or an
   // explicit reply context pointing at an outbound campaign message. Generic
   // inbound messages have no reliable campaign identity and stay unlinked.
@@ -437,11 +480,21 @@ async function handleInboundMessage(value, msg) {
     data: {
       unreadCount: { increment: 1 },
       lastMessageAt: new Date(),
-      // Opens (or re-opens) the 24-hour window in which Meta permits a
-      // free-form reply. Every outbound path checks this — see
-      // services/messagingWindow.js.
-      lastInboundAt: sentAt,
+      // A customer writing to a resolved/closed thread is a new exchange: it
+      // belongs back in the open queue rather than unread under "resolved".
+      ...(conversation.status === 'RESOLVED' || conversation.status === 'CLOSED' ? { status: 'OPEN' } : {}),
     },
+  });
+  // Opens (or re-opens) the 24-hour window in which Meta permits a free-form
+  // reply. Every outbound path checks this — see services/messagingWindow.js.
+  // Only ever moved forward: Meta does not deliver in order, and a delayed
+  // older message used to drag the window back and close it early.
+  await prisma.conversation.updateMany({
+    where: {
+      id: conversation.id,
+      OR: [{ lastInboundAt: null }, { lastInboundAt: { lt: sentAt } }],
+    },
+    data: { lastInboundAt: sentAt },
   });
 
   // Immediately exit active sequence cadences with exitOnReply enabled
@@ -958,7 +1011,11 @@ async function handleStatusUpdate(status) {
     // than one OTP transaction as delivered.
     if (transactions.length > 1) {
       console.error(`[Authentication] Duplicate Meta message id "${metaMessageId}"; delivery receipt ignored.`);
-    } else if (transactions[0]?.deliveredAt == null) {
+    } else if (transactions.length === 1 && transactions[0].deliveredAt == null) {
+      // Only when there IS a transaction. `transactions[0]?.deliveredAt == null`
+      // was also true for an empty result — every ordinary message — and the
+      // `.id` read below then threw, so no delivered/read receipt was ever
+      // recorded on an inbox, automated or campaign message.
       await prisma.authenticationTransaction.updateMany({
         where: { id: transactions[0].id, deliveredAt: null },
         data: { deliveredAt: eventTime },

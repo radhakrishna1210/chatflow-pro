@@ -118,6 +118,7 @@ prisma.conversation.findFirst = async () => ({
 });
 
 prisma.conversation.update = async () => ({ id: 'conv_1' });
+prisma.conversation.updateMany = async () => ({ count: 1 });
 prisma.sequenceEnrollment.updateMany = async () => ({ count: 0 });
 
 prisma.workspace.findUnique = async () => ({
@@ -175,6 +176,8 @@ prisma.message = {
     messages.push(row);
     return row;
   },
+  // The pre-STT duplicate check: nothing is stored yet in these tests.
+  findUnique: async ({ where }) => messages.find((m) => m.metaMessageId === where?.metaMessageId) ?? null,
   count: async () => 0,
 };
 

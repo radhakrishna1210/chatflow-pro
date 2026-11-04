@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { calculateLine, calculateDocument, round2 } from './lineItems.js';
+import { scopeFilter } from './recordScope.service.js';
 
 // Resolves a line's name, price and tax from the catalogue when a productId is
 // given, letting the caller override any of them. The resolved values are then
@@ -44,13 +45,17 @@ async function syncDealValue(tx, workspaceId, dealId) {
   return value;
 }
 
-async function assertDeal(workspaceId, dealId) {
-  const deal = await prisma.deal.findFirst({ where: { id: dealId, workspaceId }, select: { id: true } });
+// Line items belong to a deal and follow its visibility: without the scope a
+// member in TEAM/OWN mode could read — and, by editing lines, rewrite the value
+// of — a colleague's deal they cannot even open.
+async function assertDeal(workspaceId, dealId, user = null) {
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const deal = await prisma.deal.findFirst({ where: { id: dealId, workspaceId, ...scope }, select: { id: true } });
   if (!deal) { const e = new Error('Deal not found'); e.status = 404; throw e; }
 }
 
-export async function listDealLineItems(workspaceId, dealId) {
-  await assertDeal(workspaceId, dealId);
+export async function listDealLineItems(workspaceId, dealId, user = null) {
+  await assertDeal(workspaceId, dealId, user);
   const data = await prisma.dealLineItem.findMany({
     where: { workspaceId, dealId },
     include: { product: { select: { id: true, name: true, sku: true } } },
@@ -59,8 +64,8 @@ export async function listDealLineItems(workspaceId, dealId) {
   return { data, total: data.length, totals: calculateDocument(data) };
 }
 
-export async function addDealLineItem(workspaceId, dealId, body) {
-  await assertDeal(workspaceId, dealId);
+export async function addDealLineItem(workspaceId, dealId, body, user = null) {
+  await assertDeal(workspaceId, dealId, user);
   const resolved = await resolveLine(workspaceId, body);
 
   return prisma.$transaction(async (tx) => {
@@ -74,7 +79,8 @@ export async function addDealLineItem(workspaceId, dealId, body) {
   });
 }
 
-export async function updateDealLineItem(workspaceId, dealId, lineId, body) {
+export async function updateDealLineItem(workspaceId, dealId, lineId, body, user = null) {
+  await assertDeal(workspaceId, dealId, user);
   const existing = await prisma.dealLineItem.findFirst({ where: { id: lineId, workspaceId, dealId } });
   if (!existing) { const e = new Error('Line item not found'); e.status = 404; throw e; }
 
@@ -100,7 +106,8 @@ export async function updateDealLineItem(workspaceId, dealId, lineId, body) {
   });
 }
 
-export async function deleteDealLineItem(workspaceId, dealId, lineId) {
+export async function deleteDealLineItem(workspaceId, dealId, lineId, user = null) {
+  await assertDeal(workspaceId, dealId, user);
   const existing = await prisma.dealLineItem.findFirst({ where: { id: lineId, workspaceId, dealId }, select: { id: true } });
   if (!existing) { const e = new Error('Line item not found'); e.status = 404; throw e; }
 

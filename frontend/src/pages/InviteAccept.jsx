@@ -3,6 +3,7 @@ import { navigate } from '../App.jsx';
 import { apiFetch } from '../lib/api.js';
 import { I } from '../components/Icons.jsx';
 import { ROLE_LABELS } from '../lib/permissions.js';
+import { signOut as endSession } from '../lib/api.js';
 
 function isAuthed() {
   return !!(localStorage.getItem('accessToken') && localStorage.getItem('user'));
@@ -85,9 +86,8 @@ export default function InviteAccept() {
   };
 
   const signOutAndContinue = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
+    // Ends the session on the server too, not just in this browser.
+    endSession();
     setState('logged-out');
   };
 

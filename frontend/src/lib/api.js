@@ -62,6 +62,12 @@ async function refreshAccessToken() {
     // Only the server rejecting the token itself ends the session. A 5xx is
     // the server's problem, not the user's credentials.
     if (res.status === 401 || res.status === 403) {
+      // Refresh tokens are single-use. Another tab sharing this localStorage
+      // may have rotated this one a moment ago — then its successor is already
+      // stored, and this tab should use it rather than sign everyone out.
+      const rotated = localStorage.getItem('refreshToken');
+      const current = localStorage.getItem('accessToken');
+      if (rotated && rotated !== refreshToken && current) return current;
       logout();
       throw sessionExpired();
     }
@@ -81,6 +87,31 @@ export function clearStoredSession() {
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
   sessionStorage.removeItem('impersonatorSession');
+}
+
+// A deliberate "Sign out". Clearing localStorage alone left the refresh token
+// valid on the server for its whole week — anyone who had copied it (a shared
+// machine, an extension, an XSS) kept a working session. The server revokes the
+// refresh token and the current access token's jti; this is fire-and-forget
+// (keepalive survives the navigation that usually follows) so signing out never
+// waits on, or fails because of, the network.
+export function signOut() {
+  const accessToken = localStorage.getItem('accessToken');
+  const refreshToken = localStorage.getItem('refreshToken');
+  if (accessToken || refreshToken) {
+    try {
+      fetch('/api/v1/auth/logout', {
+        method: 'POST',
+        keepalive: true,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ refreshToken: refreshToken || undefined }),
+      }).catch(() => {});
+    } catch { /* nothing to do: the local session is cleared regardless */ }
+  }
+  clearStoredSession();
 }
 
 function logout() {

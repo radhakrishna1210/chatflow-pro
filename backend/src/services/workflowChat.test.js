@@ -43,6 +43,13 @@ prisma.workflowRun.update = async ({ where, data }) => {
   runs.set(where.id, run);
   return { ...run };
 };
+// Conditional claim used by advanceRun (WAITING → RUNNING at a cursor).
+prisma.workflowRun.updateMany = async ({ where, data }) => {
+  const run = runs.get(where.id);
+  if (!run || (where.status && run.status !== where.status) || (where.cursor !== undefined && run.cursor !== where.cursor)) return { count: 0 };
+  runs.set(where.id, { ...run, ...data });
+  return { count: 1 };
+};
 prisma.workflowRun.findMany = async ({ where }) => [...runs.values()]
   .filter((r) => r.conversationId === where.conversationId && r.status === where.status)
   .sort((a, b) => b.startedAt - a.startedAt)
@@ -190,4 +197,19 @@ test('resolveReply maps taps, typed text and numbers back to the offered option'
   assert.equal(engine.resolveReply('2', opts), 'Talk to our support team');
   assert.equal(engine.resolveReply('3', opts), '3');
   assert.equal(engine.resolveReply('anything', []), 'anything');
+});
+
+test('two replies arriving at once resume a waiting run only once', async () => {
+  reset();
+  await customerSays('help please');
+  sent.length = 0;
+  // Two webhooks for the same conversation processed concurrently: both read
+  // the run as WAITING on the same step before either has written.
+  const [run] = [...runs.values()];
+  const results = await Promise.all([
+    engine.advanceRun(run.id, { reply: 'Track my order' }),
+    engine.advanceRun(run.id, { reply: 'Track my order' }),
+  ]);
+  assert.deepEqual(sent.map((r) => r.body), ['Please send your order ID.'], 'the follow-up was sent exactly once');
+  assert.ok(results.every(Boolean));
 });

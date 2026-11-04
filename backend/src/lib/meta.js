@@ -74,6 +74,18 @@ export async function createMetaTemplate(wabaId, templateData, accessToken) {
   return data;
 }
 
+// Edits a template Meta already holds. Name and language are fixed once a
+// template exists on Meta; components (and, before approval, the category) are
+// what can change, and an edited template goes back through review.
+export async function editMetaTemplate(metaTemplateId, { components, category }, accessToken) {
+  const client = accessToken ? metaClient(accessToken) : systemClient;
+  const { data } = await client.post(`/${encodeURIComponent(metaTemplateId)}`, {
+    components,
+    ...(category ? { category } : {}),
+  });
+  return data;
+}
+
 // Media formats Meta accepts in a template header, with its published size
 // caps. Anything else is rejected before a byte is uploaded.
 export const TEMPLATE_MEDIA_FORMATS = {
@@ -180,6 +192,36 @@ export async function uploadPhoneMedia({ phoneNumberId, accessToken, buffer, mim
   }
 }
 
+// Hosts Meta serves media and template samples from. A URL is only fetched —
+// and, for media, only handed the access token as a Bearer header — when it is
+// https on one of these. The media URL comes back from a Graph lookup on an id
+// we store, and a template's header_handle is ordinary template JSON, so
+// neither is trusted to point somewhere safe: an internal address (cloud
+// metadata, localhost services) or an attacker's server would otherwise
+// receive the request, and in the media case the token with it.
+const META_MEDIA_HOST_SUFFIXES = ['.fbsbx.com', '.fbcdn.net', '.whatsapp.net', '.facebook.com', '.cdninstagram.com'];
+
+export function isMetaCdnUrl(value) {
+  let url;
+  try { url = new URL(String(value || '')); } catch { return false; }
+  if (url.protocol !== 'https:') return false;
+  if (url.username || url.password) return false;
+  if (url.port && url.port !== '443') return false;
+  const host = url.hostname.toLowerCase();
+  return META_MEDIA_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
+}
+
+// axios option: refuse to follow a redirect off Meta's hosts.
+export const metaOnlyRedirects = {
+  maxRedirects: 3,
+  beforeRedirect: (options) => {
+    const target = options.href || `${options.protocol}//${options.hostname}${options.path || ''}`;
+    if (!isMetaCdnUrl(target)) {
+      throw new Error('Refusing to follow a redirect away from Meta\'s media hosts');
+    }
+  },
+};
+
 // Downloads binary media (voice note, image, document) from Meta's media storage.
 // Two steps: retrieve the temporary download URL from Meta Graph API,
 // then fetch the raw bytes with authorization.
@@ -189,12 +231,15 @@ export async function downloadMediaBuffer(mediaId, accessToken) {
 
   try {
     // 1. Get temporary media download URL from Meta
-    const { data: mediaInfo } = await axios.get(`${BASE}/${mediaId}`, {
+    const { data: mediaInfo } = await axios.get(`${BASE}/${encodeURIComponent(mediaId)}`, {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 15000,
     });
     if (!mediaInfo?.url) {
       throw new Error(`Meta media ${mediaId} returned no download URL`);
+    }
+    if (!isMetaCdnUrl(mediaInfo.url)) {
+      throw new Error(`Meta media ${mediaId} pointed outside Meta's media hosts — not fetched`);
     }
 
     // 2. Fetch binary stream
@@ -206,6 +251,7 @@ export async function downloadMediaBuffer(mediaId, accessToken) {
       responseType: 'arraybuffer',
       timeout: 30000,
       maxContentLength: 50 * 1024 * 1024,
+      ...metaOnlyRedirects,
     });
 
     return {
@@ -217,7 +263,11 @@ export async function downloadMediaBuffer(mediaId, accessToken) {
     if (err.status && !err.isAxiosError) throw err;
     const msg = err.response?.data?.error?.message || err.message;
     const e = new Error(`Failed to download Meta media ${mediaId}: ${msg}`);
-    e.status = err.response?.status || 502;
+    // Always a gateway error, never Meta's own status passed through: a 401
+    // from Meta (an expired number token) reached the browser as *our* 401,
+    // which the client reads as "your session ended" and signs the user out.
+    e.status = 502;
+    e.expose = true;
     throw e;
   }
 }

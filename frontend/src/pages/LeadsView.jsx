@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -14,6 +14,7 @@ import AgentTab from '../components/AgentTab.jsx';
 import { LeadDistributionModal } from '../components/LeadDistributionModal.jsx';
 import { LogInteractionModal } from '../components/LogInteractionModal.jsx';
 import { BulkTaskModal } from '../components/BulkTaskModal.jsx';
+import { useIsMobile } from '../lib/useMediaQuery.js';
 
 const DEFAULT_LEAD_STAGES = [
   { key: 'NEW', label: 'New Lead', color: '#3b82f6' },
@@ -56,6 +57,23 @@ const PRESETS = [
 const pretty = s => String(s || '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 const scoreColor = n => (n >= 70 ? 'var(--green)' : n >= 40 ? '#fbbf24' : 'var(--t2)');
 const fmtDate = d => (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
+
+// Engagements logged with a type/status/duration are stored as a JSON envelope
+// in `content` (activities.service createActivity). The lead list and the
+// engagements tab printed that raw — `MEETING: {"engagementType":"Visit…` —
+// so pull the human note back out.
+const activityText = (content) => {
+  const raw = String(content ?? '');
+  if (raw.startsWith('{') && raw.endsWith('}')) {
+    try {
+      const m = JSON.parse(raw);
+      const note = m.notes || m.content || '';
+      const head = [m.engagementType, m.status, m.duration ? `${m.duration}` : null].filter(Boolean).join(' · ');
+      return note ? (head ? `${head} — ${note}` : note) : head;
+    } catch { /* not JSON after all */ }
+  }
+  return raw;
+};
 
 const ErrorBanner = ({ children, onDismiss }) => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.22)', color: '#f87171', fontSize: 12.5, marginBottom: 12 }}>
@@ -283,8 +301,8 @@ const NewLeadModal = ({ onClose, onCreated, crmConfig }) => {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
             <div>
-              <FLabel>Estimated Budget ({criteria.currency || '$'})</FLabel>
-              <FInput type="number" value={budget} onChange={e => setBudget(e.target.value)} placeholder={`Min ${criteria.currency || '$'}${criteria.minBudget || 0}`} />
+              <FLabel>Estimated Budget ({criteria.currency || '₹'})</FLabel>
+              <FInput type="number" value={budget} onChange={e => setBudget(e.target.value)} placeholder={`Min ${criteria.currency || '₹'}${criteria.minBudget || 0}`} />
             </div>
             <div>
               <FLabel>Company Size (Employees)</FLabel>
@@ -464,7 +482,7 @@ const DeleteConfirmModal = ({ count, onClose, onConfirmed, busy }) => (
 );
 
 // 360° Lead View Detail Component
-const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfig }) => {
+const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfig, onBack }) => {
   const [tab, setTab] = useState('overview'); // 'overview' | 'engagements' | 'form_intent' | 'tasks' | 'notes'
   const [notes, setNotes] = useState(lead.notes || '');
   const [savingNotes, setSavingNotes] = useState(false);
@@ -551,16 +569,21 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 
-  const toggleTaskComplete = async (taskId, completed) => {
+  // Tasks have a status (PENDING | COMPLETED), not a `completed` flag. The
+  // update schema is strict, so sending { completed } was a 400 that was never
+  // checked: ticking the box did nothing, silently.
+  const toggleTaskComplete = async (task) => {
+    setErr(null);
     try {
-      await wFetch(`/tasks/${taskId}`, {
+      const res = await wFetch(`/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completed: !completed }),
+        body: JSON.stringify({ status: task.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' }),
       });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Could not update the task'); }
       if (onRefresh) onRefresh();
     } catch (e) {
-      console.error(e);
+      setErr(e.message);
     }
   };
 
@@ -572,10 +595,15 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+      {onBack && (
+        <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--t2)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: '0 0 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          ← All leads
+        </button>
+      )}
       {err && <ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner>}
 
       {/* 360° Lead Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18, flexWrap: 'wrap' }}>
         <Avatar name={c.name} size={48} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
@@ -624,7 +652,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
         </div>
 
         {/* Lead Actions Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button
             onClick={() => setLoggingTouchpoint(true)}
             style={{
@@ -683,6 +711,8 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 10,
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
@@ -718,7 +748,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
       </div>
 
       {/* 360° Lead Detail Sub-Tabs */}
-      <div style={{ display: 'flex', gap: 16, borderBottom: '1px solid var(--bd)', marginBottom: 18 }}>
+      <div role="tablist" style={{ display: 'flex', gap: 16, borderBottom: '1px solid var(--bd)', marginBottom: 18, overflowX: 'auto' }}>
         {[
           { id: 'overview', label: 'Overview & Score' },
           { id: 'engagements', label: `Engagements (${activities.length})` },
@@ -728,8 +758,11 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
         ].map((t) => (
           <button
             key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
             style={{
+              whiteSpace: 'nowrap',
               padding: '8px 4px',
               background: 'none',
               border: 'none',
@@ -767,7 +800,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
           <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 8, padding: '14px 16px', marginBottom: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <I n="tag" s={14} c="var(--accent, #35e8f2)" /> Contact Tags
+                <I n="idcard" s={14} c="var(--accent, #35e8f2)" /> Contact Tags
               </div>
               {leadTagsConfig.filter(t => !currentTags.includes(t.name)).length > 0 && (
                 <select
@@ -860,12 +893,12 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
               <div>
-                <FLabel>Estimated Budget ({criteria.currency || '$'})</FLabel>
+                <FLabel>Estimated Budget ({criteria.currency || '₹'})</FLabel>
                 <FInput
                   type="number"
                   value={prospectingBudget}
                   onChange={e => setProspectingBudget(e.target.value)}
-                  placeholder={`Target: ${criteria.currency || '$'}${criteria.minBudget || 0}`}
+                  placeholder={`Target: ${criteria.currency || '₹'}${criteria.minBudget || 0}`}
                 />
               </div>
               <div>
@@ -900,7 +933,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
                       <input
                         type="checkbox"
                         checked={Boolean(prospectingAnswers[item.id])}
-                        onChange={e => setChecklistAnswers(prev => ({ ...prev, [item.id]: e.target.checked }))}
+                        onChange={e => setProspectingAnswers(prev => ({ ...prev, [item.id]: e.target.checked }))}
                         style={{ accentColor: 'var(--accent)' }}
                       />
                       <span>{item.question} {item.required && <span style={{ color: '#f87171' }}>*</span>}</span>
@@ -1003,7 +1036,7 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
                     <span style={{ fontSize: 11, color: 'var(--t3)' }}>{new Date(a.createdAt).toLocaleString('en-IN')}</span>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
-                    {a.content}
+                    {activityText(a.content)}
                   </div>
                   {a.createdByUser && (
                     <div style={{ fontSize: 10.5, color: 'var(--t3)', marginTop: 6 }}>
@@ -1073,29 +1106,34 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {tasks.map((t) => (
+              {tasks.map((t) => {
+                const done = t.status === 'COMPLETED';
+                const overdue = !done && t.dueDate && new Date(t.dueDate) < new Date();
+                return (
                 <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', border: '1px solid var(--bd)', borderRadius: 8, background: 'var(--surf)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <input
                       type="checkbox"
-                      checked={Boolean(t.completed)}
-                      onChange={() => toggleTaskComplete(t.id, t.completed)}
+                      checked={done}
+                      aria-label={done ? `Reopen ${t.title}` : `Mark ${t.title} complete`}
+                      onChange={() => toggleTaskComplete(t)}
                       style={{ cursor: 'pointer', width: 16, height: 16, accentColor: 'var(--accent)' }}
                     />
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: t.completed ? 'var(--t3)' : '#fff', textDecoration: t.completed ? 'line-through' : 'none' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: done ? 'var(--t3)' : '#fff', textDecoration: done ? 'line-through' : 'none' }}>
                         {t.title}
                       </div>
                       {t.dueDate && (
-                        <div style={{ fontSize: 11, color: new Date(t.dueDate) < new Date() && !t.completed ? '#f87171' : 'var(--t3)' }}>
-                          Due {new Date(t.dueDate).toLocaleDateString('en-IN')}
+                        <div style={{ fontSize: 11, color: overdue ? '#f87171' : 'var(--t3)' }}>
+                          Due {new Date(t.dueDate).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </div>
                       )}
                     </div>
                   </div>
-                  <StatusBadge label={t.completed ? 'Completed' : t.priority || 'NORMAL'} tone={t.completed ? 'green' : t.priority === 'HIGH' ? 'red' : 'gray'} />
+                  <StatusBadge label={done ? 'Completed' : overdue ? 'Overdue' : 'Pending'} tone={done ? 'green' : overdue ? 'red' : 'gray'} />
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1144,12 +1182,17 @@ const LeadDetail = ({ lead, members, onChanged, onConverted, onRefresh, crmConfi
 };
 
 export default function LeadsView() {
+  const mobile = useIsMobile();
   const [leads, setLeads] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [members, setMembers] = useState([]);
   const [crmConfig, setCrmConfig] = useState(null);
   const [search, setSearch] = useState('');
+  // The request follows the search box only once typing pauses, and only the
+  // latest response is applied — one fetch per keystroke let an earlier, slower
+  // reply overwrite the results for the final term.
+  const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
   const [status, setStatus] = useState('');
   const [owner, setOwner] = useState('');
@@ -1179,10 +1222,17 @@ export default function LeadsView() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const reqSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++reqSeq.current;
     setLoading(true);
     const qs = new URLSearchParams();
-    if (search) qs.set('search', search);
+    if (query) qs.set('search', query);
     if (category) qs.set('category', category);
     if (status) qs.set('status', status);
     if (owner) qs.set('ownerUserId', owner);
@@ -1192,10 +1242,10 @@ export default function LeadsView() {
     qs.set('sort', sort);
     wFetch(`/leads?${qs}`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error('Could not load leads'))))
-      .then(d => setLeads(d.data ?? []))
-      .catch(e => setErr(e.message))
-      .finally(() => setLoading(false));
-  }, [search, category, status, owner, sourceFilter, tagFilter, preset, sort]);
+      .then(d => { if (seq === reqSeq.current) setLeads(d.data ?? []); })
+      .catch(e => { if (seq === reqSeq.current) setErr(e.message); })
+      .finally(() => { if (seq === reqSeq.current) setLoading(false); });
+  }, [query, category, status, owner, sourceFilter, tagFilter, preset, sort]);
 
   const toggleSelect = (id, e) => {
     e.stopPropagation();
@@ -1214,50 +1264,33 @@ export default function LeadsView() {
     }
   };
 
-  const handleBulkAssign = async (userId) => {
+  // The three bulk edits never looked at the response, so a refused change
+  // (e.g. a VIEWER, or a stale selection) cleared the selection and reloaded as
+  // if it had worked.
+  const runBulk = async (path, body, label) => {
     if (selectedIds.size === 0) return;
+    setErr(null);
     try {
-      await wFetch('/leads/bulk-assign', {
+      const res = await wFetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [...selectedIds], ownerUserId: userId || null }),
+        body: JSON.stringify({ ids: [...selectedIds], ...body }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `${label} failed`);
+      }
       setSelectedIds(new Set());
       load();
+      refreshDetailRef.current?.();
     } catch (e) {
       setErr(e.message);
     }
   };
 
-  const handleBulkStatus = async (st) => {
-    if (selectedIds.size === 0 || !st) return;
-    try {
-      await wFetch('/leads/bulk-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [...selectedIds], status: st }),
-      });
-      setSelectedIds(new Set());
-      load();
-    } catch (e) {
-      setErr(e.message);
-    }
-  };
-
-  const handleBulkCategory = async (cat) => {
-    if (selectedIds.size === 0 || !cat) return;
-    try {
-      await wFetch('/leads/bulk-category', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [...selectedIds], category: cat }),
-      });
-      setSelectedIds(new Set());
-      load();
-    } catch (e) {
-      setErr(e.message);
-    }
-  };
+  const handleBulkAssign = (userId) => runBulk('/leads/bulk-assign', { ownerUserId: userId || null }, 'Assigning leads');
+  const handleBulkStatus = (st) => { if (st) runBulk('/leads/bulk-status', { status: st }, 'Changing status'); };
+  const handleBulkCategory = (cat) => { if (cat) runBulk('/leads/bulk-category', { category: cat }, 'Changing category'); };
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
@@ -1290,6 +1323,7 @@ export default function LeadsView() {
     wFetch('/members').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setMembers(d); }).catch(() => {});
   }, []);
 
+  const refreshDetailRef = useRef(null);
   const refreshDetail = () => {
     if (!activeId) return;
     load();
@@ -1309,6 +1343,11 @@ export default function LeadsView() {
     return () => { cancelled = true; };
   }, [activeId]);
 
+  refreshDetailRef.current = () => {
+    if (!activeId) return;
+    wFetch(`/leads/${activeId}`).then(r => (r.ok ? r.json() : null)).then(d => { if (d) setDetail(d); }).catch(() => {});
+  };
+
   const applyUpdate = (updated) => {
     setDetail(prev => ({ ...prev, ...updated }));
     setLeads(prev => prev.map(l => (l.id === updated.id ? { ...l, ...updated } : l)));
@@ -1317,13 +1356,13 @@ export default function LeadsView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
       {/* Top Header */}
-      <div style={{ height: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', flexShrink: 0, background: 'var(--surf)' }}>
+      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: mobile ? '10px 16px' : '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Leads Workspace</span>
           <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{leads.length} leads</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <button
             onClick={() => setShowDistributionModal(true)}
             style={{
@@ -1409,7 +1448,8 @@ export default function LeadsView() {
             {/* Assign Rep */}
             <select
               onChange={(e) => { if (e.target.value) handleBulkAssign(e.target.value); }}
-              defaultValue=""
+              value=""
+              aria-label="Assign Rep"
               style={{ background: '#111', border: '1px solid var(--bd)', color: '#fff', fontSize: 11.5, padding: '5px 8px', borderRadius: 6 }}
             >
               <option value="" disabled>Assign Rep…</option>
@@ -1421,7 +1461,8 @@ export default function LeadsView() {
             {/* Change Status */}
             <select
               onChange={(e) => { if (e.target.value) handleBulkStatus(e.target.value); }}
-              defaultValue=""
+              value=""
+              aria-label="Status"
               style={{ background: '#111', border: '1px solid var(--bd)', color: '#fff', fontSize: 11.5, padding: '5px 8px', borderRadius: 6 }}
             >
               <option value="" disabled>Status…</option>
@@ -1431,7 +1472,8 @@ export default function LeadsView() {
             {/* Move Category */}
             <select
               onChange={(e) => { if (e.target.value) handleBulkCategory(e.target.value); }}
-              defaultValue=""
+              value=""
+              aria-label="Category"
               style={{ background: '#111', border: '1px solid var(--bd)', color: '#fff', fontSize: 11.5, padding: '5px 8px', borderRadius: 6 }}
             >
               <option value="" disabled>Category…</option>
@@ -1470,12 +1512,12 @@ export default function LeadsView() {
       {/* Main Workspace Body */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Left Side: Lead Operational List */}
-        <div style={{ width: 380, borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', flexShrink: 0, background: 'var(--surf)' }}>
+        <div style={{ width: mobile ? '100%' : 380, borderRight: mobile ? 'none' : '1px solid var(--bd)', display: mobile && detail ? 'none' : 'flex', flexDirection: 'column', flexShrink: 0, background: 'var(--surf)' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--bd)', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)' }}>
               <I n="search" s={14} c="var(--t3)" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search leads by name, phone, email..."
-                style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--t1)', fontSize: 12.5 }} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search leads by name, phone, email..." aria-label="Search leads"
+                style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', outline: 'none', color: 'var(--t1)', fontSize: 12.5 }} />
             </div>
 
             <div style={{ display: 'flex', gap: 6 }}>
@@ -1534,6 +1576,11 @@ export default function LeadsView() {
                 <div
                   key={l.id}
                   onClick={() => setActiveId(l.id)}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open lead ${l.contact?.name || 'Unnamed'}`}
+                  aria-current={activeId === l.id ? 'true' : undefined}
+                  onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setActiveId(l.id); } }}
                   style={{
                     width: '100%',
                     display: 'flex',
@@ -1551,6 +1598,7 @@ export default function LeadsView() {
                   <input
                     type="checkbox"
                     checked={isSelected}
+                    aria-label={`Select ${l.contact?.name || 'lead'}`}
                     onChange={e => toggleSelect(l.id, e)}
                     onClick={e => e.stopPropagation()}
                     style={{ cursor: 'pointer', flexShrink: 0, marginTop: 3, width: 15, height: 15, accentColor: 'var(--accent)' }}
@@ -1627,7 +1675,7 @@ export default function LeadsView() {
                     ) : latestAct ? (
                       <div style={{ fontSize: 10.5, color: 'var(--t3)', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         <span>💬</span>
-                        <span>{latestAct.type}: {latestAct.content?.slice(0, 24)}...</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{pretty(latestAct.type)}: {activityText(latestAct.content)}</span>
                       </div>
                     ) : (
                       <div style={{ fontSize: 10, color: '#f87171' }}>⚠️ Awaiting first task</div>
@@ -1647,13 +1695,14 @@ export default function LeadsView() {
             crmConfig={crmConfig}
             onChanged={applyUpdate}
             onRefresh={refreshDetail}
+            onBack={mobile ? () => setActiveId(null) : undefined}
             onConverted={() => {
               load();
               refreshDetail();
               window.dispatchEvent(new CustomEvent('app:nav', { detail: 'deals' }));
             }}
           />
-        ) : (
+        ) : mobile ? null : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
             <I n="target" s={32} c="var(--t3)" />
             <div style={{ fontSize: 14, color: 'var(--t2)', fontWeight: 600 }}>Select a lead to view 360° intelligence</div>
@@ -1694,10 +1743,7 @@ export default function LeadsView() {
       {confirmBulkDelete && (
         <DeleteConfirmModal
           count={selectedIds.size}
-          onClose={() => {
-            setConfirmBulkDelete(false);
-            setSelectedIds(new Set());
-          }}
+          onClose={() => setConfirmBulkDelete(false)}
           onConfirmed={handleBulkDelete}
           busy={bulkDeleting}
         />

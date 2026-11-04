@@ -31,6 +31,7 @@ const MAX_SKIP = 5;
 const DELAY_RE = /^\s*\d+(\.\d+)?\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hr|hrs|hours?|d|days?)?\s*$/i;
 
 const DEFAULT_REPLY = 'Thanks for reaching out. Our team will help you shortly.';
+const MAX_PROMPT_CHARS = 2000;
 
 function createStep(index, type, subtype, value) {
   return {
@@ -413,6 +414,13 @@ export async function updateVoiceSettings(workspaceId, updates) {
 
 export async function generateWorkflowPreview(workspaceId, prompt) {
   const cleanPrompt = String(prompt || '').trim();
+  // A workflow description is a sentence or two. Without a ceiling the whole
+  // request body went into the model prompt on every call.
+  if (cleanPrompt.length > MAX_PROMPT_CHARS) {
+    const e = new Error(`Keep the description under ${MAX_PROMPT_CHARS} characters`);
+    e.status = 400;
+    throw e;
+  }
   if (!cleanPrompt) {
     const e = new Error('Workflow prompt is required');
     e.status = 400;

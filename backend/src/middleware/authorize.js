@@ -45,6 +45,10 @@ export function authorize(...roles) {
     // reuse it instead of a second identical DB query per request.
     let role = req.user.workspaceRoleVerified ? req.user.role : null;
     if (!role) {
+      // A session with no workspace yet (fresh signup) — or an API-key caller —
+      // has nothing to look up. Prisma rejects a null in a compound key, which
+      // surfaced as a 500 instead of a refusal.
+      if (!userId || !workspaceId) return res.status(403).json({ error: 'Not a member of this workspace' });
       const member = await prisma.workspaceMember.findUnique({
         where: { userId_workspaceId: { userId, workspaceId } },
       });
@@ -74,6 +78,9 @@ export async function requireSuperAdmin(req, res, next) {
     if (!user || user.email.toLowerCase() !== env.ADMIN_EMAIL.toLowerCase()) {
       return res.status(403).json({ error: 'Super admin access required' });
     }
+    // The access token carries no email, and every audited admin action reads
+    // the operator from req.user — without this the log recorded "unknown".
+    req.user.email = user.email;
     next();
   } catch (err) {
     next(err);

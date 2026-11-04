@@ -1,4 +1,5 @@
-import { createHmac, timingSafeEqual, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
+import { answerChallenge, checkMetaSignature } from './webhook.controller.js';
 import { env } from '../config/env.js';
 import { redis } from '../lib/redis.js';
 import * as ig from '../services/instagram.service.js';
@@ -112,29 +113,14 @@ export async function deleteFlow(req, res) {
 // ── Public webhook (Meta) ──────────────────────────────────────────────────
 
 export function verifyWebhook(req, res) {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  if (mode === 'subscribe' && token === env.META_WEBHOOK_VERIFY_TOKEN) {
-    return res.status(200).send(req.query['hub.challenge']);
-  }
-  res.status(403).json({ error: 'Verification failed' });
+  return answerChallenge(req, res, env.META_WEBHOOK_VERIFY_TOKEN).send();
 }
 
 export async function receiveWebhook(req, res) {
-  const signature = req.headers['x-hub-signature-256'];
-  if (!signature) return res.status(401).json({ error: 'Missing signature' });
-
-  const secret = env.INSTAGRAM_APP_SECRET || env.META_APP_SECRET;
-  const expected = 'sha256=' + createHmac('sha256', secret).update(req.rawBody).digest('hex');
-  try {
-    const sigBuf = Buffer.from(signature);
-    const expBuf = Buffer.from(expected);
-    if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
-      console.warn('[Instagram] REJECTED — signature mismatch.');
-      return res.status(401).json({ error: 'Invalid signature' });
-    }
-  } catch (err) {
-    return res.status(401).json({ error: 'Signature verification error' });
+  const problem = checkMetaSignature(req, env.INSTAGRAM_APP_SECRET || env.META_APP_SECRET);
+  if (problem) {
+    console.warn(`[Instagram] REJECTED — ${problem}.`);
+    return res.status(401).json({ error: problem });
   }
 
   // Meta retries anything not answered within seconds — ack first, work after.

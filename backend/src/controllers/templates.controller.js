@@ -58,7 +58,12 @@ export async function aiImage(req, res) {
 // show the picture it will actually send.
 export async function headerImage(req, res) {
   const asset = await getAsset(req.params.workspaceId, req.params.assetId);
-  res.set('Content-Type', asset.mimeType);
+  // Only ever an image here; anything else stored under an asset id is served
+  // as an opaque download so it can never render as a page on this origin.
+  const isImage = /^image\/(jpeg|png|webp)$/i.test(String(asset.mimeType || ''));
+  res.set('Content-Type', isImage ? asset.mimeType : 'application/octet-stream');
+  res.set('Content-Disposition', isImage ? 'inline' : 'attachment');
+  res.set('Content-Security-Policy', "default-src 'none'; sandbox");
   res.set('Cache-Control', 'private, max-age=86400');
   res.send(Buffer.from(asset.bytes));
 }

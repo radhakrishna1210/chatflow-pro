@@ -15,7 +15,10 @@ export function fmtMoney(value, { currency = 'INR', dash = '—' } = {}) {
   if (value == null || value === '') return dash;
   const n = Number(value);
   if (!Number.isFinite(n)) return dash;
-  return `${currencySymbol(currency)}${n.toLocaleString('en-IN')}`;
+  // Money is shown to the paisa: the bare toLocaleString() default printed
+  // ₹1,234.5 for ₹1,234.50 and up to three decimals for computed tax.
+  const frac = Number.isInteger(n) ? 0 : 2;
+  return `${currencySymbol(currency)}${n.toLocaleString('en-IN', { minimumFractionDigits: frac, maximumFractionDigits: 2 })}`;
 }
 
 // Compact form for chart axes, where a full figure would not fit.

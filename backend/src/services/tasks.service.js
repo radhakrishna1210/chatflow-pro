@@ -32,9 +32,15 @@ export async function listTasks(workspaceId, { status, assignedToUserId, isOverd
   return { data, total };
 }
 
-export async function getTask(workspaceId, id) {
+// Visibility keys off the assignee, exactly as the list does. Fetch, update and
+// delete by id ignored it, so in TEAM/OWN mode anyone could open, rewrite or
+// delete a colleague's task by its id.
+const taskScope = (workspaceId, user) => (user ? scopeFilter(workspaceId, user, { ownerField: 'assignedToUserId' }) : {});
+
+export async function getTask(workspaceId, id, user = null) {
+  const scope = await taskScope(workspaceId, user);
   const task = await prisma.task.findFirst({
-    where: { id, workspaceId },
+    where: { id, workspaceId, ...scope },
     include: TASK_INCLUDE,
   });
   if (!task) { const e = new Error('Task not found'); e.status = 404; throw e; }
@@ -67,11 +73,12 @@ export async function createTask(workspaceId, body, userId) {
 // second line of defence, and the one the service tests exercise directly.
 const TASK_WRITABLE = ['title', 'description', 'status', 'dueDate'];
 
-export async function updateTask(workspaceId, id, updates) {
+export async function updateTask(workspaceId, id, updates, user = null) {
+  const scope = await taskScope(workspaceId, user);
   // dueDate and assignee are needed to decide whether clearing this earns XP.
   const task = await prisma.task.findFirst({
-    where: { id, workspaceId },
-    select: { id: true, status: true, dueDate: true, assignedToUserId: true },
+    where: { id, workspaceId, ...scope },
+    select: { id: true, status: true, dueDate: true, assignedToUserId: true, createdAt: true },
   });
   if (!task) { const e = new Error('Task not found'); e.status = 404; throw e; }
 
@@ -90,7 +97,10 @@ export async function updateTask(workspaceId, id, updates) {
   // Only *overdue* work pays. Completing a task before it was due is normal
   // and needs no incentive; digging out of a backlog is the behaviour worth
   // encouraging.
-  const wasOverdue = task.dueDate && task.dueDate < new Date();
+  // A task created already past due was never on time to begin with, so
+  // completing it is not digging out of a backlog — without this, creating a
+  // back-dated task and ticking it off minted XP on demand.
+  const wasOverdue = task.dueDate && task.dueDate < new Date() && task.createdAt < task.dueDate;
   if (data.status === 'COMPLETED' && task.status !== 'COMPLETED' && wasOverdue && task.assignedToUserId) {
     awardXp(workspaceId, task.assignedToUserId, 'cleared_overdue', { recordType: 'task', recordId: id })
       .catch((e) => console.error('[Gamification] award failed:', e.message));
@@ -99,8 +109,9 @@ export async function updateTask(workspaceId, id, updates) {
   return prisma.task.update({ where: { id }, data, include: TASK_INCLUDE });
 }
 
-export async function deleteTask(workspaceId, id) {
-  const task = await prisma.task.findFirst({ where: { id, workspaceId }, select: { id: true } });
+export async function deleteTask(workspaceId, id, user = null) {
+  const scope = await taskScope(workspaceId, user);
+  const task = await prisma.task.findFirst({ where: { id, workspaceId, ...scope }, select: { id: true } });
   if (!task) { const e = new Error('Task not found'); e.status = 404; throw e; }
   await prisma.task.delete({ where: { id } });
 }

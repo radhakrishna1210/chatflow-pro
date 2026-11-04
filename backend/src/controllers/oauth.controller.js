@@ -10,7 +10,6 @@
  * See services/oauth.service.js for why an unvalidated redirect_uri gets an
  * error page rather than a redirect.
  */
-import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import * as oauth from '../services/oauth.service.js';
 import { OAuthRenderError, OAuthRedirectError } from '../services/oauth.service.js';
@@ -92,18 +91,15 @@ export async function consentInfo(req, res) {
     throw err;
   }
 
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: req.user.workspaceId },
-    select: { id: true, name: true },
-  });
-
   // A user with no workspace cannot grant anything — the frontend guard should
   // have sent them to setup, but say so plainly if they arrive here anyway.
-  if (!workspace) {
-    return res.status(409).json({
-      error: 'Create a workspace before connecting an application.',
-      code: 'NO_WORKSPACE',
-    });
+  // Membership and role are checked live, not read off the JWT.
+  let workspace;
+  try {
+    ({ workspace } = await oauth.resolveGrantingWorkspace(req.user.id, req.user.workspaceId));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message, code: err.code });
+    throw err;
   }
 
   const alreadyGranted = await oauth.hasConsent({
@@ -151,9 +147,14 @@ export async function decide(req, res) {
     });
   }
 
-  const workspaceId = req.user.workspaceId;
-  if (!workspaceId) {
-    return res.status(409).json({ error: 'Create a workspace before connecting an application.', code: 'NO_WORKSPACE' });
+  // Approving mints an API key, so the approver must still be a member who may
+  // create one (CLIENT/ADMIN) — see oauth.resolveGrantingWorkspace.
+  let workspaceId;
+  try {
+    ({ workspace: { id: workspaceId } } = await oauth.resolveGrantingWorkspace(req.user.id, req.user.workspaceId));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message, code: err.code });
+    throw err;
   }
 
   await oauth.recordConsent({

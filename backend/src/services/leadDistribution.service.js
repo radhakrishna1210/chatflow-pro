@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { z } from 'zod';
 import { emitCrmEvent } from './workflowCrm.service.js';
 
 const RULES_VIEW_NAME = '__SYSTEM_LEAD_DISTRIBUTION_RULES__';
@@ -26,10 +27,41 @@ export async function getDistributionRules(workspaceId) {
   };
 }
 
+// The rules are stored as JSON and read back on every new lead, so their shape
+// is checked once here rather than trusted: a malformed rule (a non-string
+// source, a pool that is not an array) used to throw inside lead creation.
+const ruleSchema = z.object({
+  id: z.string().max(100).optional(),
+  name: z.string().trim().max(120).optional().default('Rule'),
+  enabled: z.boolean().optional().default(true),
+  conditions: z.object({
+    category: z.enum(['ANY', 'HOT', 'WARM', 'COLD', '']).optional(),
+    source: z.string().max(120).optional(),
+    minScore: z.union([z.coerce.number().min(0).max(100), z.literal(''), z.null()]).optional(),
+    maxScore: z.union([z.coerce.number().min(0).max(100), z.literal(''), z.null()]).optional(),
+    formAnswerContains: z.string().max(200).optional(),
+  }).passthrough().optional().default({}),
+  assignment: z.object({
+    type: z.enum(['USER', 'ROUND_ROBIN']),
+    userId: z.string().max(100).optional().nullable(),
+    poolUserIds: z.array(z.string().max(100)).max(200).optional(),
+  }).passthrough(),
+}).passthrough();
+const rulesSchema = z.array(ruleSchema).max(50);
+
 /**
  * Save or update distribution rules for a workspace.
  */
 export async function saveDistributionRules(workspaceId, { enabled = true, rules = [] } = {}) {
+  const parsed = rulesSchema.safeParse(Array.isArray(rules) ? rules : []);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const e = new Error(`Invalid distribution rule: ${issue?.path?.join('.') || ''} ${issue?.message || ''}`.trim());
+    e.status = 400;
+    throw e;
+  }
+  rules = parsed.data;
+
   const existing = await prisma.savedView.findFirst({
     where: { workspaceId, entity: ENTITY_TYPE, name: RULES_VIEW_NAME },
   });
@@ -58,6 +90,24 @@ export async function saveDistributionRules(workspaceId, { enabled = true, rules
   }
 
   return payload;
+}
+
+// Takes the next slot in the rotation atomically. The old read-modify-write
+// (read the index, write index+1 back with the whole rules object) handed two
+// leads arriving together the same rep, and could write stale rules back over
+// an admin's concurrent edit. A single UPDATE … RETURNING increments only the
+// counter, so concurrent assignments each get their own slot.
+async function takeRoundRobinTicket(workspaceId) {
+  const rows = await prisma.$queryRaw`
+    UPDATE "SavedView"
+    SET "filters" = jsonb_set(
+      "filters", '{roundRobinIndex}',
+      to_jsonb(CASE WHEN ("filters"->>'roundRobinIndex') ~ '^[0-9]+$'
+                    THEN ("filters"->>'roundRobinIndex')::bigint ELSE 0 END + 1)
+    )
+    WHERE "workspaceId" = ${workspaceId} AND "entity" = ${ENTITY_TYPE} AND "name" = ${RULES_VIEW_NAME}
+    RETURNING ("filters"->>'roundRobinIndex')::bigint - 1 AS ticket`;
+  return Number(rows[0]?.ticket ?? 0);
 }
 
 /**
@@ -137,39 +187,27 @@ export async function evaluateAndAssignLead(workspaceId, leadId) {
       assignedUserId = member.userId;
     }
   } else if (assignment.type === 'ROUND_ROBIN') {
-    // Determine candidate pool: either explicit poolUserIds or all workspace members
-    let candidateIds = Array.isArray(assignment.poolUserIds) && assignment.poolUserIds.length > 0
-      ? assignment.poolUserIds
-      : [];
-
-    if (candidateIds.length === 0) {
-      const members = await prisma.workspaceMember.findMany({
-        where: { workspaceId },
-        select: { userId: true },
-      });
-      candidateIds = members.map((m) => m.userId);
+    // The pool is always resolved against *current* members, in a fixed
+    // order. A stored pool can name someone who has since left (or a user id
+    // from another workspace typed into the rules), and members listed in no
+    // particular order made the rotation skip and repeat people.
+    const explicit = Array.isArray(assignment.poolUserIds) ? assignment.poolUserIds.filter(Boolean) : [];
+    const members = await prisma.workspaceMember.findMany({
+      // A viewer cannot work a lead, so the default pool leaves them out.
+      where: { workspaceId, ...(explicit.length ? { userId: { in: explicit } } : { role: { not: 'VIEWER' } }) },
+      select: { userId: true },
+      orderBy: [{ joinedAt: 'asc' }, { userId: 'asc' }],
+    });
+    let candidateIds = members.map((m) => m.userId);
+    if (explicit.length) {
+      // Keep the order the admin arranged the pool in.
+      const allowed = new Set(candidateIds);
+      candidateIds = [...new Set(explicit)].filter((id) => allowed.has(id));
     }
 
     if (candidateIds.length > 0) {
-      const idx = config.roundRobinIndex % candidateIds.length;
-      assignedUserId = candidateIds[idx];
-
-      // Advance round robin counter
-      const nextIndex = (idx + 1) % candidateIds.length;
-      const record = await prisma.savedView.findFirst({
-        where: { workspaceId, entity: ENTITY_TYPE, name: RULES_VIEW_NAME },
-      });
-      if (record) {
-        await prisma.savedView.update({
-          where: { id: record.id },
-          data: {
-            filters: {
-              ...config,
-              roundRobinIndex: nextIndex,
-            },
-          },
-        });
-      }
+      const ticket = await takeRoundRobinTicket(workspaceId);
+      assignedUserId = candidateIds[ticket % candidateIds.length];
     }
   }
 

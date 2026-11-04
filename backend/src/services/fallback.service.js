@@ -2,6 +2,7 @@ import twilio from 'twilio';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { sendMail } from '../lib/mailer.js';
+import { isOptedOut } from './optout.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Campaign fallback channels (wizard step 8)
@@ -37,6 +38,8 @@ export function fallbackCapabilities() {
 }
 
 // Substitute {{1}} → contact name, {{name}} → contact name in fallback copy.
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 function renderText(template, contact) {
   return String(template || '')
     .replaceAll('{{1}}', contact.name || 'there')
@@ -67,7 +70,9 @@ async function sendEmailFallback(config, contact) {
     await sendMail({
       to: contact.email,
       subject: (config.emailSubject || 'A message from us').slice(0, 200),
-      html: `<p style="font-family:sans-serif;font-size:14px;line-height:1.6;">${text.replace(/\n/g, '<br/>')}</p>`,
+      // The contact's name comes from their WhatsApp profile or an import, so
+      // it is escaped before it goes into markup.
+      html: `<p style="font-family:sans-serif;font-size:14px;line-height:1.6;">${escapeHtml(text).replace(/\n/g, '<br/>')}</p>`,
     });
     return { ok: true, channel: 'email' };
   } catch (err) {
@@ -81,6 +86,14 @@ async function sendEmailFallback(config, contact) {
 export async function runFallbackForRecipient(campaign, recipient, contact) {
   const config = campaign.fallbackConfig;
   if (!config || (!config.smsEnabled && !config.emailEnabled)) return null;
+
+  // Someone who opted out asked not to be contacted, not to be contacted on
+  // WhatsApp specifically. A WhatsApp failure is very often *because* of that
+  // (131050: the user stopped marketing messages), and falling back to SMS or
+  // email then reached exactly the person who had said no.
+  if (contact?.optedOut === true || (await isOptedOut(campaign.workspaceId, contact?.phoneNumber).catch(() => false))) {
+    return { attempts: [], succeeded: [], failed: [], skipped: 'opted_out' };
+  }
 
   const attempts = [];
   if (config.smsEnabled) attempts.push(await sendSmsFallback(config, contact));

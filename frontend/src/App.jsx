@@ -12,7 +12,7 @@ import CampaignAI from './pages/CampaignAI.jsx';
 import SiteAssistant from './components/SiteAssistant.jsx';
 import PublicForm from './pages/PublicForm.jsx';
 import OAuthConsent, { peekPendingOAuthRequest, clearPendingOAuthRequest } from './pages/OAuthConsent.jsx';
-import { clearStoredSession } from './lib/api.js';
+import { clearStoredSession, signOut } from './lib/api.js';
 
 // ─── Tiny history-based router ───────────────────────────────────────────────
 // Real URLs (/login, /register, /dashboard/campaigns, …) so browser
@@ -126,7 +126,8 @@ function canAccessDashboard() {
 
 // Signing out from the UI. Shares one implementation with the API layer's
 // automatic logout so the two can't drift over which keys a session is made of.
-const clearSession = clearStoredSession;
+// Revokes the session server-side too (see lib/api.js#signOut).
+const clearSession = signOut;
 
 export default function App() {
   const [path, setPath] = useState(window.location.pathname);

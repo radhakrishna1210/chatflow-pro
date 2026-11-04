@@ -75,13 +75,20 @@ function sanitiseConfig(input = {}) {
     const s = String(v ?? '').trim().slice(0, max);
     return s || fallback;
   };
+  // Rendered as <img src> on customers' sites and in the dashboard: only a
+  // plain web address is a logo. Anything else (javascript:, data:text/html,
+  // a relative path into our own origin) is dropped.
+  const imageUrl = (v) => {
+    const s = str(v, 500);
+    return /^https?:\/\/[^\s"'<>]+$/i.test(s) ? s : '';
+  };
   return {
     businessName: str(merged.businessName, 80),
-    logoUrl: str(merged.logoUrl, 500),
+    logoUrl: imageUrl(merged.logoUrl),
     title: str(merged.title, 60, DEFAULT_CONFIG.title),
     welcomeMessage: str(merged.welcomeMessage, 400, DEFAULT_CONFIG.welcomeMessage),
     assistantName: str(merged.assistantName, 40, DEFAULT_CONFIG.assistantName),
-    avatarUrl: str(merged.avatarUrl, 500),
+    avatarUrl: imageUrl(merged.avatarUrl),
     primaryColor: /^#[0-9a-f]{6}$/i.test(String(merged.primaryColor || '').trim())
       ? String(merged.primaryColor).trim()
       : DEFAULT_CONFIG.primaryColor,
@@ -90,7 +97,7 @@ function sanitiseConfig(input = {}) {
     buttonText: str(merged.buttonText, 40, DEFAULT_CONFIG.buttonText),
     whatsappButtonText: str(merged.whatsappButtonText, 40, DEFAULT_CONFIG.whatsappButtonText),
     suggestedQuestions: (Array.isArray(merged.suggestedQuestions) ? merged.suggestedQuestions : [])
-      .map((q) => String(q).trim())
+      .map((q) => String(q ?? '').trim().slice(0, 120))
       .filter(Boolean)
       .slice(0, 6),
     showOnDesktop: merged.showOnDesktop !== false,

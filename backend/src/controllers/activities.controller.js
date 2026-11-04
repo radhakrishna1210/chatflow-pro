@@ -12,7 +12,7 @@ export async function list(req, res, next) {
       ownerUserId,
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 200,
-    });
+    }, req.user);
     res.json(result);
   } catch (err) {
     next(err);
@@ -25,6 +25,6 @@ export async function create(req, res) {
 }
 
 export async function remove(req, res) {
-  await activitiesService.deleteActivity(req.params.workspaceId, req.params.id);
+  await activitiesService.deleteActivity(req.params.workspaceId, req.params.id, req.user);
   res.status(204).send();
 }

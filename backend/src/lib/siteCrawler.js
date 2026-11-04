@@ -13,6 +13,9 @@
 
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import http from 'node:http';
+import https from 'node:https';
+import zlib from 'node:zlib';
 import { env } from '../config/env.js';
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -28,29 +31,68 @@ const USER_AGENT = `SpandanBot/1.0 (+${env.APP_URL || env.API_PUBLIC_URL}; websi
 // ── Address safety ──────────────────────────────────────────────────────────
 
 function ipv4IsPublic(ip) {
-  const [a, b] = ip.split('.').map(Number);
+  const [a, b, c] = ip.split('.').map(Number);
   if (a === 0) return false;                        // 0.0.0.0/8 "this network"
   if (a === 10) return false;                       // private
   if (a === 127) return false;                      // loopback
   if (a === 169 && b === 254) return false;         // link-local + cloud metadata
   if (a === 172 && b >= 16 && b <= 31) return false;// private
   if (a === 192 && b === 168) return false;         // private
-  if (a === 192 && b === 0) return false;           // IETF protocol assignments
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return false; // IETF assignments + TEST-NET-1
+  if (a === 198 && (b === 18 || b === 19)) return false;          // benchmarking
+  if (a === 198 && b === 51 && c === 100) return false;           // TEST-NET-2
+  if (a === 203 && b === 0 && c === 113) return false;            // TEST-NET-3
   if (a === 100 && b >= 64 && b <= 127) return false; // CGNAT
   if (a >= 224) return false;                       // multicast + reserved + broadcast
   return true;
 }
 
+// Expands an IPv6 address (any textual form, including an embedded dotted
+// IPv4 tail) to its eight 16-bit groups, or null when it does not parse.
+function ipv6Groups(ip) {
+  let s = ip.toLowerCase().replace(/%.*$/, '');      // drop a zone id
+  const v4 = s.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4) {
+    const p = v4[2].split('.').map(Number);
+    if (p.some((n) => n > 255)) return null;
+    s = `${v4[1]}${((p[0] << 8) | p[1]).toString(16)}:${((p[2] << 8) | p[3]).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0) return null;
+  const groups = [...head, ...Array(fill).fill('0'), ...tail].map((g) => parseInt(g, 16));
+  if (groups.length !== 8 || groups.some((g) => !Number.isInteger(g) || g < 0 || g > 0xffff)) return null;
+  return groups;
+}
+
+const groupsToV4 = (hi, lo) => `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+
+// Node's URL parser rewrites `[::ffff:127.0.0.1]` to `[::ffff:7f00:1]`, so a
+// textual prefix check on "::ffff:a.b.c.d" let every IPv4 address through in
+// hex form (http://[::ffff:7f00:1]:6379/ reached the local Redis). Checks are
+// done on the parsed groups instead, and every IPv6 form that embeds an IPv4
+// address (mapped, compatible, NAT64, 6to4) is judged by that address.
 function ipv6IsPublic(ip) {
-  const lower = ip.toLowerCase();
-  if (lower === '::' || lower === '::1') return false;            // unspecified / loopback
-  if (lower.startsWith('fe8') || lower.startsWith('fe9')
-   || lower.startsWith('fea') || lower.startsWith('feb')) return false; // link-local
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return false;   // unique local
-  if (lower.startsWith('ff')) return false;                        // multicast
-  // ::ffff:a.b.c.d — an IPv4 address wearing an IPv6 hat.
-  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return ipv4IsPublic(mapped[1]);
+  const g = ipv6Groups(ip);
+  if (!g) return false;
+  const zero = (from, to) => g.slice(from, to).every((x) => x === 0);
+  if (zero(0, 8)) return false;                                     // ::
+  if (zero(0, 7) && g[7] === 1) return false;                       // ::1
+  if (zero(0, 5) && g[5] === 0xffff) return ipv4IsPublic(groupsToV4(g[6], g[7])); // ::ffff:a.b.c.d
+  if (zero(0, 6)) return ipv4IsPublic(groupsToV4(g[6], g[7]));      // ::a.b.c.d (deprecated compat)
+  if (zero(0, 4) && g[4] === 0xffff && g[5] === 0) return false;    // ::ffff:0:a.b.c.d (SIIT)
+  if (g[0] === 0x64 && g[1] === 0xff9b) return ipv4IsPublic(groupsToV4(g[6], g[7])); // NAT64
+  if (g[0] === 0x2002) return ipv4IsPublic(groupsToV4(g[1], g[2])); // 6to4
+  if (g[0] === 0x2001 && g[1] === 0) return false;                  // Teredo (tunnels to anywhere)
+  if (g[0] === 0x2001 && g[1] === 0xdb8) return false;              // documentation
+  if (g[0] === 0x100 && zero(1, 4)) return false;                   // discard-only
+  if ((g[0] & 0xfe00) === 0xfc00) return false;                     // unique local fc00::/7
+  if ((g[0] & 0xffc0) === 0xfe80) return false;                     // link-local fe80::/10
+  if ((g[0] & 0xffc0) === 0xfec0) return false;                     // site-local fec0::/10
+  if ((g[0] & 0xff00) === 0xff00) return false;                     // multicast
   return true;
 }
 
@@ -60,6 +102,10 @@ export function ipIsPublic(ip) {
   if (version === 6) return ipv6IsPublic(ip);
   return false;
 }
+
+const notPublic = (message = 'That address is not publicly reachable') => {
+  const e = new Error(message); e.status = 400; return e;
+};
 
 // Parses and vets a URL. Returns the URL object, or throws with a message the
 // UI can show. Rejects non-HTTP schemes outright: file:, gopher: and friends
@@ -77,104 +123,136 @@ export function assertSafeUrl(raw) {
   if (!url.hostname) {
     const e = new Error('That URL has no hostname'); e.status = 400; throw e;
   }
+  // Credentials in the URL would be sent to whatever host it names.
+  if (url.username || url.password) throw notPublic('URLs with a username or password cannot be fetched');
   // Block the obvious names before paying for a DNS lookup.
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) {
-    const e = new Error('That address is not publicly reachable'); e.status = 400; throw e;
+    throw notPublic();
   }
   // A literal IP skips DNS, so check it here.
-  if (net.isIP(host) && !ipIsPublic(host)) {
-    const e = new Error('That address is not publicly reachable'); e.status = 400; throw e;
-  }
+  if (net.isIP(host) && !ipIsPublic(host)) throw notPublic();
   return url;
 }
 
-// Resolves the hostname and rejects the request if ANY returned address is
-// non-public. Checking every answer (rather than the first) closes the
-// DNS-rebinding window where a name resolves to both a public and a private
-// address and the private one is used for the actual connection.
-async function assertHostResolvesPublic(hostname) {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (net.isIP(host)) {
-    if (!ipIsPublic(host)) { const e = new Error('That address is not publicly reachable'); e.status = 400; throw e; }
-    return;
-  }
-  let addresses;
-  try {
-    addresses = await dns.lookup(host, { all: true, verbatim: true });
-  } catch {
-    const e = new Error('That domain could not be resolved'); e.status = 400; throw e;
-  }
-  if (!addresses.length) {
-    const e = new Error('That domain could not be resolved'); e.status = 400; throw e;
-  }
-  for (const { address } of addresses) {
-    if (!ipIsPublic(address)) {
-      const e = new Error('That address resolves to a private network and cannot be analysed');
-      e.status = 400; throw e;
-    }
-  }
+// DNS lookup used for the actual connection. Resolving once to check and then
+// letting the HTTP client resolve again is a DNS-rebinding window: a name with
+// a 0-second TTL answers a public address to the check and 127.0.0.1 to the
+// connect. Validating inside the socket's own lookup means the address that is
+// checked is the address that is dialled. Every answer must be public, so a
+// name that resolves to both a public and a private address is refused too.
+export function safeLookup(hostname, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  const opts = typeof options === 'number' ? { family: options } : (options || {});
+  dns.lookup(hostname, { all: true, verbatim: true, family: opts.family || 0 })
+    .then((addresses) => {
+      if (!addresses.length) return callback(Object.assign(new Error('That domain could not be resolved'), { status: 400, code: 'ENOTFOUND' }));
+      if (addresses.some(({ address }) => !ipIsPublic(address))) {
+        return callback(notPublic('That address resolves to a private network and cannot be fetched'));
+      }
+      if (opts.all) return callback(null, addresses);
+      return callback(null, addresses[0].address, addresses[0].family);
+    })
+    .catch(() => callback(Object.assign(new Error('That domain could not be resolved'), { status: 400, code: 'ENOTFOUND' })));
 }
 
 // ── Fetching ────────────────────────────────────────────────────────────────
 
-async function readCapped(response) {
-  const reader = response.body?.getReader?.();
-  if (!reader) return (await response.text()).slice(0, MAX_BYTES);
-  const chunks = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.length;
-    if (total > MAX_BYTES) { await reader.cancel().catch(() => {}); break; }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
+function decoderFor(encoding) {
+  const enc = String(encoding || '').trim().toLowerCase();
+  if (enc === 'gzip' || enc === 'x-gzip') return zlib.createGunzip();
+  if (enc === 'deflate') return zlib.createInflate();
+  if (enc === 'br') return zlib.createBrotliDecompress();
+  return null;
 }
 
-// Follows redirects by hand so each hop is re-validated. `redirect: 'follow'`
-// would let a public URL bounce the request to a private one.
-export async function safeFetchHtml(rawUrl) {
-  let url = assertSafeUrl(rawUrl);
-
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    await assertHostResolvesPublic(url.hostname);
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let response;
-    try {
-      response = await fetch(url.toString(), {
-        redirect: 'manual',
-        signal: controller.signal,
-        headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml' },
+// One request, no redirect following, connecting only to addresses that pass
+// safeLookup. Reads at most maxBytes of the (decoded) body.
+function requestOnce(url, { headers, timeoutMs, maxBytes }) {
+  return new Promise((resolve, reject) => {
+    const mod = url.protocol === 'https:' ? https : http;
+    let settled = false;
+    const done = (fn, v) => { if (!settled) { settled = true; clearTimeout(timer); fn(v); } };
+    const req = mod.request(url, {
+      method: 'GET',
+      headers: { 'Accept-Encoding': 'gzip, deflate, br', ...headers },
+      lookup: safeLookup,
+      // Never reuse a pooled socket: it would skip the lookup check.
+      agent: false,
+    }, (res) => {
+      const status = res.statusCode || 0;
+      if (status >= 300 && status < 400) {
+        res.resume();
+        return done(resolve, { status, headers: res.headers, body: '' });
+      }
+      const decoder = decoderFor(res.headers['content-encoding']);
+      const stream = decoder ? res.pipe(decoder) : res;
+      const chunks = [];
+      let total = 0;
+      stream.on('data', (chunk) => {
+        total += chunk.length;
+        if (total > maxBytes) {
+          chunks.push(chunk.subarray(0, Math.max(0, maxBytes - (total - chunk.length))));
+          req.destroy();
+          return done(resolve, { status, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') });
+        }
+        chunks.push(chunk);
       });
+      stream.on('end', () => done(resolve, { status, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
+      stream.on('error', (err) => done(reject, err));
+    });
+    const timer = setTimeout(() => {
+      req.destroy(Object.assign(new Error('timeout'), { name: 'AbortError' }));
+    }, timeoutMs);
+    req.on('error', (err) => done(reject, err));
+    req.end();
+  });
+}
+
+// Fetches a public http(s) URL, following redirects by hand so every hop is
+// re-validated (`redirect: 'follow'` would let a public URL bounce the request
+// to a private one), with the connection itself pinned to a vetted address.
+//
+// Returns { status, headers, body, finalUrl }. Throws an Error with `status`
+// (400 for an unsafe/invalid address, 502 for an unreachable site).
+export async function safeFetch(rawUrl, {
+  accept = 'text/html,application/xhtml+xml',
+  userAgent = USER_AGENT,
+  timeoutMs = FETCH_TIMEOUT_MS,
+  maxBytes = MAX_BYTES,
+  maxRedirects = MAX_REDIRECTS,
+} = {}) {
+  let url = assertSafeUrl(rawUrl);
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    let res;
+    try {
+      res = await requestOnce(url, { headers: { 'User-Agent': userAgent, Accept: accept }, timeoutMs, maxBytes });
     } catch (err) {
+      if (err.status) throw err;  // refused by safeLookup
       const e = new Error(err.name === 'AbortError' ? 'That site took too long to respond' : 'Could not reach that site');
       e.status = 502; throw e;
-    } finally {
-      clearTimeout(timer);
     }
-
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
-      if (!location) break;
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.location;
+      if (!location) return { ...res, finalUrl: url.toString() };
       url = assertSafeUrl(new URL(location, url).toString());
       continue;
     }
-
-    if (!response.ok) {
-      const e = new Error(`That site returned ${response.status}`); e.status = 502; throw e;
-    }
-    const type = response.headers.get('content-type') || '';
-    if (!/text\/html|application\/xhtml/i.test(type)) {
-      const e = new Error('That URL did not return a web page'); e.status = 400; throw e;
-    }
-    return { html: await readCapped(response), finalUrl: url.toString() };
+    return { ...res, finalUrl: url.toString() };
   }
-
   const e = new Error('That site redirected too many times'); e.status = 502; throw e;
+}
+
+export async function safeFetchHtml(rawUrl) {
+  const res = await safeFetch(rawUrl);
+  if (res.status < 200 || res.status >= 300) {
+    const e = new Error(`That site returned ${res.status}`); e.status = 502; throw e;
+  }
+  const type = String(res.headers['content-type'] || '');
+  if (!/text\/html|application\/xhtml/i.test(type)) {
+    const e = new Error('That URL did not return a web page'); e.status = 400; throw e;
+  }
+  return { html: res.body, finalUrl: res.finalUrl };
 }
 
 // ── Extraction ──────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { parse } from 'csv-parse/sync';
-import { attributesFromRow, isBuiltInColumn, toAttributeKey, mergeAttributes, normalizeAttributePatch } from '../lib/contactAttributes.js';
+import { attributesFromRow, isBuiltInColumn, toAttributeKey, mergeAttributes, normalizeAttributePatch, builtInFields, detectDelimiter } from '../lib/contactAttributes.js';
 import { assertWithinLimit } from './subscription.service.js';
 
 // Normalize to E.164-ish: strip everything but digits, keep a leading '+'.
@@ -189,7 +189,15 @@ export async function createContact(workspaceId, { name, phoneNumber, email, tag
 export async function importContacts(workspaceId, csvBuffer) {
   let records;
   try {
-    records = parse(csvBuffer, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+    // relax_column_count: one short or long row (a trailing comma, a missing
+    // last cell) used to fail the entire upload with "Invalid Record Length".
+    records = parse(csvBuffer, {
+      columns: true, skip_empty_lines: true, trim: true, bom: true,
+      delimiter: detectDelimiter(String(csvBuffer).slice(0, 4096)),
+      relax_column_count: true,
+      // A spreadsheet's ",,," filler rows are blank, not invalid contacts.
+      skip_records_with_empty_values: true,
+    });
   } catch (err) {
     const e = new Error(`Could not parse CSV: ${err.message}`); e.status = 400; throw e;
   }
@@ -204,8 +212,11 @@ export async function importContacts(workspaceId, csvBuffer) {
   const data = [];
   const attributesByPhone = new Map();
   for (const r of records) {
-    const rawPhone = r.phoneNumber || r.phone || r.Phone || r.PhoneNumber || r['Phone Number'] || r.phone_number || r.mobile || r.Mobile || '';
-    if (!isValidPhone(rawPhone)) { if (String(rawPhone).trim()) invalid++; continue; }
+    const fields = builtInFields(r);
+    const rawPhone = fields.phone;
+    // A row with no number at all is invalid too — it used to vanish without
+    // being counted, so "0 imported, 0 invalid" gave no hint why.
+    if (!isValidPhone(rawPhone)) { invalid++; continue; }
     const phoneNumber = normalizePhone(rawPhone);
     if (seen.has(phoneNumber)) continue; // in-file duplicate
     seen.add(phoneNumber);
@@ -214,10 +225,10 @@ export async function importContacts(workspaceId, csvBuffer) {
     if (hasAttributes) attributesByPhone.set(phoneNumber, attributes);
     data.push({
       workspaceId,
-      name: r.name || r.Name || phoneNumber,
+      name: fields.name || phoneNumber,
       phoneNumber,
-      email: (r.email || r.Email || '').trim() || null,
-      tags: r.tags ? String(r.tags).split(',').map((t) => t.trim()).filter(Boolean) : [],
+      email: fields.email || null,
+      tags: fields.tags ? fields.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
       ...(hasAttributes ? { attributes } : {}),
     });
   }
@@ -318,7 +329,12 @@ export async function updateContact(workspaceId, id, updates) {
     // Merged like customFields; a null value removes that column.
     data.attributes = mergeAttributes(contact.attributes, normalizeAttributePatch(data.attributes));
   }
-  return prisma.contact.update({ where: { id }, data });
+  return prisma.contact.update({ where: { id }, data }).catch((err) => {
+    // (workspaceId, phoneNumber) is unique; editing a number onto one that
+    // another contact already has was a bare 500.
+    if (err.code === 'P2002') { const e = new Error('A contact with this phone number already exists'); e.status = 409; throw e; }
+    throw err;
+  });
 }
 
 // ─── Export ──────────────────────────────────────────────────────────────────

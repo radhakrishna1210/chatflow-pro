@@ -302,13 +302,27 @@ export function listActions() {
 /**
  * Execute an AI Action Tool against the CRM
  */
+// The ids an action names come straight from the request body. Each must
+// belong to this workspace before anything is written against it: a crmActivity
+// row carries its own workspaceId, so an unchecked leadId from another tenant
+// planted a "meeting booked" note on that tenant's lead timeline.
+async function assertOwnedRefs(workspaceId, { leadId, contactId, userId }) {
+  const fail = (what) => { const e = new Error(`${what} not found in this workspace`); e.status = 404; throw e; };
+  if (leadId && !(await prisma.lead.findFirst({ where: { id: String(leadId), workspaceId }, select: { id: true } }))) fail('Lead');
+  if (contactId && !(await prisma.contact.findFirst({ where: { id: String(contactId), workspaceId }, select: { id: true } }))) fail('Contact');
+  if (userId && !(await prisma.workspaceMember.findFirst({ where: { userId: String(userId), workspaceId }, select: { userId: true } }))) fail('User');
+}
+
 export async function executeAction(workspaceId, actionId, params = {}) {
-  const { leadId, contactId, userId, note, dueInDays } = params;
+  const { leadId, contactId, userId, note, dueInDays } = params || {};
+  await assertOwnedRefs(workspaceId, { leadId, contactId, userId });
 
   switch (actionId) {
     case 'crm.qualify_lead': {
       if (!leadId) throw new Error('leadId is required to qualify lead');
-      const updated = await updateLead(leadId, workspaceId, {
+      // (workspaceId, id) — the arguments were swapped, so every qualify
+      // looked up a lead whose id was the workspace id and failed "not found".
+      const updated = await updateLead(workspaceId, leadId, {
         status: 'QUALIFIED',
         score: 85,
         category: 'HOT',
@@ -334,9 +348,9 @@ export async function executeAction(workspaceId, actionId, params = {}) {
 
     case 'crm.create_task': {
       const task = await createTask(workspaceId, {
-        title: params.title || 'Follow up with qualified prospect',
-        description: note || 'AI Agent scheduled follow up based on customer interest',
-        dueDate: new Date(Date.now() + (dueInDays || 1) * 86400000).toISOString(),
+        title: String(params.title || 'Follow up with qualified prospect').slice(0, 200),
+        description: String(note || 'AI Agent scheduled follow up based on customer interest').slice(0, 2000),
+        dueDate: new Date(Date.now() + Math.min(365, Math.max(0, Number(dueInDays) || 1)) * 86400000).toISOString(),
         leadId,
         contactId,
         assignedToUserId: userId,
@@ -352,7 +366,7 @@ export async function executeAction(workspaceId, actionId, params = {}) {
           leadId,
           contactId,
           type: 'MEETING',
-          content: `[AI Meeting Booked] ${note || 'Introductory consultation scheduled with partner team.'}`,
+          content: `[AI Meeting Booked] ${String(note || 'Introductory consultation scheduled with partner team.').slice(0, 2000)}`,
         },
       });
       return { success: true, activity: act };

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { apiFetch, wFetch } from '../lib/api.js';
+import { signOut as endSession } from '../lib/api.js';
 
 // ─── Post-signup onboarding ──────────────────────────────────────────────────
 //
@@ -140,9 +141,8 @@ export default function WorkspaceSetup({ onNav }) {
   };
 
   const signOut = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
+    // Ends the session on the server too, not just in this browser.
+    endSession();
     onNav('login');
   };
 

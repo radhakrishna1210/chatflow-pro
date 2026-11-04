@@ -1,4 +1,35 @@
 import { prisma } from '../lib/prisma.js';
+import { scopeFilter } from './recordScope.service.js';
+import { andWhere } from './crmReferences.js';
+
+const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'UNQUALIFIED', 'CONVERTED', 'LOST'];
+const LEAD_CATEGORIES = ['HOT', 'WARM', 'COLD'];
+const DEAL_STAGES = ['QUALIFICATION', 'NEEDS_ANALYSIS', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST'];
+const ACTIVITY_TYPES = ['NOTE', 'CALL', 'EMAIL', 'MEETING'];
+
+// Report filters arrive as arbitrary JSON from the request body. Each one is
+// reduced to a plain string (an object such as { not: null } would otherwise
+// be handed to Prisma as an operator) and enum filters are checked, so a bad
+// value is a 400 instead of a Prisma 500.
+function cleanFilters(raw) {
+  const f = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const str = (v) => (typeof v === 'string' || typeof v === 'number' ? String(v).trim().slice(0, 100) : '');
+  const out = {
+    category: str(f.category), status: str(f.status), ownerUserId: str(f.ownerUserId),
+    source: str(f.source), stage: str(f.stage), type: str(f.type),
+  };
+  const check = (key, allowed) => {
+    if (out[key] && out[key] !== 'ALL' && !allowed.includes(out[key])) {
+      const e = new Error(`${key} must be one of: ${allowed.join(', ')}`); e.status = 400; throw e;
+    }
+  };
+  check('category', LEAD_CATEGORIES);
+  check('status', LEAD_STATUSES);
+  check('stage', DEAL_STAGES);
+  check('type', ACTIVITY_TYPES);
+  for (const k of ['status', 'stage', 'type']) if (out[k] === 'ALL') out[k] = '';
+  return out;
+}
 
 const REPORT_ENTITY_TYPE = 'crm_custom_report';
 
@@ -64,7 +95,13 @@ export async function executeCustomReport(workspaceId, {
   groupBy = 'source',
   filters = {},
   range = '30d',
-} = {}) {
+} = {}, user = null) {
+  filters = cleanFilters(filters);
+  // Reports aggregate the same records the lists show, so they are scoped the
+  // same way — otherwise a member in TEAM/OWN mode read colleagues' pipeline
+  // totals (by owner, by stage) through a report.
+  const scope = user ? await scopeFilter(workspaceId, user) : {};
+  const scoped = Object.keys(scope).length > 0;
   const now = new Date();
   let startDate = null;
   if (range === '7d') startDate = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
@@ -75,6 +112,7 @@ export async function executeCustomReport(workspaceId, {
   if (entity === 'leads') {
     const where = {
       workspaceId,
+      ...scope,
       ...(startDate ? { createdAt: { gte: startDate } } : {}),
       ...(filters.category && filters.category !== 'ALL' ? { category: filters.category } : {}),
       ...(filters.status ? { status: filters.status } : {}),
@@ -168,6 +206,7 @@ export async function executeCustomReport(workspaceId, {
   if (entity === 'deals') {
     const where = {
       workspaceId,
+      ...scope,
       ...(startDate ? { createdAt: { gte: startDate } } : {}),
       ...(filters.stage ? { stage: filters.stage } : {}),
       ...(filters.ownerUserId ? { ownerUserId: filters.ownerUserId } : {}),
@@ -228,6 +267,7 @@ export async function executeCustomReport(workspaceId, {
       ...(startDate ? { createdAt: { gte: startDate } } : {}),
       ...(filters.type ? { type: filters.type } : {}),
       ...(filters.ownerUserId ? { createdByUserId: filters.ownerUserId } : {}),
+      ...(scoped ? andWhere({ OR: [{ leadId: null }, { lead: scope }] }, { OR: [{ dealId: null }, { deal: scope }] }) : {}),
     };
 
     const groups = await prisma.crmActivity.groupBy({
@@ -282,9 +322,23 @@ export async function listSavedReports(workspaceId, userId) {
 }
 
 export async function saveCustomReport(workspaceId, { name, config, isShared = true } = {}, userId) {
-  if (!name || !name.trim()) {
+  if (typeof name !== 'string' || !name.trim()) {
     const e = new Error('Report name is required'); e.status = 400; throw e;
   }
+  if (name.trim().length > 80) { const e = new Error('Report name must be 80 characters or fewer'); e.status = 400; throw e; }
+  const safeConfig = config && typeof config === 'object' && !Array.isArray(config) ? config : {};
+  if (JSON.stringify(safeConfig).length > 4000) {
+    const e = new Error('Report configuration is too large'); e.status = 400; throw e;
+  }
+  config = {
+    entity: ['leads', 'deals', 'activities'].includes(safeConfig.entity) ? safeConfig.entity : 'leads',
+    metric: typeof safeConfig.metric === 'string' ? safeConfig.metric.slice(0, 30) : 'count',
+    groupBy: typeof safeConfig.groupBy === 'string' ? safeConfig.groupBy.slice(0, 30) : 'source',
+    chartType: typeof safeConfig.chartType === 'string' ? safeConfig.chartType.slice(0, 30) : 'bar',
+    range: typeof safeConfig.range === 'string' ? safeConfig.range.slice(0, 20) : '30d',
+    filters: cleanFilters(safeConfig.filters),
+    ...(typeof safeConfig.description === 'string' ? { description: safeConfig.description.slice(0, 300) } : {}),
+  };
   const report = await prisma.savedView.create({
     data: {
       workspaceId,
@@ -298,11 +352,17 @@ export async function saveCustomReport(workspaceId, { name, config, isShared = t
   return report;
 }
 
-export async function deleteSavedReport(workspaceId, id, userId) {
+export async function deleteSavedReport(workspaceId, id, userId, role = null) {
+  // Only reports the caller can see can be found, and only the author (or an
+  // admin) may delete one: any member could otherwise delete a colleague's
+  // private report by id, or a shared report the team relies on.
   const report = await prisma.savedView.findFirst({
-    where: { id, workspaceId, entity: REPORT_ENTITY_TYPE },
+    where: { id, workspaceId, entity: REPORT_ENTITY_TYPE, OR: [{ createdByUserId: userId }, { isShared: true }] },
   });
   if (!report) { const e = new Error('Report not found'); e.status = 404; throw e; }
+  if (report.createdByUserId !== userId && role !== 'ADMIN') {
+    const e = new Error('Only the author or an admin can delete this report'); e.status = 403; throw e;
+  }
   await prisma.savedView.delete({ where: { id } });
   return { ok: true };
 }

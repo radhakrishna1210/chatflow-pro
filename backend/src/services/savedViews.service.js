@@ -17,9 +17,15 @@ const VIEW_SELECT = {
 // A user sees their own views plus anything shared with the workspace. Someone
 // else's private view is invisible, which is what makes "private unless shared"
 // mean anything.
+//
+// The SavedView table also stores system records — CRM customization sections,
+// lead-distribution rules, custom reports — under other `entity` values. This
+// endpoint is confined to real list views: unfiltered, it listed those records
+// to every member, and the author check let whoever last saved a
+// customization section rewrite or delete it from here.
 const visibleTo = (workspaceId, userId, entity) => ({
   workspaceId,
-  ...(entity ? { entity } : {}),
+  entity: entity || { in: SAVED_VIEW_ENTITIES },
   OR: [{ createdByUserId: userId }, { isShared: true }],
 });
 
@@ -71,7 +77,7 @@ export async function createSavedView(workspaceId, userId, { entity, name, filte
 // cleanup silently deletes a filter the rest of the team relies on.
 async function assertAuthor(workspaceId, userId, id) {
   const view = await prisma.savedView.findFirst({
-    where: { id, workspaceId },
+    where: { id, workspaceId, entity: { in: SAVED_VIEW_ENTITIES } },
     select: { id: true, createdByUserId: true },
   });
   if (!view) { const e = new Error('Saved view not found'); e.status = 404; throw e; }
@@ -85,7 +91,10 @@ async function assertAuthor(workspaceId, userId, id) {
 
 export async function updateSavedView(workspaceId, userId, id, updates) {
   await assertAuthor(workspaceId, userId, id);
-  return prisma.savedView.update({ where: { id }, data: updates, select: VIEW_SELECT });
+  return prisma.savedView.update({ where: { id }, data: updates, select: VIEW_SELECT }).catch((err) => {
+    if (err.code === 'P2002') { const e = new Error('You already have a view with that name'); e.status = 409; throw e; }
+    throw err;
+  });
 }
 
 export async function deleteSavedView(workspaceId, userId, id) {

@@ -75,7 +75,7 @@ export function CrmIntegrationHealthModal({ onClose }) {
                   : 'Partial Connection / Setup Needed'}
               </div>
               <div style={{ fontSize: 12, color: 'var(--t2)', marginTop: 2 }}>
-                {health?.healthyCount || 0} of {health?.totalIntegrations || 4} channels active · Uptime: {health?.uptime || '99.98%'}
+                {health?.healthyCount || 0} of {health?.totalIntegrations || 4} channels active
               </div>
             </div>
           </div>

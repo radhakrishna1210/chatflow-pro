@@ -2,6 +2,12 @@ import { useState, useEffect } from 'react';
 import { wFetch } from '../lib/api.js';
 import { I } from './Icons.jsx';
 import { Btn } from './Btn.jsx';
+import { fmtMoney } from '../lib/format.js';
+
+// NOTE: not mounted anywhere at present (CrmDashboardView renders its own KPI
+// cards). It read totalRevenue/totalDeals/winRate/openLeads, none of which
+// GET /crm-analytics returns — every card would have shown 0 — so it now reads
+// the real `kpis` block.
 
 export function CrmDashboardWidgets() {
   const [stats, setStats] = useState(null);
@@ -10,11 +16,11 @@ export function CrmDashboardWidgets() {
 
   useEffect(() => {
     Promise.all([
-      wFetch('/crm-analytics').then(r => r.json()),
-      wFetch('/tasks?isOverdue=true').then(r => r.json())
+      wFetch('/crm-analytics').then(r => (r.ok ? r.json() : null)),
+      wFetch('/tasks?isOverdue=true').then(r => (r.ok ? r.json() : { data: [] }))
     ]).then(([statsData, tasksData]) => {
-      setStats(statsData);
-      setTasks(tasksData.data || []);
+      setStats(statsData?.kpis ?? null);
+      setTasks(tasksData?.data || []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -27,19 +33,19 @@ export function CrmDashboardWidgets() {
     <div style={{ marginTop: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: '18px', color: '#fff', margin: 0 }}>CRM Pipeline</h3>
-        <Btn outline size="sm" onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'deals' }))}>
+        <Btn variant="outline" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'deals' }))}>
           View Deals
         </Btn>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
-        <StatCard title="Total Revenue (Won)" value={`₹${stats?.totalRevenue?.toLocaleString() || 0}`} icon="dollar-sign" color="var(--green)" />
-        <StatCard title="Total Deals" value={stats?.totalDeals || 0} icon="briefcase" color="#0ea5e9" />
-        <StatCard title="Win Rate" value={`${stats?.winRate || 0}%`} icon="target" color="#8b5cf6" />
-        <StatCard title="Open Leads" value={stats?.openLeads || 0} icon="users" color="#f59e0b" />
+        <StatCard title="Closed Won (Month)" value={fmtMoney(stats?.closedWonMonthly ?? 0)} icon="credit" color="var(--green)" />
+        <StatCard title="Open Deals" value={stats?.openDeals ?? 0} icon="briefcase" color="#0ea5e9" />
+        <StatCard title="Win Rate (90d)" value={`${stats?.winRate90d ?? 0}%`} icon="target" color="#8b5cf6" />
+        <StatCard title="New Leads" value={stats?.newLeads ?? 0} icon="users" color="#f59e0b" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
         {/* We can put a chart here eventually, but for now we'll put Top Salesperson and Overdue Tasks */}
         <div style={{ background: 'var(--gbg)', border: '1px solid var(--bd)', borderRadius: 12, padding: 20 }}>
           <h4 style={{ fontSize: 14, fontWeight: 600, color: 'var(--t1)', margin: '0 0 16px 0' }}>Top Salesperson</h4>
@@ -61,7 +67,7 @@ export function CrmDashboardWidgets() {
         <div style={{ background: 'var(--gbg)', border: '1px solid var(--bd)', borderRadius: 12, padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h4 style={{ fontSize: 14, fontWeight: 600, color: 'var(--t1)', margin: 0 }}>Overdue Tasks</h4>
-            <Btn size="xs" outline onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'tasks' }))}>
+            <Btn size="sm" variant="outline" onClick={() => window.dispatchEvent(new CustomEvent('app:nav', { detail: 'tasks' }))}>
               See All
             </Btn>
           </div>
@@ -69,7 +75,7 @@ export function CrmDashboardWidgets() {
             {tasks.length > 0 ? tasks.slice(0, 3).map(task => (
               <div key={task.id} style={{ display: 'flex', flexDirection: 'column', paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)' }}>{task.title}</span>
-                <span style={{ fontSize: 11, color: '#f87171', marginTop: 2 }}>{new Date(task.dueDate).toLocaleDateString()}</span>
+                <span style={{ fontSize: 11, color: '#f87171', marginTop: 2 }}>{task.dueDate ? new Date(task.dueDate).toLocaleDateString('en-IN') : '—'}</span>
               </div>
             )) : (
               <div style={{ fontSize: 13, color: 'var(--t3)' }}>No overdue tasks!</div>

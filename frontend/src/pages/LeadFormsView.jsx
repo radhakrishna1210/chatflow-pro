@@ -477,8 +477,9 @@ const SubmissionsPanel = ({ form }) => {
 // ─── detail ──────────────────────────────────────────────────────────────────
 
 const publicUrl = (slug) => {
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  return `${window.location.origin}/forms/${user.workspaceId}/${slug}`;
+  let workspaceId = '';
+  try { workspaceId = JSON.parse(localStorage.getItem('user') || '{}')?.workspaceId || ''; } catch { /* corrupt storage */ }
+  return `${window.location.origin}/forms/${encodeURIComponent(workspaceId)}/${encodeURIComponent(slug)}`;
 };
 
 const FormDetail = ({ form, onClose, onEdit, onChanged }) => {
@@ -546,13 +547,19 @@ const FormDetail = ({ form, onClose, onEdit, onChanged }) => {
 
         <div>
           <FLabel>Public URL</FLabel>
-          <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-            <div style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--bd)', background: 'rgba(255,255,255,.02)', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--t2)', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+          <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 0, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--bd)', background: 'rgba(255,255,255,.02)', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--t2)', overflowX: 'auto', whiteSpace: 'nowrap' }}>
               {url}
             </div>
             <Btn variant="ghost" size="sm" onClick={copy}>
               <I n="copy" s={13} /> {copied ? 'Copied' : 'Copy'}
             </Btn>
+            {form.isActive && (
+              <a href={url} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 13, fontWeight: 600, color: 'var(--green)', textDecoration: 'none', whiteSpace: 'nowrap', padding: '7px 6px' }}>
+                Open ↗
+              </a>
+            )}
           </div>
         </div>
 
@@ -592,8 +599,10 @@ export default function LeadFormsView() {
 
   useEffect(() => {
     wFetch('/members')
-      .then((r) => (r.ok ? r.json() : { data: [] }))
-      .then((b) => setMembers(b.data ?? b.members ?? []))
+      .then((r) => (r.ok ? r.json() : []))
+      // GET /members answers with a bare array; reading only .data/.members
+      // left "Assign leads to" permanently empty.
+      .then((b) => setMembers(Array.isArray(b) ? b : (b?.data ?? b?.members ?? [])))
       .catch(() => setMembers([]));
   }, []);
 
@@ -648,7 +657,7 @@ export default function LeadFormsView() {
         <Btn size="sm" onClick={() => setEditing('new')}><I n="plus" s={14} c="#060A10" /> New form</Btn>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: '24px 32px', flex: 1 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: 'clamp(16px, 3vw, 24px) clamp(16px, 3vw, 32px)', flex: 1 }}>
 
       {error && <ErrorBanner onDismiss={() => setError(null)}>{error}</ErrorBanner>}
 
@@ -664,7 +673,7 @@ export default function LeadFormsView() {
           <Btn size="sm" onClick={() => setEditing('new')}><I n="plus" s={14} /> Create your first form</Btn>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(320px, 100%), 1fr))', gap: 12 }}>
           {forms.map((f) => (
             <div key={f.id} className="m-lift" style={{ ...card, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>

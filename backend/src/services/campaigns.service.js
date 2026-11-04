@@ -20,6 +20,17 @@ const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 10
 const MIN_MSISDN_DIGITS = 8;
 const MAX_MSISDN_DIGITS = 15; // E.164
 
+// A launched campaign stays DRAFT until the worker picks its job up, but it has
+// already been charged for a specific audience by then (chargedAt is set). Any
+// edit in that window — adding 5,000 contacts, swapping the template — would
+// be sent without ever being paid for, so a charged campaign is locked.
+function assertNotCharged(campaign) {
+  if (campaign.chargedAt) {
+    const e = new Error('This campaign has already been launched and can no longer be edited.');
+    e.status = 409; e.code = 'CAMPAIGN_ALREADY_LAUNCHED'; throw e;
+  }
+}
+
 const isSendableNumber = (phone) => {
   const digits = normalizePhone(phone);
   return digits.length >= MIN_MSISDN_DIGITS && digits.length <= MAX_MSISDN_DIGITS;
@@ -291,6 +302,7 @@ export async function updateCampaign(workspaceId, campaignId, {
   if (campaign.status !== 'DRAFT' && campaign.status !== 'SCHEDULED') {
     const e = new Error('Only DRAFT or SCHEDULED campaigns can be updated'); e.status = 400; throw e;
   }
+  if (campaign.status === 'DRAFT') assertNotCharged(campaign);
   const data = {};
   if (name !== undefined) data.name = String(name).trim();
 
@@ -334,12 +346,18 @@ export async function updateCampaign(workspaceId, campaignId, {
   // still only a stored intention — nothing sends until launchCampaign runs,
   // which takes its own scheduledAt.
   if (scheduledAt !== undefined) {
-    if (scheduledAt === null || scheduledAt === '') data.scheduledAt = null;
-    else {
-      const when = new Date(scheduledAt);
-      if (Number.isNaN(when.getTime())) { const e = new Error('scheduledAt is not a valid date'); e.status = 400; throw e; }
-      data.scheduledAt = when;
+    let next = null;
+    if (scheduledAt !== null && scheduledAt !== '') {
+      next = new Date(scheduledAt);
+      if (Number.isNaN(next.getTime())) { const e = new Error('scheduledAt is not a valid date'); e.status = 400; throw e; }
     }
+    // A SCHEDULED campaign's send time is the delay on its queued job; writing
+    // a new date here would only change what the screen shows while the job
+    // still fires at the old time.
+    if (campaign.status !== 'DRAFT' && (next?.getTime() ?? null) !== (campaign.scheduledAt?.getTime() ?? null)) {
+      const e = new Error('Pause or cancel a scheduled campaign to change when it sends'); e.status = 400; throw e;
+    }
+    data.scheduledAt = next;
   }
   if (replyRules !== undefined) data.replyRules = replyRules;
   if (retryConfig !== undefined) data.retryConfig = retryConfig ? normalizeRetryConfig(retryConfig) : null;
@@ -375,6 +393,7 @@ export async function setRecipients(workspaceId, campaignId, contactIds) {
   if (campaign.status !== 'DRAFT') {
     const e = new Error('The audience can only be changed while the campaign is a draft'); e.status = 400; throw e;
   }
+  assertNotCharged(campaign);
 
   const ids = Array.isArray(contactIds) ? [...new Set(contactIds.filter(Boolean))] : [];
 
@@ -435,6 +454,7 @@ export async function addRecipients(workspaceId, campaignId, contactIds) {
   const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
   if (!campaign) { const e = new Error('Campaign not found'); e.status = 404; throw e; }
   if (campaign.status !== 'DRAFT') { const e = new Error('Recipients can only be added while the campaign is a draft'); e.status = 400; throw e; }
+  assertNotCharged(campaign);
 
   const ids = Array.isArray(contactIds) ? [...new Set(contactIds.filter(Boolean))] : [];
   const validContacts = await prisma.contact.findMany({
@@ -682,7 +702,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
 
   const contacts = recipients.map((r) => r.contact).filter(Boolean);
   const analysed = await analyseAudience(workspaceId, contacts);
-  const { blocked, invalid } = analysed;
+  const { blocked, invalid, duplicates } = analysed;
   // A recipient the variable mapping cannot fill (the sheet had no price for
   // them) is skipped here, before the charge, rather than sent the template's
   // sample value.
@@ -718,6 +738,20 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
       await prisma.campaignRecipient.updateMany({
         where: { id: { in: ids } },
         data: { status: 'SKIPPED', failReason: reason, lastFailureReason: reason, retryStatus: 'SKIPPED' },
+      });
+    }
+    // Two contacts carrying the same number (e.g. "+91 98…" and "98…" saved
+    // separately). Only the first is priced, so the rest must not stay
+    // PENDING — the worker sends every PENDING row, which messaged the same
+    // person twice and the second send was never paid for.
+    const duplicateContactIds = new Set(duplicates.map((c) => c.id));
+    const duplicateRecipientIds = recipients
+      .filter((r) => duplicateContactIds.has(r.contactId) && !sendableIds.has(r.contactId))
+      .map((r) => r.id);
+    if (duplicateRecipientIds.length) {
+      await prisma.campaignRecipient.updateMany({
+        where: { id: { in: duplicateRecipientIds } },
+        data: { status: 'SKIPPED', failReason: 'Duplicate phone number', lastFailureReason: 'Duplicate phone number', retryStatus: 'SKIPPED' },
       });
     }
   }
@@ -756,9 +790,10 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
   // Claim the campaign for charging. `chargedAt: null` in the WHERE is the
   // idempotency guard: a browser refresh, a double-submit, a network retry or
   // a resumed launch all lose this race and stop here instead of paying twice.
+  const chargedAt = new Date();
   const claim = await prisma.campaign.updateMany({
     where: { id: campaignId, workspaceId, status: 'DRAFT', chargedAt: null },
-    data: { chargedAt: new Date() },
+    data: { chargedAt },
   });
   if (claim.count === 0) {
     const e = new Error('This campaign has already been launched'); e.status = 409; throw e;
@@ -772,8 +807,12 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
         reason: `Campaign: ${campaign.name}`,
         reference: campaignId,
         category: 'CAMPAIGN',
-        // Unique per campaign — the ledger itself refuses a second charge.
-        idempotencyKey: `campaign_charge_${campaignId}`,
+        // Unique per launch — the ledger itself refuses a second charge for
+        // this one. Keyed on the claim time rather than the campaign alone:
+        // a launch whose queueing failed is refunded and returned to DRAFT,
+        // and a key shared with that first attempt made the relaunch
+        // "already processed" — sent in full without being charged.
+        idempotencyKey: chargeKey(campaignId, chargedAt),
       });
     } catch (err) {
       await prisma.campaign.updateMany({ where: { id: campaignId }, data: { chargedAt: null } });
@@ -800,7 +839,7 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
     walletAfter,
     // Baselines for the live counters the campaigns list reads. The worker
     // increments from here as it sends.
-    skipped: blocked.length + missing.length,
+    skipped: blocked.length + missing.length + duplicates.length,
     failed: invalid.length,
     ...(user?.id ? { createdByUserId: user.id } : {}),
     ...(normRetry !== undefined ? { retryConfig: normRetry } : {}),
@@ -819,31 +858,43 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
       : {}),
   };
 
+  // Everything the worker reads is written *before* the job exists. Writing
+  // it after the add raced the worker: a campaign scheduled for "now" (the
+  // 60s grace above gives it a zero delay) could be claimed RUNNING and then
+  // have this update set it back to SCHEDULED, after which it could never
+  // complete or settle.
   try {
-    if (scheduledDate) {
-      const delay = Math.max(0, scheduledDate.getTime() - Date.now());
-      const job = await campaignQueue.add('send-campaign', { campaignId, workspaceId }, { delay });
-      // SCHEDULED status distinguishes "queued for future" from a true draft and
-      // lets startup recovery re-queue lost jobs after a Redis/server restart.
-      await prisma.campaign.update({
-        where: { id: campaignId },
-        data: { ...costData, status: 'SCHEDULED', scheduledAt: scheduledDate, queueJobId: String(job.id) },
-      });
-    } else {
-      const job = await campaignQueue.add('send-campaign', { campaignId, workspaceId });
-      // The worker flips the campaign to RUNNING once it actually starts —
-      // marking RUNNING here would show a false "running" state if the worker
-      // never picks the job up.
-      await prisma.campaign.update({
-        where: { id: campaignId },
-        data: { ...costData, scheduledAt: new Date(), queueJobId: String(job.id) },
-      });
-    }
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: scheduledDate
+        ? { ...costData, status: 'SCHEDULED', scheduledAt: scheduledDate }
+        : { ...costData, scheduledAt: new Date() },
+    });
+    const delay = scheduledDate ? Math.max(0, scheduledDate.getTime() - Date.now()) : 0;
+    // SCHEDULED status distinguishes "queued for future" from a true draft and
+    // lets startup recovery re-queue lost jobs after a Redis/server restart.
+    // An immediate launch stays DRAFT: the worker flips it to RUNNING once it
+    // actually starts, so a job nobody picks up never shows a false "running".
+    const job = await campaignQueue.add('send-campaign', { campaignId, workspaceId }, delay ? { delay } : undefined);
+    await prisma.campaign.updateMany({ where: { id: campaignId }, data: { queueJobId: String(job.id) } });
   } catch (err) {
     // The campaign never made it into the queue, so it never starts — refund
-    // in full rather than leaving the customer charged for nothing.
-    await refundCampaign(campaignId, totalCost, 'Campaign could not be queued');
-    await prisma.campaign.updateMany({ where: { id: campaignId }, data: { chargedAt: null, status: 'DRAFT' } });
+    // in full rather than leaving the customer charged for nothing, and hand
+    // it back as a plain draft that can be launched (and charged) again.
+    const refunded = await refundCampaign(campaignId, totalCost, 'Campaign could not be queued');
+    if (refunded || !(totalCost > 0)) {
+      await prisma.campaign.updateMany({
+        where: { id: campaignId },
+        data: { chargedAt: null, refundedAt: null, refundAmount: null, status: 'DRAFT' },
+      });
+    } else {
+      // The refund itself failed. Keep the charge on record (and locked) so
+      // cancelling the draft settles it, instead of forgetting the money.
+      await prisma.campaign.updateMany({
+        where: { id: campaignId },
+        data: { costPerMessage, totalCost, walletBefore, walletAfter, status: 'DRAFT' },
+      }).catch(() => {});
+    }
     throw err;
   }
 
@@ -871,6 +922,14 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
   };
 }
 
+// Ledger keys for one launch of a campaign. Campaigns launched before keys
+// carried the launch time used the bare campaign id; those are never
+// relaunched, so the two formats cannot collide.
+const chargeKey = (campaignId, chargedAt) => `campaign_charge_${campaignId}_${new Date(chargedAt).getTime()}`;
+const refundKey = (campaignId, chargedAt) => (chargedAt
+  ? `campaign_refund_${campaignId}_${new Date(chargedAt).getTime()}`
+  : `campaign_refund_${campaignId}`);
+
 // Credits back the unspent part of a campaign charge. Idempotent via both the
 // `refundedAt` guard and the ledger's unique idempotency key, so a retried
 // cancel can't refund twice.
@@ -892,7 +951,7 @@ async function refundCampaign(campaignId, amount, reason) {
     reference: campaignId,
     category: 'REFUND',
     gateway: 'system',
-    idempotencyKey: `campaign_refund_${campaignId}`,
+    idempotencyKey: refundKey(campaignId, campaign.chargedAt),
   }).catch((err) => {
     console.error(`[Campaign] Refund failed for ${campaignId}:`, err.message);
     return null;
@@ -1063,13 +1122,23 @@ export async function pauseCampaign(workspaceId, campaignId) {
     e.status = 400; throw e;
   }
 
-  await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'PAUSED' } });
-  if (String(campaign.template?.category || '').toUpperCase() === 'AUTHENTICATION') {
-    await prisma.campaignRecipient.updateMany({
-      where: { campaignId, status: 'RETRYING' },
-      data: { status: 'PENDING', nextRetryAt: null, retryStatus: null },
-    });
+  // Conditional, so a campaign that finished (or was cancelled) between the
+  // read above and this write is not dragged back to PAUSED.
+  const paused = await prisma.campaign.updateMany({
+    where: { id: campaignId, status: { in: ['RUNNING', 'SCHEDULED'] } },
+    data: { status: 'PAUSED' },
+  });
+  if (paused.count === 0) {
+    const e = new Error('This campaign changed state while pausing — refresh and try again.'); e.status = 409; throw e;
   }
+  // Waiting retries go back to the queue of unsent recipients so a pause
+  // really stops sending. Left RETRYING, their delayed jobs kept firing for
+  // a paused campaign; as PENDING the retry job's claim refuses them and the
+  // resume run picks them up, keeping their attempt count.
+  await prisma.campaignRecipient.updateMany({
+    where: { campaignId, status: 'RETRYING', retryStatus: { not: 'IN_PROGRESS' } },
+    data: { status: 'PENDING', nextRetryAt: null, retryStatus: null },
+  });
 
   // A scheduled campaign has a delayed job waiting; drop it so it cannot fire
   // while paused. Resuming re-queues.
@@ -1103,13 +1172,21 @@ export async function resumeCampaign(workspaceId, campaignId) {
   const template = await prisma.template.findUnique({ where: { id: campaign.templateId } });
   assertTemplateSendable(template);
 
-  await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'RUNNING' } });
-  const isAuthentication = String(template?.category || '').toUpperCase() === 'AUTHENTICATION';
-  const job = await campaignQueue.add(
-    'send-campaign',
-    isAuthentication ? { campaignId, workspaceId, resume: true } : { campaignId, workspaceId },
-  );
-  await prisma.campaign.update({ where: { id: campaignId }, data: { queueJobId: String(job.id) } });
+  // Conditional, so two resume clicks cannot queue two send loops.
+  const resumed = await prisma.campaign.updateMany({
+    where: { id: campaignId, status: 'PAUSED' },
+    data: { status: 'RUNNING' },
+  });
+  if (resumed.count === 0) {
+    const e = new Error('This campaign is already being resumed.'); e.status = 409; throw e;
+  }
+  // `resume: true` is what lets the worker back into a RUNNING campaign. It
+  // used to be sent for Authentication campaigns only, so resuming any other
+  // campaign queued a job the worker refused ("already being sent") — the
+  // campaign sat RUNNING forever with its remaining recipients never sent
+  // and their money never settled.
+  const job = await campaignQueue.add('send-campaign', { campaignId, workspaceId, resume: true });
+  await prisma.campaign.updateMany({ where: { id: campaignId }, data: { queueJobId: String(job.id) } });
 
   return { ok: true, status: 'RUNNING', remaining };
 }
@@ -1123,7 +1200,15 @@ export async function cancelCampaign(workspaceId, campaignId) {
 
   // Set CANCELLED first: the worker re-checks this before every send and at
   // claim time, so even a job that slipped into 'active' stops quickly.
-  await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'CANCELLED' } });
+  // Conditional, so a campaign that completed in the meantime stays COMPLETED.
+  const cancelled = await prisma.campaign.updateMany({
+    where: { id: campaignId, status: { notIn: ['COMPLETED', 'CANCELLED', 'FAILED'] } },
+    data: { status: 'CANCELLED' },
+  });
+  if (cancelled.count === 0) {
+    const current = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
+    const e = new Error(`Campaign is already ${current?.status ?? 'finished'}`); e.status = 400; throw e;
+  }
 
   // Remove the queued job by its stored ID (reliable) and by scan (fallback).
   if (campaign.queueJobId) {
@@ -1194,6 +1279,25 @@ export async function recoverScheduledCampaigns() {
   });
   if (released.count > 0) {
     console.log(`[Recovery] Released ${released.count} recipient(s) stranded mid-send by a previous shutdown`);
+  }
+
+  // A campaign that was mid-send when the process died. Its job is stalled
+  // or gone (non-persistent Redis), and nothing else ever re-queues it, so it
+  // would stay RUNNING forever with its money unsettled. Re-queue it as a
+  // resume; recipients are claimed one by one, so nobody is sent twice.
+  const running = await prisma.campaign.findMany({
+    where: { status: 'RUNNING', recipients: { some: { status: 'PENDING' } } },
+    select: { id: true, workspaceId: true, queueJobId: true },
+  });
+  for (const c of running) {
+    if (c.queueJobId) {
+      const existing = await campaignQueue.getJob(c.queueJobId).catch(() => null);
+      const state = existing ? await existing.getState().catch(() => null) : null;
+      if (state && state !== 'completed' && state !== 'failed') continue; // still owned by a live job
+    }
+    const job = await campaignQueue.add('send-campaign', { campaignId: c.id, workspaceId: c.workspaceId, resume: true });
+    await prisma.campaign.updateMany({ where: { id: c.id }, data: { queueJobId: String(job.id) } });
+    console.log(`[Recovery] Re-queued interrupted campaign ${c.id}`);
   }
 
   const scheduled = await prisma.campaign.findMany({

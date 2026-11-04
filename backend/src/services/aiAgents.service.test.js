@@ -47,3 +47,36 @@ test('AI Agents Hub - Channels deployment listing', async () => {
   assert.ok(keys.includes('website'), 'Should have website channel');
   assert.ok(keys.includes('instagram'), 'Should have instagram channel');
 });
+
+// executeAction takes lead/contact ids from the request body. They must be
+// checked against the caller's workspace, and qualify_lead must actually find
+// the caller's own lead (its arguments to updateLead used to be swapped).
+test('AI Agents Hub - executeAction is scoped to the caller workspace', async () => {
+  const { prisma } = await import('../lib/prisma.js');
+  const { executeAction } = await import('./aiAgents.service.js');
+  const tag = `aiact_${Date.now()}`;
+  const wsA = await prisma.workspace.create({ data: { name: `${tag}_A` } });
+  const wsB = await prisma.workspace.create({ data: { name: `${tag}_B` } });
+  try {
+    const mk = async (ws, n) => {
+      const contact = await prisma.contact.create({ data: { workspaceId: ws.id, name: n, phoneNumber: `+9198${String(Date.now()).slice(-8)}${n.length}` } });
+      const lead = await prisma.lead.create({ data: { workspaceId: ws.id, contactId: contact.id } });
+      return { contact, lead };
+    };
+    const a = await mk(wsA, 'a');
+    const b = await mk(wsB, 'bb');
+
+    await assert.rejects(
+      executeAction(wsA.id, 'crm.book_meeting', { leadId: b.lead.id, contactId: b.contact.id }),
+      /not found in this workspace/,
+    );
+    assert.equal(await prisma.crmActivity.count({ where: { leadId: b.lead.id } }), 0, 'nothing was written against the other tenant lead');
+
+    const ok = await executeAction(wsA.id, 'crm.qualify_lead', { leadId: a.lead.id });
+    assert.equal(ok.success, true);
+    const fresh = await prisma.lead.findUnique({ where: { id: a.lead.id } });
+    assert.equal(fresh.status, 'QUALIFIED');
+  } finally {
+    await prisma.workspace.deleteMany({ where: { id: { in: [wsA.id, wsB.id] } } });
+  }
+});

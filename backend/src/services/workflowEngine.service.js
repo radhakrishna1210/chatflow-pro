@@ -430,6 +430,20 @@ export async function advanceRun(runId, { reply } = {}) {
   const awaiting = variables[AWAIT_KEY];
   if (awaiting && reply === undefined) return stored;
 
+  // Claim a parked run before executing it. Two triggers can wake the same
+  // WAITING run at once — a customer who sends two quick messages (two
+  // webhooks, both resuming the same wait), or a delay job retried while the
+  // first attempt is still going — and each used to run the remaining steps,
+  // so the customer got every message twice. Only the caller whose
+  // conditional update moves WAITING→RUNNING at this cursor proceeds.
+  if (stored.status === 'WAITING') {
+    const claimed = await prisma.workflowRun.updateMany({
+      where: { id: runId, status: 'WAITING', cursor: stored.cursor },
+      data: { status: 'RUNNING' },
+    });
+    if (claimed.count === 0) return prisma.workflowRun.findUnique({ where: { id: runId } });
+  }
+
   const actions = actionsOf(stored.nodes);
   const trace = Array.isArray(stored.trace) ? [...stored.trace] : [];
 

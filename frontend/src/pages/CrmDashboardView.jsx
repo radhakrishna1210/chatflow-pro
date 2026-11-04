@@ -318,7 +318,7 @@ export function CrmDashboardView({ user }) {
             gap: 8,
           }}
         >
-          <I n="layout" s={15} c={activeTab === 'overview' ? 'var(--accent, #35e8f2)' : 'var(--t3)'} />
+          <I n="columns" s={15} c={activeTab === 'overview' ? 'var(--accent, #35e8f2)' : 'var(--t3)'} />
           <span>Management Overview</span>
         </button>
 

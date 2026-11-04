@@ -23,7 +23,9 @@ function getAi() {
 }
 
 // Must match automation.service.js — the builder rejects anything else.
-const ALLOWED_TRIGGER_SUBTYPES = new Set(['keyword', 'welcome', 'missed']);
+// `missed` is not offered: nothing delivers a missed-call event to the engine
+// (see automation.service.js), so such a workflow would never fire.
+const ALLOWED_TRIGGER_SUBTYPES = new Set(['keyword', 'welcome']);
 const ALLOWED_ACTION_SUBTYPES = new Set(['message', 'delay', 'tag', 'agent']);
 
 // A bare domain ("acme.com") is a URL to a person even without a scheme, so
@@ -94,7 +96,7 @@ Shape:
       "benefit": string,
       "complexity": "Low" | "Medium" | "High",
       "nodes": [
-        { "type": "trigger", "subtype": "keyword"|"welcome"|"missed", "value": string },
+        { "type": "trigger", "subtype": "keyword"|"welcome", "value": string },
         { "type": "action", "subtype": "message"|"delay"|"tag"|"agent", "value": string }
       ]
     }
@@ -106,7 +108,7 @@ Rules:
 - Base every field on evidence in the page content. Do not invent services, prices or locations that are not supported by the text.
 - Produce 6 to 10 workflows chosen for THIS business. A dental clinic gets appointment booking and recall reminders; a restaurant gets table booking and delivery; an ecommerce store gets abandoned cart and order tracking. Do not emit generic filler.
 - Every workflow: exactly one trigger node first, then 2 to 5 action nodes. Maximum 6 nodes total.
-- trigger subtype "keyword": value is ONE uppercase word customers would actually send (BOOK, MENU, PRICE, REPORT). "welcome" and "missed" take an empty value.
+- trigger subtype "keyword": value is ONE uppercase word customers would actually send (BOOK, MENU, PRICE, REPORT). "welcome" takes an empty value.
 - action "message": the exact WhatsApp text to send, under 300 characters, naming the real business and its real services. action "delay": a duration like "5 minutes" or "24 hours". action "tag": one short label. action "agent": the team to hand off to.
 - Keyword values must be unique across workflows.
 - "benefit" is a short concrete outcome ("Cuts no-shows by confirming 24h ahead"). "complexity" reflects node count and handoffs.`;
@@ -146,8 +148,11 @@ function normalizeWorkflow(raw, index, usedKeywords) {
   for (const node of source) {
     if (nodes.length >= 6) break;
     if (node?.type === 'trigger') continue;
-    let subtype = String(node?.subtype || 'message').toLowerCase();
-    if (!ALLOWED_ACTION_SUBTYPES.has(subtype)) subtype = 'message';
+    const subtype = String(node?.subtype || 'message').toLowerCase();
+    // Dropped rather than coerced to "message": the model's output is shaped
+    // by a third-party website, and a coerced step sends its value verbatim
+    // to customers.
+    if (!ALLOWED_ACTION_SUBTYPES.has(subtype)) continue;
     const value = String(node?.value || '').trim().slice(0, 900);
     if (!value) continue;
     nodes.push({ id: `step_${nodes.length + 1}`, type: 'action', subtype, value });

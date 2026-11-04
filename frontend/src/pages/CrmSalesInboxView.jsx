@@ -6,6 +6,7 @@ import { Modal } from '../components/Modal.jsx';
 import { StatusBadge } from '../components/StatusBadge.jsx';
 import { FInput, FLabel, FSelect } from '../components/Form.jsx';
 import { wFetch } from '../lib/api.js';
+import { useIsMobile } from '../lib/useMediaQuery.js';
 
 const CATEGORY_COLORS = {
   HOT: { bg: 'rgba(239, 68, 68, 0.12)', bd: 'rgba(239, 68, 68, 0.3)', c: '#f87171', label: 'HOT 🔥' },
@@ -36,6 +37,10 @@ const CategoryBadge = ({ category = 'COLD' }) => {
 };
 
 export default function CrmSalesInboxView() {
+  // Phones get one pane at a time: three fixed-width columns (300 + 320 + 380px)
+  // clipped the lead list and pushed the CRM context panel off-screen.
+  const mobile = useIsMobile();
+  const [mobilePane, setMobilePane] = useState('list'); // 'list' | 'thread'
   const [activeTab, setActiveTab] = useState('individual'); // 'individual' | 'segment'
 
   // Common data
@@ -706,7 +711,7 @@ export default function CrmSalesInboxView() {
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--t2)' }}>
-        <I n="loader" s={24} c="var(--primary)" />
+        <I n="refresh" s={24} c="var(--primary)" />
         <div style={{ marginTop: 12, fontSize: 14 }}>Loading CRM Sales Inbox...</div>
       </div>
     );
@@ -718,7 +723,7 @@ export default function CrmSalesInboxView() {
       <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <I n="messageSquare" s={18} c="var(--accent, #35e8f2)" />
+            <I n="msg" s={18} c="var(--accent, #35e8f2)" />
             <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 17, fontWeight: 700, color: 'var(--t1)' }}>CRM Sales Inbox</span>
           </div>
           <span style={{ fontSize: 12, color: 'var(--t3)' }}>
@@ -785,15 +790,15 @@ export default function CrmSalesInboxView() {
               transition: 'all 0.15s ease',
             }}
           >
-            <I n="barChart" s={15} />
+            <I n="chart" s={15} />
             Campaign Performance
           </button>
         </div>
       </div>
 
-      <div style={{ padding: '16px 20px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
+      <div style={{ padding: mobile ? '12px 16px' : '16px 20px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: mobile ? 'auto' : 'hidden' }}>
         {/* METRICS & CATEGORY BUCKETS OVERVIEW */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16, flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: mobile ? 10 : 14, marginBottom: 16, flexShrink: 0 }}>
         {[
           { key: 'HOT', label: 'HOT Leads', count: segments.categories?.HOT || 0, color: '#f87171', bg: 'rgba(239, 68, 68, 0.08)' },
           { key: 'WARM', label: 'WARM Leads', count: segments.categories?.WARM || 0, color: '#fbbf24', bg: 'rgba(245, 158, 11, 0.08)' },
@@ -830,16 +835,18 @@ export default function CrmSalesInboxView() {
       {activeTab === 'individual' && (
         <div style={{
           display: 'flex',
-          gap: 0,
+          flexDirection: mobile ? 'column' : 'row',
+          gap: mobile ? 12 : 0,
           flex: 1,
-          minHeight: 0,
-          overflow: 'hidden',
+          minHeight: mobile ? 'auto' : 0,
+          overflow: mobile ? 'visible' : 'hidden',
           userSelect: (isResizingLeft || isResizingRight) ? 'none' : 'auto',
         }}>
           {/* LEFT: LEAD SEARCH & LIST */}
           <div style={{
-            width: leftWidth,
+            width: mobile ? '100%' : leftWidth,
             flexShrink: 0,
+            ...(mobile ? { height: '70vh', display: mobilePane === 'list' ? 'flex' : 'none' } : {}),
             background: 'var(--surf)',
             border: '1px solid var(--bd)',
             borderRadius: 14,
@@ -918,7 +925,7 @@ export default function CrmSalesInboxView() {
                   return (
                     <div
                       key={l.id}
-                      onClick={() => setSelectedLeadId(l.id)}
+                      onClick={() => { setSelectedLeadId(l.id); setMobilePane('thread'); }}
                       style={{
                         padding: 10,
                         borderRadius: 10,
@@ -955,6 +962,7 @@ export default function CrmSalesInboxView() {
             onMouseDown={startResizeLeft}
             title="Drag to resize lead list"
             style={{
+              ...(mobile ? { display: 'none' } : {}),
               width: 10,
               cursor: 'col-resize',
               display: 'flex',
@@ -972,8 +980,9 @@ export default function CrmSalesInboxView() {
 
           {/* MIDDLE: CONVERSATION THREAD & MESSAGE COMPOSER */}
           <div style={{
-            flex: 1,
-            minWidth: 320,
+            flex: mobile ? 'none' : 1,
+            minWidth: mobile ? 0 : 320,
+            ...(mobile ? { height: '70vh', display: mobilePane === 'thread' ? 'flex' : 'none' } : {}),
             background: 'var(--surf)',
             border: '1px solid var(--bd)',
             borderRadius: 14,
@@ -985,7 +994,13 @@ export default function CrmSalesInboxView() {
             {selectedLead ? (
               <>
                 {/* THREAD HEADER */}
-                <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 12 }}>
+                <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: 12, flexWrap: mobile ? 'wrap' : 'nowrap' }}>
+                  {mobile && (
+                    <button onClick={() => setMobilePane('list')} aria-label="Back to lead list"
+                      style={{ background: 'none', border: '1px solid var(--bd)', borderRadius: 6, color: 'var(--t2)', cursor: 'pointer', padding: '4px 8px', fontSize: 13 }}>
+                      ←
+                    </button>
+                  )}
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       Conversation with {selectedLead.contact?.name || selectedLead.contact?.phoneNumber}
@@ -1087,14 +1102,19 @@ export default function CrmSalesInboxView() {
 
                 {/* COMPOSER */}
                 <div style={{ padding: 12, borderTop: '1px solid var(--bd)', display: 'flex', gap: 10, flexShrink: 0, background: 'var(--surf)' }}>
-                  <FInput
-                    placeholder={selectedLead.contact?.optedOut ? "Messaging disabled: contact has opted out." : "Type WhatsApp message to lead..."}
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                    disabled={selectedLead.contact?.optedOut}
-                    style={{ flex: 1 }}
-                  />
+                  {/* FInput spreads extra props last, so a `style` here replaced its
+                      whole dark-theme style and left a bare white browser input.
+                      The flex sizing lives on a wrapper instead. */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <FInput
+                      placeholder={selectedLead.contact?.optedOut ? "Messaging disabled: contact has opted out." : "Type WhatsApp message to lead..."}
+                      aria-label="Message"
+                      value={messageText}
+                      onChange={(e) => setMessageText(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                      disabled={selectedLead.contact?.optedOut}
+                    />
+                  </div>
                   <Btn onClick={handleSendMessage} disabled={sendingMsg || !messageText.trim() || selectedLead.contact?.optedOut}>
                     <I n="send" s={15} /> Send
                   </Btn>
@@ -1112,6 +1132,7 @@ export default function CrmSalesInboxView() {
             onMouseDown={startResizeRight}
             title="Drag to resize CRM Context panel & conversation"
             style={{
+              ...(mobile ? { display: 'none' } : {}),
               width: 10,
               cursor: 'col-resize',
               display: 'flex',
@@ -1129,8 +1150,9 @@ export default function CrmSalesInboxView() {
 
           {/* RIGHT: CRM CONTEXT PANEL */}
           <div style={{
-            width: rightWidth,
+            width: mobile ? '100%' : rightWidth,
             flexShrink: 0,
+            ...(mobile ? { display: mobilePane === 'thread' ? 'block' : 'none', boxSizing: 'border-box' } : {}),
             background: 'var(--surf)',
             border: '1px solid var(--bd)',
             borderRadius: 14,
@@ -1256,7 +1278,7 @@ export default function CrmSalesInboxView() {
                   {/* EXPLAINABILITY REASONS BOX */}
                   <div style={{ background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--bd)', padding: 12 }}>
                     <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--t1)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <I n="info" s={14} c="var(--primary)" /> Segmentation Reasons:
+                      <I n="alertc" s={14} c="var(--primary)" /> Segmentation Reasons:
                     </div>
                     {Array.isArray(selectedLead.categoryReasons) && selectedLead.categoryReasons.length > 0 ? (
                       <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: 'var(--t2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1421,7 +1443,7 @@ export default function CrmSalesInboxView() {
                     setShowEnrollModal(true);
                   }}
                 >
-                  <I n="layers" s={16} /> Enroll Segment in Sequence
+                  <I n="wflow" s={16} /> Enroll Segment in Sequence
                 </Btn>
                 <Btn
                   disabled={(audienceData?.eligibleCount || 0) === 0}

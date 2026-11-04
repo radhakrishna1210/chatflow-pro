@@ -169,3 +169,83 @@ test('sendTemplateMessage rejects recipient mismatch when target contactId does 
     (err) => err.code === 'RECIPIENT_MISMATCH' && err.status === 400
   );
 });
+
+// ─── Audit: messaging fixes ─────────────────────────────────────────────────
+
+test('sendMessage refuses a free-form reply outside the 24h window and does not fake an inbound timestamp', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  const stale = new Date(Date.now() - 30 * 60 * 60 * 1000);
+  await prisma.conversation.update({ where: { id: conv1.id }, data: { lastInboundAt: stale } });
+
+  await assert.rejects(
+    () => sendMessage(workspaceId, conv1.id, null, { body: 'Hello after the window' }),
+    (err) => err.status === 409 && err.code === 'OUTSIDE_24H_WINDOW',
+  );
+  const after = await prisma.conversation.findUnique({ where: { id: conv1.id }, select: { lastInboundAt: true } });
+  assert.equal(after.lastInboundAt.getTime(), stale.getTime());
+});
+
+test('sendMessage rejects an empty body before anything else', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  await assert.rejects(() => sendMessage(workspaceId, conv1.id, null, { body: '   ' }), (err) => err.status === 400);
+  await assert.rejects(() => sendMessage(workspaceId, conv1.id, null, { body: 'x'.repeat(4097) }), (err) => err.status === 400);
+});
+
+test('sendMessage honours a contact flagged opted-out on their record', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  await prisma.contact.update({ where: { id: contact2.id }, data: { optedOut: true } });
+  await prisma.conversation.update({ where: { id: conv1.id }, data: { lastInboundAt: new Date() } });
+  try {
+    await assert.rejects(
+      () => sendMessage(workspaceId, conv1.id, null, { body: 'Hi' }),
+      (err) => err.status === 403 && err.code === 'RECIPIENT_OPTED_OUT',
+    );
+  } finally {
+    await prisma.contact.update({ where: { id: contact2.id }, data: { optedOut: false } });
+  }
+});
+
+test('message media cannot be fetched through another workspace', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  const { getMessageMediaStream } = await import('./conversations.service.js');
+  const other = await prisma.workspace.create({ data: { name: `conv-test-other-${Date.now()}` } });
+  try {
+    const msg = await prisma.message.create({
+      data: { conversationId: conv1.id, body: '[photo]', direction: 'INBOUND', type: 'IMAGE', mediaId: 'SECRET_MEDIA' },
+    });
+    await assert.rejects(
+      () => getMessageMediaStream(other.id, conv1.id, msg.id),
+      (err) => err.status === 404,
+    );
+  } finally {
+    await prisma.workspace.delete({ where: { id: other.id } }).catch(() => {});
+  }
+});
+
+test('assignConversation only accepts members of the workspace', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  const { assignConversation } = await import('./conversations.service.js');
+  await assert.rejects(() => assignConversation(workspaceId, conv1.id, 'not-a-member'), (err) => err.status === 400);
+  const cleared = await assignConversation(workspaceId, conv1.id, null);
+  assert.equal(cleared.assignedToUserId, null);
+});
+
+test('window-faking helpers are unavailable in production', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  const { reopenWindow, simulateInboundMessage } = await import('./conversations.service.js');
+  const { env } = await import('../config/env.js');
+  const previous = env.NODE_ENV;
+  env.NODE_ENV = 'production';
+  try {
+    await assert.rejects(() => reopenWindow(workspaceId, conv1.id), (err) => err.status === 404);
+    await assert.rejects(() => simulateInboundMessage(workspaceId, conv1.id, { body: 'x' }), (err) => err.status === 404);
+  } finally {
+    env.NODE_ENV = previous;
+  }
+});
+
+test('listConversations bounds the page size', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  const res = await listConversations(workspaceId, { limit: 100000, page: -3 });
+  assert.ok(Array.isArray(res.data));
+});

@@ -5,6 +5,6 @@ export async function get(req, res) {
     from: req.query.from,
     to: req.query.to,
     ownerUserId: req.query.ownerUserId,
-  });
+  }, req.user);
   res.json(result);
 }

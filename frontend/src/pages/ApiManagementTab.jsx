@@ -144,16 +144,31 @@ export default function ApiManagementTab() {
           <span style={{ fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, letterSpacing: '.06em', textTransform: 'uppercase', color: tone.fg, background: tone.bg, border: '1px solid ' + tone.bd }}>
             {tone.label}
           </span>
-          {edited && <span style={{ fontSize: 10, fontWeight: 600, color: '#fbbf24' }}>edited</span>}
+          {edited && <span style={{ fontSize: 10, fontWeight: 600, color: '#fbbf24' }}>{edits[key] === '' ? 'will be cleared' : 'edited'}</span>}
+          {secret && sources[key] === 'database' && !edited && (
+            <button type="button" onClick={() => setEdits((prev) => ({ ...prev, [key]: '' }))}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--t3)', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}>
+              Clear override
+            </button>
+          )}
         </div>
         <input
           id={'set-' + key}
           type={secret && edited ? 'password' : 'text'}
-          value={edited ? edits[key] : stored}
-          placeholder={hint || (secret ? 'Not configured' : '')}
+          value={edited ? edits[key] : (secret ? '' : stored)}
+          placeholder={secret ? (stored ? `${stored} — type to replace` : 'Not configured') : hint}
           autoComplete="off"
           spellCheck={false}
-          onChange={(e) => setEdits((prev) => ({ ...prev, [key]: e.target.value }))}
+          onChange={(e) => {
+            const value = e.target.value;
+            setEdits((prev) => {
+              const next = { ...prev, [key]: value };
+              // Emptying a secret you had started typing is "never mind", not
+              // "clear the key" — that is what the explicit Clear button is for.
+              if (secret && value === '') delete next[key];
+              return next;
+            });
+          }}
           style={{
             width: '100%', padding: '10px 12px', borderRadius: 8,
             background: 'rgba(255,255,255,0.04)',

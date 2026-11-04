@@ -9,9 +9,56 @@
 
 // Columns the importer already maps onto Contact itself. Compared after
 // normalising, so "Phone Number", "phone_number" and "PHONE" all match.
+// Headers that carry the contact's phone number. Sheets exported from other
+// tools say "Mobile Number", "WhatsApp" or "PHONE"; only reading a few exact
+// spellings dropped every row of such a sheet without counting it anywhere.
+const PHONE_COLUMNS = [
+  'phone', 'phonenumber', 'phone_number', 'phone_no', 'mobile', 'mobile_number', 'mobile_no',
+  'mobilenumber', 'whatsapp', 'whatsapp_number', 'whatsapp_no', 'contact_number',
+];
+
 const BUILT_IN_COLUMNS = new Set([
-  'name', 'phone', 'phonenumber', 'phone_number', 'mobile', 'email', 'tags',
+  'name', ...PHONE_COLUMNS, 'email', 'tags',
 ]);
+
+// Reads the built-in fields of one parsed row whatever the header's case or
+// punctuation ("Phone Number", " PHONE ", "phone_number" all match).
+export function builtInFields(row) {
+  const byKey = new Map();
+  for (const [header, value] of Object.entries(row || {})) {
+    const key = toAttributeKey(header);
+    if (!byKey.has(key) || !String(byKey.get(key) ?? '').trim()) byKey.set(key, value);
+  }
+  const pick = (keys) => {
+    for (const key of keys) {
+      const value = byKey.get(key);
+      if (value != null && String(value).trim()) return String(value).trim();
+    }
+    return '';
+  };
+  return {
+    phone: pick(PHONE_COLUMNS),
+    name: pick(['name']),
+    email: pick(['email']),
+    tags: pick(['tags']),
+  };
+}
+
+// The delimiter a sheet uses, judged from its header line. Excel in many
+// locales saves "CSV" with semicolons, and tab-separated exports are common;
+// parsing those as comma-separated turned each row into one column, so the
+// import found no phone column and quietly imported nothing.
+export function detectDelimiter(text) {
+  const firstLine = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).find((l) => l.trim()) || '';
+  const counts = { ',': 0, ';': 0, '\t': 0 };
+  let quoted = false;
+  for (const ch of firstLine) {
+    if (ch === '"') quoted = !quoted;
+    else if (!quoted && ch in counts) counts[ch] += 1;
+  }
+  const [best, n] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  return n > 0 ? best : ',';
+}
 
 export const MAX_ATTRIBUTES = 30;
 const MAX_VALUE_LENGTH = 500;

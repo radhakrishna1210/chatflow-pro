@@ -61,6 +61,9 @@ const OTP_PREVIEW = {
 // ─── New Template Dialog ───────────────────────────────────────
 const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedCategory = null }) => {
   const isEdit = !!template;
+  // Once Meta holds a template its name and language are fixed — an edit can
+  // only change the content (and, before approval, the category).
+  const identityLocked = isEdit && !!template?.metaTemplateId;
   const comps = isEdit && Array.isArray(template.components) ? template.components : [];
   const findComp = (t) => comps.find(c => (c.type || '').toUpperCase() === t);
   const initialBody   = isEdit ? (findComp('BODY')?.text ?? '') : (seed?.body ?? '');
@@ -635,9 +638,12 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
           {/* Name */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Template Name <span style={{ color:'#f87171' }}>*</span></label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="order_confirmation_v1" style={inputBase} />
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="order_confirmation_v1" disabled={identityLocked}
+              style={{ ...inputBase, ...(identityLocked ? { opacity:.6, cursor:'not-allowed' } : {}) }} />
             <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>
-              Submits as <code style={{ fontFamily:'monospace', color:'var(--t2)' }}>{slug || '—'}</code>. Lowercase letters, numbers, underscores only.
+              {identityLocked
+                ? <>WhatsApp fixes a template's name and language once it is submitted. Saving resubmits your changes to Meta for review — duplicate the template to change its name.</>
+                : <>Submits as <code style={{ fontFamily:'monospace', color:'var(--t2)' }}>{slug || '—'}</code>. Lowercase letters, numbers, underscores only.</>}
             </p>
           </div>
 
@@ -705,8 +711,8 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
           {/* Language */}
           <div>
             <label style={{ display:'block', fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:6 }}>Language <span style={{ color:'#f87171' }}>*</span></label>
-            <select value={language} onChange={e => setLanguage(e.target.value)}
-              style={{ ...inputBase, appearance:'auto', colorScheme:'dark' }}>
+            <select value={language} onChange={e => setLanguage(e.target.value)} disabled={identityLocked}
+              style={{ ...inputBase, appearance:'auto', colorScheme:'dark', ...(identityLocked ? { opacity:.6, cursor:'not-allowed' } : {}) }}>
               {langs.map(l => <option key={l.code} value={l.code}>{l.label} ({l.code})</option>)}
             </select>
           </div>
