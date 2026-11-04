@@ -348,7 +348,18 @@ async function handleInboundMessage(value, msg) {
       where: { workspaceId: waNumber.workspaceId, phoneNumber: { contains: tail } },
       take: 5,
     });
-    contact = candidates.find((c) => String(c.phoneNumber).replace(/[^\d]/g, '') === digits) || null;
+    const exact = candidates.find((c) => String(c.phoneNumber).replace(/[^\d]/g, '') === digits);
+    // A contact imported as a national number ("9876543210", "09876543210")
+    // has no country code, so it never equals Meta's "919876543210" — the
+    // exact-only check here made every such customer a duplicate contact with
+    // their history split in two. Accept a national-number match, but only
+    // when exactly one contact makes it, so two different people can never be
+    // merged by a shared tail.
+    const national = candidates.filter((c) => {
+      const d = String(c.phoneNumber).replace(/[^\d]/g, '').replace(/^0+/, '');
+      return d.length === 10 && digits.length > 10 && digits.endsWith(d);
+    });
+    contact = exact || (national.length === 1 ? national[0] : null);
   }
   const isNewContact = !contact;
 

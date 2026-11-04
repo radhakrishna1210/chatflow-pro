@@ -192,6 +192,10 @@ export function recordEvent(widget, type, { visitorKey = null, meta = null } = {
 export async function askWidget(widget, { question, visitorKey, pageUrl } = {}) {
   if (widget.type === 'WHATSAPP') fail('This widget does not have an assistant.', 400);
   if (!widget.enabled) fail('This widget is turned off.', 403);
+  // Checked before anything is written: an empty or non-string question used
+  // to create a session row and a QUESTION event ("undefined") and only then
+  // fail in the assistant.
+  if (typeof question !== 'string' || !question.trim()) fail('Ask a question to get started.');
 
   const session = await loadSession(widget, visitorKey, { pageUrl });
   const history = Array.isArray(session.transcript) ? session.transcript : [];

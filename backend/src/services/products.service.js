@@ -1,5 +1,12 @@
 import { prisma } from '../lib/prisma.js';
 
+// The pre-check above each write is a courtesy; (workspaceId, sku) being
+// unique is what decides when two saves race, and that surfaced as a 500.
+function skuClash(err) {
+  if (err.code === 'P2002') { const e = new Error('A product with this SKU already exists'); e.status = 409; throw e; }
+  throw err;
+}
+
 export async function listProducts(workspaceId, { search = '', category = '', includeInactive = false } = {}) {
   const where = {
     workspaceId,
@@ -40,7 +47,7 @@ export async function createProduct(workspaceId, body) {
     const clash = await prisma.product.findFirst({ where: { workspaceId, sku: body.sku }, select: { id: true } });
     if (clash) { const e = new Error('A product with this SKU already exists'); e.status = 409; throw e; }
   }
-  return prisma.product.create({ data: { workspaceId, ...body } });
+  return prisma.product.create({ data: { workspaceId, ...body } }).catch(skuClash);
 }
 
 export async function updateProduct(workspaceId, id, updates) {
@@ -52,7 +59,7 @@ export async function updateProduct(workspaceId, id, updates) {
     });
     if (clash) { const e = new Error('A product with this SKU already exists'); e.status = 409; throw e; }
   }
-  return prisma.product.update({ where: { id }, data: updates });
+  return prisma.product.update({ where: { id }, data: updates }).catch(skuClash);
 }
 
 // Products that have been quoted or attached to a deal are deactivated rather

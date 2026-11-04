@@ -289,10 +289,44 @@ export async function acceptInvitation(rawToken, userId) {
     const e = new Error('This invite link has been used the maximum number of times'); e.status = 410; throw e;
   }
 
+  // The invite is claimed *before* the membership is created, in one guarded
+  // write. Joining first and counting afterwards let a capped link be used by
+  // more people than its cap when they accepted at the same moment, and let an
+  // invite revoked a moment after it was read still let its holder in.
+  const claimWhere = {
+    id: invitation.id,
+    status: 'PENDING',
+    expiresAt: { gt: new Date() },
+    ...(invitation.kind === 'LINK' && invitation.maxUses ? { useCount: { lt: invitation.maxUses } } : {}),
+  };
+
   if (!member) {
     // This invitation is still PENDING here — exclude it so it isn't counted
     // both as a pending seat and as the member it's about to become.
     await assertWithinLimit(invitation.workspaceId, 'member', { ignoreInvitationId: invitation.id });
+
+    const { count: claimed } = await prisma.invitation.updateMany({
+      where: claimWhere,
+      // A link stays PENDING and keeps working until it runs out of uses,
+      // expires, or is revoked; an email invite is used up by this accept.
+      data: invitation.kind === 'LINK'
+        ? { useCount: { increment: 1 } }
+        : { status: 'ACCEPTED', acceptedAt: new Date(), useCount: { increment: 1 } },
+    });
+    if (claimed !== 1) {
+      const e = new Error(invitation.kind === 'LINK' && invitation.maxUses
+        ? 'This invite link has been used the maximum number of times'
+        : 'This invite is no longer valid');
+      e.status = 410;
+      throw e;
+    }
+    if (invitation.kind === 'LINK' && invitation.maxUses && invitation.useCount + 1 >= invitation.maxUses) {
+      await prisma.invitation.updateMany({
+        where: { id: invitation.id, status: 'PENDING', useCount: { gte: invitation.maxUses } },
+        data: { status: 'ACCEPTED', acceptedAt: new Date() },
+      });
+    }
+
     try {
       member = await prisma.workspaceMember.create({
         data: { userId, workspaceId: invitation.workspaceId, role: invitation.role },
@@ -301,41 +335,14 @@ export async function acceptInvitation(rawToken, userId) {
       // P2002 (unique violation on userId+workspaceId): a concurrent request
       // for the same invite (double-click, duplicate submit, two tabs) won
       // the race and already created this membership — not an error, just
-      // means we're now idempotently converging on the same result. Not run
-      // inside the transaction below: on Postgres, a failed statement poisons
-      // the rest of that transaction, so this needs its own try/catch outside
-      // of it rather than being swallowed mid-transaction.
+      // means we're now idempotently converging on the same result.
       if (err.code !== 'P2002') throw err;
       member = await prisma.workspaceMember.findUnique({
         where: { userId_workspaceId: { userId, workspaceId: invitation.workspaceId } },
       });
     }
-  }
-
-  // Guarded by status so a concurrent request that already flipped this to
-  // ACCEPTED (or the token being reused after expiry raced it to EXPIRED)
-  // doesn't get clobbered back — this update is a no-op if so, not an error.
-  if (invitation.kind === 'LINK') {
-    if (!alreadyMember) {
-      // A link stays PENDING and keeps working until it runs out of uses,
-      // expires, or is revoked. The increment is done in the same guarded
-      // update so two people accepting at once can't share one use.
-      const { count } = await prisma.invitation.updateMany({
-        where: {
-          id: invitation.id,
-          status: 'PENDING',
-          ...(invitation.maxUses ? { useCount: { lt: invitation.maxUses } } : {}),
-        },
-        data: { useCount: { increment: 1 } },
-      });
-      if (count && invitation.maxUses && invitation.useCount + 1 >= invitation.maxUses) {
-        await prisma.invitation.updateMany({
-          where: { id: invitation.id, status: 'PENDING', useCount: { gte: invitation.maxUses } },
-          data: { status: 'ACCEPTED', acceptedAt: new Date() },
-        });
-      }
-    }
-  } else {
+  } else if (invitation.kind === 'EMAIL') {
+    // Already a member (joined some other way): the invite is simply spent.
     await prisma.invitation.updateMany({
       where: { id: invitation.id, status: 'PENDING' },
       data: { status: 'ACCEPTED', acceptedAt: new Date(), useCount: { increment: 1 } },
@@ -364,16 +371,26 @@ export async function consumeInvitationAtomically(tx, rawToken, userEmail, userI
     // (plan full), fall through to the catch below and skip joining.
     await assertWithinLimit(invitation.workspaceId, 'member', { ignoreInvitationId: invitation.id });
 
-    await tx.workspaceMember.create({ data: { userId, workspaceId: invitation.workspaceId, role: invitation.role } });
+    // Claim the use *before* joining, in one guarded write. An unconditional
+    // increment let concurrent signups through a capped link (or a just-revoked
+    // invite) all join — the cap was only checked on the stale row read above.
+    const { count: claimed } = await tx.invitation.updateMany({
+      where: {
+        id: invitation.id,
+        status: 'PENDING',
+        expiresAt: { gt: new Date() },
+        ...(invitation.kind === 'LINK' && invitation.maxUses ? { useCount: { lt: invitation.maxUses } } : {}),
+      },
+      data: { useCount: { increment: 1 } },
+    });
+    if (claimed !== 1) return null;
     // A link keeps working for the next person unless this use exhausts it.
     const exhausts = invitation.kind === 'EMAIL' || (invitation.maxUses && invitation.useCount + 1 >= invitation.maxUses);
-    await tx.invitation.update({
-      where: { id: invitation.id },
-      data: {
-        useCount: { increment: 1 },
-        ...(exhausts ? { status: 'ACCEPTED', acceptedAt: new Date() } : {}),
-      },
-    });
+    if (exhausts) {
+      await tx.invitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED', acceptedAt: new Date() } });
+    }
+
+    await tx.workspaceMember.create({ data: { userId, workspaceId: invitation.workspaceId, role: invitation.role } });
 
     const workspace = await tx.workspace.findUnique({ where: { id: invitation.workspaceId }, select: { id: true, name: true } });
     return { workspaceId: invitation.workspaceId, role: invitation.role, workspace };

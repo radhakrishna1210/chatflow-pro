@@ -596,7 +596,13 @@ export default function InboxView() {
     c.contact?.phoneNumber?.includes(q) ||
     (qDigits.length >= 3 && String(c.contact?.phoneNumber || '').replace(/\D/g, '').includes(qDigits))
   );
-  const active = convs.find(c => c.id === activeId);
+  // The list is now searched on the server, so the open thread can drop out of
+  // `convs` while the agent types a search — keep showing it rather than
+  // closing the conversation they are in the middle of.
+  const activeSnapshot = useRef(null);
+  const foundActive = convs.find(c => c.id === activeId);
+  if (foundActive) activeSnapshot.current = foundActive;
+  const active = foundActive || (activeSnapshot.current?.id === activeId ? activeSnapshot.current : undefined);
   const activeMsgs = msgs[activeId] || [];
   const activeWindow = windowState[activeId] || null;
 
@@ -939,7 +945,9 @@ export default function InboxView() {
                 )}
 
                 <div style={{ padding:'12px 16px', borderTop:'1px solid var(--bd)', display:'flex', gap:8, alignItems:'center', background:'var(--surf)', flexShrink:0 }}>
-                  <Btn variant="outline" size="sm">Quick Reply</Btn>
+                  {/* A "Quick Reply" button sat here with no handler — it did
+                      nothing when clicked. Removed rather than left as a dead
+                      control; the AI suggestions above are the quick replies. */}
                   {/* WhatsApp treats an attachment as a free-form message, so
                       it is bound by the same 24-hour window as a text reply. */}
                   <input ref={fileInputRef} type="file" hidden
@@ -960,7 +968,7 @@ export default function InboxView() {
                   <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
                     placeholder={activeWindow && !activeWindow.open ? 'Reply window closed — send an approved template' : 'Type a message…'}
                     disabled={sending || (activeWindow ? !activeWindow.open : false)}
-                    style={{ flex:1, padding:'10px 14px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', transition:'border .15s', opacity: sending ? 0.6 : 1 }}
+                    style={{ flex:1, minWidth:0, padding:'10px 14px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', transition:'border .15s', opacity: sending ? 0.6 : 1 }}
                     onFocus={e => e.target.style.borderColor='var(--gbd)'}
                     onBlur={e => e.target.style.borderColor='var(--bd)'} />
                   <button onClick={send} disabled={!input.trim() || sending || (activeWindow ? !activeWindow.open : false)}

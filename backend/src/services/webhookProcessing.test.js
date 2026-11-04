@@ -139,3 +139,13 @@ test('statuses arriving out of order never move a message backwards', async (t) 
   const row = await prisma.message.findUnique({ where: { metaMessageId: wamid } });
   assert.equal(row.status, 'READ');
 });
+
+test('a contact imported as a national number is matched, not duplicated', async (t) => {
+  if (!dbAvailable) return t.skip('database unavailable');
+  const existing = await prisma.contact.create({ data: { workspaceId, name: 'Imported', phoneNumber: '09811100044' } });
+  await processWebhook(delivery([{ from: '919811100044', id: `wamid.nat.${stamp}`, timestamp: ts(), type: 'text', text: { body: 'hello' } }], '919811100044'));
+  const count = await prisma.contact.count({ where: { workspaceId, phoneNumber: { contains: '9811100044' } } });
+  assert.equal(count, 1);
+  const conv = await prisma.conversation.findFirst({ where: { workspaceId, contactId: existing.id } });
+  assert.ok(conv, 'message went to a new duplicate contact');
+});

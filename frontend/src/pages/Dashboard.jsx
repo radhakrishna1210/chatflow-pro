@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
-import { canManage } from '../lib/permissions.js';
+import { canManage, ROLE_LABELS } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import CreateCampaign from './CreateCampaign.jsx';
@@ -69,8 +69,10 @@ const AVATAR_GRADS = [
   'linear-gradient(135deg,#f59e0b,#c4ff46)',
   'linear-gradient(135deg,#f472b6,#9d6bff)',
 ];
-const Avatar = ({ name = '?', size = 34, showRing = false }) => {
-  const init = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+const Avatar = ({ name, size = 34, showRing = false }) => {
+  // null-safe: a contact with only a phone number has `name: null`, which the
+  // old `name = '?'` default (undefined only) let through to `.split`.
+  const init = String(name || '?').trim().split(/\s+/).map(n => n[0]).join('').slice(0, 2).toUpperCase() || '?';
   const seed = [...init].reduce((a, c) => a + c.charCodeAt(0), 0);
   const grad = AVATAR_GRADS[seed % AVATAR_GRADS.length];
   return (
@@ -193,7 +195,7 @@ const ProfileMenu = () => {
               background: isAdmin ? 'var(--gbg)' : 'rgba(196,255,70,.1)',
               border: `1px solid ${isAdmin ? 'var(--gbd)' : 'rgba(196,255,70,.25)'}`,
               color: isAdmin ? 'var(--green)' : '#d8ff8a',
-            }}>{isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'Member'}</span>
+            }}>{isSuperAdmin ? 'Super Admin' : (ROLE_LABELS[user?.role] || 'Member')}</span>
             <span style={{ padding:'3px 10px', borderRadius:12, fontSize:11, fontWeight:600, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:180 }}>
               {wsName}
             </span>
@@ -452,14 +454,17 @@ const NotificationsBell = () => {
   const [loading, setLoading] = useState(true);
   const ref = useRef(null);
 
+  // Resolves to the fresh unread count (or null when it could not be read).
   const load = async () => {
     try {
       const res = await apiFetch('/api/v1/notifications');
-      if (!res.ok) return;
+      if (!res.ok) return null;
       const data = await res.json();
+      const count = Number(data.unread) || 0;
       setItems(Array.isArray(data.data) ? data.data : []);
-      setUnread(Number(data.unread) || 0);
-    } catch { /* offline — keep whatever is on screen */ }
+      setUnread(count);
+      return count;
+    } catch { return null; /* offline — keep whatever is on screen */ }
     finally { setLoading(false); }
   };
 
@@ -488,8 +493,11 @@ const NotificationsBell = () => {
     setOpen(next);
     if (!next) return;
 
-    await load();
-    if (unread === 0) return;
+    // Decide on the count just fetched, not on `unread` from this render's
+    // closure — a notification that arrived since the last poll left the badge
+    // stuck on, because the stale value said there was nothing to mark read.
+    const fresh = await load();
+    if (!(fresh ?? unread)) return;
     // Optimistic: the badge clears the moment the list is opened, then the
     // server is told. A failed call is re-synced by the next poll.
     setUnread(0);
@@ -515,7 +523,7 @@ const NotificationsBell = () => {
         )}
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 330, maxHeight: 420, background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', zIndex: 200, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div role="region" aria-label="Notifications" style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 'min(330px, calc(100vw - 24px))', maxHeight: 420, background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', zIndex: 200, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--bd)', fontSize: 12, fontWeight: 700, color: 'var(--t1)', flexShrink: 0 }}>Notifications</div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {loading ? (
@@ -524,6 +532,7 @@ const NotificationsBell = () => {
               <div style={{ padding: '24px 16px', fontSize: 12, color: 'var(--t3)', textAlign: 'center' }}>You're all caught up.</div>
             ) : items.map(n => (
               <div key={n.id} onClick={() => openTarget(n)}
+                {...(n.link ? { role: 'button', tabIndex: 0, onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTarget(n); } } } : {})}
                 style={{ padding: '11px 16px', borderBottom: '1px solid var(--bd)', display: 'flex', gap: 10, alignItems: 'flex-start', cursor: n.link ? 'pointer' : 'default', background: n.read ? 'transparent' : 'rgba(53,232,242,0.05)', transition: 'background .12s' }}
                 onMouseEnter={e => { if (n.link) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = n.read ? 'transparent' : 'rgba(53,232,242,0.05)'; }}>
@@ -2723,7 +2732,9 @@ const Sidebar = ({ page, setPage, onNav, user, mobile = false, open = false, onC
   const isAdmin = user?.role === 'ADMIN';
   const isSuperAdmin = user?.superAdmin === true;
   const GROUPS = navGroupsForUser(user);
-  const planLabel = isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : 'Member';
+  // Viewers and agents were both labelled "Member" here, which is the name of a
+  // different role (CLIENT) with far more access.
+  const planLabel = isSuperAdmin ? 'Super Admin' : (ROLE_LABELS[user?.role] || 'Member');
   const [balance, setBalance] = useState(null);
   const [crmBadge, setCrmBadge] = useState(0);
 

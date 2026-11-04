@@ -622,7 +622,7 @@ const TemplateModal = ({ onClose, onSaved, template = null, seed = null, forcedC
         <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
             <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{isEdit ? 'Edit Template' : 'New Message Template'}</p>
-            <p style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>{isEdit ? 'Changes to a rejected template are re-submitted to Meta.' : 'Will be submitted to Meta for review.'}</p>
+            <p style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>{isEdit ? 'Saved changes are re-submitted to Meta and the template goes back into review.' : 'Will be submitted to Meta for review.'}</p>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
             <I n="x" s={18} c="var(--t2)" />

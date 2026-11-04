@@ -58,3 +58,11 @@ test('semicolon sheets, header variants and ragged rows import instead of silent
     ['Ravi', '+919811122244', null],
   ]);
 });
+
+test('a number listed twice in one sheet is reported as a duplicate', async () => {
+  db.created = null; db.updates = [];
+  const csv = Buffer.from('phone,name\n+919800000001,A\n+91 98000 00001,B\n');
+  const result = await importContacts('ws_1', csv);
+  assert.equal(db.created.length, 1);
+  assert.equal(result.duplicates, 1);
+});

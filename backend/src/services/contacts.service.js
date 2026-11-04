@@ -209,6 +209,7 @@ export async function importContacts(workspaceId, csvBuffer) {
 
   const seen = new Set();
   let invalid = 0;
+  let inFileDuplicates = 0;
   const data = [];
   const attributesByPhone = new Map();
   for (const r of records) {
@@ -218,7 +219,9 @@ export async function importContacts(workspaceId, csvBuffer) {
     // being counted, so "0 imported, 0 invalid" gave no hint why.
     if (!isValidPhone(rawPhone)) { invalid++; continue; }
     const phoneNumber = normalizePhone(rawPhone);
-    if (seen.has(phoneNumber)) continue; // in-file duplicate
+    // In-file duplicate: counted, so the result does not claim "0 duplicates"
+    // for a sheet that listed someone twice.
+    if (seen.has(phoneNumber)) { inFileDuplicates++; continue; }
     seen.add(phoneNumber);
     const attributes = attributesFromRow(r);
     const hasAttributes = Object.keys(attributes).length > 0;
@@ -234,7 +237,7 @@ export async function importContacts(workspaceId, csvBuffer) {
   }
 
   if (data.length === 0) {
-    return { imported: 0, duplicates: 0, updated: 0, invalid, totalRows: records.length, attributeKeys, contacts: [] };
+    return { imported: 0, duplicates: inFileDuplicates, updated: 0, invalid, totalRows: records.length, attributeKeys, contacts: [] };
   }
 
   // Plan limit check (README §12.4): reject the whole import rather than
@@ -259,7 +262,7 @@ export async function importContacts(workspaceId, csvBuffer) {
   // createMany reports rows actually inserted; skipDuplicates relies on the
   // (workspaceId, phoneNumber) unique constraint to drop existing contacts.
   const { count: imported } = await prisma.contact.createMany({ data, skipDuplicates: true });
-  const duplicates = data.length - imported;
+  const duplicates = data.length - imported + inFileDuplicates;
 
   // Existing contacts keep their name, email and tags, but take the sheet's
   // extra columns: re-uploading this week's price list must update the price,

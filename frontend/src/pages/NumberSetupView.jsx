@@ -323,14 +323,24 @@ export default function NumberSetupView() {
     loadAdminPool();
   };
 
-  const disconnectNumber = async () => {
-    if (!number?.id) return;
-    if (!window.confirm(`Disconnect ${number.phoneNumber}? It will be returned to the pool.`)) return;
+  // Any connected number, not only the primary one: the list above showed every
+  // number but only the first could be disconnected, and after a disconnect
+  // the list kept showing the number that had just gone.
+  const disconnectNumber = async (target = number) => {
+    const victim = target && target.id ? target : number;
+    if (!victim?.id) return;
+    if (!window.confirm(`Disconnect ${victim.phoneNumber}? It will be returned to the pool.`)) return;
     setDisconnecting(true);
     try {
-      const res = await wFetch(`/whatsapp/numbers/${number.id}`, { method:'DELETE' });
-      if (!res.ok) { const t = await res.text(); throw new Error(t); }
-      setNumber(null);
+      const res = await wFetch(`/whatsapp/numbers/${victim.id}`, { method:'DELETE' });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || `Request failed (${res.status})`);
+      }
+      const rest = numbers.filter(n => n.id !== victim.id);
+      setNumbers(rest);
+      setNumber(rest[0] || null);
+      load();
       if (isSuperAdmin) loadAdminPool();
     } catch (e) {
       alert(`Disconnect failed: ${e.message}`);
@@ -588,7 +598,8 @@ export default function NumberSetupView() {
               </span>
             </div>
             {numbers.map((n, i) => (
-              <NumberCard key={n.id} number={n} isPrimary={i === 0} onRefresh={load} />
+              <NumberCard key={n.id} number={n} isPrimary={i === 0} onRefresh={load}
+                onDisconnect={i > 0 ? disconnectNumber : undefined} disconnecting={disconnecting} />
             ))}
             <p style={{ fontSize:11, color:'var(--t3)', lineHeight:1.6, margin:0 }}>
               Daily limit and quality are set by Meta from your sending history. Keeping quality high is what raises the tier —
@@ -644,7 +655,7 @@ export default function NumberSetupView() {
                 )}
                 {number && (
                   <button
-                    onClick={disconnectNumber}
+                    onClick={() => disconnectNumber(number)}
                     disabled={disconnecting}
                     style={{
                       padding:'8px 14px',

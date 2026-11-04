@@ -305,9 +305,14 @@ export async function submitForm(workspaceId, slug, body, { ip = null } = {}) {
     try {
       await assertWithinLimit(workspaceId, 'contact');
     } catch (err) {
-      if (err.code !== 'PLAN_LIMIT_REACHED') throw err;
-      await record('REJECTED', 'Contact limit for this plan reached');
-      return { ok: true, message: successMessageOf(form) };
+      // Only a real limit stops the submission. Failing to *read* the plan
+      // (no subscription row) must not turn a stranger's sign-up into a 500.
+      if (err.code !== 'PLAN_LIMIT_REACHED') {
+        console.error('[LeadForms] plan limit check failed:', err.message);
+      } else {
+        await record('REJECTED', 'Contact limit for this plan reached');
+        return { ok: true, message: successMessageOf(form) };
+      }
     }
     contact = await prisma.contact.create({
       data: { workspaceId, name: (name || phoneNumber).slice(0, 120), phoneNumber, email: email || null, tags: [] },

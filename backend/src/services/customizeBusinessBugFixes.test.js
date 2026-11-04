@@ -292,6 +292,20 @@ test('Bug 7 & 8: Call and Visit outcome triggers auto-generate follow-up tasks',
 test('Bug 9: DealStageHistory records custom stage keys accurately', async (t) => {
   if (!dbAvailable) return t.skip('db unavailable');
 
+  // A custom stage has to exist in the workspace's pipeline before a deal can
+  // be put in it (deals.service.js#assertKnownStage).
+  await assert.rejects(
+    createDeal(workspaceId, { title: 'Nowhere', contactId, stage: 'NOT_A_STAGE_ANYWHERE' }),
+    /Unknown pipeline stage/,
+  );
+  await prisma.pipelineStage.createMany({
+    data: [
+      { workspaceId, key: 'CUSTOM_DEMO_STAGE', label: 'Demo', probability: 30, sortOrder: 10 },
+      { workspaceId, key: 'CUSTOM_NEGOTIATION_STAGE', label: 'Custom negotiation', probability: 60, sortOrder: 11 },
+    ],
+    skipDuplicates: true,
+  });
+
   const deal = await createDeal(workspaceId, {
     title: 'Custom Stage Deal',
     contactId,

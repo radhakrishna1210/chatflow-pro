@@ -995,7 +995,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
                   <StepRow key={step.id} step={step} index={idx}
                     onChange={fields => updateStep(step.id, fields)}
                     onRemove={() => removeStep(step.id)}
-                    canRemove={step.type === 'action'} />
+                    canRemove={step.type !== 'trigger'} />
                 ))}
                 <div><Btn variant="outline" size="sm" onClick={addActionStep}><I n="plus" s={12} c="var(--t2)" /> Add Action Step</Btn></div>
               </>
@@ -1028,7 +1028,7 @@ const updateStep = (id, fields) => setSteps(p => p.map(s => (s.id === id ? apply
                       <StepRow step={step} index={idx}
                         onChange={fields => updateStep(step.id, fields)}
                         onRemove={() => { removeStep(step.id); setSelectedStepId(null); }}
-                        canRemove={step.type === 'action'}
+                        canRemove={step.type !== 'trigger'}
                         allowTypeChange />
                     );
                   })()}
@@ -1164,7 +1164,10 @@ const PLACEHOLDERS = {
 const PALETTE = [
   {
     name: 'TRIGGERS', color: '#f59e0b',
-    items: TRIGGER_SUBTYPES.map(([subtype, label]) => ({
+    // Nothing delivers a missed-call event to the workflow engine yet, so a
+    // workflow started from "Missed Inbound Call" saves, shows Active and never
+    // runs. It stays in TRIGGER_SUBTYPES only so an existing one still renders.
+    items: TRIGGER_SUBTYPES.filter(([subtype]) => subtype !== 'missed').map(([subtype, label]) => ({
       type: 'trigger', subtype, label,
       value: subtype === 'keyword' ? 'HELP' : '',
     })),
@@ -1377,7 +1380,8 @@ export function applyStepChange(step, fields) {
 const StepRow = ({ step, index, onChange, onRemove, canRemove, allowTypeChange = false }) => {
   const isTrigger = step.type === 'trigger';
   const isCondition = step.type === 'condition';
-  const options = isTrigger ? TRIGGER_SUBTYPES : isCondition ? CONDITION_SUBTYPES : ACTION_SUBTYPES;
+  const options = (isTrigger ? TRIGGER_SUBTYPES : isCondition ? CONDITION_SUBTYPES : ACTION_SUBTYPES)
+    .filter(([id]) => id !== 'missed' || step.subtype === 'missed');
   const selectStyle = { padding:'7px 10px', borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:12, outline:'none' };
 
   return (

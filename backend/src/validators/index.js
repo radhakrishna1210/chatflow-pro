@@ -929,6 +929,17 @@ export const crmActivitySchemas = {
     leadId: optionalRef,
     dealId: optionalRef,
     contactId: optionalRef,
+    // The Engagements screen's structured fields. createActivity reads every
+    // one of these, but z.object() strips undeclared keys — so before they were
+    // listed here a "Visit" or a "Scheduled" engagement was silently saved as a
+    // plain note with the defaults, and the outcome/sentiment that drive the
+    // auto follow-up task never reached the service.
+    engagementType: z.enum(['Call', 'Video Call', 'Message', 'Visit', 'Note']).optional(),
+    status: z.enum(['Completed', 'Active', 'Scheduled']).optional(),
+    duration: z.union([z.number().int().nonnegative().max(100000), z.string().trim().max(20)]).optional().nullable(),
+    notes: z.string().trim().max(5000).optional(),
+    outcome: z.string().trim().max(200).optional(),
+    sentiment: z.enum(['POSITIVE', 'NEUTRAL', 'NEGATIVE']).optional(),
   }),
 };
 

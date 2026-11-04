@@ -40,7 +40,10 @@ const SectionCard = ({ icon, title, children }) => (
 );
 
 const Toggle = ({ on, onToggle, disabled=false }) => (
-  <div onClick={disabled ? undefined : onToggle} style={{ width:38, height:21, borderRadius:20, background: on ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, transition:'background .2s', position:'relative', border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`, flexShrink:0 }}>
+  <div role="switch" aria-checked={!!on} aria-disabled={disabled} tabIndex={disabled ? -1 : 0}
+    onClick={disabled ? undefined : onToggle}
+    onKeyDown={disabled ? undefined : (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onToggle(); } }}
+    style={{ width:38, height:21, borderRadius:20, background: on ? 'var(--green)' : 'rgba(255,255,255,0.1)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, transition:'background .2s', position:'relative', border:`1px solid ${on ? 'var(--gbd)' : 'var(--bd)'}`, flexShrink:0 }}>
     <div style={{ position:'absolute', top:2, left: on ? 19 : 2, width:15, height:15, borderRadius:'50%', background:'white', transition:'left .2s', boxShadow:'0 1px 3px rgba(0,0,0,0.4)' }} />
   </div>
 );
@@ -743,17 +746,22 @@ export default function SettingsView() {
         </SectionCard>
         )}
 
-        {/* ── Lead capture ── */}
+        {/* ── Lead capture ── (rendered on every tab before; it belongs with
+            the workspace's people and their records) */}
+        {tab === 'team' && (
         <SectionCard icon="target" title="Lead Capture">
           <LeadCaptureSetting isAdmin={isAdmin} />
         </SectionCard>
+        )}
 
         {/* ── Teams & record visibility ──
             Sits directly after Team Members: that section decides who is in the
             workspace, this one decides who can see whose records. */}
+        {tab === 'team' && (
         <SectionCard icon="users" title="Teams & Record Visibility">
           <TeamsAdmin isAdmin={isAdmin} />
         </SectionCard>
+        )}
 
         {/* ── Blocked Numbers (opt-outs) ── */}
         {tab === 'security' && <BlockedNumbers isAdmin={isAdmin} />}

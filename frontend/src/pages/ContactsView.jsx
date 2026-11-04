@@ -3,11 +3,16 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch } from '../lib/api.js';
 import MobileNavButton from '../components/MobileNavButton.jsx';
+import { Modal } from '../components/Modal.jsx';
+import { useIsMobile } from '../lib/useMediaQuery.js';
+import { canHandleConversations, canManage } from '../lib/permissions.js';
 
 const card = { background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 'var(--rl)', boxShadow: 'var(--card-shadow)' };
 
-const Avatar = ({ name = '?', size = 32 }) => {
-  const init = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
+const Avatar = ({ name, size = 32 }) => {
+  // `name` can be null (a contact saved with only a phone number) — the old
+  // `name = '?'` default only covers undefined, so null crashed the whole table.
+  const init = String(name || '?').trim().split(/\s+/).map(n => n[0]).join('').slice(0,2).toUpperCase() || '?';
   const colors = ['#35e8f2','#9d6bff','#c4ff46','#F59E0B','#F472B6'];
   const c = colors[init.charCodeAt(0) % colors.length];
   return (
@@ -35,24 +40,10 @@ const ColHead = ({ children, width }) => (
   </th>
 );
 
-const Modal = ({ title, onClose, children, footer, width = 540 }) => (
-  <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:100, display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)' }}>
-    <div style={{ ...card, width, maxHeight:'85vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
-      <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
-        <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)' }}>{title}</span>
-        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--t2)', display:'flex' }}>
-          <I n="x" s={18} c="var(--t2)" />
-        </button>
-      </div>
-      <div style={{ flex:1, overflowY:'auto', padding:'20px 24px' }}>{children}</div>
-      {footer && <div style={{ padding:'14px 24px', borderTop:'1px solid var(--bd)', display:'flex', justifyContent:'flex-end', gap:8, flexShrink:0 }}>{footer}</div>}
-    </div>
-  </div>
-);
-
-const FInput = ({ value, onChange, placeholder, type = 'text', onKeyDown }) => (
+const FInput = ({ value, onChange, placeholder, type = 'text', onKeyDown, ariaLabel }) => (
   <input
     type={type} value={value} onChange={onChange} placeholder={placeholder} onKeyDown={onKeyDown}
+    aria-label={ariaLabel || placeholder}
     style={{ width:'100%', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box' }}
     onFocus={e => e.target.style.borderColor='var(--gbd)'}
     onBlur={e => e.target.style.borderColor='var(--bd)'} />
@@ -72,10 +63,12 @@ const ManualTab = ({ onSaved }) => {
   const [tagsRaw, setTags]  = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr]       = useState(null);
+  const [added, setAdded]   = useState(null);
 
   const submit = async () => {
+    if (saving) return;
     if (!phone.trim()) { setErr('Phone number is required'); return; }
-    setErr(null); setSaving(true);
+    setErr(null); setAdded(null); setSaving(true);
     try {
       const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
       const res = await wFetch('/contacts', {
@@ -85,6 +78,9 @@ const ManualTab = ({ onSaved }) => {
       const data = await res.json();
       if (!res.ok) { setErr(data.error || `Error ${res.status}`); return; }
       setName(''); setPhone(''); setEmail(''); setTags('');
+      // The form stays open for the next entry, so say the last one landed —
+      // it used to just clear itself, which read as "nothing happened".
+      setAdded(data?.name && data.name !== 'Unknown' ? data.name : (data?.phoneNumber || 'Contact'));
       onSaved?.(data);
     } catch (e) {
       setErr(e.message);
@@ -96,24 +92,27 @@ const ManualTab = ({ onSaved }) => {
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
       {err && (
-        <div style={{ padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12 }}>{err}</div>
+        <div role="alert" style={{ padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12 }}>{err}</div>
+      )}
+      {added && !err && (
+        <div role="status" style={{ padding:'9px 12px', borderRadius:8, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)', fontSize:12, fontWeight:600 }}>✓ Added {added}. Add another, or close this dialog.</div>
       )}
       <div>
         <FLabel>Name</FLabel>
-        <FInput value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" />
+        <FInput value={name} onChange={e => setName(e.target.value)} placeholder="Jane Doe" ariaLabel="Name" />
       </div>
       <div>
         <FLabel required>Phone Number</FLabel>
-        <FInput value={phone} onChange={e => setPhone(e.target.value.replace(/[^0-9+\s\-()]/g, ''))} placeholder="+91 9876543210" onKeyDown={e => e.key === 'Enter' && submit()} />
+        <FInput value={phone} onChange={e => setPhone(e.target.value.replace(/[^0-9+\s\-()]/g, ''))} placeholder="+91 9876543210" onKeyDown={e => e.key === 'Enter' && submit()} ariaLabel="Phone number" />
         <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Include country code (e.g. +91 for India, +1 for US). WhatsApp won't deliver without it.</p>
       </div>
       <div>
         <FLabel>Email</FLabel>
-        <FInput type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" />
+        <FInput type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" ariaLabel="Email" />
       </div>
       <div>
         <FLabel>Tags</FLabel>
-        <FInput value={tagsRaw} onChange={e => setTags(e.target.value)} placeholder="vip, newsletter, prospect" />
+        <FInput value={tagsRaw} onChange={e => setTags(e.target.value)} placeholder="vip, newsletter, prospect" ariaLabel="Tags" />
         <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Comma-separated.</p>
       </div>
       <Btn onClick={submit} disabled={saving || !phone.trim()} style={{ alignSelf:'flex-end', boxShadow: phone.trim() ? 'var(--glow)' : 'none' }}>
@@ -133,19 +132,16 @@ const CsvTab = ({ onSaved }) => {
   const inputRef = useRef(null);
 
   const submit = async () => {
-    if (!file) return;
+    if (!file || uploading) return;
     setErr(null); setResult(null); setUpl(true);
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const { workspaceId } = JSON.parse(localStorage.getItem('user') || '{}');
-      const token = localStorage.getItem('accessToken');
-      const res = await fetch(`/api/v1/workspaces/${workspaceId}/contacts/import`, {
-        method:'POST',
-        headers: { Authorization: `Bearer ${token}` }, // no Content-Type — browser sets it with boundary
-        body: fd,
-      });
-      const data = await res.json();
+      // wFetch, not a raw fetch: it refreshes an expired access token (they
+      // last 15 minutes) instead of failing the upload with a bare 401, and it
+      // leaves Content-Type to the browser for FormData bodies.
+      const res = await wFetch('/contacts/import', { method:'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { setErr(data.error || `Error ${res.status}`); return; }
       setResult(data);
       onSaved?.();
@@ -193,8 +189,10 @@ const CsvTab = ({ onSaved }) => {
           {result.attributeKeys?.length > 0 && ` Extra columns saved: ${result.attributeKeys.join(', ')}.`}
         </div>
       )}
-      <input ref={inputRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={e => { setFile(e.target.files[0]); setResult(null); }} />
+      <input ref={inputRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={e => { setFile(e.target.files[0]); setResult(null); setErr(null); e.target.value = ''; }} />
       <div
+        role="button" tabIndex={0} aria-label="Choose a CSV file to import"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
         onClick={() => inputRef.current?.click()}
         onDragOver={e => { e.preventDefault(); setDrag(true); }}
         onDragLeave={() => setDrag(false)}
@@ -296,10 +294,10 @@ const AddContactDialog = ({ onClose, onSaved }) => {
     <Modal title="Add Contacts" onClose={onClose}>
       <div style={{ display:'flex', gap:8, marginBottom:18 }}>
         {tabs.map(t => (
-          <div key={t.id} onClick={() => setTab(t.id)}
-            style={{ padding:'8px 14px', borderRadius:8, border:`1px solid ${tab === t.id ? 'var(--green)' : 'var(--bd)'}`, background: tab === t.id ? 'var(--gbg)' : 'transparent', cursor:'pointer', fontSize:13, fontWeight:500, color: tab === t.id ? 'var(--green)' : 'var(--t2)', transition:'all .15s', display:'flex', alignItems:'center', gap:8 }}>
+          <button type="button" key={t.id} onClick={() => setTab(t.id)} aria-pressed={tab === t.id}
+            style={{ fontFamily:"'Manrope',sans-serif", padding:'8px 14px', borderRadius:8, border:`1px solid ${tab === t.id ? 'var(--green)' : 'var(--bd)'}`, background: tab === t.id ? 'var(--gbg)' : 'transparent', cursor:'pointer', fontSize:13, fontWeight:500, color: tab === t.id ? 'var(--green)' : 'var(--t2)', transition:'all .15s', display:'flex', alignItems:'center', gap:8 }}>
             {t.label}
-          </div>
+          </button>
         ))}
       </div>
       {tab === 'manual' && <ManualTab onSaved={onSaved} />}
@@ -321,6 +319,7 @@ const EditContactDialog = ({ contact, onClose, onSaved }) => {
   const [err, setErr]       = useState(null);
 
   const submit = async () => {
+    if (saving) return;
     if (!phone.trim()) { setErr('Phone number is required'); return; }
     setErr(null); setSaving(true);
     try {
@@ -445,7 +444,7 @@ const DeleteContactModal = ({ contact, onClose, onDeleted }) => {
 };
 
 // ─── Delete Multiple Contacts modal ──────────────────────────────────────
-const DeleteMultipleModal = ({ selectedIds, onClose, onDeleted }) => {
+const DeleteMultipleModal = ({ selectedIds, onClose, onDeleted, onChanged }) => {
   const [deleting, setDeleting] = useState(false);
   const [err, setErr]           = useState(null);
 
@@ -453,16 +452,24 @@ const DeleteMultipleModal = ({ selectedIds, onClose, onDeleted }) => {
     setErr(null); setDeleting(true);
     try {
       const ids = Array.from(selectedIds);
-      const errors = [];
+      let failed = 0;
+      let reason = '';
       for (const id of ids) {
         try {
           const res = await wFetch(`/contacts/${id}`, { method: 'DELETE' });
-          if (!res.ok) throw new Error(`Failed to delete ${id}`);
+          if (!res.ok) {
+            failed++;
+            if (!reason) reason = (await res.json().catch(() => ({}))).error || '';
+          }
         } catch (e) {
-          errors.push(e.message);
+          failed++;
+          if (!reason) reason = e.message;
         }
       }
-      if (errors.length > 0) throw new Error(`Failed to delete ${errors.length} contacts.`);
+      // The ones that did go are gone whatever happened to the rest, so the
+      // list has to be refreshed either way — it used to keep showing them.
+      onChanged?.();
+      if (failed > 0) throw new Error(`${ids.length - failed} deleted, ${failed} could not be deleted${reason ? `: ${reason}` : '.'}`);
       onDeleted?.();
     } catch (e) {
       setErr(e.message);
@@ -542,6 +549,7 @@ const CreateClusterModal = ({ onClose, onSaved }) => {
       setErr('At least one contact must be selected.');
       return;
     }
+    if (saving) return;
     setErr(null);
     setSaving(true);
     try {
@@ -658,7 +666,28 @@ const EMPTY_FILTERS = {
 
 const PAGE_SIZE = 20;
 
+// A real checkbox for keyboards and screen readers. It used to be a bare <div>
+// defined inside the page component (so it remounted on every render) that
+// could only be clicked.
+const Chk = ({ checked, onChange, indeterminate = false, label }) => (
+  <button type="button" role="checkbox" aria-checked={indeterminate && !checked ? 'mixed' : !!checked} aria-label={label}
+    onClick={onChange}
+    style={{ width:16, height:16, padding:0, borderRadius:4, border:`1.5px solid ${checked ? 'var(--green)' : 'var(--bd)'}`, background: checked ? 'var(--green)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0, transition:'all .15s', position:'relative' }}>
+    {checked && <I n="check" s={9} c="#08090c" w={3} />}
+    {!checked && indeterminate && <div style={{ width:8, height:2, background:'var(--t2)', borderRadius:2 }} />}
+  </button>
+);
+
+const rowIconBtn = { width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 };
+
 export default function ContactsView() {
+  const mobile = useIsMobile();
+  // What the UI offers mirrors middleware/roleCapabilities.js: viewers change
+  // nothing; agents keep contact records straight but cannot build clusters
+  // (members and admins only). The server enforces both regardless — this is
+  // so a viewer is not offered buttons that can only ever answer 403.
+  const canEdit = canHandleConversations();
+  const canCluster = canManage();
   const [contacts, setContacts]         = useState([]);
   const [total, setTotal]               = useState(0);
   const [search, setSearch]             = useState('');
@@ -724,8 +753,15 @@ export default function ContactsView() {
       .then(d => {
         if (token !== loadToken.current) return;
         const list = Array.isArray(d) ? d : (d?.data ?? []);
+        const nextTotal = d?.total ?? list.length;
+        // Deleting the last rows of the last page leaves us past the end;
+        // step back rather than show "No contacts found" with contacts left.
+        if (list.length === 0 && page > 1 && nextTotal > 0) {
+          setPage(Math.max(1, Math.ceil(nextTotal / PAGE_SIZE)));
+          return;
+        }
         setContacts(list);
-        setTotal(d?.total ?? list.length);
+        setTotal(nextTotal);
         // Selections refer to rows that are no longer on screen.
         setSelected(new Set());
       })
@@ -736,14 +772,32 @@ export default function ContactsView() {
   useEffect(() => { load(); }, [load]);
 
   // Filter options: clusters (sidebar), segments and the tags actually in use.
-  useEffect(() => {
+  const loadClusters = useCallback(() => {
     wFetch('/clusters').then(r => r.ok && r.json())
       .then(d => { if (Array.isArray(d)) setClusters(d); }).catch(() => {});
-    wFetch('/segments').then(r => r.ok && r.json())
-      .then(d => { if (Array.isArray(d)) setSegments(d); else if (Array.isArray(d?.data)) setSegments(d.data); }).catch(() => {});
+  }, []);
+  const loadTags = useCallback(() => {
     wFetch('/contacts/tags').then(r => r.ok && r.json())
       .then(d => { if (Array.isArray(d)) setAvailableTags(d); }).catch(() => {});
   }, []);
+  // After anything that changes contacts: the page, the tag list the filter
+  // offers, and the cluster member counts can all have moved.
+  const refreshAll = useCallback(() => { load(); loadTags(); loadClusters(); }, [load, loadTags, loadClusters]);
+
+  useEffect(() => {
+    loadClusters();
+    wFetch('/segments').then(r => r.ok && r.json())
+      .then(d => { if (Array.isArray(d)) setSegments(d); else if (Array.isArray(d?.data)) setSegments(d.data); }).catch(() => {});
+    loadTags();
+  }, [loadClusters, loadTags]);
+
+  // Escape closes whichever dropdown is open.
+  useEffect(() => {
+    if (!filterOpen && !sortOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') { setFilterOpen(false); setSortOpen(false); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [filterOpen, sortOpen]);
 
   // Global header search ("app:search") lands here with the query prefilled.
   useEffect(() => {
@@ -782,52 +836,58 @@ export default function ContactsView() {
 
   const selCount = selected.size;
 
-  const Chk = ({ checked, onChange, indeterminate = false }) => (
-    <div onClick={onChange} style={{ width:16, height:16, borderRadius:4, border:`1.5px solid ${checked ? 'var(--green)' : 'var(--bd)'}`, background: checked ? 'var(--green)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0, transition:'all .15s', position:'relative' }}>
-      {checked && <I n="check" s={9} c="#08090c" w={3} />}
-      {!checked && indeterminate && <div style={{ width:8, height:2, background:'var(--t2)', borderRadius:2 }} />}
-    </div>
-  );
+  // The Inbox reads `?search=` to open pre-filtered on this number.
+  const openInInbox = (c) => {
+    const target = `/dashboard/inbox?search=${encodeURIComponent(c.phoneNumber || c.name || '')}`;
+    window.history.pushState({}, '', target);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
 
   const indeterminate = selCount > 0 && !allChecked;
 
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
       {/* header */}
-      <div className="dash-page-head" style={{ height:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding:'0 28px', gap:12, flexShrink:0, background:'var(--surf)' }}>
+      <div className="dash-page-head" style={{ minHeight:58, borderBottom:'1px solid var(--bd)', display:'flex', alignItems:'center', padding: mobile ? '8px 16px' : '0 28px', gap:12, flexShrink:0, background:'var(--surf)', flexWrap: mobile ? 'wrap' : 'nowrap' }}>
         <MobileNavButton />
         <div style={{ flex:1 }}>
           <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em' }}>Contacts</h1>
           <p style={{ fontSize:11.5, color:'var(--t2)', marginTop:1 }}>{total} total contacts</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          {selCount > 0 && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {canEdit && selCount > 0 && (
             <Btn variant="outline" onClick={() => setDeletingMultiple(true)} style={{ borderColor: 'rgba(239,68,68,0.3)', color: '#f87171', background: 'rgba(239,68,68,0.05)' }}>
               <I n="trash" s={14} c="#f87171" />
               Delete {selCount} selected
             </Btn>
           )}
-          <Btn variant="outline" onClick={() => setClusterOpen(true)}>
-            <I n="plus" s={14} c="var(--t2)" />
-            Create Cluster
-          </Btn>
-          <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
-            <I n="plus" s={14} c="#08090c" />
-            Add Contact
-          </Btn>
+          {canCluster && (
+            <Btn variant="outline" onClick={() => setClusterOpen(true)}>
+              <I n="plus" s={14} c="var(--t2)" />
+              Create Cluster
+            </Btn>
+          )}
+          {canEdit ? (
+            <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
+              <I n="plus" s={14} c="#08090c" />
+              Add Contact
+            </Btn>
+          ) : (
+            <span style={{ fontSize:11.5, color:'var(--t3)' }}>Read-only access</span>
+          )}
         </div>
       </div>
 
       {/* filter bar */}
-      <div style={{ padding:'12px 28px', borderBottom:'1px solid var(--bd)', display:'flex', gap:10, alignItems:'center', background:'var(--surf)', flexShrink:0, flexWrap:'wrap' }}>
-        <div style={{ flex:1, maxWidth:360, minWidth:200, display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
+      <div style={{ padding: mobile ? '10px 16px' : '12px 28px', borderBottom:'1px solid var(--bd)', display:'flex', gap:10, alignItems:'center', background:'var(--surf)', flexShrink:0, flexWrap:'wrap' }}>
+        <div style={{ flex:1, maxWidth:360, minWidth: mobile ? '100%' : 200, display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)' }}>
           <I n="search" s={13} c="var(--t2)" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, phone or email…"
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, phone or email…" aria-label="Search contacts"
             style={{ flex:1, background:'none', border:'none', outline:'none', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif" }} />
           {search && (
-            <div onClick={() => setSearch('')} style={{ cursor:'pointer', color:'var(--t2)' }}>
+            <button type="button" onClick={() => setSearch('')} aria-label="Clear search" style={{ cursor:'pointer', color:'var(--t2)', background:'none', border:'none', padding:0, display:'flex' }}>
               <I n="x" s={12} c="var(--t2)" />
-            </div>
+            </button>
           )}
         </div>
 
@@ -846,7 +906,7 @@ export default function ContactsView() {
             <>
               {/* click-away */}
               <div onClick={() => setFilterOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
-              <div className="modal-card" style={{ ...card, position:'absolute', top:'calc(100% + 8px)', left:0, width:320, zIndex:41, padding:16, display:'flex', flexDirection:'column', gap:14, maxHeight:'70vh', overflowY:'auto' }}>
+              <div className="modal-card" role="dialog" aria-label="Filter contacts" style={{ ...card, ...(mobile ? { position:'fixed', top:120, left:16, right:16, width:'auto' } : { position:'absolute', top:'calc(100% + 8px)', left:0, width:320 }), zIndex:41, padding:16, display:'flex', flexDirection:'column', gap:14, maxHeight:'70vh', overflowY:'auto' }}>
 
                 <div>
                   <FLabel>Status</FLabel>
@@ -941,17 +1001,17 @@ export default function ContactsView() {
           {sortOpen && (
             <>
               <div onClick={() => setSortOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
-              <div style={{ ...card, position:'absolute', top:'calc(100% + 8px)', right:0, width:210, zIndex:41, padding:6 }}>
+              <div role="listbox" aria-label="Sort contacts" style={{ ...card, position:'absolute', top:'calc(100% + 8px)', right: mobile ? 'auto' : 0, left: mobile ? 0 : 'auto', width:210, maxWidth:'calc(100vw - 32px)', zIndex:41, padding:6 }}>
                 {SORT_OPTIONS.map(o => (
-                  <div key={o.id} onClick={() => { setSort(o.id); setSortOpen(false); }}
-                    style={{ padding:'8px 11px', borderRadius:7, cursor:'pointer', fontSize:12.5,
+                  <button type="button" role="option" aria-selected={sort === o.id} key={o.id} onClick={() => { setSort(o.id); setSortOpen(false); }}
+                    style={{ display:'block', width:'100%', textAlign:'left', border:'none', fontFamily:"'Manrope',sans-serif", padding:'8px 11px', borderRadius:7, cursor:'pointer', fontSize:12.5,
                              fontWeight: sort === o.id ? 700 : 500,
                              color: sort === o.id ? 'var(--green)' : 'var(--t2)',
                              background: sort === o.id ? 'var(--gbg)' : 'transparent' }}
                     onMouseEnter={e => { if (sort !== o.id) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
                     onMouseLeave={e => { if (sort !== o.id) e.currentTarget.style.background = 'transparent'; }}>
                     {o.label}
-                  </div>
+                  </button>
                 ))}
               </div>
             </>
@@ -966,59 +1026,54 @@ export default function ContactsView() {
         )}
       </div>
 
-      <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
-        {/* clusters sidebar */}
-        <div style={{ width:240, borderRight:'1px solid var(--bd)', padding:'20px 16px', background:'var(--surf)', overflowY:'auto', flexShrink:0, display:'flex', flexDirection:'column', gap:6 }}>
-          <div style={{ padding:'0 4px', marginBottom:6, fontSize:12, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'0.04em' }}>
-            Clusters
-          </div>
-          <div
-            onClick={() => setSelectedCluster('')}
-            style={{
-              display:'flex', alignItems:'center', justifyContent:'space-between', padding:'9px 12px', borderRadius:8, cursor:'pointer',
-              background: !selectedCluster ? 'var(--gbg)' : 'transparent',
-              border: `1px solid ${!selectedCluster ? 'var(--gbd)' : 'transparent'}`,
-              color: !selectedCluster ? 'var(--green)' : 'var(--t2)',
-              fontSize:13, fontWeight: !selectedCluster ? 600 : 500, transition:'all .15s'
-            }}
-            onMouseEnter={e => { if (selectedCluster) e.currentTarget.style.background='rgba(255,255,255,0.03)'; }}
-            onMouseLeave={e => { if (selectedCluster) e.currentTarget.style.background='transparent'; }}
-          >
-            <span>All Contacts</span>
-          </div>
-          {clusters.map((c) => {
+      <div style={{ flex:1, display:'flex', flexDirection: mobile ? 'column' : 'row', overflow:'hidden', minHeight:0 }}>
+        {/* clusters — a sidebar on a laptop, a scrolling chip row on a phone
+            (a fixed 240px column left the table ~100px on a 390px screen) */}
+        <div role="group" aria-label="Clusters" style={mobile
+          ? { borderBottom:'1px solid var(--bd)', padding:'10px 16px', background:'var(--surf)', overflowX:'auto', flexShrink:0, display:'flex', flexDirection:'row', gap:6, alignItems:'center' }
+          : { width:240, borderRight:'1px solid var(--bd)', padding:'20px 16px', background:'var(--surf)', overflowY:'auto', flexShrink:0, display:'flex', flexDirection:'column', gap:6 }}>
+          {!mobile && (
+            <div style={{ padding:'0 4px', marginBottom:6, fontSize:12, fontWeight:700, color:'var(--t3)', textTransform:'uppercase', letterSpacing:'0.04em' }}>
+              Clusters
+            </div>
+          )}
+          {[{ id: '', name: 'All Contacts' }, ...clusters].map((c) => {
             const active = selectedCluster === c.id;
             return (
-              <div
-                key={c.id}
+              <button
+                type="button"
+                key={c.id || 'all'}
+                aria-pressed={active}
                 onClick={() => setSelectedCluster(c.id)}
                 style={{
-                  display:'flex', alignItems:'center', justifyContent:'space-between', padding:'9px 12px', borderRadius:8, cursor:'pointer',
+                  display:'flex', alignItems:'center', justifyContent:'space-between', padding: mobile ? '6px 12px' : '9px 12px', borderRadius:8, cursor:'pointer',
                   background: active ? 'var(--gbg)' : 'transparent',
-                  border: `1px solid ${active ? 'var(--gbd)' : 'transparent'}`,
-                  color: active ? 'var(--green)' : 'var(--t2)',
-                  fontSize:13, fontWeight: active ? 600 : 500, transition:'all .15s'
+                  border: `1px solid ${active ? 'var(--gbd)' : (mobile ? 'var(--bd)' : 'transparent')}`,
+                  color: active ? 'var(--green)' : 'var(--t2)', fontFamily:"'Manrope',sans-serif", textAlign:'left',
+                  fontSize:13, fontWeight: active ? 600 : 500, transition:'all .15s', flexShrink:0, whiteSpace:'nowrap', maxWidth: mobile ? 220 : 'none',
                 }}
                 onMouseEnter={e => { if (!active) e.currentTarget.style.background='rgba(255,255,255,0.03)'; }}
                 onMouseLeave={e => { if (!active) e.currentTarget.style.background='transparent'; }}
               >
                 <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{c.name}</span>
-                <span style={{ fontSize:11.5, color: active ? 'var(--green)' : 'var(--t3)', marginLeft:8, fontWeight:500 }}>
-                  ({c.memberCount ?? 0})
-                </span>
-              </div>
+                {c.id && (
+                  <span style={{ fontSize:11.5, color: active ? 'var(--green)' : 'var(--t3)', marginLeft:8, fontWeight:500 }}>
+                    ({c.memberCount ?? 0})
+                  </span>
+                )}
+              </button>
             );
           })}
         </div>
 
         {/* table */}
-        <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'20px 28px' }}>
+        <div className="dash-page" style={{ flex:1, minHeight:0, overflowY:'auto', padding: mobile ? '14px 16px' : '20px 28px' }}>
           <div style={{ ...card, overflowX: 'auto' }}>
             <table style={{ width:'100%', borderCollapse:'collapse' }}>
               <thead>
                 <tr style={{ borderBottom:'1px solid var(--bd)' }}>
                   <th style={{ padding:'10px 16px', width:40 }}>
-                    <Chk checked={allChecked} indeterminate={indeterminate} onChange={toggleAll} />
+                    {canEdit && <Chk checked={allChecked} indeterminate={indeterminate} onChange={toggleAll} label="Select all contacts on this page" />}
                   </th>
                   <ColHead>Name</ColHead>
                   <ColHead>Phone</ColHead>
@@ -1047,10 +1102,12 @@ export default function ContactsView() {
                         ) : (
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14 }}>
                             <span>No contacts yet.</span>
-                            <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
-                              <I n="plus" s={13} c="#08090c" />
-                              Add your first contact
-                            </Btn>
+                            {canEdit && (
+                              <Btn onClick={() => setAddOpen(true)} style={{ boxShadow:'var(--glow)' }}>
+                                <I n="plus" s={13} c="#08090c" />
+                                Add your first contact
+                              </Btn>
+                            )}
                           </div>
                         )
                       }
@@ -1065,12 +1122,12 @@ export default function ContactsView() {
                       onMouseEnter={e => { if (!sel) e.currentTarget.style.background = 'rgba(255,255,255,0.015)'; }}
                       onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'transparent'; }}>
                       <td style={{ padding:'12px 16px' }}>
-                        <Chk checked={sel} onChange={() => toggle(c.id)} />
+                        {canEdit && <Chk checked={sel} onChange={() => toggle(c.id)} label={`Select ${c.name || c.phoneNumber}`} />}
                       </td>
                       <td style={{ padding:'12px 16px' }}>
                         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                           <Avatar name={c.name} size={30} />
-                          <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{c.name}</span>
+                          <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{c.name || <span style={{ color:'var(--t3)' }}>Unnamed</span>}</span>
                         </div>
                       </td>
                       <td style={{ padding:'12px 16px', fontSize:13, color:'var(--t2)', fontFamily:'monospace' }}>{c.phoneNumber}</td>
@@ -1085,23 +1142,30 @@ export default function ContactsView() {
                       </td>
                       <td style={{ padding:'12px 16px' }}>
                         <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
-                          <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
+                          {/* This button had no handler at all. It opens the inbox
+                              searched to this contact's number. */}
+                          <button type="button" style={rowIconBtn} aria-label={`Message ${c.name || c.phoneNumber}`} title="Open in Inbox"
+                            onClick={() => openInInbox(c)}
                             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(53,232,242,0.1)'; e.currentTarget.style.borderColor = 'var(--gbd)'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
                             <I n="msg" s={13} c="var(--t2)" />
                           </button>
-                          <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--t2)', transition:'all .15s', flexShrink:0 }}
-                            onClick={() => setEditingContact(c)}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,165,233,0.1)'; e.currentTarget.style.borderColor = 'rgba(14,165,233,0.3)'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
-                            <I n="pencil" s={13} c="var(--t2)" />
-                          </button>
-                          <button style={{ width:30, height:30, borderRadius:7, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#f87171', transition:'all .15s', flexShrink:0 }}
-                            onClick={() => setDeletingContact(c)}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.3)'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
-                            <I n="trash" s={13} c="#f87171" />
-                          </button>
+                          {canEdit && (
+                            <button type="button" style={rowIconBtn} aria-label={`Edit ${c.name || c.phoneNumber}`} title="Edit"
+                              onClick={() => setEditingContact(c)}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,165,233,0.1)'; e.currentTarget.style.borderColor = 'rgba(14,165,233,0.3)'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
+                              <I n="pencil" s={13} c="var(--t2)" />
+                            </button>
+                          )}
+                          {canEdit && (
+                            <button type="button" style={{ ...rowIconBtn, color:'#f87171' }} aria-label={`Delete ${c.name || c.phoneNumber}`} title="Delete"
+                              onClick={() => setDeletingContact(c)}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.3)'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--bd)'; }}>
+                              <I n="trash" s={13} c="#f87171" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1135,34 +1199,35 @@ export default function ContactsView() {
       {addOpen && (
         <AddContactDialog
           onClose={() => setAddOpen(false)}
-          onSaved={() => { load(); }}
+          onSaved={refreshAll}
         />
       )}
       {clusterOpen && (
         <CreateClusterModal
           onClose={() => setClusterOpen(false)}
-          onSaved={() => { load(); }}
+          onSaved={refreshAll}
         />
       )}
       {editingContact && (
         <EditContactDialog
           contact={editingContact}
           onClose={() => setEditingContact(null)}
-          onSaved={() => { setEditingContact(null); load(); }}
+          onSaved={() => { setEditingContact(null); refreshAll(); }}
         />
       )}
       {deletingContact && (
         <DeleteContactModal
           contact={deletingContact}
           onClose={() => setDeletingContact(null)}
-          onDeleted={() => { setDeletingContact(null); load(); }}
+          onDeleted={() => { setDeletingContact(null); refreshAll(); }}
         />
       )}
       {deletingMultiple && (
         <DeleteMultipleModal
           selectedIds={selected}
           onClose={() => setDeletingMultiple(false)}
-          onDeleted={() => { setDeletingMultiple(false); setSelected(new Set()); load(); }}
+          onChanged={refreshAll}
+          onDeleted={() => { setDeletingMultiple(false); setSelected(new Set()); }}
         />
       )}
     </div>

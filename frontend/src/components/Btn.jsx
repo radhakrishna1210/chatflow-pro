@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { I } from './Icons.jsx';
 
-export const Btn = ({ children, variant = 'primary', size = 'md', onClick, style: ex = {}, disabled, type }) => {
+// Anything else (title, aria-label, aria-pressed, id, form…) is passed to the
+// <button>. It used to be dropped, so a disabled button's `title` explaining why
+// it was disabled never showed, and icon-only Btns had no accessible name.
+export const Btn = ({ children, variant = 'primary', size = 'md', onClick, style: ex = {}, disabled, type, outline, ...rest }) => {
+  // `<Btn outline>` appears in a few screens; it means the outline variant.
+  if (outline && variant === 'primary') variant = 'outline';
   const [h, setH] = useState(false);
   const base = {
     display: 'inline-flex', alignItems: 'center', gap: '7px',
@@ -31,7 +36,7 @@ export const Btn = ({ children, variant = 'primary', size = 'md', onClick, style
     ...ex,
   };
   return (
-    <button type={type} style={base} onClick={onClick} disabled={disabled}
+    <button {...rest} type={type} style={base} onClick={onClick} disabled={disabled}
       onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}>
       {children}
     </button>
