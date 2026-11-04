@@ -2,10 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { randomBytes, createHash } from 'crypto';
 import { queueApiKeyCreatedEmail } from './email.service.js';
 import { assertWithinLimit } from './subscription.service.js';
-import { assertNotOptedOut, normalizePhone } from './optout.service.js';
-import { decrypt } from '../lib/encryption.js';
-import { countVariables } from '../lib/templateParams.js';
-import { buildTemplateSendPayload } from './templatePayload.service.js';
+import { normalizePhone } from './optout.service.js';
 import { normaliseScopes, API_SCOPES, DEFAULT_SCOPES } from '../lib/apiScopes.js';
 
 function generateKey() {
@@ -375,187 +372,61 @@ export async function revokeApiKey(workspaceId, id) {
     },
   });
 }
-
 /*
  * Powers the "Send Test Message" button in the API Playground.
- *
- * Sends a real WhatsApp message through the workspace's connected number.
- * This functionality is unrelated to Authentication API-key provisioning
- * and is intentionally preserved.
  */
 export async function sendTestMessage(
   workspaceId,
   { to, templateId, message, variables = [] }
 ) {
   /*
-   * Meta only accepts bare digits. Normalize numbers such as:
-   * "+91 8625818751" → "918625818751"
+   * A test send is a real send, so it takes the same path as the public API
+   * and the inbox: 24-hour window for free text, opt-out, approved templates
+   * only, required variables, wallet credit (refunded if Meta refuses) and a
+   * stored message in the conversation. It used to call Meta directly and
+   * skip every one of those.
    */
   const recipient = normalizePhone(to);
-
   if (recipient.length < 8) {
-    const error = new Error(
-      'Enter the recipient in international format, e.g. +919876543210'
-    );
+    const error = new Error('Enter the recipient in international format, e.g. +919876543210');
     error.status = 400;
     throw error;
   }
 
-  await assertNotOptedOut(workspaceId, recipient);
+  const { sendPublicMessage } = await import('./whatsapp.service.js');
 
-  const waNumber = await prisma.waNumber.findFirst({
-    where: {
-      workspaceId,
-    },
-  });
-
-  if (!waNumber) {
-    const error = new Error('Connect a WhatsApp number first');
-    error.status = 404;
-    throw error;
+  let result;
+  if (templateId) {
+    const name = String(templateId).trim();
+    const template = await prisma.template.findFirst({
+      where: { workspaceId, name, status: { not: 'DELETED' } },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!template) {
+      const error = new Error(
+        `Template not found: "${name}". Use the template's name exactly as it appears on the Templates page (e.g. welcome_new_customer).`
+      );
+      error.status = 404;
+      throw error;
+    }
+    const supplied = (Array.isArray(variables) ? variables : []).map((value) => String(value ?? ''));
+    result = await sendPublicMessage(workspaceId, {
+      to: recipient,
+      type: 'template',
+      template: { name, language: template.language, variables: supplied },
+    });
+  } else {
+    if (!message || !String(message).trim()) {
+      const error = new Error('Enter a message to send');
+      error.status = 400;
+      throw error;
+    }
+    result = await sendPublicMessage(workspaceId, { to: recipient, type: 'text', body: String(message) });
   }
 
-  const accessToken = decrypt(waNumber.encryptedAccessToken);
-
-  const {
-    sendWhatsAppMessage,
-    sendTextMessage,
-  } = await import('../lib/meta.js');
-
-  try {
-    if (templateId) {
-      const name = String(templateId).trim();
-
-      const template = await prisma.template.findFirst({
-        where: {
-          workspaceId,
-          name,
-          status: {
-            not: 'DELETED',
-          },
-        },
-      });
-
-      if (!template) {
-        const error = new Error(
-          `Template not found: "${name}". Use the template's name exactly as it appears on the Templates page (e.g. welcome_new_customer).`
-        );
-        error.status = 404;
-        throw error;
-      }
-
-      if (
-        template.status === 'PENDING' ||
-        template.status === 'REJECTED'
-      ) {
-        const error = new Error(
-          `Template "${name}" is ${template.status.toLowerCase()} on Meta and cannot be sent yet.`
-        );
-        error.status = 422;
-        throw error;
-      }
-
-      const components = Array.isArray(template.components)
-        ? template.components
-        : [];
-
-      /*
-       * Templates with {{1}}-style variables are supported by the
-       * playground. The caller supplies those values.
-       */
-      const required = components.reduce(
-        (max, component) =>
-          Math.max(max, countVariables(component?.text)),
-        0
-      );
-
-      const supplied = (
-        Array.isArray(variables) ? variables : []
-      ).map((value) => String(value ?? ''));
-
-      if (
-        required > 0 &&
-        supplied.filter((value) => value.trim()).length < required
-      ) {
-        const error = new Error(
-          `This template needs ${required} variable value${
-            required === 1 ? '' : 's'
-          } ({{1}}${
-            required > 1 ? `–{{${required}}}` : ''
-          }). Fill them in and try again.`
-        );
-
-        error.status = 422;
-        error.code = 'TEMPLATE_VARIABLES_REQUIRED';
-        error.details = {
-          requiredVariables: required,
-        };
-
-        throw error;
-      }
-
-      /*
-       * Use the same payload builder as campaign sends so the playground
-       * remains compatible with template headers, buttons and carousels.
-       */
-      const payload = await buildTemplateSendPayload(template, {
-        phoneNumberId: waNumber.metaPhoneNumberId,
-        accessToken,
-
-        resolve: (i) =>
-          String(supplied[i] ?? '').trim() || ' ',
-      });
-
-      const result = await sendWhatsAppMessage(
-        waNumber.metaPhoneNumberId,
-        accessToken,
-        recipient,
-        payload
-      );
-
-      return {
-        ok: true,
-        messageId: result?.messages?.[0]?.id ?? null,
-      };
-    }
-
-    const result = await sendTextMessage(
-      waNumber.metaPhoneNumberId,
-      accessToken,
-      recipient,
-      message
-    );
-
-    return {
-      ok: true,
-      messageId: result?.messages?.[0]?.id ?? null,
-    };
-  } catch (err) {
-    if (err.status) {
-      throw err;
-    }
-
-    const metaErr = err.response?.data?.error;
-
-    /*
-     * Surface Meta's actual error instead of the generic Axios
-     * "Request failed with status code 400".
-     */
-    const detail = metaErr
-      ? `${metaErr.message}${
-          metaErr.error_data?.details
-            ? ` — ${metaErr.error_data.details}`
-            : ''
-        } (code ${metaErr.code}${
-          metaErr.error_subcode
-            ? `/${metaErr.error_subcode}`
-            : ''
-        })`
-      : err.message || 'Failed to send test message';
-
-    const error = new Error(detail);
-    error.status = 502;
-
-    throw error;
-  }
+  return {
+    ok: true,
+    messageId: result?.messages?.[0]?.id ?? null,
+    conversationId: result?.conversationId ?? null,
+  };
 }

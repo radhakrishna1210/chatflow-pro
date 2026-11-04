@@ -29,6 +29,12 @@ router.post(
 
 router.get('/scopes', apiKeysController.scopes);
 
+// API Playground "Send Test Message". The page has always called this path,
+// but it was never mounted, so the button answered 404. Sending goes through
+// the guarded public-send path (see apikeys.service.js#sendTestMessage);
+// VIEWER/AGENT are refused by the workspaceContext capability floor.
+router.post('/test-message', apiKeysController.testMessage);
+
 router.post(
   '/',
   validate({ body: apiKeySchemas.create }),
