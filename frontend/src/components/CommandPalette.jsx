@@ -24,6 +24,9 @@ const ACTIONS = [
   { id: 'nav-automation', label: 'Go to Automation', icon: 'zap', nav: 'automation', keywords: 'workflows agent rules' },
   { id: 'nav-analytics', label: 'Go to Analytics', icon: 'chart', nav: 'analytics', keywords: 'reports stats' },
   { id: 'nav-customize-business', label: 'Go to Customize Your Business', icon: 'sliders', nav: 'customize-business', keywords: 'customize business pipeline lead lifecycle prospecting criteria deal mode tags call visit outcomes deal setup tickets categories documents' },
+  { id: 'nav-tickets', label: 'Go to Tickets', icon: 'alertc', nav: 'tickets', keywords: 'support issues helpdesk' },
+  { id: 'nav-templates', label: 'Go to Templates', icon: 'file', nav: 'templates', keywords: 'whatsapp message template approval' },
+  { id: 'nav-payments', label: 'Go to Payments', icon: 'credit', nav: 'payments', keywords: 'wallet recharge billing invoices subscription plan' },
   { id: 'nav-settings', label: 'Go to Settings', icon: 'cog', nav: 'settings', keywords: 'preferences workspace' },
 ];
 
@@ -32,6 +35,9 @@ const TYPE_META = {
   lead: { icon: 'target', label: 'Lead' },
   deal: { icon: 'briefcase', label: 'Deal' },
   task: { icon: 'check-square', label: 'Task' },
+  // The search endpoint returns tickets too; without an entry here they
+  // rendered with no icon and no type chip.
+  ticket: { icon: 'alertc', label: 'Ticket' },
 };
 
 const rowBase = {
@@ -113,6 +119,9 @@ export const CommandPalette = () => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => Math.min(i + 1, items.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); }
     else if (e.key === 'Enter') { e.preventDefault(); run(items[active]); }
+    // Arrow keys drive the list; Tab would otherwise walk out of the dialog
+    // into the page behind the backdrop.
+    else if (e.key === 'Tab') { e.preventDefault(); }
   };
 
   // Keep the highlighted row in view when arrowing past the fold.
