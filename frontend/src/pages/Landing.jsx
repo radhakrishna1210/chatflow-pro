@@ -50,7 +50,7 @@ const Bubble = ({ role, text, mono }) => {
       <div style={{
         maxWidth: '84%', padding: '8px 11px',
         borderRadius: mine ? '13px 13px 3px 13px' : '13px 13px 13px 3px',
-        background: mine ? 'rgba(53,232,242,0.14)' : 'rgba(255,255,255,0.05)',
+        background: mine ? 'rgba(var(--accent-rgb),0.14)' : 'rgba(255,255,255,0.05)',
         border: `1px solid ${mine ? 'var(--gbd)' : 'var(--bd)'}`,
       }}>
         {!mine && <div style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.12em', color: 'var(--green)', marginBottom: 3, textTransform: 'uppercase' }}>Riya · campaign agent</div>}
@@ -133,7 +133,7 @@ const CampaignTap = () => {
           belongs to, seen through the glass behind the phone. */}
       <Glass lit={false} className="hero-back-panel" style={{ position: 'absolute', top: -28, right: -96, width: 250, padding: '14px 16px', opacity: 0.75 }}>
         <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--t2)', marginBottom: 10 }}>Summer Sale · live</div>
-        {[['Sent', '12,421', 'var(--t1)'], ['Delivered', '12,180', 'var(--green)'], ['Chats opened', '1,308', '#9d6bff']].map(([l, v, c]) => (
+        {[['Sent', '12,421', 'var(--t1)'], ['Delivered', '12,180', 'var(--green)'], ['Chats opened', '1,308', 'var(--violet)']].map(([l, v, c]) => (
           <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0' }}>
             <span style={{ fontSize: 11, color: 'var(--t2)' }}>{l}</span>
             <span style={{ fontFamily: MONO, fontSize: 12.5, fontWeight: 700, color: c }}>{v}</span>
@@ -147,7 +147,7 @@ const CampaignTap = () => {
       <Glass lit={false} style={{ position: 'relative', padding: 16, borderRadius: 'var(--rxl)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
           <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#08090c" /></svg>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="var(--on-accent)" /></svg>
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--t1)' }}>Aarti Textiles</div>
@@ -181,7 +181,7 @@ const CampaignTap = () => {
             borderRadius: 11, fontFamily: "'Manrope',sans-serif", fontSize: 12.5, fontWeight: 600,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
             color: pressed ? 'var(--green)' : '#53bdeb',
-            background: pressed ? 'rgba(53,232,242,0.12)' : 'rgba(255,255,255,0.05)',
+            background: pressed ? 'rgba(var(--accent-rgb),0.12)' : 'rgba(255,255,255,0.05)',
             border: `1px solid ${pressed ? 'var(--gbd)' : 'var(--bd)'}`,
             transform: pressed ? 'scale(0.985)' : 'none',
             transition: 'all .25s cubic-bezier(.2,.7,.3,1)',
@@ -217,7 +217,7 @@ const Hero = ({ onNav }) => (
             onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '6px 14px 6px 6px', borderRadius: 999, background: 'var(--gbg)', border: '1px solid var(--gbd)', cursor: 'pointer', fontFamily: "'Manrope',sans-serif" }}
           >
-            <span style={{ padding: '3px 8px', borderRadius: 999, background: 'var(--green)', color: '#08090c', fontFamily: MONO, fontSize: 10, fontWeight: 700, letterSpacing: '.1em' }}>NEW</span>
+            <span style={{ padding: '3px 8px', borderRadius: 999, background: 'var(--green)', color: 'var(--on-accent)', fontFamily: MONO, fontSize: 10, fontWeight: 700, letterSpacing: '.1em' }}>NEW</span>
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>{HERO.badge}</span>
             <I n="arrow" s={12} c="var(--green)" />
           </button>
@@ -249,7 +249,7 @@ const Hero = ({ onNav }) => (
 
         <Reveal delay={210}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Btn size="lg" onClick={() => onNav(startPath())} style={{ boxShadow: 'var(--glow)' }}>Start for free <I n="arrow" s={14} c="#08090c" /></Btn>
+            <Btn size="lg" onClick={() => onNav(startPath())} style={{ boxShadow: 'var(--glow)' }}>Start for free <I n="arrow" s={14} c="var(--on-accent)" /></Btn>
             <Btn variant="ghost" size="lg" onClick={() => { document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }); }}>See how it works</Btn>
           </div>
         </Reveal>
@@ -349,7 +349,7 @@ const AIPromptSection = ({ onNav }) => {
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 18px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid var(--bd)' }}>
               <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--t3)', letterSpacing: '.06em' }}>ENTER TO SEND</span>
-              <Btn size="sm" onClick={send} disabled={!prompt.trim()}>Build it <I n="arrow" s={12} c="#08090c" /></Btn>
+              <Btn size="sm" onClick={send} disabled={!prompt.trim()}>Build it <I n="arrow" s={12} c="var(--on-accent)" /></Btn>
             </div>
           </Glass>
         </Reveal>
@@ -532,8 +532,8 @@ const AgentChainVisual = () => (
   <div className="rgrid-3" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
     {[
       ['1 · Attach', 'Pick a deployed agent and a CTA label while you build the campaign.', 'var(--green)'],
-      ['2 · Tap', 'The button carries the recipient’s id, so the agent opens on the right message.', '#9d6bff'],
-      ['3 · Answer', 'Questions are answered from that message — and nothing else is invented.', '#c4ff46'],
+      ['2 · Tap', 'The button carries the recipient’s id, so the agent opens on the right message.', 'var(--violet)'],
+      ['3 · Answer', 'Questions are answered from that message — and nothing else is invented.', 'var(--lime)'],
     ].map(([step, copy, c]) => (
       <div key={step} style={{ padding: '11px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.025)', border: '1px solid var(--bd)' }}>
         <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '.08em', color: c, marginBottom: 6, textTransform: 'uppercase' }}>{step}</div>
@@ -560,7 +560,7 @@ const LedgerVisual = () => (
 
 const FlowVisual = () => (
   <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 5 }}>
-    {[['Trigger', 'Customer sends a message', 'var(--green)'], ['Wait', '2 hours', '#F59E0B'], ['Send', 'Follow-up template', '#9d6bff']].map(([t, d, c], i) => (
+    {[['Trigger', 'Customer sends a message', 'var(--green)'], ['Wait', '2 hours', '#F59E0B'], ['Send', 'Follow-up template', 'var(--violet)']].map(([t, d, c], i) => (
       <div key={t}>
         <div style={{ padding: '9px 12px', borderRadius: 9, background: 'rgba(255,255,255,0.025)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 9 }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: c, flexShrink: 0 }} />
@@ -668,7 +668,7 @@ const UseCases = () => (
 
 const Pricing = ({ onNav }) => (
   <section id="pricing" style={{ padding: '110px 0', position: 'relative', overflow: 'hidden' }}>
-    <div className="aurora-a" style={{ position: 'absolute', bottom: '-20%', left: '30%', width: 560, height: 560, background: 'radial-gradient(circle, rgba(53,232,242,0.10), transparent 62%)', filter: 'blur(50px)', pointerEvents: 'none' }} />
+    <div className="aurora-a" style={{ position: 'absolute', bottom: '-20%', left: '30%', width: 560, height: 560, background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.10), transparent 62%)', filter: 'blur(50px)', pointerEvents: 'none' }} />
     <div style={{ position: 'relative', maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
       <SectionHead eyebrow="Pricing" title={<>Plans that cost what they say.<br /><span style={{ color: 'var(--green)' }}>Messages cost what Meta charges.</span></>}
         sub="No per-agent seats. On a paid plan the per-message rate you are billed is the one Meta bills us — the wallet ledger shows every deduction and every refund." />
@@ -686,13 +686,13 @@ const Pricing = ({ onNav }) => (
                 // Tint layered *over* the glass, not instead of it. On its own
                 // the gradient faded to near-nothing by the bottom of the
                 // card, so the panel looked like it stopped above the button.
-                background: 'linear-gradient(158deg, rgba(53,232,242,0.10), rgba(14,165,233,0.05)), var(--glass)',
+                background: 'linear-gradient(158deg, rgba(var(--accent-rgb),0.10), rgba(14,165,233,0.05)), var(--glass)',
                 borderColor: 'var(--gbd)',
                 boxShadow: 'var(--glow), var(--glass-sh)',
               } : {}),
             }}>
               {p.popular && (
-                <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', padding: '4px 13px', borderRadius: 999, background: 'var(--green)', fontFamily: MONO, fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', color: '#08090c', textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: '0 4px 18px rgba(53,232,242,0.35)' }}>Most popular</div>
+                <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', padding: '4px 13px', borderRadius: 999, background: 'var(--green)', fontFamily: MONO, fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', color: 'var(--on-accent)', textTransform: 'uppercase', whiteSpace: 'nowrap', boxShadow: '0 4px 18px rgba(var(--accent-rgb),0.35)' }}>Most popular</div>
               )}
               <h3 style={{ fontWeight: 700, fontSize: 18, color: 'var(--t1)', marginBottom: 6, letterSpacing: '-.02em' }}>{p.name}</h3>
               <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 20, lineHeight: 1.55 }}>{p.desc}</p>
@@ -716,7 +716,7 @@ const Pricing = ({ onNav }) => (
                   subscription promises something this button cannot do — the
                   free plan is its own tier, called out under the grid. */}
               <Btn variant={p.popular ? 'primary' : 'ghost'} style={{ width: '100%', justifyContent: 'center' }} onClick={() => onNav(startPath())}>
-                {p.name === 'Enterprise' ? 'Talk to sales' : `Choose ${p.name}`} <I n="arrow" s={13} c={p.popular ? '#08090c' : 'var(--t2)'} />
+                {p.name === 'Enterprise' ? 'Talk to sales' : `Choose ${p.name}`} <I n="arrow" s={13} c={p.popular ? 'var(--on-accent)' : 'var(--t2)'} />
               </Btn>
             </Glass>
           </Reveal>
@@ -745,7 +745,7 @@ const CTA = ({ onNav }) => (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
       <Reveal>
         <Glass lit={false} style={{ padding: '64px 40px', borderRadius: 'var(--rxl)', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-          <div className="aurora-b" style={{ position: 'absolute', top: '-60%', left: '50%', width: 700, height: 700, marginLeft: -350, background: 'radial-gradient(circle, rgba(53,232,242,0.12), transparent 60%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+          <div className="aurora-b" style={{ position: 'absolute', top: '-60%', left: '50%', width: 700, height: 700, marginLeft: -350, background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.12), transparent 60%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
           <div style={{ position: 'relative' }}>
             <Eyebrow>Start today</Eyebrow>
             <h2 style={{ fontSize: 'clamp(28px,3.8vw,50px)', fontWeight: 800, letterSpacing: '-.035em', lineHeight: 1.08, margin: '18px 0 16px' }}>
@@ -757,7 +757,7 @@ const CTA = ({ onNav }) => (
               {CTA_COPY.sub}
             </p>
             <Btn size="lg" onClick={() => onNav(startPath())} style={{ boxShadow: 'var(--glow)' }}>
-              Start for free <I n="arrow" s={14} c="#08090c" />
+              Start for free <I n="arrow" s={14} c="var(--on-accent)" />
             </Btn>
             <p style={{ fontFamily: MONO, fontSize: 11.5, color: 'var(--t3)', marginTop: 16, letterSpacing: '.04em' }}>NO CARD · FREE PLAN INCLUDES 100 MESSAGES</p>
           </div>
@@ -798,7 +798,7 @@ const HowItWorks = ({ onNav }) => (
       </Reveal>
       <Reveal delay={120}>
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 30 }}>
-          <Btn size="lg" onClick={() => onNav(startPath())}>Create your free workspace <I n="arrow" s={14} c="#08090c" /></Btn>
+          <Btn size="lg" onClick={() => onNav(startPath())}>Create your free workspace <I n="arrow" s={14} c="var(--on-accent)" /></Btn>
         </div>
       </Reveal>
     </div>
@@ -827,7 +827,7 @@ const Comparison = () => (
                 {COMPARISON.rows.map(([label, ours, theirs]) => (
                   <tr key={label}>
                     <th scope="row" style={{ fontFamily: "'Manrope',sans-serif", fontSize: 13.5, letterSpacing: 0, textTransform: 'none', color: 'var(--t1)', fontWeight: 600, borderTop: '1px solid var(--bd)' }}>{label}</th>
-                    <td style={{ color: 'var(--t1)', background: 'rgba(53,232,242,0.04)' }}>
+                    <td style={{ color: 'var(--t1)', background: 'rgba(var(--accent-rgb),0.04)' }}>
                       <span style={{ display: 'inline-flex', gap: 8, alignItems: 'flex-start' }}>
                         <span style={{ flexShrink: 0, marginTop: 2 }}><I n="check" s={13} c="var(--green)" w={2.4} /></span>
                         <span>{ours}<span className="cmp-vs" style={{ display: 'none', marginTop: 4, fontSize: 11.5, color: 'var(--t3)' }}>vs. {theirs.toLowerCase()}</span></span>
@@ -871,7 +871,7 @@ const Reactor = () => {
                 <button key={c.num} onClick={() => setChapter(i)} aria-pressed={on}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 15px', borderRadius: 100, cursor: 'pointer',
                            fontFamily: "'Manrope',sans-serif", fontSize: 12.5, fontWeight: 600, transition: 'all .2s',
-                           background: on ? 'rgba(157,107,255,0.14)' : 'rgba(255,255,255,0.03)',
+                           background: on ? 'rgba(var(--violet-rgb),0.14)' : 'rgba(255,255,255,0.03)',
                            border: `1px solid ${on ? 'var(--violet)' : 'var(--bd)'}`,
                            color: on ? 'var(--t1)' : 'var(--t2)' }}>
                   <span style={{ fontFamily: MONO, fontSize: 10.5, color: on ? 'var(--violet)' : 'var(--t3)' }}>{c.num}</span>
@@ -885,7 +885,7 @@ const Reactor = () => {
         <div className="reactor-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, alignItems: 'center' }}>
           <Reveal>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontFamily: MONO, fontSize: 44, fontWeight: 700, color: 'rgba(157,107,255,0.35)', lineHeight: 1, letterSpacing: '-.03em' }}>{current.num}</div>
+              <div style={{ fontFamily: MONO, fontSize: 44, fontWeight: 700, color: 'rgba(var(--violet-rgb),0.35)', lineHeight: 1, letterSpacing: '-.03em' }}>{current.num}</div>
               <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '.18em', color: 'var(--violet)', margin: '12px 0 10px' }}>{current.kicker}</div>
               <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 'clamp(22px,2.6vw,32px)', fontWeight: 800, letterSpacing: '-.035em', color: 'var(--t1)', marginBottom: 12 }}>
                 {current.title}
@@ -901,13 +901,13 @@ const Reactor = () => {
                 const done = i < chapter;
                 return (
                   <div key={stage.key} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '11px 13px', borderRadius: 12, transition: 'all .3s',
-                    background: active ? 'rgba(196,255,70,0.06)' : 'rgba(255,255,255,0.02)',
-                    border: `1px solid ${active ? 'rgba(196,255,70,0.4)' : 'var(--bd)'}` }}>
+                    background: active ? 'rgba(var(--lime-rgb),0.06)' : 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${active ? 'rgba(var(--lime-rgb),0.4)' : 'var(--bd)'}` }}>
                     <span style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                                    fontFamily: MONO, fontSize: 11, fontWeight: 700, transition: 'all .3s',
-                                   background: active ? 'rgba(196,255,70,0.16)' : done ? 'rgba(53,232,242,0.1)' : 'rgba(255,255,255,0.04)',
+                                   background: active ? 'rgba(var(--lime-rgb),0.16)' : done ? 'rgba(var(--accent-rgb),0.1)' : 'rgba(255,255,255,0.04)',
                                    color: active ? 'var(--lime)' : done ? 'var(--cyan)' : 'var(--t3)',
-                                   border: `1px solid ${active ? 'rgba(196,255,70,0.5)' : done ? 'var(--gbd)' : 'var(--bd)'}` }}>
+                                   border: `1px solid ${active ? 'rgba(var(--lime-rgb),0.5)' : done ? 'var(--gbd)' : 'var(--bd)'}` }}>
                       {stage.key}
                     </span>
                     <div style={{ minWidth: 0 }}>
@@ -987,9 +987,9 @@ const Playground = () => {
                     return (
                       <button key={q.key} onClick={() => setAsked(q)}
                         style={{ fontSize: 12.5, fontWeight: 600, padding: '8px 13px', borderRadius: 100, cursor: 'pointer', fontFamily: "'Manrope',sans-serif", transition: 'all .2s',
-                                 background: on ? 'rgba(53,232,242,0.12)' : 'rgba(255,255,255,0.03)',
+                                 background: on ? 'rgba(var(--accent-rgb),0.12)' : 'rgba(255,255,255,0.03)',
                                  border: `1px solid ${on ? 'var(--green)' : 'var(--bd)'}`,
-                                 color: on ? '#8fecf3' : 'var(--t2)' }}>
+                                 color: on ? 'var(--accent-soft)' : 'var(--t2)' }}>
                         {q.q}
                       </button>
                     );
@@ -1020,19 +1020,19 @@ const Playground = () => {
 
                 {asked && (
                   <>
-                    <div style={{ alignSelf: 'flex-end', maxWidth: '82%', borderRadius: '14px 4px 14px 14px', background: 'rgba(53,232,242,0.14)', border: '1px solid var(--gbd)', padding: '9px 12px' }}>
+                    <div style={{ alignSelf: 'flex-end', maxWidth: '82%', borderRadius: '14px 4px 14px 14px', background: 'rgba(var(--accent-rgb),0.14)', border: '1px solid var(--gbd)', padding: '9px 12px' }}>
                       <p style={{ fontSize: 12.5, color: 'var(--t1)', lineHeight: 1.5 }}>{asked.q}</p>
                     </div>
                     <div style={{ alignSelf: 'flex-start', maxWidth: '96%', minWidth: 0 }}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
                         <span style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.1em', color: 'var(--lime)', fontWeight: 600 }}>✓ VERIFIED FROM YOUR CAMPAIGN</span>
                         {facts.map(([k, v]) => (
-                          <span key={k} style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.06em', padding: '2px 7px', borderRadius: 5, background: 'rgba(53,232,242,0.1)', border: '1px solid var(--gbd)', color: 'var(--t2)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span key={k} style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.06em', padding: '2px 7px', borderRadius: 5, background: 'rgba(var(--accent-rgb),0.1)', border: '1px solid var(--gbd)', color: 'var(--t2)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             <span style={{ color: 'var(--green)', fontWeight: 700 }}>{k}</span> {v}
                           </span>
                         ))}
                       </div>
-                      <div style={{ borderRadius: '4px 14px 14px 14px', background: 'rgba(53,232,242,0.06)', border: '1px solid var(--gbd)', padding: '11px 13px' }}>
+                      <div style={{ borderRadius: '4px 14px 14px 14px', background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid var(--gbd)', padding: '11px 13px' }}>
                         <p style={{ fontSize: 12.5, color: 'var(--t1)', lineHeight: 1.55 }}>{playgroundReply(asked.key, pg)}</p>
                       </div>
                     </div>
@@ -1089,9 +1089,9 @@ const AutomationLab = () => {
                 return (
                   <div key={node.label} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 170px', minWidth: 0 }}>
                     <div style={{ flex: 1, minWidth: 0, padding: '13px 14px', borderRadius: 13, transition: 'all .3s',
-                      background: lit ? 'rgba(53,232,242,0.07)' : 'rgba(255,255,255,0.02)',
+                      background: lit ? 'rgba(var(--accent-rgb),0.07)' : 'rgba(255,255,255,0.02)',
                       border: `1px solid ${lit ? 'var(--gbd)' : 'var(--bd)'}`,
-                      boxShadow: lit ? '0 0 22px rgba(53,232,242,0.16)' : 'none' }}>
+                      boxShadow: lit ? '0 0 22px rgba(var(--accent-rgb),0.16)' : 'none' }}>
                       <div style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: '.12em', color: lit ? 'var(--green)' : 'var(--t3)', marginBottom: 6 }}>{node.kind}</div>
                       <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)' }}>{node.label}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 2 }}>{node.sub}</div>

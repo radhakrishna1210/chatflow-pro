@@ -178,16 +178,16 @@ export const SectionHead = ({ eyebrow, title, sub, align = 'center' }) => (
 
 export const Aurora = () => (
   <>
-    <div className="aurora-a" style={{ position: 'absolute', top: '-10%', left: '-5%', width: 620, height: 620, background: 'radial-gradient(circle, rgba(53,232,242,0.16), transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none', willChange: 'transform' }} />
+    <div className="aurora-a" style={{ position: 'absolute', top: '-10%', left: '-5%', width: 620, height: 620, background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.16), transparent 62%)', filter: 'blur(40px)', pointerEvents: 'none', willChange: 'transform' }} />
     <div className="aurora-b" style={{ position: 'absolute', top: '18%', right: '-12%', width: 680, height: 680, background: 'radial-gradient(circle, rgba(14,165,233,0.13), transparent 62%)', filter: 'blur(48px)', pointerEvents: 'none', willChange: 'transform' }} />
   </>
 );
 
 export const BrandMark = ({ size = 32, radius = 9, glow = true }) => (
-  <div style={{ width: size, height: size, borderRadius: radius, background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: glow ? '0 0 18px rgba(53,232,242,0.35)' : 'none' }}>
+  <div style={{ width: size, height: size, borderRadius: radius, background: 'var(--green)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: glow ? '0 0 18px rgba(var(--accent-rgb),0.35)' : 'none' }}>
     <svg width={size * 0.44} height={size * 0.44} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="#08090c" />
-      <path d="M5.5 7.5h5M5.5 10h3" stroke="#35e8f2" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M8 1C4.13 1 1 4.13 1 8c0 1.29.35 2.5.96 3.54L1 15l3.46-.96A7 7 0 1 0 8 1z" fill="var(--on-accent)" />
+      <path d="M5.5 7.5h5M5.5 10h3" stroke="var(--accent)" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   </div>
 );
@@ -253,7 +253,7 @@ export const MarketingNav = ({ onNav, links = [['Product', '#story'], ['Live dem
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span className="nav-login"><Btn variant="ghost" size="sm" onClick={() => onNav(isSignedIn() ? 'dashboard' : 'login')}>{isSignedIn() ? 'Dashboard' : 'Log in'}</Btn></span>
-          <Btn variant="primary" size="sm" onClick={() => onNav(startPath())}>Get started <I n="arrow" s={12} c="#08090c" /></Btn>
+          <Btn variant="primary" size="sm" onClick={() => onNav(startPath())}>Get started <I n="arrow" s={12} c="var(--on-accent)" /></Btn>
           <button
             className="nav-burger"
             onClick={() => setMenuOpen((o) => !o)}
