@@ -4,6 +4,10 @@ import { autoGenerateOutcomeTask } from './crmCustomization.service.js';
 import { scopeFilter } from './recordScope.service.js';
 import { andWhere } from './crmReferences.js';
 
+// How a Visit is recognised among MEETING rows: createActivity stores the
+// structured engagement as JSON content (JSON.stringify — no spaces).
+const VISIT_MARKER = '"engagementType":"Visit"';
+
 // One page is capped, so ?limit=1000000 cannot pull a workspace's whole
 // history (with its includes) into memory in one request.
 const MAX_ACTIVITY_PAGE = 500;
@@ -92,11 +96,17 @@ export async function listActivities(workspaceId, {
     if (['CALL', 'MEETING', 'NOTE', 'EMAIL'].includes(t)) {
       where.type = t;
     } else if (t === 'VIDEO_CALL') {
+      // Video calls and visits are both MEETING rows; the structured
+      // engagementType (kept in the JSON content) is what tells them apart.
+      // A meeting without one predates that field and has always been shown
+      // as a video call, so it stays on this tab.
       where.type = 'MEETING';
+      where.AND = [...(where.AND || []), { NOT: { content: { contains: VISIT_MARKER } } }];
     } else if (t === 'MESSAGES') {
       where.type = { in: ['EMAIL', 'NOTE'] };
     } else if (t === 'VISITS') {
       where.type = 'MEETING';
+      where.AND = [...(where.AND || []), { content: { contains: VISIT_MARKER } }];
     }
   }
 
@@ -111,9 +121,11 @@ export async function listActivities(workspaceId, {
     ];
   }
   if (scoped) {
-    const { OR: searchOr, ...rest } = where;
+    const { OR: searchOr, AND: typeAnd, ...rest } = where;
     for (const k of Object.keys(where)) delete where[k];
-    Object.assign(where, rest, andWhere(visibility, searchOr ? { OR: searchOr } : {}));
+    // typeAnd (the Visit / Video Call split) is folded in rather than left on
+    // `rest`, where andWhere's own AND would overwrite it.
+    Object.assign(where, rest, andWhere(visibility, searchOr ? { OR: searchOr } : {}, ...(typeAnd || [])));
   }
 
   // If fetching strictly for a single deal and not general engagements list, keep stage history timeline merge
@@ -146,7 +158,7 @@ export async function listActivities(workspaceId, {
     return { data: unifiedFeed, total: unifiedFeed.length };
   }
 
-  const [activities, total, allCounts] = await Promise.all([
+  const [activities, total, allCounts, visitCount] = await Promise.all([
     prisma.crmActivity.findMany({
       where,
       include: ACTIVITY_INCLUDE,
@@ -159,6 +171,9 @@ export async function listActivities(workspaceId, {
       by: ['type'],
       where: { workspaceId, ...visibility },
       _count: { _all: true },
+    }),
+    prisma.crmActivity.count({
+      where: { workspaceId, ...visibility, type: 'MEETING', content: { contains: VISIT_MARKER } },
     }),
   ]);
 
@@ -175,9 +190,11 @@ export async function listActivities(workspaceId, {
     typeCounts[g.type] = g._count._all;
     typeCounts.ALL += g._count._all;
   }
-  typeCounts.VIDEO_CALL = typeCounts.MEETING || 0;
+  // Both used to be the full MEETING count, so the two tabs showed the same
+  // number and (see the filter above) the same rows.
+  typeCounts.VISITS = visitCount;
+  typeCounts.VIDEO_CALL = Math.max(0, (typeCounts.MEETING || 0) - visitCount);
   typeCounts.MESSAGES = (typeCounts.EMAIL || 0) + (typeCounts.NOTE || 0);
-  typeCounts.VISITS = typeCounts.MEETING || 0;
 
   // Enrich for the Engagements Table View
   const enriched = activities.map((act) => {
@@ -191,8 +208,11 @@ export async function listActivities(workspaceId, {
     } catch {}
 
     const leadContact = act.lead?.contact || act.contact;
-    const leadName = leadContact?.name || leadContact?.phoneNumber || 'Lead Contact';
-    const leadSource = act.lead?.source || parsedMeta?.source || (act.type === 'CALL' ? 'Incoming' : 'INSTAGRAM');
+    // Unknown stays null (the screen shows a dash). These used to be invented —
+    // every non-call activity without a lead was labelled an INSTAGRAM lead,
+    // and every user without a team was in "Enterprise Growth Team".
+    const leadName = leadContact?.name || leadContact?.phoneNumber || null;
+    const leadSource = act.lead?.source || parsedMeta?.source || null;
     const leadStage = act.deal?.stage
       ? `${act.deal.stage} Deal`
       : act.lead?.status === 'QUALIFIED'
@@ -201,7 +221,7 @@ export async function listActivities(workspaceId, {
 
     const engagementType = parsedMeta?.engagementType || (act.type === 'MEETING' ? 'Video Call' : act.type === 'CALL' ? 'Call' : act.type === 'EMAIL' ? 'Message' : 'Note');
     const engagementStatus = parsedMeta?.status || (act.type === 'CALL' ? 'Completed' : 'Active');
-    const teamName = act.createdByUser?.teamMemberships?.[0]?.team?.name || 'Enterprise Growth Team';
+    const teamName = act.createdByUser?.teamMemberships?.[0]?.team?.name || null;
 
     return {
       ...act,
