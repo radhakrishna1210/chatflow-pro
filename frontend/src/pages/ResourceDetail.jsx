@@ -26,6 +26,25 @@ const SLUG_TO_JOURNEY = {
   'recharge-your-wallet': 'recharge-wallet',
 };
 
+// Restores the tab title and description a resource page replaced once the
+// page unmounts. Without it, leaving the Resource Center for any dashboard
+// screen kept "<article> — Spandan Resource Center" in the tab and the
+// article's description in <meta name="description">.
+function useRestoreMeta() {
+  useEffect(() => {
+    const title = document.title;
+    const desc = document.querySelector('meta[name="description"]')?.getAttribute('content') ?? null;
+    return () => {
+      document.title = title;
+      const tag = document.querySelector('meta[name="description"]');
+      if (tag) {
+        if (desc == null) tag.remove();
+        else tag.setAttribute('content', desc);
+      }
+    };
+  }, []);
+}
+
 function setMeta(title, description) {
   document.title = title;
   let tag = document.querySelector('meta[name="description"]');
@@ -66,6 +85,7 @@ export default function ResourceDetail({ slug }) {
   const [helpful, setHelpful] = useState(null);
   const [activeSection, setActiveSection] = useState('overview');
 
+  useRestoreMeta();
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
     if (!resource) { setMeta('Resource not found — Spandan', 'The requested resource could not be found.'); return; }
