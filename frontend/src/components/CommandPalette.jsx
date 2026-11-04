@@ -57,9 +57,15 @@ export const CommandPalette = () => {
 
   const term = q.trim();
 
+  // A platform super admin has no workspace: every destination above but
+  // Settings is a workspace page they would land on as "not found".
+  let isSuperAdmin = false;
+  try { isSuperAdmin = JSON.parse(localStorage.getItem('user') || '{}')?.superAdmin === true; } catch { /* ignore */ }
+  const available = isSuperAdmin ? ACTIONS.filter(a => a.nav === 'settings') : ACTIONS;
+
   const filteredActions = term
-    ? ACTIONS.filter(a => `${a.label} ${a.keywords}`.toLowerCase().includes(term.toLowerCase()))
-    : ACTIONS;
+    ? available.filter(a => `${a.label} ${a.keywords}`.toLowerCase().includes(term.toLowerCase()))
+    : available;
 
   const items = [
     ...filteredActions.map(a => ({ kind: 'action', ...a })),
@@ -93,7 +99,7 @@ export const CommandPalette = () => {
 
   // Debounced so typing does not fire a query per keystroke.
   useEffect(() => {
-    if (!open || term.length < 2) { setResults([]); return; }
+    if (!open || term.length < 2 || isSuperAdmin) { setResults([]); return; }
     let cancelled = false;
     setLoading(true);
     const t = setTimeout(() => {

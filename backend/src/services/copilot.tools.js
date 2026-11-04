@@ -172,16 +172,27 @@ export const TOOLS = {
       }
       if (!task && (args.taskTitle || args.taskId)) {
         const query = String(args.taskTitle || args.taskId).trim();
+        // The person confirmed a summary naming one task. A loose `contains`
+        // match took whichever task happened to come first, so "Call" could
+        // complete "Call Priya" when the summary said "Call Ravi". An exact
+        // title wins; a partial match is used only when it is unambiguous.
         task = await prisma.task.findFirst({
-          where: {
-            workspaceId,
-            OR: [
-              { title: { equals: query, mode: 'insensitive' } },
-              { title: { contains: query, mode: 'insensitive' } },
-            ],
-          },
+          where: { workspaceId, title: { equals: query, mode: 'insensitive' } },
           select: { id: true, title: true },
         });
+        if (!task && query) {
+          const partial = await prisma.task.findMany({
+            where: { workspaceId, title: { contains: query, mode: 'insensitive' } },
+            select: { id: true, title: true },
+            take: 2,
+          });
+          if (partial.length > 1) {
+            const e = new Error(`More than one task matches "${query}" — name it exactly`);
+            e.status = 409;
+            throw e;
+          }
+          task = partial[0] ?? null;
+        }
       }
       if (!task) {
         const e = new Error(`Task not found in this workspace`);

@@ -824,7 +824,10 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
 const inr = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const Step4 = ({ scheduleType, setScheduleType, scheduledAt, setScheduledAt, summary, estimate, estimating, estimateError, onLaunch, launching }) => {
-  const minDate = new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16);
+  // datetime-local is local wall-clock time; toISOString() is UTC, which put
+  // the minimum hours off for anyone not on UTC (allowing past times in IST,
+  // blocking the next few hours in the Americas).
+  const minDate = toLocalInput(new Date(Date.now() + 5 * 60 * 1000).toISOString());
   const ready   = !!(summary.contactCount > 0 && summary.templateName && summary.numberPhone && summary.campaignName);
   // The wallet must cover the whole campaign before it can start. The server
   // enforces this too — this just refuses the click instead of failing later.
