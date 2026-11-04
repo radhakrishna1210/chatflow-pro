@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { canManage } from '../lib/permissions.js';
+import { canManage, canManageMembers } from '../lib/permissions.js';
 import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { wFetch, adminFetch } from '../lib/api.js';
@@ -248,7 +248,10 @@ export default function NumberSetupView() {
 
   // Admin pool management state
   const isSuperAdmin = JSON.parse(localStorage.getItem('user') || '{}').superAdmin === true;
-  const isAdmin = canManage();
+  // Connecting, onboarding and refreshing are enforced admin-only server-side
+  // (routes/whatsapp.routes.js); members may still disconnect.
+  const isAdmin = canManageMembers();
+  const canDisconnect = canManage();
   const [adminPool, setAdminPool]         = useState(null);   // { summary, pool[] }
   const [adminPoolLoading, setAplLoading] = useState(false);
   const [adminPoolError, setAplError]     = useState(null);
@@ -599,7 +602,7 @@ export default function NumberSetupView() {
             </div>
             {numbers.map((n, i) => (
               <NumberCard key={n.id} number={n} isPrimary={i === 0} onRefresh={load}
-                onDisconnect={i > 0 ? disconnectNumber : undefined} disconnecting={disconnecting} />
+                onDisconnect={i > 0 && canDisconnect ? disconnectNumber : undefined} disconnecting={disconnecting} />
             ))}
             <p style={{ fontSize:11, color:'var(--t3)', lineHeight:1.6, margin:0 }}>
               Daily limit and quality are set by Meta from your sending history. Keeping quality high is what raises the tier —
@@ -640,7 +643,7 @@ export default function NumberSetupView() {
             {/* Members can disconnect a number they work with; connecting and
                 refreshing (which provision or re-read billable resources on
                 the business account) stay admin-only. */}
-            {(isAdmin || number) && (
+            {(isAdmin || (number && canDisconnect)) && (
               <div style={{ display:'flex', gap:8, flexShrink:0 }}>
                 {isAdmin && (
                 <Btn variant="outline" onClick={async () => {
@@ -653,7 +656,7 @@ export default function NumberSetupView() {
                   {refreshing ? 'Refreshing…' : 'Refresh Status'}
                 </Btn>
                 )}
-                {number && (
+                {number && canDisconnect && (
                   <button
                     onClick={() => disconnectNumber(number)}
                     disabled={disconnecting}
@@ -705,7 +708,7 @@ export default function NumberSetupView() {
           <div style={{ ...card, padding:'14px 18px', display:'flex', gap:10, alignItems:'center' }}>
             <I n="alertt" s={16} c="var(--t3)" />
             <p style={{ fontSize:12.5, color:'var(--t2)' }}>
-              You can disconnect the connected number, which returns it to the pool. Connecting a new number or
+              {canDisconnect ? 'You can disconnect the connected number, which returns it to the pool. ' : ''}Connecting a new number or
               refreshing its status from Meta requires a workspace admin.
             </p>
           </div>

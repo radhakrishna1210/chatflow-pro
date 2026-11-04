@@ -3,18 +3,22 @@ import * as whatsappController from '../controllers/whatsapp.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { rateLimit } from '../middleware/rateLimit.js';
+import { authorize } from '../middleware/authorize.js';
 
 const router = Router({ mergeParams: true });
 
 router.use(authenticate, workspaceContext);
 
 router.get('/numbers', whatsappController.listNumbers);
-router.post('/numbers/refresh', whatsappController.refreshNumbers);
-router.post('/numbers/connect-own', whatsappController.connectOwnNumber);
+router.post('/numbers/refresh', authorize('ADMIN'), whatsappController.refreshNumbers);
+// Connecting and onboarding a new number provision billable resources against
+// the business account, so they are admin-only (the UI already said so; this
+// is where it is enforced). Members keep reconnect/verify/disconnect below.
+router.post('/numbers/connect-own', authorize('ADMIN'), whatsappController.connectOwnNumber);
 router.get('/numbers/pool', whatsappController.listPool);
-router.post('/onboard', whatsappController.onboard);
+router.post('/onboard', authorize('ADMIN'), whatsappController.onboard);
 router.get('/embedded-signup/config', whatsappController.embeddedSignupConfig);
-router.post('/embedded-signup', whatsappController.completeEmbeddedSignup);
+router.post('/embedded-signup', authorize('ADMIN'), whatsappController.completeEmbeddedSignup);
 router.get('/numbers/:id/subscription', whatsappController.checkSubscription);
 // Live diagnosis: token, number, verification and webhook subscription, each
 // with what to do when it fails.

@@ -592,72 +592,141 @@ export async function getDecryptedNumber(workspaceId, numberId) {
   return { ...n, accessToken: decrypt(n.encryptedAccessToken) };
 }
 
-export async function sendPublicMessage(workspaceId, { to, template, type, body, waNumberId }) {
+// Finds the contact a public-API send is addressed to, or creates it, so the
+// message lands in the same inbox thread a reply would. Matching mirrors the
+// inbound webhook: exact digits / "+digits", then a national-number match that
+// is only accepted when exactly one contact makes it.
+async function findOrCreateApiContact(workspaceId, digits) {
+  let contact = await prisma.contact.findFirst({
+    where: { workspaceId, phoneNumber: { in: [digits, `+${digits}`] } },
+  });
+  if (contact) return contact;
+  const candidates = await prisma.contact.findMany({
+    where: { workspaceId, phoneNumber: { contains: digits.slice(-10) } },
+    take: 5,
+  });
+  contact = candidates.find((c) => normalizeMsisdn(c.phoneNumber) === digits);
+  if (!contact) {
+    const national = candidates.filter((c) => {
+      const d = normalizeMsisdn(c.phoneNumber).replace(/^0+/, '');
+      return d.length === 10 && digits.length > 10 && digits.endsWith(d);
+    });
+    if (national.length === 1) contact = national[0];
+  }
+  if (contact) return contact;
+
+  // A new recipient is a new contact, and contacts are a plan limit — the API
+  // must not be a way round it.
+  const { assertWithinLimit } = await import('./subscription.service.js');
+  await assertWithinLimit(workspaceId, 'contact');
+  try {
+    return await prisma.contact.create({ data: { workspaceId, name: `+${digits}`, phoneNumber: `+${digits}` } });
+  } catch (err) {
+    if (err.code !== 'P2002') throw err;
+    return prisma.contact.findFirst({ where: { workspaceId, phoneNumber: `+${digits}` } });
+  }
+}
+
+// Meta-style `components` → the positional variables sendTemplateMessage takes,
+// for callers that send `{ name, language, components }` rather than
+// `{ name, language, variables }`.
+function variablesFromComponents(components) {
+  const out = [];
+  for (const c of Array.isArray(components) ? components : []) {
+    if (String(c?.type || '').toLowerCase() !== 'body') continue;
+    for (const p of Array.isArray(c.parameters) ? c.parameters : []) out.push(p?.text ?? '');
+  }
+  return out;
+}
+
+// POST /public/messages.
+//
+// This used to call Meta directly, which meant an API key could send with no
+// message credit consumed, nothing recorded in the inbox, free-form text with
+// no 24-hour-window check, and any template name (approved or not, or one this
+// workspace never had). It now goes through the same functions the inbox uses
+// — sendMessage / sendTemplateMessage in conversations.service — so every rule
+// is the same rule: opt-out, the window, approved templates only, required
+// variables, billing (with the credit handed back if Meta refuses), and the
+// message stored on the contact's conversation.
+export async function sendPublicMessage(workspaceId, { to, template, type, body, waNumberId } = {}) {
   if (!to || !String(to).trim()) {
     const e = new Error('`to` (recipient phone number) is required'); e.status = 400; throw e;
   }
-  // Meta rejects anything but bare digits — a caller passing "+91 98765 43210"
-  // used to get an opaque 400 back from the Graph API.
-  const recipient = normalizeMsisdn(to);
-  if (recipient.length < 8) {
+  if (type !== 'template' && type !== 'text') {
+    const e = new Error('Invalid message type. Supported: template, text'); e.status = 400; throw e;
+  }
+
+  const waNumber = waNumberId
+    ? await prisma.waNumber.findFirst({ where: { workspaceId, id: String(waNumberId) } })
+    : (await prisma.waNumber.findFirst({ where: { workspaceId, status: { in: ['ACTIVE', 'CONNECTED'] } } })
+      || await prisma.waNumber.findFirst({ where: { workspaceId } }));
+  if (!waNumber) {
+    const e = new Error(waNumberId ? 'That waNumberId is not a number in this workspace' : 'No WhatsApp number found for this workspace');
+    e.status = 404;
+    throw e;
+  }
+
+  // Meta takes bare international digits. A national number is read in the
+  // sending number's country, the same way every other send does it.
+  const { toE164Digits } = await import('../lib/phone.js');
+  const recipient = toE164Digits(to, waNumber.phoneNumber);
+  if (recipient.length < 8 || recipient.length > 15) {
     const e = new Error('`to` must be a phone number in international format, e.g. +919876543210');
     e.status = 400;
     throw e;
   }
 
-  // Opt-out is enforced before anything is sent, on every send path.
+  // Checked again (with the contact record) inside the send; this one refuses
+  // before a contact is created for someone who asked not to be messaged.
   await assertNotOptedOut(workspaceId, recipient);
 
-  // Find the WhatsApp number to send from
-  const waNumber = await prisma.waNumber.findFirst({
-    where: {
-      workspaceId,
-      ...(waNumberId ? { id: waNumberId } : {})
-    }
-  });
-
-  if (!waNumber) {
-    const e = new Error('No WhatsApp number found for this workspace');
-    e.status = 404;
-    throw e;
+  const contact = await findOrCreateApiContact(workspaceId, recipient);
+  const convo = await import('./conversations.service.js');
+  let conversation = waNumberId
+    ? await prisma.conversation.findFirst({
+        where: { workspaceId, contactId: contact.id, waNumberId: waNumber.id },
+        orderBy: { lastMessageAt: 'desc' },
+      })
+    : null;
+  if (!conversation && waNumberId) {
+    conversation = await prisma.conversation.create({
+      data: { workspaceId, contactId: contact.id, status: 'OPEN', waNumberId: waNumber.id },
+    });
   }
+  if (!conversation) conversation = await convo.getOrCreateConversation(workspaceId, { contactId: contact.id, waNumberId: waNumber.id });
 
-  const accessToken = decrypt(waNumber.encryptedAccessToken);
-  const { sendWhatsAppMessage, sendTextMessage } = await import('../lib/meta.js');
-
-  if (type === 'template') {
-    if (template.variables && Array.isArray(template.variables)) {
-      const storedTemplate = await prisma.template.findFirst({
-        where: {
-          workspaceId,
-          name: template.name,
-          language: template.language?.code || 'en'
-        }
-      });
-      if (!storedTemplate) {
-        const e = new Error(`Template ${template.name} not found in this workspace`);
-        e.status = 404;
-        throw e;
-      }
-      
-      const { buildTemplateSendPayload } = await import('./templatePayload.service.js');
-      const compiledPayload = await buildTemplateSendPayload(storedTemplate, {
-        phoneNumberId: waNumber.metaPhoneNumberId,
-        accessToken,
-        resolve: (idx) => template.variables[Number(idx)] || '',
-        log: false
-      });
-      
-      return sendWhatsAppMessage(waNumber.metaPhoneNumberId, accessToken, recipient, compiledPayload);
-    }
-    return sendWhatsAppMessage(waNumber.metaPhoneNumberId, accessToken, recipient, template);
-  } else if (type === 'text') {
-    return sendTextMessage(waNumber.metaPhoneNumberId, accessToken, recipient, body);
+  let message;
+  if (type === 'text') {
+    message = await convo.sendMessage(workspaceId, conversation.id, null, { type: 'text', body });
   } else {
-    const e = new Error('Invalid message type. Supported: template, text');
-    e.status = 400;
-    throw e;
+    const name = typeof template?.name === 'string' ? template.name.trim() : '';
+    if (!name) { const e = new Error('`template.name` is required'); e.status = 400; throw e; }
+    const language = template.language?.code || (typeof template.language === 'string' ? template.language : null) || 'en';
+    const stored = await prisma.template.findFirst({
+      where: { workspaceId, name, language, status: { not: 'DELETED' } },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!stored) {
+      const e = new Error(`Template "${name}" (${language}) not found in this workspace`);
+      e.status = 404;
+      throw e;
+    }
+    const variables = Array.isArray(template.variables) ? template.variables : variablesFromComponents(template.components);
+    message = await convo.sendTemplateMessage(workspaceId, conversation.id, null, { templateId: stored.id, variables });
   }
+
+  return {
+    id: message.id,
+    conversationId: conversation.id,
+    contactId: contact.id,
+    to: recipient,
+    status: message.status,
+    // Same shape Meta answers with, which is what this endpoint returned
+    // before, so existing integrations reading messages[0].id keep working.
+    messaging_product: 'whatsapp',
+    messages: [{ id: message.metaMessageId }],
+  };
 }
 
 // ─── Connection health ───────────────────────────────────────────────────────
