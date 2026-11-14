@@ -771,7 +771,11 @@ const HomeView = () => {
   useEffect(() => {
     wFetch('/whatsapp/numbers')
       .then(r => r.ok && r.json())
-      .then(nums => { if (Array.isArray(nums) && nums[0]) setNumber(nums[0]); })
+      .then(nums => {
+        // Prefer a number that is not dedicated to a context agent.
+        const pick = Array.isArray(nums) ? (nums.find(n => !n.contextAgent) || nums[0]) : null;
+        if (pick) setNumber(pick);
+      })
       .catch(() => null)
       .finally(() => setLoading(false));
   }, []);

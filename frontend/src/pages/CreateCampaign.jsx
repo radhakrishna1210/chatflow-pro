@@ -1797,7 +1797,9 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
   };
 
   useEffect(() => {
-    wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setNumbers(d); }).catch(()=>{});
+    // A number dedicated to a context agent cannot send campaigns (the server
+    // refuses it too), so it is not offered as a choice.
+    wFetch('/whatsapp/numbers').then(r=>r.ok&&r.json()).then(d=>{ if(Array.isArray(d)) setNumbers(d.filter(n=>!n.contextAgent)); }).catch(()=>{});
     // Authentication templates are sent only through the Authentication API/OTP
     // flow, not a normal campaign — excluded from this picker alongside the
     // existing approved-status filter.

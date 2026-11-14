@@ -18,6 +18,7 @@ import { routeByIntent, escalateToHuman, escalationReason } from './intentRoutin
 import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPLIES } from './conversationControl.service.js';
 import { decrypt } from '../lib/encryption.js';
 import { transcribeWhatsAppAudio } from './stt.service.js';
+import { handleContextAgentInbound } from './contextAgent.service.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
 
@@ -242,6 +243,8 @@ async function handleTemplateCategoryUpdate(wabaId, value) {
 //
 //   1. Opt-out              — "stop"/"unsubscribe" always win. "cancel", "quit"
 //                             and "end" defer to the flow when one is open.
+//   1a. Dedicated number    — a number assigned to a context agent is answered
+//                             by that agent and nothing below this line runs.
 //   2. Human handoff        — a person has the thread; automation stays out.
 //   3. Global commands      — cancel / bye / done / exit / restart / human,
 //                             which outrank whatever flow is mid-question.
@@ -281,7 +284,12 @@ async function handleInboundMessage(value, msg) {
 
   console.log(`[Inbound] from=${fromPhone} phone_number_id=${phoneNumberId} type=${parsed.type} initial_body="${parsed.body}"`);
 
-  const waNumber = await prisma.waNumber.findFirst({ where: { metaPhoneNumberId: phoneNumberId } });
+  // `contextAgent` rides along so the routing below can tell, without a second
+  // query, whether this number is dedicated to a context agent.
+  const waNumber = await prisma.waNumber.findFirst({
+    where: { metaPhoneNumberId: phoneNumberId },
+    include: { contextAgent: true },
+  });
   if (!waNumber) {
     console.warn(`[Inbound] DROPPED — no WaNumber row found for metaPhoneNumberId=${phoneNumberId}. Add the number via the WhatsApp setup screen in the app so this ID is saved.`);
     return;
@@ -597,6 +605,34 @@ async function handleInboundMessage(value, msg) {
     } catch (err) {
       console.error('[Inbound] Could not record opt-out:', err.message);
     }
+    return;
+  }
+
+  // Dedicated number. A number assigned to a context agent belongs to that
+  // agent alone: it answers from its own context, and none of the routing
+  // order below runs — no campaign session, form, workflow, keyword trigger,
+  // intent rule, welcome/out-of-office message, workspace AI agent or
+  // delayed-response check. That is the whole promise of dedicating a number,
+  // so this returns unconditionally, including when the agent is switched off
+  // or has nothing to say (the message is already stored and in the inbox).
+  //
+  // Placed after storage and the opt-out above on purpose: the conversation
+  // is recorded like any other, and STOP is honoured on every number.
+  if (waNumber.contextAgent) {
+    const outcome = await handleContextAgentInbound({
+      agent: waNumber.contextAgent,
+      waNumber,
+      conversation,
+      contact,
+      messageBody,
+      hasCustomerText: customerText,
+      fromPhone,
+    }).catch((err) => {
+      console.error('[Inbound] Context agent handling failed:', err);
+      return { replied: false, reason: 'error' };
+    });
+    console.log(`[Inbound] Dedicated number ${waNumber.phoneNumber} → context agent "${waNumber.contextAgent.name}" `
+      + `(${outcome.replied ? 'replied' : `no reply: ${outcome.reason}`}).`);
     return;
   }
 

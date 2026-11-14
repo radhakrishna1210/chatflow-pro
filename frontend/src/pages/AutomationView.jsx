@@ -108,6 +108,7 @@ const TABS = [
   { id: 'workflows', label: 'Workflows',                 icon: 'wflow' },
   { id: 'ai-intent', label: 'AI Intent Matching',        icon: 'spark' },
   { id: 'wa-agent',  label: 'WhatsApp AI Agent',         icon: 'bot'   },
+  { id: 'ctx-agent', label: 'Context Agent',             icon: 'file'  },
   { id: 'ig-quick',  label: 'Instagram Quickflows',      icon: 'insta' },
   { id: 'voice-ai',  label: 'Voice AI - Inbound Calls',  icon: 'phone' },
   { id: 'wa-forms',  label: 'WhatsApp Forms',            icon: 'note'  },
@@ -2761,6 +2762,421 @@ const WhatsAppAIAgentTab = () => {
 };
 
 // ─────────────────────────────────────────────
+// 5b. CONTEXT AGENT
+// ─────────────────────────────────────────────
+// A chat assistant bound to one dedicated WhatsApp number. The workspace gives
+// it a context (typed or uploaded) and every message arriving on that number
+// is answered from it. Unlike the WhatsApp AI Agent above — the workspace's
+// last-resort responder — a context agent owns its number outright: no other
+// automation runs there and nothing else can send from it.
+const CTX_VIOLET = '#9d6bff';
+const emptyDraft = { name:'', context:'', instructions:'', strictContext:true, waNumberId:'' };
+const draftOf = (a) => a
+  ? { name:a.name || '', context:a.context || '', instructions:a.instructions || '', strictContext:a.strictContext !== false, waNumberId:a.waNumberId || '' }
+  : emptyDraft;
+
+const ContextAgentTab = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [draft, setDraft] = useState(emptyDraft);
+  const [banner, setBanner] = useState(null);
+  const [busy, setBusy] = useState(null);   // 'save' | 'toggle' | 'create' | 'delete' | 'upload'
+  const [uploadNote, setUploadNote] = useState(null);
+
+  // Test chat
+  const [thread, setThread] = useState([]);
+  const [testMsg, setTestMsg] = useState('');
+  const [testing, setTesting] = useState(false);
+
+  const agents = data?.agents || [];
+  const numbers = data?.numbers || [];
+  const limit = data?.contextLimit || 40000;
+  const llmMissing = data && data.llmAvailable === false;
+  const agent = agents.find(a => a.id === selectedId) || null;
+
+  // `keep` is the agent to stay on after a reload; without it the first agent
+  // is selected, which is right on first load and after a delete.
+  const load = useCallback(async (keep) => {
+    const r = await wJson('/context-agents');
+    setLoading(false);
+    if (!r.ok || !r.data) { setLoadError(r.error || 'Could not load context agents.'); return null; }
+    setLoadError(null);
+    setData(r.data);
+    const next = r.data.agents.find(a => a.id === keep) || r.data.agents[0] || null;
+    setSelectedId(next?.id || null);
+    setDraft(draftOf(next));
+    return r.data;
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const select = (a) => {
+    setSelectedId(a.id);
+    setDraft(draftOf(a));
+    setBanner(null); setUploadNote(null); setThread([]);
+  };
+
+  const saved = draftOf(agent);
+  const dirty = !!agent && ['name', 'context', 'instructions', 'strictContext', 'waNumberId'].some(k => draft[k] !== saved[k]);
+  const set = (patch) => setDraft(d => ({ ...d, ...patch }));
+
+  // Replaces one agent in the loaded list with the server's copy, and keeps
+  // the number list's "held by" labels in step without a second request.
+  const applyAgent = (updated) => {
+    setData(d => d && ({
+      ...d,
+      agents: d.agents.map(a => a.id === updated.id ? updated : a),
+      numbers: d.numbers.map(n => n.id === updated.waNumberId
+        ? { ...n, agentId: updated.id, agentName: updated.name }
+        : n.agentId === updated.id ? { ...n, agentId: null, agentName: null } : n),
+    }));
+    setDraft(draftOf(updated));
+  };
+
+  // Every action that depends on the saved agent (upload, test, switching it
+  // on) saves pending edits first, so nothing typed is lost or tested stale.
+  const persist = async () => {
+    if (!agent) return false;
+    const nameError = validateMeaningfulText(draft.name, 'Agent name');
+    if (nameError) { setBanner({ tone:'error', text:nameError }); return false; }
+    if (!dirty) return true;
+    const r = await wJson(`/context-agents/${agent.id}`, { method:'PATCH', body: JSON.stringify({
+      name: draft.name, context: draft.context, instructions: draft.instructions,
+      strictContext: draft.strictContext, waNumberId: draft.waNumberId || null,
+    }) });
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return false; }
+    applyAgent(r.data);
+    return true;
+  };
+
+  const save = async () => {
+    setBusy('save'); setBanner(null);
+    const ok = await persist();
+    setBusy(null);
+    if (ok) setBanner({ tone:'ok', text:'Saved.' });
+  };
+
+  const toggle = async () => {
+    if (!agent) return;
+    setBusy('toggle'); setBanner(null);
+    if (!(await persist())) { setBusy(null); return; }
+    const r = await wJson(`/context-agents/${agent.id}`, { method:'PATCH', body: JSON.stringify({ enabled: !agent.enabled }) });
+    setBusy(null);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    applyAgent(r.data);
+    setBanner({ tone:'ok', text: r.data.enabled
+      ? `${r.data.name} is live — it now answers every message sent to ${r.data.waNumber?.phoneNumber || 'its number'}.`
+      : `${r.data.name} is off. Its number stays reserved; messages wait in the inbox.` });
+  };
+
+  const create = async () => {
+    setBusy('create'); setBanner(null);
+    const r = await wJson('/context-agents', { method:'POST', body: JSON.stringify({ name: `Context Agent ${agents.length + 1}` }) });
+    setBusy(null);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    setThread([]); setUploadNote(null);
+    await load(r.data.id);
+  };
+
+  const remove = async () => {
+    if (!agent) return;
+    const number = agent.waNumber?.phoneNumber;
+    if (!window.confirm(`Delete "${agent.name}"?${number ? ` ${number} will be released and can be used elsewhere again.` : ''} Its context will be lost.`)) return;
+    setBusy('delete'); setBanner(null);
+    const r = await wJson(`/context-agents/${agent.id}`, { method:'DELETE' });
+    setBusy(null);
+    if (!r.ok) { setBanner({ tone:'error', text:r.error }); return; }
+    setThread([]); setUploadNote(null);
+    await load();
+    setBanner({ tone:'ok', text: number ? `Agent deleted. ${number} is free again.` : 'Agent deleted.' });
+  };
+
+  const upload = async (file, mode) => {
+    if (!file || !agent) return;
+    setBusy('upload'); setUploadNote(null); setBanner(null);
+    if (!(await persist())) { setBusy(null); return; }
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('mode', mode);
+    const r = await wJson(`/context-agents/${agent.id}/context/upload`, { method:'POST', body: fd });
+    setBusy(null);
+    if (!r.ok) { setUploadNote({ error: r.error }); return; }
+    const d = r.data;
+    applyAgent(d.agent);
+    setUploadNote({
+      truncated: d.truncated,
+      text: d.truncated
+        ? `Read "${d.fileName}", but ${d.dropped.toLocaleString()} characters had to be dropped — the context holds ${d.limit.toLocaleString()} and is now full.`
+        : `${mode === 'replace' ? 'Context replaced with' : 'Added'} ${d.added.toLocaleString()} characters from "${d.fileName}". Using ${d.used.toLocaleString()} of ${d.limit.toLocaleString()}.`,
+    });
+  };
+
+  const runTest = async () => {
+    const question = testMsg.trim();
+    if (!question || !agent || testing) return;
+    setTesting(true);
+    if (!(await persist())) { setTesting(false); return; }
+    const history = thread.filter(m => m.role !== 'error').map(m => ({ role: m.role, text: m.text }));
+    setThread(t => [...t, { role:'customer', text: question }]);
+    setTestMsg('');
+    const r = await wJson(`/context-agents/${agent.id}/test`, { method:'POST', body: JSON.stringify({ message: question, history }) });
+    setTesting(false);
+    setThread(t => [...t, r.ok && r.data?.ok
+      ? { role:'agent', text: r.data.reply }
+      : { role:'error', text: r.data?.reason || r.error || 'Test failed' }]);
+  };
+
+  if (loading) return <Loading />;
+  if (loadError) return <Banner tone="error">{loadError}</Banner>;
+
+  const selectedNumber = numbers.find(n => n.id === draft.waNumberId) || null;
+  // Dedicating the last free number leaves campaigns and every other
+  // automation with nothing to send from — allowed, but worth saying first.
+  const takesLastNumber = !!draft.waNumberId && numbers.length > 0
+    && numbers.every(n => n.id === draft.waNumberId || (n.agentId && n.agentId !== agent?.id));
+  const modeBtn = (on) => ({
+    flex:'1 1 200px', textAlign:'left', padding:'11px 13px', borderRadius:10, cursor:'pointer', fontFamily:"'Manrope',sans-serif",
+    background: on ? 'rgba(157,107,255,0.12)' : 'rgba(255,255,255,0.03)',
+    border:`1px solid ${on ? 'rgba(157,107,255,0.45)' : 'var(--bd)'}`,
+  });
+  const uploadBtn = { display:'inline-flex', alignItems:'center', gap:6, padding:'6px 11px', borderRadius:8, border:'1px solid var(--bd)', background:'rgba(255,255,255,0.04)', fontWeight:600, fontSize:12, color:'var(--t2)' };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
+      <TabHeader icon="file" color={CTX_VIOLET} bg="rgba(157,107,255,0.1)"
+        title="Context Agent"
+        subtitle="A chat assistant with its own dedicated number, answering from the context you give it">
+        <Btn onClick={create} disabled={busy === 'create'} style={{ boxShadow:'var(--glow)' }}>
+          <I n="plus" s={14} c="#08090c" /> {busy === 'create' ? 'Creating…' : 'New agent'}
+        </Btn>
+      </TabHeader>
+
+      {llmMissing && <Banner tone="warn">No LLM provider is configured on the server. Set <code>GEMINI_API_KEY</code> in the backend environment before an agent can be switched on or tested.</Banner>}
+      {banner && <Banner tone={banner.tone}>{banner.text}</Banner>}
+
+      {agents.length === 0 ? (
+        <div style={{ ...card, padding:'40px 28px', display:'flex', flexDirection:'column', alignItems:'center', textAlign:'center', gap:14 }}>
+          <div style={{ width:56, height:56, borderRadius:14, background:'rgba(157,107,255,0.1)', border:'1px solid rgba(157,107,255,0.3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <I n="file" s={26} c={CTX_VIOLET} />
+          </div>
+          <div>
+            <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:17, fontWeight:700, color:'var(--t1)', marginBottom:6 }}>No context agents yet</h3>
+            <p style={{ fontSize:13, color:'var(--t2)', maxWidth:480, lineHeight:1.6 }}>
+              Give an agent a context — paste it or upload a file — and a WhatsApp number of its own. Anyone who messages
+              that number gets answers from that context, like chatting with an assistant that has read your document.
+            </p>
+          </div>
+          <Btn onClick={create} disabled={busy === 'create'}>{busy === 'create' ? 'Creating…' : 'Create a context agent'}</Btn>
+        </div>
+      ) : (
+        <>
+          {/* One chip per agent: which it is, where it answers, whether it is live. */}
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            {agents.map(a => {
+              const on = a.id === selectedId;
+              return (
+                <button key={a.id} onClick={() => select(a)}
+                  style={{ display:'flex', alignItems:'center', gap:9, padding:'9px 13px', borderRadius:10, cursor:'pointer', fontFamily:"'Manrope',sans-serif", textAlign:'left',
+                           background: on ? 'rgba(157,107,255,0.12)' : 'var(--surf)',
+                           border:`1px solid ${on ? 'rgba(157,107,255,0.45)' : 'var(--bd)'}` }}>
+                  <span style={{ width:7, height:7, borderRadius:'50%', flexShrink:0, background: a.enabled ? 'var(--green)' : 'rgba(255,255,255,0.2)' }} />
+                  <span>
+                    <span style={{ display:'block', fontSize:13, fontWeight: on ? 700 : 600, color:'var(--t1)' }}>{a.name}</span>
+                    <span style={{ display:'block', fontSize:11, color:'var(--t3)' }}>{a.waNumber?.phoneNumber || 'No number assigned'}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {agent && (
+            <div className="agent-grid" style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) 330px', gap:16, alignItems:'start' }}>
+
+              {/* ── editor ── */}
+              <div style={{ ...card, padding:22, minWidth:0, display:'flex', flexDirection:'column', gap:20 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <h3 style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:17, color:'var(--t1)' }}>{agent.name}</h3>
+                    {agent.enabled ? <Pill>Live</Pill> : <Pill tone="amber">Off</Pill>}
+                  </div>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                    <Btn variant="outline" size="sm" onClick={save} disabled={!!busy || !dirty}>{busy === 'save' ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}</Btn>
+                    <Btn size="sm" onClick={toggle} disabled={!!busy || (!agent.enabled && llmMissing)}
+                      style={agent.enabled ? { background:'rgba(239,68,68,.12)', border:'1px solid rgba(239,68,68,.3)', color:'#f87171', boxShadow:'none' } : {}}>
+                      {busy === 'toggle' ? 'Working…' : agent.enabled ? 'Turn off' : 'Turn on'}
+                    </Btn>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Agent name</label>
+                  <input value={draft.name} onChange={e => set({ name: e.target.value })} style={inputStyle} maxLength={80} placeholder="Support Assistant" />
+                </div>
+
+                {/* ── dedicated number ── */}
+                <div>
+                  <label style={labelStyle}>Dedicated WhatsApp number</label>
+                  {numbers.length === 0 ? (
+                    <p style={{ fontSize:12.5, color:'var(--t3)', lineHeight:1.6 }}>
+                      No WhatsApp number is connected to this workspace yet. Connect one in Number Setup, then assign it here.
+                    </p>
+                  ) : (
+                    <select value={draft.waNumberId} onChange={e => set({ waNumberId: e.target.value })} style={inputStyle}>
+                      <option value="" style={{ background:'#0a0b0e' }}>— No number assigned —</option>
+                      {numbers.map(n => {
+                        const taken = n.agentId && n.agentId !== agent.id;
+                        return (
+                          <option key={n.id} value={n.id} disabled={taken} style={{ background:'#0a0b0e' }}>
+                            {n.phoneNumber}{n.displayName ? ` · ${n.displayName}` : ''}{taken ? ` — used by ${n.agentName}` : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
+                  <div style={{ marginTop:9, padding:'10px 12px', borderRadius:9, background:'rgba(157,107,255,0.07)', border:'1px solid rgba(157,107,255,0.22)', display:'flex', gap:9 }}>
+                    <I n="lock" s={13} c={CTX_VIOLET} />
+                    <p style={{ fontSize:11.5, color:'var(--t2)', lineHeight:1.6 }}>
+                      {selectedNumber
+                        ? <>Once saved, <strong style={{ color:'var(--t1)' }}>{selectedNumber.phoneNumber}</strong> belongs to this agent only. It cannot be used for campaigns, website widgets, OTP, sequences or API sends, and no other automation runs on it. Your team can still read and reply to its conversations in the inbox.</>
+                        : <>The number you pick is reserved for this agent alone — it cannot be used for campaigns, widgets, OTP or any other automation while it is assigned.</>}
+                    </p>
+                  </div>
+                  {takesLastNumber && (
+                    <p style={{ fontSize:11.5, color:'#fbbf24', marginTop:8, lineHeight:1.5 }}>
+                      This leaves the workspace with no other number, so campaigns and other automations will have nothing to send from until you connect another.
+                    </p>
+                  )}
+                </div>
+
+                {/* ── context ── */}
+                <div>
+                  <label style={labelStyle}>Context</label>
+                  <textarea value={draft.context} onChange={e => set({ context: e.target.value })} rows={12} maxLength={limit}
+                    style={{ ...inputStyle, resize:'vertical', lineHeight:1.55 }}
+                    placeholder={"Paste everything the agent should know, or upload a file below.\n\nExample:\nWe are Acme Dental. Open Mon–Sat, 9am–7pm.\nConsultation: Rs 500. Cleaning: Rs 1,200.\nTo book, share your name and preferred time.\nEmergencies: call 98xxxxxx01."} />
+
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginTop:8, flexWrap:'wrap' }}>
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                      {[['replace', 'Upload file as context'], ['append', 'Add a file to the context']].map(([mode, label]) => (
+                        <label key={mode} style={{ cursor: busy ? 'wait' : 'pointer' }}>
+                          <span style={uploadBtn}><I n="file" s={12} c="var(--t2)" /> {busy === 'upload' ? 'Reading…' : label}</span>
+                          <input type="file" accept=".pdf,.docx,.txt,.md,.csv" disabled={!!busy}
+                            onChange={e => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (mode === 'replace' && draft.context.trim()
+                                && !window.confirm('Replace the current context with this file? What is in the box now will be lost.')) return;
+                              upload(file, mode);
+                            }}
+                            style={{ display:'none' }} />
+                        </label>
+                      ))}
+                    </div>
+                    <span style={{ fontSize:11, color: draft.context.length >= limit ? '#fbbf24' : 'var(--t3)' }}>
+                      {draft.context.length.toLocaleString()} / {limit.toLocaleString()}
+                    </span>
+                  </div>
+                  <p style={{ fontSize:11, color:'var(--t3)', marginTop:6, lineHeight:1.5 }}>
+                    PDF, Word (.docx), plain text or CSV. The text is extracted into the box above — the file itself is not stored, and you can edit the result.
+                  </p>
+                  {uploadNote && (
+                    <div style={{ marginTop:8, padding:'8px 11px', borderRadius:8, fontSize:11.5, lineHeight:1.5,
+                      background: uploadNote.error ? 'rgba(239,68,68,.08)' : uploadNote.truncated ? 'rgba(245,158,11,.08)' : 'var(--gbg)',
+                      border: `1px solid ${uploadNote.error ? 'rgba(239,68,68,.25)' : uploadNote.truncated ? 'rgba(245,158,11,.28)' : 'var(--gbd)'}`,
+                      color: uploadNote.error ? '#f87171' : uploadNote.truncated ? '#fbbf24' : 'var(--green)' }}>
+                      {uploadNote.error || uploadNote.text}
+                    </div>
+                  )}
+                </div>
+
+                {/* ── how it answers ── */}
+                <div>
+                  <label style={labelStyle}>When the context does not have the answer</label>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                    <button type="button" onClick={() => set({ strictContext: true })} style={modeBtn(draft.strictContext)}>
+                      <span style={{ display:'block', fontSize:13, fontWeight:700, color:'var(--t1)' }}>Stay within the context</span>
+                      <span style={{ display:'block', fontSize:11.5, color:'var(--t2)', marginTop:3, lineHeight:1.5 }}>Says it does not have that information. Best for support, pricing and policies.</span>
+                    </button>
+                    <button type="button" onClick={() => set({ strictContext: false })} style={modeBtn(!draft.strictContext)}>
+                      <span style={{ display:'block', fontSize:13, fontWeight:700, color:'var(--t1)' }}>Context first, then general knowledge</span>
+                      <span style={{ display:'block', fontSize:11.5, color:'var(--t2)', marginTop:3, lineHeight:1.5 }}>Answers like a general chat assistant, but never invents facts about your business.</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Instructions <span style={{ textTransform:'none', letterSpacing:0, fontWeight:500, color:'var(--t3)' }}>· optional</span></label>
+                  <textarea value={draft.instructions} onChange={e => set({ instructions: e.target.value })} rows={4} maxLength={4000}
+                    style={{ ...inputStyle, resize:'vertical' }}
+                    placeholder={"Tone and rules, one per line.\nBe warm and brief.\nAlways ask for the order number before discussing an order."} />
+                </div>
+
+                <div style={{ borderTop:'1px solid var(--bd)', paddingTop:14, display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                  <p style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.5, flex:'1 1 240px' }}>
+                    The agent replies in the customer’s language and remembers the conversation. Customers can send STOP to opt out, or ask for a human to be handed to your team.
+                  </p>
+                  <button onClick={remove} disabled={!!busy}
+                    style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'7px 12px', borderRadius:8, cursor: busy ? 'not-allowed' : 'pointer', fontFamily:"'Manrope',sans-serif", fontSize:12, fontWeight:600,
+                             background:'rgba(239,68,68,0.07)', border:'1px solid rgba(239,68,68,0.2)', color:'#f87171' }}>
+                    <I n="trash" s={11} c="#f87171" /> {busy === 'delete' ? 'Deleting…' : 'Delete agent'}
+                  </button>
+                </div>
+              </div>
+
+              {/* ── test chat ── */}
+              <div style={{ ...card, padding:18, display:'flex', flexDirection:'column', gap:12, minWidth:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                  <span style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.14em', textTransform:'uppercase', color:'var(--t1)' }}>Test chat</span>
+                  <span style={{ fontFamily:'var(--mono)', fontSize:9, letterSpacing:'.06em', padding:'2px 7px', borderRadius:5, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t3)' }}>
+                    not live · sandbox
+                  </span>
+                  {thread.length > 0 && (
+                    <button onClick={() => setThread([])} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'var(--t3)', fontSize:11, fontFamily:"'Manrope',sans-serif" }}>Clear</button>
+                  )}
+                </div>
+                <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.55 }}>
+                  Chat with the agent exactly as a customer would. Nothing is sent on WhatsApp. Unsaved edits are saved before each test.
+                </p>
+
+                <div style={{ display:'flex', flexDirection:'column', gap:10, maxHeight:420, overflowY:'auto', padding:'2px 0' }}>
+                  {thread.length === 0 && (
+                    <p style={{ fontSize:12, color:'var(--t3)', lineHeight:1.6 }}>
+                      Nothing tested yet. Ask something the context answers, then something it does not.
+                    </p>
+                  )}
+                  {thread.map((m, i) => m.role === 'customer' ? (
+                    <div key={i} style={{ alignSelf:'flex-end', maxWidth:'88%', borderRadius:'13px 4px 13px 13px', background:'rgba(53,232,242,0.14)', border:'1px solid var(--gbd)', padding:'8px 11px' }}>
+                      <p style={{ fontSize:12.5, color:'var(--t1)', lineHeight:1.5, whiteSpace:'pre-wrap' }}>{m.text}</p>
+                    </div>
+                  ) : m.role === 'error' ? (
+                    <div key={i} style={{ borderRadius:9, background:'rgba(239,68,68,.06)', border:'1px solid rgba(239,68,68,.25)', padding:'9px 12px' }}>
+                      <p style={{ fontSize:12, color:'#f87171', lineHeight:1.5 }}>{m.text}</p>
+                    </div>
+                  ) : (
+                    <div key={i} style={{ alignSelf:'flex-start', maxWidth:'96%', borderRadius:'4px 13px 13px 13px', background:'rgba(255,255,255,0.045)', border:'1px solid var(--bd)', padding:'10px 12px' }}>
+                      <p style={{ fontSize:12.5, color:'var(--t1)', lineHeight:1.55, whiteSpace:'pre-wrap' }}>{m.text}</p>
+                    </div>
+                  ))}
+                  {testing && <p style={{ fontSize:12, color:'var(--t3)' }}>{agent.name} is typing…</p>}
+                </div>
+
+                <div style={{ marginTop:'auto', display:'flex', gap:8 }}>
+                  <input value={testMsg} onChange={e => setTestMsg(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runTest(); } }}
+                    placeholder="Type a customer message…" style={{ ...inputStyle, flex:1 }} />
+                  <Btn variant="outline" onClick={runTest} disabled={testing || llmMissing || !!busy}>{testing ? '…' : 'Send'}</Btn>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────
 // 6. INSTAGRAM QUICKFLOWS
 // ─────────────────────────────────────────────
 const IG_SOURCES = [['dm', 'Direct Message'], ['comment', 'Post Comment'], ['story_reply', 'Story Reply']];
@@ -4354,6 +4770,7 @@ export default function AutomationView({ initialTab }) {
       case 'workflows':   return <WorkflowsTab />;
       case 'ai-intent':   return <AIIntentMatchingTab />;
       case 'wa-agent':    return <WhatsAppAIAgentTab />;
+      case 'ctx-agent':   return <ContextAgentTab />;
       case 'ig-quick':    return <InstagramQuickflowsTab />;
       case 'voice-ai':    return <VoiceAITab />;
       case 'wa-forms':    return <WhatsAppFormsTab />;

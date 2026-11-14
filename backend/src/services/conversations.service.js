@@ -9,6 +9,7 @@ import { assertNotOptedOut, normalizePhone } from './optout.service.js';
 import { countVariables, buildTextComponents, buildButtonComponents, contactVariableResolver } from '../lib/templateParams.js';
 import { headerImageComponent } from './templateImage.service.js';
 import { buildTemplateSendPayload } from './templatePayload.service.js';
+import { NOT_DEDICATED } from '../lib/dedicatedNumber.js';
 
 export async function listConversations(workspaceId, { page = 1, limit = 20, contactId = null, search = '' } = {}) {
   // Bounded: each row carries its contact, number and latest messages, and an
@@ -97,15 +98,19 @@ export async function getOrCreateConversation(workspaceId, { contactId, waNumber
     orderBy: { lastMessageAt: 'desc' },
   });
 
+  // A number dedicated to a context agent is never chosen for a conversation
+  // the team starts: the agent only ever answers customers who wrote to it
+  // first. A thread that already exists on such a number is still returned
+  // above, so the inbox can open it.
   let resolvedWaNumberId = waNumberId;
   if (resolvedWaNumberId) {
-    const valid = await prisma.waNumber.findFirst({ where: { id: resolvedWaNumberId, workspaceId } });
+    const valid = await prisma.waNumber.findFirst({ where: { id: resolvedWaNumberId, workspaceId, ...NOT_DEDICATED } });
     if (!valid) resolvedWaNumberId = null;
   }
   if (!resolvedWaNumberId) {
     const defaultNumber = await prisma.waNumber.findFirst({
-      where: { workspaceId, status: { in: ['ACTIVE', 'CONNECTED'] } },
-    }) || await prisma.waNumber.findFirst({ where: { workspaceId } });
+      where: { workspaceId, status: { in: ['ACTIVE', 'CONNECTED'] }, ...NOT_DEDICATED },
+    }) || await prisma.waNumber.findFirst({ where: { workspaceId, ...NOT_DEDICATED } });
     resolvedWaNumberId = defaultNumber?.id || null;
   }
 

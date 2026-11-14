@@ -712,7 +712,9 @@ export default function WidgetsView() {
       .catch(() => {}).finally(() => setLoading(false));
     wFetch('/widgets/analytics').then(r => r.ok && r.json()).then(d => d && setAnalytics(d)).catch(() => {});
     wFetch('/widgets/sessions?limit=8').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setSessions(d); }).catch(() => {});
-    wFetch('/whatsapp/numbers').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setNumbers(d); }).catch(() => {});
+    // Numbers dedicated to a context agent are answered by that agent alone,
+    // so a widget cannot hand visitors off to one.
+    wFetch('/whatsapp/numbers').then(r => r.ok && r.json()).then(d => { if (Array.isArray(d)) setNumbers(d.filter(n => !n.contextAgent)); }).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
 

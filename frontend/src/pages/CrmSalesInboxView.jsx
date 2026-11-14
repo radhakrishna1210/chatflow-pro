@@ -184,7 +184,8 @@ export default function CrmSalesInboxView() {
       ]);
       setSegments(segRes || { categories: { HOT: 0, WARM: 0, COLD: 0, ALL: 0 }, sources: [] });
       setTemplates(Array.isArray(tmplRes?.data) ? tmplRes.data : Array.isArray(tmplRes) ? tmplRes : []);
-      const nums = Array.isArray(numRes) ? numRes : Array.isArray(numRes?.data) ? numRes.data : [];
+      // Numbers dedicated to a context agent cannot send campaigns.
+      const nums = (Array.isArray(numRes) ? numRes : Array.isArray(numRes?.data) ? numRes.data : []).filter(n => !n.contextAgent);
       setWaNumbers(nums);
       setSequencesList(Array.isArray(seqRes?.data) ? seqRes.data : Array.isArray(seqRes) ? seqRes : []);
       if (nums.length > 0) {

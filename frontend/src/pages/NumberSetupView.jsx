@@ -147,6 +147,14 @@ const NumberCard = ({ number, isPrimary, onDisconnect, disconnecting, onRefresh 
           <p style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 3 }}>
             {number.displayName || 'No display name'}
           </p>
+          {/* A number dedicated to a context agent is unavailable to campaigns,
+              widgets and OTP — said here so its absence from those pickers is
+              not a mystery. */}
+          {number.contextAgent && (
+            <p style={{ fontSize: 11.5, color: '#b79bff', marginTop: 4, lineHeight: 1.5 }}>
+              Dedicated to the context agent “{number.contextAgent.name}” — not available for campaigns or other automations.
+            </p>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', flexShrink: 0 }}>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '.06em', padding: '3px 8px', borderRadius: 6,

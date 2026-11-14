@@ -183,6 +183,7 @@ model Workspace {
   widgetEvents                 WidgetEvent[]
   knowledgeSources             KnowledgeSource[]
   intentRules                  IntentRule[]
+  contextAgents                ContextAgent[]
   intentMatchEvents            IntentMatchEvent[]
   addons                       WorkspaceAddon[]
   customFields                 WorkspaceCustomField[]
@@ -296,6 +297,10 @@ model WaNumber {
   templates     Template[]
   widgets       Widget[]
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // Set when the number is dedicated to a context agent. A dedicated number is
+  // answered by that agent alone and is unavailable to campaigns, widgets, OTP
+  // and every other automation — see services/contextAgent.service.js.
+  contextAgent  ContextAgent?
 
   // A WhatsApp number belongs to exactly one workspace, globally.
   //
@@ -306,6 +311,40 @@ model WaNumber {
   // whichever row happened to be found first received the other tenant's
   // customer messages. Global uniqueness is what makes that resolution correct.
   @@unique([metaPhoneNumberId])
+}
+
+// A context agent: a chat assistant that answers every message arriving on one
+// dedicated WhatsApp number, from a context the workspace typed or uploaded.
+//
+// Unlike the workspace AI agent (aiAgent* on Workspace), which is the last
+// fallback in the inbound routing order, a context agent owns its number
+// outright: nothing else in the workspace may send from or automate on it.
+// `waNumberId` is unique so that ownership is a database fact, not a
+// convention — one number can never be dedicated to two agents.
+model ContextAgent {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  name          String    @default("Context Agent")
+  // The material the agent answers from. Typed in, or extracted from uploaded
+  // documents and appended.
+  context       String    @default("")
+  // Optional tone and answering rules, kept apart from the context so
+  // replacing a document does not wipe them.
+  instructions  String    @default("")
+  // True: answer only from the context. False: context first, general
+  // knowledge where the context is silent.
+  strictContext Boolean   @default(true)
+  // Whether the agent is live. A number stays reserved while this is false.
+  enabled       Boolean   @default(false)
+  waNumberId    String?   @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // SetNull: disconnecting the number leaves the agent and its context intact,
+  // just without a number to answer on.
+  waNumber      WaNumber? @relation(fields: [waNumberId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
 }
 
 model NumberPool {

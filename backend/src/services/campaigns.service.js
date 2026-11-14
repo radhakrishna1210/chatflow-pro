@@ -11,6 +11,7 @@ import { rateForCategory } from '../lib/messagePricing.js';
 import { billedCount } from './campaignBilling.service.js';
 import { getAgent } from './aiAgent.service.js';
 import { normalizeCtaLabel, buildCampaignContext, findCtaButton } from './campaignAi.service.js';
+import { assertNumberNotDedicated } from '../lib/dedicatedNumber.js';
 
 const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
@@ -268,6 +269,10 @@ export async function createCampaign(workspaceId, { name, templateId, numberId, 
     const e = new Error('That template was deleted on Meta and can no longer be used'); e.status = 400; throw e;
   }
   if (!waNumber) { const e = new Error('WhatsApp number not found'); e.status = 404; throw e; }
+  // A number dedicated to a context agent sends nothing but that agent's
+  // replies — a campaign from it would have its answers picked up by a bot
+  // that has never heard of the campaign.
+  await assertNumberNotDedicated(waNumber.id, 'campaigns');
   // Enforce per-number template privacy: the template must belong to this number
   // (or be a legacy template with no number binding yet).
   if (template.waNumberId && template.waNumberId !== waNumber.id) {
@@ -335,6 +340,7 @@ export async function updateCampaign(workspaceId, campaignId, {
       const e = new Error('That template was deleted on Meta and can no longer be used'); e.status = 400; throw e;
     }
     if (!waNumber) { const e = new Error('WhatsApp number not found'); e.status = 404; throw e; }
+    await assertNumberNotDedicated(waNumber.id, 'campaigns');
     if (template.waNumberId && template.waNumberId !== waNumber.id) {
       const e = new Error('Selected template belongs to a different WhatsApp number'); e.status = 400; throw e;
     }
@@ -677,6 +683,10 @@ export async function launchCampaign(workspaceId, campaignId, scheduledAt, retry
 
   // Before anything is charged or queued.
   assertTemplateSendable(campaign.template);
+
+  // A draft can outlive its number's availability: the number may have been
+  // dedicated to a context agent after this campaign was drafted on it.
+  await assertNumberNotDedicated(campaign.waNumberId, 'campaigns');
 
   // Validate the schedule before touching money — a bad date must not leave a
   // charged, unqueued campaign behind.

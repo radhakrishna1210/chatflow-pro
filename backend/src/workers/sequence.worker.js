@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { advanceEnrollment, findDueEnrollments } from '../services/sequenceEngine.service.js';
 import { enqueueAdvance } from '../queues/sequence.queue.js';
 import { sendAutomatedReply } from '../services/outbound.service.js';
+import { NOT_DEDICATED, NOT_ON_DEDICATED_NUMBER } from '../lib/dedicatedNumber.js';
 
 export async function sendSequenceMessage({ enrollment, body }, { sendReply = sendAutomatedReply } = {}) {
   const contact = await prisma.contact.findFirst({
@@ -13,21 +14,23 @@ export async function sendSequenceMessage({ enrollment, body }, { sendReply = se
   if (!contact) throw new Error('Contact no longer exists');
   if (contact.optedOut) throw new Error('Contact opted out');
 
+  // A number dedicated to a context agent carries only that agent's replies,
+  // so a sequence neither reuses a thread on one nor picks one as its default.
   let conversation = await prisma.conversation.findFirst({
-    where: { workspaceId: enrollment.workspaceId, contactId: contact.id },
+    where: { workspaceId: enrollment.workspaceId, contactId: contact.id, ...NOT_ON_DEDICATED_NUMBER },
     orderBy: { lastMessageAt: 'desc' },
   });
 
   if (!conversation) {
     const waNumber = await prisma.waNumber.findFirst({
-      where: { workspaceId: enrollment.workspaceId, status: 'ACTIVE' },
+      where: { workspaceId: enrollment.workspaceId, status: 'ACTIVE', ...NOT_DEDICATED },
     });
     conversation = await prisma.conversation.create({
       data: { workspaceId: enrollment.workspaceId, contactId: contact.id, status: 'OPEN', waNumberId: waNumber?.id },
     });
   } else if (!conversation.waNumberId) {
     const waNumber = await prisma.waNumber.findFirst({
-      where: { workspaceId: enrollment.workspaceId, status: 'ACTIVE' },
+      where: { workspaceId: enrollment.workspaceId, status: 'ACTIVE', ...NOT_DEDICATED },
     });
     if (waNumber) {
       conversation = await prisma.conversation.update({

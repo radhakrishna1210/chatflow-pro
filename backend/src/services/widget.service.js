@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { assertNumberNotDedicated } from '../lib/dedicatedNumber.js';
 
 // Management side of the Smart Website Widget: what the workspace owner sees
 // and edits. The visitor-facing half lives in widgetPublic.service.js, which
@@ -138,6 +139,9 @@ async function assertNumberBelongs(workspaceId, waNumberId) {
   if (!waNumberId) return null;
   const number = await prisma.waNumber.findFirst({ where: { id: waNumberId, workspaceId }, select: { id: true } });
   if (!number) fail('That WhatsApp number is not in this workspace.', 404);
+  // A widget hands visitors off to a person on WhatsApp; a number dedicated to
+  // a context agent is answered by that agent alone.
+  await assertNumberNotDedicated(waNumberId, 'a website widget');
   return waNumberId;
 }
 

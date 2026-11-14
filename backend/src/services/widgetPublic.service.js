@@ -374,7 +374,8 @@ async function seedInboxContext(widget, session, { reason }) {
 
   const waNumberId = widget.waNumberId
     ?? (await prisma.waNumber.findFirst({
-      where: { workspaceId: widget.workspaceId },
+      // Not a number dedicated to a context agent.
+      where: { workspaceId: widget.workspaceId, contextAgent: { is: null } },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     }))?.id

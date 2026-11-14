@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { assertNumberNotDedicated } from '../lib/dedicatedNumber.js';
 
 const AUTHENTICATION_OTP_EXPIRATION_MINUTES = 10;
 
@@ -77,7 +78,8 @@ export async function getAuthenticationConfiguration(
       }),
 
       prisma.waNumber.findMany({
-        where: { workspaceId },
+        // Numbers dedicated to a context agent are not offered for OTP.
+        where: { workspaceId, contextAgent: { is: null } },
         orderBy: { createdAt: 'asc' },
         select: {
           id: true,
@@ -215,6 +217,10 @@ export async function updateAuthenticationConfiguration(
       422
     );
   }
+
+  // OTP messages cannot share a number with a context agent: the number is
+  // dedicated to that agent's conversations.
+  await assertNumberNotDedicated(waNumber.id, 'OTP authentication');
 
   if (!template) {
     throw createError(

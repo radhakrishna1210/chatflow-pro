@@ -10,6 +10,7 @@ import { syncTemplatesFromMeta } from './templates.service.js';
 import { assertNotOptedOut, normalizePhone as normalizeMsisdn } from './optout.service.js';
 import { env } from '../config/env.js';
 import { markNumberUnreachable } from './outbound.service.js';
+import { NOT_DEDICATED, assertNumberNotDedicated } from '../lib/dedicatedNumber.js';
 
 // Subscribe our Meta app to a WABA so webhooks (inbound messages, delivery/read
 // receipts, template status) start flowing. Without this, the Inbox stays empty
@@ -194,12 +195,18 @@ export async function listNumbers(workspaceId) {
     prisma.waNumber.findMany({
       where: { workspaceId },
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { campaigns: true, conversations: true, templates: true } } },
+      include: {
+        _count: { select: { campaigns: true, conversations: true, templates: true } },
+        // Which context agent (if any) this number is dedicated to, so every
+        // number picker in the app can leave a dedicated number out.
+        contextAgent: { select: { id: true, name: true, enabled: true } },
+      },
     }),
     sentTodayByNumber(workspaceId),
   ]);
   return numbers.map(({ encryptedAccessToken: _, _count, ...n }) => ({
     ...n,
+    contextAgent: n.contextAgent ?? null,
     sentToday: sentToday[n.id] || 0,
     campaigns: _count.campaigns,
     conversations: _count.conversations,
@@ -657,10 +664,13 @@ export async function sendPublicMessage(workspaceId, { to, template, type, body,
     const e = new Error('Invalid message type. Supported: template, text'); e.status = 400; throw e;
   }
 
+  // A number dedicated to a context agent is refused when named and skipped
+  // when defaulting: it sends only that agent's replies.
+  if (waNumberId) await assertNumberNotDedicated(String(waNumberId), 'API sends');
   const waNumber = waNumberId
     ? await prisma.waNumber.findFirst({ where: { workspaceId, id: String(waNumberId) } })
-    : (await prisma.waNumber.findFirst({ where: { workspaceId, status: { in: ['ACTIVE', 'CONNECTED'] } } })
-      || await prisma.waNumber.findFirst({ where: { workspaceId } }));
+    : (await prisma.waNumber.findFirst({ where: { workspaceId, status: { in: ['ACTIVE', 'CONNECTED'] }, ...NOT_DEDICATED } })
+      || await prisma.waNumber.findFirst({ where: { workspaceId, ...NOT_DEDICATED } }));
   if (!waNumber) {
     const e = new Error(waNumberId ? 'That waNumberId is not a number in this workspace' : 'No WhatsApp number found for this workspace');
     e.status = 404;
