@@ -2,10 +2,12 @@ import { Router } from 'express';
 import { createTemplate, createCampaign, updateCampaign, updateTemplate, executeWorkflow } from '../controllers/ai.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
+import { workspaceAiModelContext } from '../middleware/workspaceContext.js';
 
 const router = Router();
 
-router.use(authenticate);
+// workspaceAiModelContext: these run under the caller's workspace AI model.
+router.use(authenticate, workspaceAiModelContext);
 
 // Not workspace-scoped routers, so the VIEWER/AGENT write floor applied by
 // workspaceContext never ran here: a read-only Viewer could create templates

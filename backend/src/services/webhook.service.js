@@ -19,6 +19,7 @@ import { detectControlCommand, interruptsFlow, detectGeneralIntent, CONTROL_REPL
 import { decrypt } from '../lib/encryption.js';
 import { transcribeWhatsAppAudio } from './stt.service.js';
 import { handleContextAgentInbound } from './contextAgent.service.js';
+import { runWithAiModel } from '../lib/aiModel.js';
 
 const WELCOME_MESSAGE_GAP_MS = 24 * 60 * 60 * 1000;
 
@@ -286,9 +287,12 @@ async function handleInboundMessage(value, msg) {
 
   // `contextAgent` rides along so the routing below can tell, without a second
   // query, whether this number is dedicated to a context agent.
+  // The workspace's AI model rides along for the same reason: every reply
+  // generated for this message has to use it, and it is one join here rather
+  // than a query of its own.
   const waNumber = await prisma.waNumber.findFirst({
     where: { metaPhoneNumberId: phoneNumberId },
-    include: { contextAgent: true },
+    include: { contextAgent: true, workspace: { select: { aiModel: true } } },
   });
   if (!waNumber) {
     console.warn(`[Inbound] DROPPED — no WaNumber row found for metaPhoneNumberId=${phoneNumberId}. Add the number via the WhatsApp setup screen in the app so this ID is saved.`);
@@ -303,6 +307,21 @@ async function handleInboundMessage(value, msg) {
     console.log(`[Inbound] Duplicate delivery of ${msg.id} — already processed, ignoring.`);
     return;
   }
+
+  // From here on the message belongs to a known workspace, so the rest runs
+  // under that workspace's AI model (lib/aiModel.js) — the context agent, the
+  // campaign agent, intent matching and the workspace agent all pick it up
+  // without being told.
+  return runWithAiModel(waNumber.workspace?.aiModel, () => routeInboundMessage({
+    value, msg, parsed, waNumber, fromPhone, buttonPayload,
+  }));
+}
+
+// Everything that happens to an inbound message once its number, and therefore
+// its workspace, is known. Split from handleInboundMessage only so that it can
+// run inside the workspace's AI-model context; the routing order documented
+// above is unchanged.
+async function routeInboundMessage({ value, msg, parsed, waNumber, fromPhone, buttonPayload }) {
 
   // When the customer sends a voice note (audio message), transcribe and translate it to text
   if (parsed.type === 'AUDIO' && parsed.media?.mediaId) {

@@ -21,6 +21,15 @@ const SETTING_SECTIONS = [
     ],
   },
   {
+    // The platform-wide default. A single workspace can be pinned to a model
+    // of its own from the Workspaces tab; everyone else follows this.
+    title: 'AI model (platform default)',
+    fields: [
+      ['GEMINI_MODEL', 'Default model', 'Used by every AI feature in every workspace that has no model of its own — agents, onboarding, workflow and template generation.'],
+      ['GEMINI_FALLBACK_MODEL', 'Fallback model', 'Tried when the default is busy or unavailable. Pick a lighter model on separate capacity.'],
+    ],
+  },
+  {
     title: 'Meta / WhatsApp Cloud API',
     fields: [
       ['META_SYSTEM_USER_TOKEN', 'System user access token', 'Long-lived token for template sync and delivery'],
@@ -58,6 +67,9 @@ const SETTING_SECTIONS = [
 ];
 
 const isSecretKey = (key) => /KEY|TOKEN|SECRET|PASSWORD/.test(key);
+// Fields that pick a model: offered the list Google serves this key, while
+// still accepting a typed id (which the server verifies before saving).
+const isModelKey = (key) => key === 'GEMINI_MODEL' || key === 'GEMINI_FALLBACK_MODEL';
 
 // Where the value actually in use comes from, so "did my change land?" is
 // answerable without reading server logs.
@@ -75,6 +87,8 @@ export default function ApiManagementTab() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
+  // Models the platform's Gemini key can call, for the model fields' suggestions.
+  const [aiModels, setAiModels] = useState({ models: [], listError: null });
 
   const load = async () => {
     setErr(null);
@@ -86,6 +100,10 @@ export default function ApiManagementTab() {
       setSettings(values);
       setSources(_sources || {});
       setEdits({});
+      // Best-effort: without the list the fields still work as plain inputs.
+      adminFetch('/platform/ai-models').then(r => (r.ok ? r.json() : null)).then(d => {
+        if (d) setAiModels({ models: Array.isArray(d.models) ? d.models : [], listError: d.listError || null });
+      }).catch(() => {});
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -159,6 +177,7 @@ export default function ApiManagementTab() {
           placeholder={secret ? (stored ? `${stored} — type to replace` : 'Not configured') : hint}
           autoComplete="off"
           spellCheck={false}
+          list={isModelKey(key) ? 'gemini-model-options' : undefined}
           onChange={(e) => {
             const value = e.target.value;
             setEdits((prev) => {
@@ -179,6 +198,15 @@ export default function ApiManagementTab() {
           }}
         />
         {hint && <p style={{ fontSize: 11, color: 'var(--t3)', lineHeight: 1.45 }}>{hint}</p>}
+        {isModelKey(key) && (
+          <p style={{ fontSize: 11, color: aiModels.listError ? '#fbbf24' : 'var(--t3)', lineHeight: 1.45 }}>
+            {aiModels.listError
+              ? `Could not load the model list (${aiModels.listError}). Type a model id — it is checked with Google when you save.`
+              : aiModels.models.length
+                ? `${aiModels.models.length} models available to this key — start typing to choose. The id is checked with Google when you save; clear the field to return to the server default.`
+                : 'Type a model id, for example gemini-flash-latest. It is checked with Google when you save.'}
+          </p>
+        )}
       </div>
     );
   };
@@ -206,6 +234,11 @@ export default function ApiManagementTab() {
           {err}
         </div>
       )}
+
+      {/* Suggestions for the model fields, straight from Google. */}
+      <datalist id="gemini-model-options">
+        {aiModels.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+      </datalist>
 
       {SETTING_SECTIONS.map((section) => (
         <div key={section.title} className="glass" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>

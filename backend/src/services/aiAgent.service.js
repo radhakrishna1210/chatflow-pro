@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { extractDocumentText, truncateAtSentence } from '../lib/documentText.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
+import { activeModel } from '../lib/aiModel.js';
 import { hasMeaningfulText } from '../lib/textValidation.js';
 import {
   resolveCampaignContext, generateCampaignReply,
@@ -139,6 +140,9 @@ export async function getAgentConfig(workspaceId) {
     aiAgentLanguages: Array.isArray(ws.aiAgentLanguages) ? ws.aiAgentLanguages : ['English'],
     escalationRules: normaliseEscalationRules(ws.escalationRules),
     llmAvailable: llmAvailable(),
+    // The model actually in use for this workspace (lib/aiModel.js) — not
+    // `aiAgentModel`, a stored value nothing reads.
+    activeModel: activeModel(),
     knowledgeSourceCount,
     intentRuleCount,
     readiness: readiness({ ws, knowledgeSourceCount, intentRuleCount }),

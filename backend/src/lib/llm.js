@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { env } from '../config/env.js';
+import { modelChain, cleanModelId } from './aiModel.js';
 
 // Single shared LLM entry point for the whole app. Prefers Gemini (when
 // GEMINI_API_KEY is set), then a local Ollama server (dev), and finally returns
@@ -71,6 +72,58 @@ export async function verifyGeminiKey(apiKey, model = env.GEMINI_MODEL) {
     return { ok: false, reason: `Could not verify the key (${message})` };
   } catch (err) {
     return { ok: false, reason: `Could not reach Google to verify the key: ${err.message}` };
+  }
+}
+
+// Confirms a model id is one the platform's key can actually call, before it
+// is saved as the platform default or pinned to a workspace. A typo here does
+// not fail loudly — every AI feature using it just stops answering — so it is
+// refused at the point someone types it.
+//
+// `apiKey` defaults to the key in force; it is passed explicitly when a key
+// and a model are being saved together, so the model is checked against the
+// key that is about to be stored rather than the one being replaced.
+export async function verifyGeminiModel(model, apiKey = env.GEMINI_API_KEY) {
+  const id = cleanModelId(model);
+  if (!id) {
+    return { ok: false, reason: `"${String(model).slice(0, 60)}" is not a model id. Use the id as Google lists it, for example gemini-flash-latest.` };
+  }
+  if (!String(apiKey || '').trim()) {
+    return { ok: false, reason: 'Add a Gemini API key first — a model cannot be checked without one.' };
+  }
+  const check = await verifyGeminiKey(apiKey, id);
+  return check.ok ? { ok: true, model: id } : check;
+}
+
+// Families that share the generateContent method but are not chat/text models,
+// so they must not be offered where a text model is being chosen.
+const NOT_TEXT_MODEL = /embedding|imagen|image|veo|tts|audio|live|aqa|robotics|computer-use/i;
+
+// The text models the platform's key can call, straight from Google, for the
+// model pickers in Super Admin. Asked live rather than hard-coded: model ids
+// are added and retired often enough that a list baked into the app is wrong
+// within months — which is exactly how a retired default broke every AI
+// feature once already (see GEMINI_MODEL in config/env.js).
+export async function listGeminiModels(apiKey = env.GEMINI_API_KEY) {
+  const key = String(apiKey || '').trim();
+  if (!key) return { ok: false, reason: 'No Gemini API key configured', models: [] };
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(key)}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { ok: false, reason: body?.error?.message || `Google answered HTTP ${res.status}`, models: [] };
+    }
+    const models = (Array.isArray(body?.models) ? body.models : [])
+      .filter((m) => Array.isArray(m?.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+      .map((m) => ({ id: cleanModelId(m.name), label: String(m.displayName || '').trim() }))
+      .filter((m) => m.id && /^gemini/i.test(m.id) && !NOT_TEXT_MODEL.test(m.id))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    return { ok: true, models };
+  } catch (err) {
+    return { ok: false, reason: `Could not reach Google to list models: ${err.message}`, models: [] };
   }
 }
 
@@ -163,15 +216,17 @@ async function callGemini(prompt, system, { json = false } = {}) {
   if (Date.now() < geminiCooldownUntil) return null;
 
   const contents = system ? `${system}\n\n${prompt}` : prompt;
-  const models = [...new Set([env.GEMINI_MODEL, env.GEMINI_FALLBACK_MODEL].filter(Boolean))];
+  // The workspace's own model when the super admin pinned one, then the
+  // platform default, then the platform fallback — see lib/aiModel.js.
+  const models = modelChain();
   let lastErr = null;
 
   for (const model of models) {
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
       try {
         const text = await generateOnce(ai, model, contents, json);
-        if (model !== env.GEMINI_MODEL) {
-          console.warn(`[llm] Answered with fallback model "${model}" — "${env.GEMINI_MODEL}" was unavailable.`);
+        if (model !== models[0]) {
+          console.warn(`[llm] Answered with fallback model "${model}" — "${models[0]}" was unavailable.`);
         }
         lastFailure = null;
         return text;

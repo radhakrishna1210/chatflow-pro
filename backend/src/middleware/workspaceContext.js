@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { checkRoleCapability } from './roleCapabilities.js';
+import { runWithAiModel, workspaceAiModel } from '../lib/aiModel.js';
 
 export async function workspaceContext(req, res, next) {
   const { workspaceId } = req.params;
@@ -46,5 +47,26 @@ export async function workspaceContext(req, res, next) {
   const refusal = checkRoleCapability(req);
   if (refusal) return res.status(refusal.status).json(refusal.body);
 
-  next();
+  // Everything this request goes on to do runs under the workspace's own AI
+  // model when the super admin pinned one (lib/aiModel.js). The workspace row
+  // is already loaded above, so this costs no query; with no override it is
+  // the platform default exactly as before.
+  return runWithAiModel(member.workspace.aiModel, () => next());
+}
+
+// The same, for the few AI routes that are not mounted under
+// /workspaces/:workspaceId and so never pass through workspaceContext — the
+// onboarding assistant and /ai. Mount after authenticate.
+//
+// The workspace is resolved the way those handlers resolve it: one named in
+// the request body wins over the one in the token (the onboarding assistant
+// accepts `workspaceId` so it follows a workspace switch), so the model always
+// belongs to the workspace the work is actually done for. Membership is not
+// checked here — the handlers do that before any model is called, so a
+// non-member is refused without ever producing output under another
+// workspace's model.
+export async function workspaceAiModelContext(req, res, next) {
+  const named = typeof req.body?.workspaceId === 'string' ? req.body.workspaceId : null;
+  const model = await workspaceAiModel(named || req.user?.workspaceId);
+  return runWithAiModel(model, () => next());
 }

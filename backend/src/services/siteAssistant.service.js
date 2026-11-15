@@ -1,4 +1,5 @@
 import { llmText, llmAvailable } from '../lib/llm.js';
+import { runWithWorkspaceAiModel } from '../lib/aiModel.js';
 import { retrieve } from './siteRetrieval.service.js';
 import { SITE_NAME } from '../data/siteContent.js';
 
@@ -306,7 +307,10 @@ export async function ask({ question, history = [], scope = null } = {}) {
     + `---\n\nUser question: ${asked}\n\n`
     + `Answer using only the retrieved website context above. If it does not contain the answer, say you do not have that information.`;
 
-  const generated = await llmText(prompt, systemPrompt(resolved.siteName));
+  // A customer's website widget answers with that customer's AI model; the
+  // platform's own landing-page assistant has no workspace and uses the
+  // platform default.
+  const generated = await runWithWorkspaceAiModel(resolved.workspaceId, () => llmText(prompt, systemPrompt(resolved.siteName)));
   if (!generated) {
     return { answer: extractiveAnswer(usable, resolved.siteName), grounded: true, sources, reason: 'llm_unavailable' };
   }

@@ -48,6 +48,10 @@ router.post('/meta/test-calls',         adminController.metaTestCalls);
 router.get('/platform/stats',                    adminController.platformStats);
 router.get('/platform/workspaces',               adminController.listWorkspacesDetailed);
 router.patch('/platform/workspaces/:id/suspend', adminController.suspendWorkspace);
+// AI model: the list Google serves this key, and a per-workspace override of
+// the platform default (which itself is edited under /platform/settings).
+router.get('/platform/ai-models',                 adminController.listAiModels);
+router.patch('/platform/workspaces/:id/ai-model', adminController.setWorkspaceAiModel);
 router.get('/platform/tickets',                  adminController.listTickets);
 router.patch('/platform/tickets/:id',            adminController.updateTicket);
 

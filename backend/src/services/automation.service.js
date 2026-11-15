@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
+import { modelChain } from '../lib/aiModel.js';
 import { normalizeBusinessHours, mergeBusinessHours, isBusinessHoursEnabled, DEFAULT_BUSINESS_HOURS } from './businessHours.service.js';
 import { detectUrl, analyseWebsite } from './websiteAnalysis.service.js';
 
@@ -486,7 +487,11 @@ Rules:
   // The configured model first, then the fallback model. A retired model id
   // answers 404 on every call, and with no second choice every "Create with
   // AI" request quietly became the built-in keyword template instead.
-  const models = [...new Set([env.GEMINI_MODEL, env.GEMINI_FALLBACK_MODEL].filter(Boolean))];
+  //
+  // modelChain() puts the workspace's own model first when the super admin has
+  // pinned one, so single-prompt workflow creation uses the same model as the
+  // rest of that workspace's AI features (lib/aiModel.js).
+  const models = modelChain();
   let lastErr = null;
   // Flash answers 503 "high demand" often enough to matter; one short retry per
   // model clears most of them (the same policy as lib/llm.js).
@@ -508,8 +513,8 @@ Rules:
           httpOptions: { timeout: 20_000 },
         },
       });
-      if (model !== env.GEMINI_MODEL) {
-        console.warn(`[Automation] Workflow preview answered by fallback model "${model}" — "${env.GEMINI_MODEL}" failed: ${lastErr?.message?.slice(0, 200)}`);
+      if (model !== models[0]) {
+        console.warn(`[Automation] Workflow preview answered by fallback model "${model}" — "${models[0]}" failed: ${lastErr?.message?.slice(0, 200)}`);
       }
       return {
         ...cleanWorkflowPreview(parseGeminiJson(response.text), cleanPrompt),

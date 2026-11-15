@@ -104,6 +104,17 @@ model Workspace {
   aiAgentModel      String    @default("gemini-1.5-flash")
   aiAgentDeployedAt DateTime?
 
+  // The Gemini model every AI feature uses for this workspace — the agents,
+  // the onboarding assistant, single-prompt workflow and template generation,
+  // copilot. Set by the platform super admin only. Null means "the platform
+  // default" (GEMINI_MODEL), which is what every workspace starts on.
+  //
+  // Deliberately a new column rather than `aiAgentModel` above: that one has
+  // carried a default of "gemini-1.5-flash" on every row since it was added
+  // and nothing ever read it, so honouring it now would silently move every
+  // workspace onto an old model. See lib/aiModel.js.
+  aiModel String?
+
   intentMatchingEnabled Boolean @default(false)
   intentMatchThreshold  Float   @default(0.6)
 

@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
+import { runWithWorkspaceAiModel } from '../lib/aiModel.js';
 
 // Voice AI — inbound calls. The tab used to persist four settings that nothing
 // read; there was no call handling anywhere in the backend. This drives a real
@@ -103,7 +104,9 @@ export async function generateCallReply(workspace, transcript, callerText) {
   ].join('\n');
 
   const prompt = `${history ? `Call so far:\n${history}\n\n` : ''}Caller: ${callerText}\n\nYou:`;
-  const reply = await llmText(prompt, system);
+  // Calls arrive from the telephony provider, not a workspace request, so the
+  // workspace's AI model is declared here.
+  const reply = await runWithWorkspaceAiModel(workspace.id, () => llmText(prompt, system));
   if (!reply) return { reply: 'Sorry, could you say that again?', handoff: false };
 
   const clean = reply.trim().replace(/^["']|["']$/g, '');
@@ -124,10 +127,10 @@ export async function finalizeCall(callId) {
 
   if (transcript.length > 0 && llmAvailable()) {
     const text = transcript.map((t) => `${t.role}: ${t.text}`).join('\n');
-    const raw = await llmText(
+    const raw = await runWithWorkspaceAiModel(call.workspaceId, () => llmText(
       `Call transcript:\n${text}\n\nJSON:`,
       'Extract the caller\'s details from a phone transcript. Reply with ONLY JSON: {"name": string|null, "email": string|null, "summary": string}. summary is one sentence on what they wanted.',
-    ).catch(() => null);
+    )).catch(() => null);
     try {
       const parsed = JSON.parse(String(raw).replace(/```(?:json)?/gi, '').trim());
       leadName = parsed.name || null;

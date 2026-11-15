@@ -8,6 +8,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 import { env } from '../config/env.js';
+import { activeModel } from '../lib/aiModel.js';
 import { crawlSite } from '../lib/siteCrawler.js';
 
 let _ai = null;
@@ -255,7 +256,8 @@ export async function analyseWebsite(url) {
   let response;
   try {
     response = await ai.models.generateContent({
-      model: env.GEMINI_MODEL,
+      // The workspace's own model when one is pinned, else the platform default.
+      model: activeModel(),
       contents: `${SYSTEM_PROMPT}\n\nWebsite: ${crawl.homepage.url}\n\nEvidence:\n${digest}`,
       // Bounded like lib/llm.js: an unanswered call otherwise holds the
       // request open until the client gives up.

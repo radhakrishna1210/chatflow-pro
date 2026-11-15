@@ -13,6 +13,11 @@
 // which is the key the overrides themselves are encrypted with.
 export const MANAGED_SETTING_KEYS = Object.freeze([
   'GEMINI_API_KEY',
+  // The platform's default text model and the one behind it. Not credentials,
+  // but they belong here for the same reason: changing the model used to mean
+  // editing the server environment and redeploying.
+  'GEMINI_MODEL',
+  'GEMINI_FALLBACK_MODEL',
   'OPENAI_API_KEY',
   'META_SYSTEM_USER_TOKEN',
   'META_APP_ID',

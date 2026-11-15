@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js';
 import { extractDocumentText, truncateAtSentence } from '../lib/documentText.js';
 import { llmText, llmAvailable } from '../lib/llm.js';
+import { activeModel, workspaceModelOverride } from '../lib/aiModel.js';
 import { hasMeaningfulText } from '../lib/textValidation.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { escalateToHuman } from './intentRouting.service.js';
@@ -108,6 +109,10 @@ export async function listContextAgents(workspaceId) {
     })),
     contextLimit: CONTEXT_LIMIT,
     llmAvailable: llmAvailable(),
+    // The model these agents answer with: the workspace's own when the super
+    // admin pinned one, otherwise the platform default. Shown read-only.
+    model: activeModel(),
+    modelPinned: workspaceModelOverride() !== null,
   };
 }
 

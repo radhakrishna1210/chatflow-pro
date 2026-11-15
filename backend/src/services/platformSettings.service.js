@@ -60,10 +60,19 @@ export async function loadPlatformSettings() {
 // Provider-side checks for the credentials we can verify cheaply. Keys with no
 // entry here are stored as given — the point is to catch the ones whose failure
 // mode is silent, not to gate every field behind a network call.
-async function validateSettingValue(key, value) {
+async function validateSettingValue(key, value, pendingGeminiKey = null) {
   if (key === 'GEMINI_API_KEY') {
     const { verifyGeminiKey } = await import('../lib/llm.js');
     return verifyGeminiKey(value);
+  }
+  // A model id is checked against Google with the key that will be in force
+  // once this save lands — the one in this same request if a new key is being
+  // saved alongside it, otherwise the current one. A mistyped or retired id
+  // would otherwise be stored happily and silence every AI feature.
+  if (key === 'GEMINI_MODEL' || key === 'GEMINI_FALLBACK_MODEL') {
+    const { verifyGeminiModel } = await import('../lib/llm.js');
+    const { env } = await import('../config/env.js');
+    return verifyGeminiModel(value, pendingGeminiKey || env.GEMINI_API_KEY);
   }
   return { ok: true };
 }
@@ -97,12 +106,22 @@ export async function updateSettings(input = {}) {
   const changed = [];
   const cleared = [];
 
+  // A Gemini key arriving in this same request, if it is a real new value —
+  // model ids saved with it are verified against it (see validateSettingValue).
+  const incomingKey = input.GEMINI_API_KEY == null ? '' : String(input.GEMINI_API_KEY).trim();
+  const pendingGeminiKey = incomingKey && !looksMasked(incomingKey, masked.GEMINI_API_KEY) ? incomingKey : null;
+
   for (const key of Object.keys(input)) {
     if (!isManagedSettingKey(key)) continue;
     const raw = input[key];
     if (raw === undefined || raw === null) continue;
 
-    const value = String(raw).trim();
+    let value = String(raw).trim();
+    // Stored the way Google names it, whether it was typed with the "models/"
+    // prefix or not.
+    if ((key === 'GEMINI_MODEL' || key === 'GEMINI_FALLBACK_MODEL') && value) {
+      value = value.replace(/^models\//i, '');
+    }
     if (isSecret(key) && looksMasked(value, masked[key])) continue;
     if (!isSecret(key) && value === masked[key]) continue;
     if (isSecret(key) && editedMask(value)) {
@@ -124,7 +143,7 @@ export async function updateSettings(input = {}) {
     // so saving a bad value here does not fail loudly — it silently replaces a
     // working configuration with a broken one, and every feature that depends
     // on it degrades quietly. A revoked Gemini key sat here doing exactly that.
-    const check = await validateSettingValue(key, value);
+    const check = await validateSettingValue(key, value, pendingGeminiKey);
     if (!check.ok) {
       const e = new Error(`${key} was not saved — ${check.reason}`);
       e.status = 400;

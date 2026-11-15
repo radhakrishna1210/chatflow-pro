@@ -153,6 +153,26 @@ export async function suspendWorkspace(req, res) {
   res.json(result);
 }
 
+// The models available to the platform's Gemini key, for the model pickers.
+export async function listAiModels(req, res) {
+  res.json(await adminService.listAiModels());
+}
+
+// Pins one workspace to a model, or (empty/null) back to the platform default.
+// Audited: it changes what every AI feature in that workspace answers with.
+export async function setWorkspaceAiModel(req, res) {
+  const result = await adminService.setWorkspaceAiModel(req.params.id, req.body?.model ?? null);
+  await audit.record({
+    actor: actorOf(req),
+    action: 'ai_model',
+    targetType: 'workspace',
+    targetLabel: result?.name || req.params.id,
+    reason: result.aiModel ? `Set to ${result.aiModel}` : 'Reset to the platform default',
+    meta: { workspaceId: req.params.id, from: result.previousAiModel, to: result.aiModel },
+  });
+  res.json(result);
+}
+
 export async function listTickets(req, res) {
   res.json(await adminService.listAllTickets(req.query.status));
 }

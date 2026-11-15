@@ -8,6 +8,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 import { env } from '../config/env.js';
+import { activeModel } from '../lib/aiModel.js';
 import { normalizeButtons, buttonWarnings } from '../lib/templateButtons.js';
 
 let _ai = null;
@@ -273,7 +274,8 @@ export async function generateUtilityVariant({ name, category, language, compone
   let parsed;
   try {
     const response = await ai.models.generateContent({
-      model: env.GEMINI_MODEL,
+      // The workspace's own model when one is pinned, else the platform default.
+      model: activeModel(),
       contents: `${UTILITY_VARIANT_PROMPT}\n\nTemplate to rewrite:\n${original}`,
       config: { temperature: 0.3, responseMimeType: 'application/json' },
     });
@@ -309,7 +311,8 @@ export async function generateTemplateDraft(prompt) {
 
   try {
     const response = await ai.models.generateContent({
-      model: env.GEMINI_MODEL,
+      // The workspace's own model when one is pinned, else the platform default.
+      model: activeModel(),
       contents: `${SYSTEM_PROMPT}\n\nDescribe the template to write: ${clean}`,
       config: { temperature: 0.5, responseMimeType: 'application/json' },
     });

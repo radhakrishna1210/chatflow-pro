@@ -265,6 +265,7 @@ const AUDIT_ICON = {
   'ticket.update': 'msg',
   'number.assign': 'phone',
   'number.ban': 'ban',
+  ai_model: 'spark',
 };
 
 const AUDIT_TONE = {
@@ -1298,6 +1299,95 @@ function WorkspaceMembersModal({ workspaceId, onClose }) {
 // workspace management (suspend/reinstate), and a support-ticket queue. Distinct
 // from the per-workspace analytics regular users see. `tab` is controlled by
 // the main sidebar (each section is its own top-level nav item there).
+// ─── Per-workspace AI model ──────────────────────────────────────────────────
+//
+// Pins one workspace to a Gemini model of its own. Everything AI in that
+// workspace then uses it — the WhatsApp and context agents, the onboarding
+// assistant, single-prompt workflow and template generation, copilot. Left
+// empty, the workspace follows the platform default from API Management.
+//
+// The list comes from Google for the platform's key, but a typed id is
+// accepted too: the server verifies whichever is sent before saving it.
+function WorkspaceModelModal({ workspace, info, onClose, onSaved }) {
+  const [value, setValue] = useState(workspace.aiModel || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const models = Array.isArray(info?.models) ? info.models : [];
+  const platformDefault = info?.defaultModel || 'the platform default';
+
+  const save = async (model) => {
+    setSaving(true); setError(null);
+    try {
+      const res = await adminFetch(`/platform/workspaces/${workspace.id}/ai-model`, {
+        method: 'PATCH', body: JSON.stringify({ model: model || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not save the model');
+      onSaved(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const typed = value.trim();
+  const unchanged = typed === (workspace.aiModel || '');
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)', padding: 16 }}
+      onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}>
+      <form onSubmit={(e) => { e.preventDefault(); if (typed) save(typed); }}
+        style={{ ...card, width: '100%', maxWidth: 480, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div>
+          <h3 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 800, color: 'var(--t1)' }}>AI model for {workspace.name}</h3>
+          <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.6, marginTop: 6 }}>
+            Used by every AI feature in this workspace: the WhatsApp and context agents, the onboarding assistant,
+            single-prompt workflow and template creation, and copilot.
+          </p>
+        </div>
+
+        <div style={{ padding: '10px 12px', borderRadius: 9, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--bd)', fontSize: 12, color: 'var(--t2)', lineHeight: 1.6 }}>
+          Currently: <strong style={{ color: 'var(--t1)' }}>{workspace.aiModel || platformDefault}</strong>
+          {workspace.aiModel ? ' (set for this workspace)' : ' (platform default)'}
+        </div>
+
+        <div>
+          <label htmlFor="ws-ai-model" style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Model</label>
+          <input id="ws-ai-model" value={value} onChange={(e) => setValue(e.target.value)} list="ws-ai-model-options"
+            placeholder={`Leave empty to use ${platformDefault}`} autoComplete="off" spellCheck={false} autoFocus
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)', color: 'var(--t1)', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--mono)' }} />
+          <datalist id="ws-ai-model-options">
+            {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </datalist>
+          <p style={{ fontSize: 11, color: info?.listError ? '#fbbf24' : 'var(--t3)', lineHeight: 1.5, marginTop: 6 }}>
+            {info?.listError
+              ? `Could not load the model list (${info.listError}). Type a model id — it is checked with Google when you save.`
+              : models.length
+                ? `${models.length} models available to the platform key — start typing to choose. Checked with Google when you save.`
+                : 'Type a model id, for example gemini-flash-latest. It is checked with Google when you save.'}
+          </p>
+        </div>
+
+        {error && (
+          <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', color: '#f87171', fontSize: 12.5, lineHeight: 1.5 }}>{error}</div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Btn variant="outline" size="sm" type="button" disabled={saving || !workspace.aiModel} onClick={() => save(null)}>
+            Use platform default
+          </Btn>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn variant="ghost" size="sm" type="button" disabled={saving} onClick={onClose}>Cancel</Btn>
+            <Btn size="sm" type="submit" disabled={saving || !typed || unchanged}>{saving ? 'Checking…' : 'Save model'}</Btn>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export default function SuperAdminView({ tab }) {
   // Cost rates for plans that define no override of their own — read from the
   // API so the plan table never quotes a rate the server doesn't charge.
@@ -1309,11 +1399,18 @@ export default function SuperAdminView({ tab }) {
   const [knownFeatures, setKnownFeatures] = useState([]);
   const [editingPlan, setEditingPlan] = useState(null); // 'new' | plan object | null
   const [viewingWorkspaceId, setViewingWorkspaceId] = useState(null);
+  // Per-workspace AI model: the workspace being edited, and the platform
+  // default plus the models Google serves the platform key.
+  const [modelFor, setModelFor] = useState(null);
+  const [aiModelInfo, setAiModelInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
   const load = async () => {
     setLoading(true); setErr(null);
+    // Not awaited with the rest: it calls Google, and a slow or failed list
+    // must not hold up the whole console. The pickers work without it.
+    adminFetch('/platform/ai-models').then(r => (r.ok ? r.json() : null)).then(d => { if (d) setAiModelInfo(d); }).catch(() => {});
     try {
       const [s, w, t, p] = await Promise.all([
         adminFetch('/platform/stats').then(r => r.ok ? r.json() : null),
@@ -1431,7 +1528,7 @@ export default function SuperAdminView({ tab }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--bd)' }}>
-                  {['Workspace', 'Owner', 'Members', 'Campaigns', 'Contacts', 'Numbers', 'Wallet', 'Status', 'View', 'Action'].map(h => (
+                  {['Workspace', 'Owner', 'Members', 'Campaigns', 'Contacts', 'Numbers', 'Wallet', 'AI model', 'Status', 'View', 'Action'].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h === 'View' || h === 'Action' ? '' : h}</th>
                   ))}
                 </tr>
@@ -1446,6 +1543,18 @@ export default function SuperAdminView({ tab }) {
                     <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--t2)' }}>{w.counts?.contacts ?? 0}</td>
                     <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--t2)' }}>{w.counts?.waNumbers ?? 0}</td>
                     <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--t2)' }}>₹{Number(w.walletBalance || 0).toFixed(2)}</td>
+                    {/* The model every AI feature in this workspace uses. Click to pin
+                        the workspace to one of its own, or return it to the default. */}
+                    <td style={{ padding: '12px 16px' }}>
+                      <button onClick={() => setModelFor(w)} title="Change the AI model for this workspace"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', fontSize: 11.5, fontFamily: 'var(--mono)', whiteSpace: 'nowrap',
+                                 background: w.aiModel ? 'rgba(157,107,255,.1)' : 'rgba(255,255,255,.03)',
+                                 border: `1px solid ${w.aiModel ? 'rgba(157,107,255,.35)' : 'var(--bd)'}`,
+                                 color: w.aiModel ? '#b79bff' : 'var(--t3)' }}>
+                        {w.aiModel || 'Default'}
+                        <I n="pencil" s={10} c={w.aiModel ? '#b79bff' : 'var(--t3)'} />
+                      </button>
+                    </td>
                     <td style={{ padding: '12px 16px' }}>
                       <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
                         background: w.suspended ? 'rgba(239,68,68,.08)' : 'var(--gbg)',
@@ -1466,11 +1575,25 @@ export default function SuperAdminView({ tab }) {
                   </tr>
                 ))}
                 {workspaces.length === 0 && (
-                  <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>No workspaces.</td></tr>
+                  <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>No workspaces.</td></tr>
                 )}
               </tbody>
             </table>
+            <p style={{ padding: '12px 16px', fontSize: 11.5, color: 'var(--t3)', lineHeight: 1.5, borderTop: '1px solid var(--bd)' }}>
+              AI model: “Default” follows the platform default{aiModelInfo?.defaultModel ? ` (${aiModelInfo.defaultModel})` : ''}, set under API Management.
+              Click a workspace’s model to give it one of its own.
+            </p>
           </div>
+        )}
+
+        {modelFor && (
+          <WorkspaceModelModal workspace={modelFor} info={aiModelInfo}
+            onClose={() => setModelFor(null)}
+            onSaved={(updated) => {
+              // Updated in place: no need to reload the whole console for one cell.
+              setWorkspaces(list => list.map(x => (x.id === updated.id ? { ...x, aiModel: updated.aiModel || null } : x)));
+              setModelFor(null);
+            }} />
         )}
 
         {!loading && tab === 'plans' && (

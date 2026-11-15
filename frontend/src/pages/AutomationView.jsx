@@ -3138,6 +3138,13 @@ const ContextAgentTab = () => {
                 <p style={{ fontSize:12, color:'var(--t2)', lineHeight:1.55 }}>
                   Chat with the agent exactly as a customer would. Nothing is sent on WhatsApp. Unsaved edits are saved before each test.
                 </p>
+                {/* Read-only: the model is chosen by the platform admin, per
+                    workspace or as the platform default. */}
+                {data?.model && (
+                  <p style={{ fontFamily:'var(--mono)', fontSize:10, letterSpacing:'.04em', color:'var(--t3)' }}>
+                    MODEL · <span style={{ color:'var(--t2)' }}>{data.model}</span>{data.modelPinned ? ' · set for this workspace' : ''}
+                  </p>
+                )}
 
                 <div style={{ display:'flex', flexDirection:'column', gap:10, maxHeight:420, overflowY:'auto', padding:'2px 0' }}>
                   {thread.length === 0 && (

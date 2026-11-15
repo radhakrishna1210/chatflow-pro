@@ -396,7 +396,59 @@ export async function listWorkspacesDetailed() {
     walletBalance: Number(w.walletBalance), createdAt: w.createdAt,
     owner: w.members[0]?.user || null,
     counts: w._count,
+    // The workspace's own AI model, or null when it follows the platform default.
+    aiModel: w.aiModel || null,
   }));
+}
+
+// ── AI model ─────────────────────────────────────────────────────────────────
+
+// What the model pickers in Super Admin need: the platform default and
+// fallback in force, and the models Google will actually serve this key.
+export async function listAiModels() {
+  const { env } = await import('../config/env.js');
+  const { listGeminiModels } = await import('../lib/llm.js');
+  const listed = await listGeminiModels();
+  return {
+    defaultModel: env.GEMINI_MODEL,
+    fallbackModel: env.GEMINI_FALLBACK_MODEL,
+    keyConfigured: !!env.GEMINI_API_KEY,
+    models: listed.models,
+    // Present when the list could not be fetched; the pickers still accept a
+    // typed id, which is verified on save.
+    listError: listed.ok ? null : listed.reason,
+  };
+}
+
+// Pins a workspace to a model, or — with an empty value — returns it to the
+// platform default. The id is verified against Google first: a typo would not
+// fail loudly, it would quietly stop every AI feature in that workspace.
+export async function setWorkspaceAiModel(workspaceId, model) {
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, name: true, aiModel: true } });
+  if (!ws) { const e = new Error('Workspace not found'); e.status = 404; throw e; }
+
+  const { verifyGeminiModel } = await import('../lib/llm.js');
+  const { forgetWorkspaceAiModel } = await import('../lib/aiModel.js');
+
+  let next = null;
+  if (model !== null && model !== undefined && String(model).trim() !== '') {
+    const check = await verifyGeminiModel(model);
+    if (!check.ok) {
+      const e = new Error(`Model not saved — ${check.reason}`);
+      e.status = 400; e.code = 'INVALID_AI_MODEL';
+      throw e;
+    }
+    next = check.model;
+  }
+
+  const updated = await prisma.workspace.update({
+    where: { id: workspaceId },
+    data: { aiModel: next },
+    select: { id: true, name: true, aiModel: true },
+  });
+  // Live on the next call, not after the lookup cache expires.
+  forgetWorkspaceAiModel(workspaceId);
+  return { ...updated, previousAiModel: ws.aiModel || null };
 }
 
 export async function setWorkspaceSuspended(workspaceId, suspended, reason = null) {
