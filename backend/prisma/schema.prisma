@@ -1015,8 +1015,41 @@ model WhatsappForm {
   updatedAt         DateTime                 @updatedAt
   workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   formSubmissions   WhatsappFormSubmission[]
+  screen            WhatsappFormScreen?
 
   @@unique([workspaceId, keyword])
+}
+
+// A form published as a WhatsApp Flow: one screen the customer fills in and
+// submits, instead of one question per message (lib/formFlowScreen.js).
+//
+// Its own table rather than columns on WhatsappForm on purpose: every read of
+// it is guarded, so a database that has not run this migration yet keeps
+// serving forms the chat way instead of failing every form query.
+model WhatsappFormScreen {
+  id          String       @id @default(cuid())
+  workspaceId String
+  formId      String       @unique
+  // Customers get the screen only while this is on and `status` is PUBLISHED.
+  enabled     Boolean      @default(true)
+  // Flows live on a WhatsApp Business Account, so the screen can only be sent
+  // from a number on the same account.
+  wabaId      String
+  metaFlowId  String?
+  // PUBLISHED | FAILED
+  status      String       @default("FAILED")
+  // Fingerprint of the questions the published screen was built from. When
+  // the form's questions change this no longer matches and the screen is not
+  // sent until it is published again.
+  fingerprint String?
+  // Why the last publish failed, in words fit to show the form's author.
+  error       String?
+  publishedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  form        WhatsappForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
 // A contact's run through a form. Rows start PARTIAL and are filled in one

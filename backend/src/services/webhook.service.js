@@ -634,6 +634,26 @@ async function handleInboundMessage(value, msg) {
   //    it, and a keyword trigger would talk over a live chat. Returns false
   //    unless a CTA was tapped or a session is live, so nothing changes for
   //    workspaces that don't use the feature.
+  // A submitted form screen (WhatsApp Flow). Ahead of the hand-off check on
+  // purpose: the customer filled in a form and tapped Submit, so the answers
+  // are filed and confirmed even while a person holds the conversation —
+  // dropping an order because an agent is in the thread would be the worse
+  // failure. It is never treated as text, so nothing below sees it.
+  if (parsed.flowReply) {
+    const { handleFlowReply } = await import('./whatsappFormScreen.service.js');
+    const handled = await handleFlowReply({
+      workspaceId,
+      conversation,
+      contact,
+      flowReply: parsed.flowReply,
+    }).catch((err) => {
+      console.error('[Inbound] Form screen handling failed:', err);
+      return false;
+    });
+    if (!handled) console.warn(`[Inbound] Form screen reply from ${fromPhone} matched no open form — stored, not acted on.`);
+    return;
+  }
+
   // A person is holding this conversation. The message is stored, the inbox
   // shows it and the webhook fires, but no automation runs — replying over an
   // agent mid-conversation is worse than not replying at all, and it is exactly

@@ -12,6 +12,11 @@ import { parseMulti, advance, normalizeShowIf, MULTI_SEPARATOR } from '../lib/fo
 // built from labels with leading underscores stripped, so none can collide.
 const TOTAL_KEY = '__total';
 
+// Set on a submission while it waits for the customer to submit the form
+// screen (services/whatsappFormScreen.service.js) rather than for a typed
+// answer to question one. Replaced by the real answers when the form finishes.
+export const SCREEN_KEY = '__screen';
+
 // 'multi' is "Pick several": see lib/formFlow.js.
 const FIELD_TYPES = new Set(['text', 'email', 'phone', 'number', 'choice', 'multi']);
 const HAS_OPTIONS = new Set(['choice', 'multi']);
@@ -341,11 +346,28 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
   });
 
   // 1. An in-flight submission takes priority — the customer is mid-form.
-  const open = await prisma.whatsappFormSubmission.findFirst({
+  let open = await prisma.whatsappFormSubmission.findFirst({
     where: { conversationId: conversation.id, completed: false },
     orderBy: { createdAt: 'desc' },
     include: { form: true },
   });
+
+  // The form was sent as a screen and the customer typed something instead of
+  // submitting it. No question was ever asked in chat, so the message is not
+  // an answer: the submission is closed and the message carries on as an
+  // ordinary one (it may well be the keyword again, which sends a fresh
+  // screen). Control words are left to the block below, which already knows
+  // how to cancel or restart.
+  if (open?.answers?.[SCREEN_KEY]) {
+    const control = detectControlCommand(body);
+    if (!(control && interruptsFlow(control.command))) {
+      await prisma.whatsappFormSubmission.update({
+        where: { id: open.id },
+        data: { completed: true, completedAt: new Date() },
+      });
+      open = null;
+    }
+  }
 
   if (open) {
     const fields = schemaOf(open.form);
@@ -397,40 +419,13 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
     );
     const done = nextCursor >= fields.length;
 
-    // The order total is saved with the submission when the form finishes, so
-    // a later price upload does not change what an old order cost.
-    // Only in workspaces with ordering turned on; elsewhere the closing message
-    // is sent exactly as written, as it always was.
-    const ordering = done ? await isOrderingEnabled(workspaceId) : false;
-    const total = ordering ? closingTotal(open.form.completionMessage, { contact, fields, answers }) : null;
-    const saved = total === null ? answers : { ...answers, [TOTAL_KEY]: total };
-
-    await prisma.whatsappFormSubmission.update({
-      where: { id: open.id },
-      data: { answers: saved, cursor: nextCursor, completed: done, ...(done ? { completedAt: new Date() } : {}) },
-    });
-
     if (done) {
-      // Answers land on the contact, not only on the submission row.
-      //
-      // A form that asks for an email captured it into WhatsappFormSubmission
-      // and stopped there, so the person's record still showed nothing and no
-      // later automation could use what they had just told us. Anything whose
-      // key matches a built-in column or one of the workspace's custom fields
-      // is written through; the rest stays on the submission, as before.
-      await applyAnswersToContact(workspaceId, contact.id, answers).catch((err) =>
-        console.error('[Forms] Could not apply answers to the contact:', err.message));
-
-      await prisma.whatsappForm.update({
-        where: { id: open.formId },
-        data: { submissions: { increment: 1 } },
-      });
-      // {{q1}}, {{name}}, sheet columns and {{= q1 * price}} totals; a message
-      // without "{{" is sent exactly as written.
-      await reply(ordering
-        ? renderFormMessage(open.form.completionMessage, { contact, fields, answers })
-        : open.form.completionMessage);
+      await completeSubmission({ workspaceId, submission: open, form: open.form, fields, contact, answers, reply });
     } else {
+      await prisma.whatsappFormSubmission.update({
+        where: { id: open.id },
+        data: { answers, cursor: nextCursor, completed: false },
+      });
       await reply(promptFor(fields[nextCursor]));
     }
     return true;
@@ -445,7 +440,7 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
     .sort((a, b) => (b.keyword?.length || 0) - (a.keyword?.length || 0))[0];
   if (!started) return false;
 
-  await prisma.whatsappFormSubmission.create({
+  const submission = await prisma.whatsappFormSubmission.create({
     data: {
       workspaceId,
       formId: started.id,
@@ -455,8 +450,58 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
       cursor: 0,
     },
   });
-  await reply(promptFor(schemaOf(started)[0]));
+
+  // A form published as a screen opens as one (tick, fill in, Submit). Any
+  // reason it cannot — not published, out of date, the send fails — and the
+  // first question is asked in chat, as it always was. Loaded on demand so
+  // forms that never use a screen do not depend on that module.
+  const onScreen = await import('./whatsappFormScreen.service.js')
+    .then((m) => m.startOnScreen({ form: started, submission, conversation, contact }))
+    .catch((err) => {
+      console.error('[Forms] Form screen unavailable, asking in chat:', err.message);
+      return false;
+    });
+  if (!onScreen) await reply(promptFor(schemaOf(started)[0]));
   return true;
+}
+
+// Finishes a submission: saves the answers (and the order total), writes them
+// through to the contact, counts the response and sends the closing message.
+// Shared by the chat version (the last question was just answered) and the
+// form screen (everything arrived at once).
+export async function completeSubmission({ workspaceId, submission, form, fields, contact, answers, reply }) {
+  // The order total is saved with the submission when the form finishes, so
+  // a later price upload does not change what an old order cost.
+  // Only in workspaces with ordering turned on; elsewhere the closing message
+  // is sent exactly as written, as it always was.
+  const ordering = await isOrderingEnabled(workspaceId);
+  const total = ordering ? closingTotal(form.completionMessage, { contact, fields, answers }) : null;
+  const saved = total === null ? answers : { ...answers, [TOTAL_KEY]: total };
+
+  await prisma.whatsappFormSubmission.update({
+    where: { id: submission.id },
+    data: { answers: saved, cursor: fields.length, completed: true, completedAt: new Date() },
+  });
+
+  // Answers land on the contact, not only on the submission row.
+  //
+  // A form that asks for an email captured it into WhatsappFormSubmission
+  // and stopped there, so the person's record still showed nothing and no
+  // later automation could use what they had just told us. Anything whose
+  // key matches a built-in column or one of the workspace's custom fields
+  // is written through; the rest stays on the submission, as before.
+  await applyAnswersToContact(workspaceId, contact.id, answers).catch((err) =>
+    console.error('[Forms] Could not apply answers to the contact:', err.message));
+
+  await prisma.whatsappForm.update({
+    where: { id: form.id },
+    data: { submissions: { increment: 1 } },
+  });
+  // {{q1}}, {{name}}, sheet columns and {{= q1 * price}} totals; a message
+  // without "{{" is sent exactly as written.
+  await reply(ordering
+    ? renderFormMessage(form.completionMessage, { contact, fields, answers })
+    : form.completionMessage);
 }
 
 // Writes a completed form's answers onto the contact record.

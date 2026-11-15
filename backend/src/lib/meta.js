@@ -780,3 +780,96 @@ export async function sendListMessage(phoneNumberId, accessToken, to, { body, ro
   });
   return data;
 }
+
+// ─── WhatsApp Flows (a form screen inside the chat) ──────────────────────────
+//
+// A Flow is a screen with inputs and a Submit button that opens over the chat.
+// It is created on the WhatsApp Business Account, given its screen definition
+// (Flow JSON) as an uploaded asset, and published. A published Flow cannot be
+// edited, so a changed form is published as a new Flow and the old one
+// deprecated. See lib/formFlowScreen.js for how a form becomes Flow JSON.
+
+/** Creates an empty draft Flow on the WABA. Returns { id }. */
+export async function createFlow(wabaId, accessToken, { name, categories = ['OTHER'] }) {
+  const { data } = await metaClient(accessToken).post(`/${wabaId}/flows`, { name, categories });
+  return data;
+}
+
+/**
+ * Uploads the screen definition to a draft Flow. Meta validates it and answers
+ * { success, validation_errors: [{ error, message, line_start, … }] }; a
+ * definition with errors is stored but the Flow cannot be published.
+ */
+export async function uploadFlowJson(flowId, accessToken, flowJson) {
+  const form = new FormData();
+  form.append('file', new Blob([JSON.stringify(flowJson)], { type: 'application/json' }), 'flow.json');
+  form.append('name', 'flow.json');
+  form.append('asset_type', 'FLOW_JSON');
+  // fetch, not axios: Node's own FormData/Blob go out as multipart with the
+  // right boundary without a form-data dependency.
+  const res = await fetch(`${BASE}/${flowId}/assets`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data?.error?.message || `Flow upload failed (${res.status})`);
+    err.response = { status: res.status, data };
+    throw err;
+  }
+  return data;
+}
+
+/** Publishes a draft Flow so it can be sent to customers. Irreversible. */
+export async function publishFlow(flowId, accessToken) {
+  const { data } = await metaClient(accessToken).post(`/${flowId}/publish`);
+  return data;
+}
+
+/** Retires a published Flow: it can no longer be sent or opened. */
+export async function deprecateFlow(flowId, accessToken) {
+  const { data } = await metaClient(accessToken).post(`/${flowId}/deprecate`);
+  return data;
+}
+
+/** Deletes a Flow that was never published. */
+export async function deleteFlow(flowId, accessToken) {
+  const { data } = await metaClient(accessToken).delete(`/${flowId}`);
+  return data;
+}
+
+/**
+ * Sends a message whose button opens a published Flow.
+ * `flowToken` comes back unchanged with the customer's submission, which is
+ * how the reply is matched to what it answers.
+ */
+export async function sendFlowMessage(phoneNumberId, accessToken, to, { body, cta, flowId, flowToken, screen, footer }) {
+  const text = clip(body, INTERACTIVE_LIMITS.bodyChars);
+  if (!text) throw new Error('A form screen message needs body text.');
+  if (!flowId || !flowToken || !screen) throw new Error('A form screen message needs a flow, a token and a screen.');
+
+  const client = metaClient(accessToken);
+  const { data } = await client.post(`/${phoneNumberId}/messages`, {
+    messaging_product: 'whatsapp',
+    to: toRecipient(to),
+    type: 'interactive',
+    interactive: {
+      type: 'flow',
+      body: { text },
+      ...(footer ? { footer: { text: clip(footer, 60) } } : {}),
+      action: {
+        name: 'flow',
+        parameters: {
+          flow_message_version: '3',
+          flow_token: String(flowToken),
+          flow_id: String(flowId),
+          flow_cta: clip(cta, 20) || 'Open form',
+          flow_action: 'navigate',
+          flow_action_payload: { screen },
+        },
+      },
+    },
+  });
+  return data;
+}

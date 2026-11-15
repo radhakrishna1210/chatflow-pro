@@ -19,6 +19,11 @@ router.patch('/settings', authorize('CLIENT'), whatsappFormsController.updateSet
 router.get('/', whatsappFormsController.listForms);
 router.get('/:id/submissions', whatsappFormsController.listSubmissions);
 router.get('/:id/submissions/export', whatsappFormsController.exportSubmissions);
+// The form as one screen (a WhatsApp Flow): tick, fill in, Submit. Publishing
+// creates a Flow on the WhatsApp account, so it is for members and admins.
+router.get('/:id/screen', whatsappFormsController.getScreen);
+router.post('/:id/screen/publish', authorize('CLIENT'), whatsappFormsController.publishScreen);
+router.patch('/:id/screen', authorize('CLIENT'), whatsappFormsController.updateScreen);
 router.post('/', validate({ body: whatsappFormSchemas.create }), whatsappFormsController.createForm);
 router.patch('/:id', validate({ body: whatsappFormSchemas.update }), whatsappFormsController.updateForm);
 router.delete('/:id', whatsappFormsController.deleteForm);

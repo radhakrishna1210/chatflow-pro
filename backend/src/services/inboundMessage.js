@@ -34,6 +34,24 @@ export const MEDIA_TYPES = {
  * Normalises an inbound Meta message into the fields Message stores.
  * Returns { type, body, media, location, buttonPayload }.
  */
+export const FLOW_REPLY_BODY = '[Form submitted]';
+
+// { token, data } from Meta's nfm_reply. `response_json` is a JSON string of
+// the screen's inputs plus the flow_token; a reply we cannot read still comes
+// back as a flow reply (with no data) so it is never mistaken for text.
+function parseFlowReply(reply) {
+  let payload = {};
+  try {
+    const raw = reply?.response_json;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed;
+  } catch {
+    payload = {};
+  }
+  const { flow_token: token, ...data } = payload;
+  return { token: token === undefined || token === null ? '' : String(token), data };
+}
+
 export function parseInboundMessage(msg) {
   const out = {
     type: 'UNSUPPORTED',
@@ -61,6 +79,16 @@ export function parseInboundMessage(msg) {
   if (msg.button?.text) {
     out.type = 'BUTTON';
     out.body = msg.button.text;
+    return out;
+  }
+
+  // A submitted form screen (WhatsApp Flow). The answers arrive as a JSON
+  // string alongside the token the screen was sent with; there is no text the
+  // customer typed, so the body is a marker for the inbox and nothing more.
+  if (msg.interactive?.type === 'nfm_reply' || msg.interactive?.nfm_reply) {
+    out.type = 'INTERACTIVE';
+    out.body = FLOW_REPLY_BODY;
+    out.flowReply = parseFlowReply(msg.interactive.nfm_reply);
     return out;
   }
 
@@ -132,6 +160,10 @@ export function parseInboundMessage(msg) {
 // would be our own words triggering our own automation.
 export function carriesCustomerText(parsed) {
   if (!parsed) return false;
+
+  // A submitted form screen carries answers, not words: its body is our own
+  // marker and must not match a keyword or reach the AI agent.
+  if (parsed.flowReply) return false;
 
   // A voice note transcribed to text represents the customer's actual words
   if (parsed.type === 'AUDIO') {

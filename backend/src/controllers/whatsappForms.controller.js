@@ -1,6 +1,36 @@
 // WhatsApp Forms controller
 import * as whatsappFormsService from '../services/whatsappForms.service.js';
+import * as formScreenService from '../services/whatsappFormScreen.service.js';
 import { listFormTemplates } from '../data/formTemplates.js';
+
+// ── Form screen (the form as one WhatsApp Flow screen) ─────────────────────
+
+export async function getScreen(req, res) {
+  try {
+    res.json(await formScreenService.getScreenState(req.params.workspaceId, req.params.id));
+  } catch (err) {
+    console.error('[WhatsAppForms] screen state error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load the form screen' });
+  }
+}
+
+export async function publishScreen(req, res) {
+  try {
+    res.json(await formScreenService.publishScreen(req.params.workspaceId, req.params.id));
+  } catch (err) {
+    console.error('[WhatsAppForms] screen publish error:', err.message);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to publish the form screen' });
+  }
+}
+
+export async function updateScreen(req, res) {
+  try {
+    res.json(await formScreenService.setScreenEnabled(req.params.workspaceId, req.params.id, req.body?.enabled));
+  } catch (err) {
+    console.error('[WhatsAppForms] screen update error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to update the form screen' });
+  }
+}
 
 // Starter question sets + the category vocabulary the builder offers. Static
 // data, but served from the API so the presets and the field types the
@@ -80,6 +110,13 @@ export async function updateForm(req, res) {
     const formId = req.params.id;
     const updates = req.body;
     const form = await whatsappFormsService.updateForm(workspaceId, formId, updates);
+    // A form shown as a screen is republished when its questions change, so
+    // the screen never asks yesterday's questions. In the background: a slow
+    // or failed publish must not hold up or fail the save (the form falls back
+    // to chat until the screen is current again).
+    if (updates?.schema !== undefined || updates?.name !== undefined) {
+      formScreenService.republishIfStale(workspaceId, formId);
+    }
     res.json(form);
   } catch (err) {
     console.error('[WhatsAppForms] update error:', err);

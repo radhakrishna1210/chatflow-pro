@@ -3246,6 +3246,36 @@ const WhatsAppFormsTab = () => {
   const [orderingEnabled, setOrderingEnabled] = useState(false);
   const [savingOrdering, setSavingOrdering] = useState(false);
 
+  // The form being edited, shown as one screen (a WhatsApp Flow) instead of
+  // one question per message. null until loaded, or when creating a new form.
+  const [screen, setScreen] = useState(null);
+  const [screenBusy, setScreenBusy] = useState(false);
+  const [screenError, setScreenError] = useState('');
+
+  const loadScreen = async (formId) => {
+    setScreen(null); setScreenError('');
+    const r = await wJson(`/whatsapp-forms/${formId}/screen`);
+    if (r.ok && r.data) setScreen(r.data);
+  };
+
+  const publishScreen = async () => {
+    if (!editing) return;
+    setScreenBusy(true); setScreenError('');
+    const r = await wJson(`/whatsapp-forms/${editing.id}/screen/publish`, { method:'POST' });
+    setScreenBusy(false);
+    if (r.ok && r.data) setScreen(r.data);
+    else { setScreenError(r.error || 'Could not publish the form screen.'); loadScreen(editing.id); }
+  };
+
+  const toggleScreen = async () => {
+    if (!editing || !screen) return;
+    setScreenBusy(true); setScreenError('');
+    const r = await wJson(`/whatsapp-forms/${editing.id}/screen`, { method:'PATCH', body: JSON.stringify({ enabled: !screen.enabled }) });
+    setScreenBusy(false);
+    if (r.ok && r.data) setScreen(r.data);
+    else setScreenError(r.error || 'Could not change the form screen.');
+  };
+
   const load = useCallback(async () => {
     const r = await wJson('/whatsapp-forms');
     if (r.locked) { setLocked(r.feature || 'automation'); setLoading(false); return; }
@@ -3310,6 +3340,7 @@ const WhatsAppFormsTab = () => {
 
   const openEdit = f => {
     setEditing(f);
+    loadScreen(f.id);
     setPickedTemplate(null);
     setDraft({
       name: f.name, keyword: f.keyword || '', status: f.status,
@@ -3685,6 +3716,56 @@ const WhatsAppFormsTab = () => {
               </p>
             )}
           </div>
+
+          {/* The form as one screen (a WhatsApp Flow). Only for a saved form:
+              the screen is built from the questions as they were last saved. */}
+          {editing && screen && (
+            <div style={{ border:'1px solid var(--bd)', borderRadius:10, padding:'14px 16px', display:'flex', flexDirection:'column', gap:10 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                <div style={{ flex:1, minWidth:220 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                    <span style={{ fontSize:13.5, fontWeight:700, color:'var(--t1)' }}>Form screen</span>
+                    {screen.live && <Pill tone="green">Live</Pill>}
+                    {screen.published && !screen.upToDate && <Pill tone="amber">Out of date</Pill>}
+                    {screen.published && screen.upToDate && !screen.enabled && <Pill tone="amber">Off</Pill>}
+                  </div>
+                  <p style={{ fontSize:12, color:'var(--t2)', margin:'4px 0 0', lineHeight:1.55 }}>
+                    Opens the whole form as one screen inside WhatsApp: the customer ticks what they want, fills in
+                    the fields and taps Submit, instead of answering one message at a time. If the screen cannot be
+                    shown, the form asks its questions in chat as usual.
+                  </p>
+                </div>
+                {screen.published && screen.upToDate && (
+                  <Toggle on={screen.enabled} onToggle={toggleScreen} disabled={screenBusy} />
+                )}
+              </div>
+
+              {!screen.supported && (
+                <p style={{ fontSize:12, color:'var(--amber, #fbbf24)', margin:0, lineHeight:1.5 }}>{screen.reason}</p>
+              )}
+
+              {screen.supported && (!screen.published || !screen.upToDate) && (
+                <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                  <Btn onClick={publishScreen} disabled={screenBusy}>
+                    {screenBusy ? 'Publishing…' : screen.published ? 'Publish the new questions' : 'Turn on form screen'}
+                  </Btn>
+                  <span style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.5 }}>
+                    {screen.published
+                      ? 'The questions changed since the screen was published. Until it is published again, the form asks in chat.'
+                      : 'Uses the questions as last saved. Save your changes first.'}
+                  </span>
+                </div>
+              )}
+
+              {screen.live === false && screen.published && screen.upToDate && screen.enabled && (
+                <p style={{ fontSize:11.5, color:'var(--t3)', margin:0 }}>The screen is ready. Publish the form (make it Active) for customers to get it.</p>
+              )}
+
+              {(screenError || screen.error) && (
+                <p style={{ fontSize:12, color:'#f87171', margin:0, lineHeight:1.5 }}>{screenError || screen.error}</p>
+              )}
+            </div>
+          )}
 
           <div style={{ display:'flex', gap:8 }}>
             <Btn variant="ghost" onClick={() => { setDraft(null); setEditing(null); setPickedTemplate(null); setView('list'); }}>Cancel</Btn>
