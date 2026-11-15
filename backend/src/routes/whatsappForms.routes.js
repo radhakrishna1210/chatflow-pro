@@ -24,6 +24,10 @@ router.get('/:id/submissions/export', whatsappFormsController.exportSubmissions)
 router.get('/:id/screen', whatsappFormsController.getScreen);
 router.post('/:id/screen/publish', authorize('CLIENT'), whatsappFormsController.publishScreen);
 router.patch('/:id/screen', authorize('CLIENT'), whatsappFormsController.updateScreen);
+// Today's stock: the quantity available per quantity question. Saving it
+// (by default) starts a fresh count, which is how a new day begins.
+router.get('/:id/stock', whatsappFormsController.getStock);
+router.put('/:id/stock', authorize('CLIENT'), whatsappFormsController.setStock);
 router.post('/', validate({ body: whatsappFormSchemas.create }), whatsappFormsController.createForm);
 router.patch('/:id', validate({ body: whatsappFormSchemas.update }), whatsappFormsController.updateForm);
 router.delete('/:id', whatsappFormsController.deleteForm);

@@ -3267,6 +3267,43 @@ const WhatsAppFormsTab = () => {
     else { setScreenError(r.error || 'Could not publish the form screen.'); loadScreen(editing.id); }
   };
 
+  // Today's stock for the form being edited: how much of each quantity
+  // question can still be ordered. `stockDraft` holds what is typed, by key.
+  const [stock, setStock] = useState(null);
+  const [stockDraft, setStockDraft] = useState({});
+  const [stockMessage, setStockMessage] = useState('');
+  const [stockBusy, setStockBusy] = useState(false);
+  const [stockNote, setStockNote] = useState(null);
+
+  const applyStock = (data) => {
+    setStock(data);
+    setStockDraft(Object.fromEntries((data.items || []).map(i => [i.key, i.limit === null ? '' : String(i.limit)])));
+    setStockMessage(data.soldOutMessage || '');
+  };
+
+  const loadStock = async (formId) => {
+    setStock(null); setStockNote(null);
+    const r = await wJson(`/whatsapp-forms/${formId}/stock`);
+    if (r.ok && r.data) applyStock(r.data);
+  };
+
+  // restart=true is "enter today's stock": the count of orders starts again
+  // from now. restart=false changes the numbers but keeps today's orders.
+  const saveStock = async (restart) => {
+    if (!editing || !stock) return;
+    setStockBusy(true); setStockNote(null);
+    const r = await wJson(`/whatsapp-forms/${editing.id}/stock`, {
+      method:'PUT', body: JSON.stringify({ limits: stockDraft, soldOutMessage: stockMessage, restart }),
+    });
+    setStockBusy(false);
+    if (r.ok && r.data) {
+      applyStock(r.data);
+      setStockNote({ tone:'ok', text: restart ? "Today's stock is set. Orders are counted from now." : 'Stock updated. Orders already placed today still count.' });
+    } else {
+      setStockNote({ tone:'error', text: r.error || 'Could not save the stock.' });
+    }
+  };
+
   const toggleScreen = async () => {
     if (!editing || !screen) return;
     setScreenBusy(true); setScreenError('');
@@ -3341,6 +3378,7 @@ const WhatsAppFormsTab = () => {
   const openEdit = f => {
     setEditing(f);
     loadScreen(f.id);
+    loadStock(f.id);
     setPickedTemplate(null);
     setDraft({
       name: f.name, keyword: f.keyword || '', status: f.status,
@@ -3763,6 +3801,58 @@ const WhatsAppFormsTab = () => {
 
               {(screenError || screen.error) && (
                 <p style={{ fontSize:12, color:'#f87171', margin:0, lineHeight:1.5 }}>{screenError || screen.error}</p>
+              )}
+            </div>
+          )}
+
+          {/* Today's stock. Only for a saved form with at least one quantity
+              (Number) question: those are what can run out. */}
+          {editing && stock && stock.items.length > 0 && (
+            <div style={{ border:'1px solid var(--bd)', borderRadius:10, padding:'14px 16px', display:'flex', flexDirection:'column', gap:10 }}>
+              <div>
+                <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                  <span style={{ fontSize:13.5, fontWeight:700, color:'var(--t1)' }}>Today's stock</span>
+                  {stock.soldOut && <Pill tone="amber">Sold out</Pill>}
+                  {stock.active && !stock.soldOut && <Pill tone="green">Taking orders</Pill>}
+                </div>
+                <p style={{ fontSize:12, color:'var(--t2)', margin:'4px 0 0', lineHeight:1.55 }}>
+                  Enter how much of each item is available. Orders count it down; a customer who asks for more than is
+                  left is told how much there is. When everything with a limit has run out, the form stops taking orders
+                  and sends the message below. Leave an item empty for no limit.
+                </p>
+              </div>
+
+              {stock.items.map(item => (
+                <div key={item.key} style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                  <span style={{ flex:1, minWidth:200, fontSize:12.5, color:'var(--t1)' }}>{item.label}</span>
+                  <input type="number" min="0" inputMode="decimal" placeholder="No limit"
+                    value={stockDraft[item.key] ?? ''}
+                    onChange={e => setStockDraft(d => ({ ...d, [item.key]: e.target.value }))}
+                    style={{ ...inputStyle, width:110 }} />
+                  <span style={{ width:170, fontSize:11.5, color: item.left === 0 ? 'var(--amber, #fbbf24)' : 'var(--t3)' }}>
+                    {item.limit === null ? 'No limit' : `${item.used} ordered · ${item.left} left`}
+                  </span>
+                </div>
+              ))}
+
+              <div>
+                <label style={labelStyle}>Message when sold out</label>
+                <textarea value={stockMessage} onChange={e => setStockMessage(e.target.value)}
+                  rows={2} maxLength={1000} style={{ ...inputStyle, resize:'vertical', fontFamily:'inherit' }} />
+              </div>
+
+              <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                <Btn onClick={() => saveStock(true)} disabled={stockBusy}>{stockBusy ? 'Saving…' : "Set today's stock"}</Btn>
+                {stock.active && (
+                  <Btn variant="ghost" onClick={() => saveStock(false)} disabled={stockBusy}>Update without restarting the count</Btn>
+                )}
+                {stock.countFrom && (
+                  <span style={{ fontSize:11.5, color:'var(--t3)' }}>Counting orders since {new Date(stock.countFrom).toLocaleString()}.</span>
+                )}
+              </div>
+
+              {stockNote && (
+                <p style={{ fontSize:12, color: stockNote.tone === 'error' ? '#f87171' : 'var(--green)', margin:0, lineHeight:1.5 }}>{stockNote.text}</p>
               )}
             </div>
           )}

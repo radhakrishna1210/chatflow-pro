@@ -1,6 +1,7 @@
 // WhatsApp Forms controller
 import * as whatsappFormsService from '../services/whatsappForms.service.js';
 import * as formScreenService from '../services/whatsappFormScreen.service.js';
+import * as formStockService from '../services/whatsappFormStock.service.js';
 import { listFormTemplates } from '../data/formTemplates.js';
 
 // ── Form screen (the form as one WhatsApp Flow screen) ─────────────────────
@@ -20,6 +21,26 @@ export async function publishScreen(req, res) {
   } catch (err) {
     console.error('[WhatsAppForms] screen publish error:', err.message);
     res.status(err.status || 500).json({ error: err.message || 'Failed to publish the form screen' });
+  }
+}
+
+// ── Today's stock (how much of each quantity question can still be ordered) ─
+
+export async function getStock(req, res) {
+  try {
+    res.json(await formStockService.getStock(req.params.workspaceId, req.params.id));
+  } catch (err) {
+    console.error('[WhatsAppForms] stock error:', err);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load stock' });
+  }
+}
+
+export async function setStock(req, res) {
+  try {
+    res.json(await formStockService.setStock(req.params.workspaceId, req.params.id, req.body || {}));
+  } catch (err) {
+    console.error('[WhatsAppForms] stock update error:', err.message);
+    res.status(err.status || 500).json({ error: err.message || 'Failed to save stock' });
   }
 }
 

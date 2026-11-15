@@ -306,6 +306,11 @@ function resolveChoice(field, answer) {
 
 const schemaOf = (form) => (Array.isArray(form.schema) ? form.schema : []);
 
+// Today's stock. Loaded on demand, like the form screen, so forms that never
+// use it do not depend on that module; every call site treats a failure as
+// "no stock limits".
+const stockModule = () => import('./whatsappFormStock.service.js');
+
 // Closes any in-flight submission on a conversation. Used when a control word
 // or an escalation ends the flow from outside this module.
 export async function cancelOpenSubmission(conversationId) {
@@ -412,6 +417,18 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
       return true;
     }
 
+    // Today's stock: a quantity larger than what is left is not accepted, and
+    // the customer is told how much there is (services/whatsappFormStock).
+    if (field.type === 'number') {
+      const short = await stockModule()
+        .then(async (m) => m.shortfallPrompt(await m.stockFor(open.form), field, body))
+        .catch(() => null);
+      if (short) {
+        await reply(short);
+        return true;
+      }
+    }
+
     // Questions whose "Ask only if" is not met are skipped (and a skipped
     // Number question recorded as 0). Forms without such rules move on by one.
     const { cursor: nextCursor, answers } = advance(
@@ -439,6 +456,15 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
     .filter((f) => schemaOf(f).length > 0 && keywordMatches(f.keyword, body))
     .sort((a, b) => (b.keyword?.length || 0) - (a.keyword?.length || 0))[0];
   if (!started) return false;
+
+  // Everything with a stock limit has run out: the form does not start. The
+  // customer is told, and tagged so they can be messaged when stock is back.
+  const stock = await stockModule().then((m) => m.stockFor(started)).catch(() => null);
+  if (stock?.soldOut) {
+    await reply(stock.message);
+    await stockModule().then((m) => m.addToWaitlist(contact.id)).catch(() => {});
+    return true;
+  }
 
   const submission = await prisma.whatsappFormSubmission.create({
     data: {

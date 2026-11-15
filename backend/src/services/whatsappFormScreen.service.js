@@ -21,6 +21,7 @@ import { isOptedOut } from './optout.service.js';
 import { getWindowState } from './messagingWindow.js';
 import { sendAutomatedReply } from './outbound.service.js';
 import { completeSubmission, SCREEN_KEY } from './whatsappForms.service.js';
+import { stockFor, shortfallLines, addToWaitlist } from './whatsappFormStock.service.js';
 
 const schemaOf = (form) => (Array.isArray(form?.schema) ? form.schema : []);
 
@@ -312,6 +313,20 @@ export async function handleFlowReply({ workspaceId, conversation, contact, flow
   const { answers, problems } = answersFromFlowReply(fields, flowReply?.data);
   if (problems.length) {
     await reply(`Some answers are missing:\n${problems.map((p) => `• ${p}`).join('\n')}\n\nOpen the form again, fill them in and tap Submit.`);
+    return true;
+  }
+
+  // Today's stock (services/whatsappFormStock.service.js). The screen was
+  // opened some time ago, so what is left is checked now, at Submit.
+  const stock = await stockFor(form);
+  if (stock.soldOut) {
+    await reply(stock.message);
+    await addToWaitlist(contact.id);
+    return true;
+  }
+  const short = shortfallLines(stock, fields, answers);
+  if (short.length) {
+    await reply(`Sorry, we do not have that much left today:\n${short.map((s) => `• ${s}`).join('\n')}\n\nOpen the form again, change the quantity and tap Submit.`);
     return true;
   }
 

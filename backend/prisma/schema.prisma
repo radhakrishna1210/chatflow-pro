@@ -1016,8 +1016,32 @@ model WhatsappForm {
   workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   formSubmissions   WhatsappFormSubmission[]
   screen            WhatsappFormScreen?
+  stock             WhatsappFormStock?
 
   @@unique([workspaceId, keyword])
+}
+
+// Today's stock for an order form: how much of each quantity question can
+// still be ordered (services/whatsappFormStock.service.js).
+//
+// Its own table, read behind a guard, for the same reason as
+// WhatsappFormScreen: a database without it simply has no stock limits.
+model WhatsappFormStock {
+  id             String       @id @default(cuid())
+  workspaceId    String
+  formId         String       @unique
+  // { questionKey: quantity available }. A question without an entry has no limit.
+  limits         Json         @default("{}")
+  // Orders completed from this moment count against the limits. Entering
+  // today's stock moves it to now, which is what starts a new day's count.
+  countFrom      DateTime     @default(now())
+  // Sent instead of the form once everything with a limit has run out.
+  soldOutMessage String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  form           WhatsappForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
 // A form published as a WhatsApp Flow: one screen the customer fills in and
