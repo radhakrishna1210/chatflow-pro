@@ -491,6 +491,65 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
   const [selectedClusterId, setSelectedClusterId] = useState('');
   const [clusterLoading, setClusterLoading] = useState(false);
 
+  // The workspace's contact-and-price list kept in Google Sheets: the link is
+  // saved once, and each import reads the sheet as it stands right now.
+  const [sheet, setSheet]             = useState(null);
+  const [sheetUrl, setSheetUrl]       = useState('');
+  const [sheetBusy, setSheetBusy]     = useState('');   // '' | 'save' | 'import'
+  const [sheetErr, setSheetErr]       = useState('');
+  const [sheetResult, setSheetResult] = useState(null);
+
+  useEffect(() => {
+    if (audienceMethod !== 'sheet' || sheet) return;
+    wFetch('/contacts/sheet').then(r => r.ok && r.json()).then(d => {
+      if (d) { setSheet(d); setSheetUrl(d.url || ''); }
+    }).catch(() => {});
+  }, [audienceMethod]);
+
+  const readError = async (res, fallback) => {
+    try { const j = await res.json(); return j.error || fallback; } catch { return fallback; }
+  };
+
+  const saveSheet = async () => {
+    if (sheetBusy) return false;
+    setSheetErr(''); setSheetBusy('save');
+    try {
+      const res = await wFetch('/contacts/sheet', { method: 'PUT', body: JSON.stringify({ url: sheetUrl.trim() }) });
+      if (!res.ok) { setSheetErr(await readError(res, `Could not save the link (${res.status})`)); return false; }
+      const d = await res.json();
+      setSheet(d); setSheetUrl(d.url || ''); setSheetResult(null);
+      return true;
+    } catch (e) {
+      setSheetErr(e.message || 'Could not save the link.');
+      return false;
+    } finally {
+      setSheetBusy('');
+    }
+  };
+
+  const importSheet = async () => {
+    if (sheetBusy) return;
+    // A link typed but not yet saved is saved first, so "Import" is one click.
+    if (sheetUrl.trim() !== (sheet?.url || '') && !(await saveSheet())) return;
+    setSheetErr(''); setSheetResult(null); setSheetBusy('import');
+    try {
+      const res = await wFetch('/contacts/sheet/import', { method: 'POST' });
+      if (!res.ok) { setSheetErr(await readError(res, `Import failed (${res.status})`)); return; }
+      const result = await res.json();
+      setSheetResult(result);
+      onCsvImported?.(result);
+      // The sheet is the audience: exactly the contacts in it, nothing left
+      // over from an earlier selection.
+      setSelectedContactIds?.(new Set((result.contacts || []).map(c => c.id)));
+      onContactsReload?.();
+      wFetch('/contacts/sheet').then(r => r.ok && r.json()).then(d => { if (d) setSheet(d); }).catch(() => {});
+    } catch (e) {
+      setSheetErr(e.message || 'Could not import the sheet.');
+    } finally {
+      setSheetBusy('');
+    }
+  };
+
   const downloadSample = () => {
     const csvContent = [
       'name,phoneNumber,email,tags,price',
@@ -608,6 +667,7 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
     { id: 'list',    label: 'Select from List' },
     { id: 'manual',  label: 'Enter Manually' },
     { id: 'csv',     label: 'Upload CSV' },
+    { id: 'sheet',   label: 'Google Sheet' },
     { id: 'cluster', label: 'Select Cluster' },
     { id: 'segment', label: 'Select Segment', disabled: true },
   ];
@@ -669,6 +729,42 @@ const Step3 = ({ audienceMethod, setAudienceMethod, contacts, selectedContactIds
               <span style={{ fontSize: '13px', color: 'var(--t1)', flex: 1 }}>{c.name} — {c.phone}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {audienceMethod === 'sheet' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div style={{ fontSize:12, color:'var(--t2)', lineHeight:1.6 }}>
+            Keep your contacts and prices in one Google Sheet. Paste its link once; each time you import, the sheet is
+            read as it is right now, so changing a price in the sheet changes what the next campaign quotes.
+            The tab needs a <b>phone</b> column (with country code); every other column (name, slab, prices…) is saved on the contact.
+          </div>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <input value={sheetUrl} onChange={e => setSheetUrl(e.target.value)}
+              placeholder="https://docs.google.com/spreadsheets/d/…"
+              style={{ flex:1, minWidth:260, padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.03)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, outline:'none' }} />
+            <Btn onClick={importSheet} disabled={!!sheetBusy || !sheetUrl.trim()}>
+              {sheetBusy === 'import' ? 'Importing…' : sheetBusy === 'save' ? 'Saving…' : 'Import from sheet'}
+            </Btn>
+          </div>
+          {sheetErr && (
+            <div style={{ padding:'9px 12px', borderRadius:8, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', color:'#f87171', fontSize:12, lineHeight:1.5 }}>{sheetErr}</div>
+          )}
+          {sheetResult && (
+            <div style={{ padding:'10px 13px', borderRadius:8, background:'var(--gbg)', border:'1px solid var(--gbd)', color:'var(--green)', fontSize:13, fontWeight:600, lineHeight:1.5 }}>
+              ✓ {sheetResult.contacts?.length || 0} contact{(sheetResult.contacts?.length || 0) !== 1 ? 's' : ''} from the sheet are now the audience
+              ({sheetResult.imported} new, {sheetResult.updated} updated{sheetResult.invalid ? `, ${sheetResult.invalid} skipped for an invalid phone number` : ''}).
+              {sheetResult.attributeKeys?.length > 0 && ` Columns saved: ${sheetResult.attributeKeys.join(', ')}.`}
+            </div>
+          )}
+          {sheet && (
+            <div style={{ fontSize:11.5, color:'var(--t3)', lineHeight:1.6 }}>
+              {sheet.googleConnected
+                ? 'Read through your connected Google account, so the sheet can stay private.'
+                : 'Google is not connected, so the sheet must be shared as “Anyone with the link can view”. Connect Google under Integrations to keep it private.'}
+              {sheet.lastImportedAt && ` Last imported ${new Date(sheet.lastImportedAt).toLocaleString()}.`}
+            </div>
+          )}
         </div>
       )}
 
@@ -1694,8 +1790,10 @@ export default function CreateCampaign({ onBack, campaignId = null }) {
   }, []);
   useEffect(() => { reloadVariableSources(); }, [reloadVariableSources]);
 
+  // limit=all: the audience picker needs the whole contact book, not the
+  // first page — without it only the newest 20 contacts could be selected.
   const reloadContacts = () => {
-    wFetch('/contacts').then(r=>r.ok&&r.json()).then(d=>{ const list=Array.isArray(d)?d:d?.data; if(Array.isArray(list)) setContacts(list); }).catch(()=>{});
+    wFetch('/contacts?limit=all').then(r=>r.ok&&r.json()).then(d=>{ const list=Array.isArray(d)?d:d?.data; if(Array.isArray(list)) setContacts(list); }).catch(()=>{});
   };
 
   useEffect(() => {

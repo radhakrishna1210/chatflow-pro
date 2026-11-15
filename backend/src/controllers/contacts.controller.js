@@ -36,6 +36,23 @@ export async function importCsv(req, res) {
   res.json(result);
 }
 
+// The workspace's contact-and-price list in Google Sheets: the saved link,
+// and importing the sheet as it stands now (services/contactSheet.service.js).
+export async function getSheet(req, res) {
+  const { getContactSheet } = await import('../services/contactSheet.service.js');
+  res.json(await getContactSheet(req.params.workspaceId));
+}
+
+export async function saveSheet(req, res) {
+  const { saveContactSheet } = await import('../services/contactSheet.service.js');
+  res.json(await saveContactSheet(req.params.workspaceId, req.body?.url));
+}
+
+export async function importSheet(req, res) {
+  const { importContactSheet } = await import('../services/contactSheet.service.js');
+  res.json(await importContactSheet(req.params.workspaceId));
+}
+
 export async function variableSources(req, res) {
   res.json(await contactsService.listVariableSources(req.params.workspaceId));
 }

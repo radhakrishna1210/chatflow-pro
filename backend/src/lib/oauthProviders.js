@@ -122,6 +122,35 @@ export async function exchangeCode(id, code, params = {}) {
   return data; // { access_token, refresh_token?, expires_in?, ... }
 }
 
+// Trades a stored refresh token for a new access token. Access tokens are
+// short-lived (Google's last an hour), so anything that uses a connection
+// long after it was made — reading a Google Sheet for a campaign — has to
+// refresh first. The provider may or may not return a new refresh token; the
+// caller keeps the old one when it does not.
+export async function refreshAccessToken(id, refreshToken) {
+  const def = REGISTRY[id];
+  if (!def || !refreshToken) throw Object.assign(new Error('This connection cannot be refreshed. Connect it again.'), { status: 400 });
+  const c = creds(def.envKey);
+  const tokenUrl = typeof def.tokenUrl === 'function' ? def.tokenUrl({}) : def.tokenUrl;
+
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+    body: new URLSearchParams({
+      client_id: c.clientId,
+      client_secret: c.clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) {
+    const msg = data.error_description || data.error || `token refresh failed (${res.status})`;
+    throw Object.assign(new Error(msg), { status: 400 });
+  }
+  return data; // { access_token, expires_in?, refresh_token? }
+}
+
 // Public list for the UI: which providers exist and whether they're configured.
 export function listProviders() {
   return Object.entries(REGISTRY).map(([id, def]) => ({

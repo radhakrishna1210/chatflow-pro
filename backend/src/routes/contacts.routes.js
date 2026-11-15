@@ -24,6 +24,11 @@ router.get('/tags', contactsController.tags);
 router.get('/export', authorize('CLIENT'), contactsController.exportCsv);
 // Literal path, before '/:id'. What a campaign can fill template variables with.
 router.get('/variable-sources', contactsController.variableSources);
+// Literal paths, before '/:id'. A contact-and-price list kept in Google
+// Sheets: save the link once, then import the sheet as it stands.
+router.get('/sheet', contactsController.getSheet);
+router.put('/sheet', contactsController.saveSheet);
+router.post('/sheet/import', contactsController.importSheet);
 router.get('/:id', contactsController.getOne);
 router.delete('/:id', contactsController.remove);
 router.patch('/:id', validate({ body: contactSchemas.update }), contactsController.update);
