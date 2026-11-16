@@ -27,6 +27,7 @@ import { startWorkflowWorker } from './workers/workflow.worker.js';
 import { startSequenceWorker } from './workers/sequence.worker.js';
 import { startSequenceSweep } from './queues/sequence.queue.js';
 import { startAgentWorker } from './workers/agent.worker.js';
+import { startOrderSweep } from './services/formOrder.service.js';
 import { startAgentSchedules } from './queues/agent.queue.js';
 import { recoverScheduledCampaigns } from './services/campaigns.service.js';
 import { recoverPendingRetries } from './services/retry.service.js';
@@ -373,6 +374,12 @@ async function main() {
   } catch (err) {
     console.error('[Recovery] Billing cycle sweep failed:', err.message);
   }
+
+  // Owner-approved orders: cancel the ones whose customer went quiet past
+  // their time limit. A plain timer rather than a queue job, so it runs with
+  // or without Redis; each order is claimed atomically, so two server
+  // instances sharing the database cannot both cancel (and message) it.
+  startOrderSweep();
 
   httpServer = app.listen(env.PORT, () => {
     console.log(`[Server] Svann backend running on port ${env.PORT}`);

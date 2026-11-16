@@ -56,6 +56,11 @@ async function orderedSince(formId, since, keys) {
     select: { answers: true },
   });
   for (const row of rows) {
+    // An order going through owner approval (services/formOrder.service.js)
+    // carries its state here, and takes stock only once the owner has
+    // confirmed the payment. Orders without it are final as soon as placed.
+    const state = row.answers?.__status;
+    if (state && state !== 'CONFIRMED') continue;
     for (const key of keys) used[key] += amount(row.answers?.[key]);
   }
   return used;

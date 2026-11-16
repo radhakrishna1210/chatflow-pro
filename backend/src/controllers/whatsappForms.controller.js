@@ -2,6 +2,7 @@
 import * as whatsappFormsService from '../services/whatsappForms.service.js';
 import * as formScreenService from '../services/whatsappFormScreen.service.js';
 import * as formStockService from '../services/whatsappFormStock.service.js';
+import * as formOrderService from '../services/formOrder.service.js';
 import { listFormTemplates } from '../data/formTemplates.js';
 
 // ── Form screen (the form as one WhatsApp Flow screen) ─────────────────────
@@ -43,6 +44,34 @@ export async function setStock(req, res) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to save stock' });
   }
 }
+
+// ── Owner approval of orders (services/formOrder.service.js) ───────────────
+
+const orderRoute = (label, run) => async (req, res) => {
+  try {
+    res.json(await run(req));
+  } catch (err) {
+    console.error(`[WhatsAppForms] ${label} error:`, err.message);
+    res.status(err.status || 500).json({ error: err.message || `Failed: ${label}` });
+  }
+};
+
+export const getOrderFlow = orderRoute('order settings', (req) =>
+  formOrderService.getOrderFlow(req.params.workspaceId, req.params.id));
+
+export const saveOrderFlow = orderRoute('order settings update', (req) =>
+  formOrderService.saveOrderFlow(req.params.workspaceId, req.params.id, req.body || {}));
+
+export const uploadOrderQr = orderRoute('QR upload', (req) => {
+  if (!req.file) { const e = new Error('Choose a QR image (JPG or PNG).'); e.status = 400; throw e; }
+  return formOrderService.saveOrderFlowQr(req.params.workspaceId, req.params.id, { buffer: req.file.buffer, mimeType: req.file.mimetype });
+});
+
+export const removeOrderQr = orderRoute('QR removal', (req) =>
+  formOrderService.saveOrderFlowQr(req.params.workspaceId, req.params.id, null));
+
+export const listOrders = orderRoute('orders', (req) =>
+  formOrderService.listOrders(req.params.workspaceId, req.params.id));
 
 export async function updateScreen(req, res) {
   try {

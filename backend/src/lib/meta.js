@@ -781,6 +781,35 @@ export async function sendListMessage(phoneNumberId, accessToken, to, { body, ro
   return data;
 }
 
+/**
+ * Reply buttons whose ids the caller chooses. sendButtonMessage derives an id
+ * from each label, which is enough when the tap is read as text; here the id
+ * comes back on the tap (as the inbound message's button payload) and names
+ * exactly what was tapped — which order, and which action on it.
+ * @param {{id: string, title: string}[]} buttons up to three
+ */
+export async function sendReplyButtons(phoneNumberId, accessToken, to, { body, buttons }) {
+  const list = (Array.isArray(buttons) ? buttons : [])
+    .map((b) => ({ id: String(b?.id ?? '').slice(0, 250), title: clip(b?.title, INTERACTIVE_LIMITS.buttonTitleChars) }))
+    .filter((b) => b.id && b.title)
+    .slice(0, INTERACTIVE_LIMITS.buttonCount);
+  if (list.length === 0) throw new Error('An interactive message needs at least one button.');
+  const text = clip(body, INTERACTIVE_LIMITS.bodyChars);
+  if (!text) throw new Error('An interactive message needs body text.');
+
+  const { data } = await metaClient(accessToken).post(`/${phoneNumberId}/messages`, {
+    messaging_product: 'whatsapp',
+    to: toRecipient(to),
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text },
+      action: { buttons: list.map((b) => ({ type: 'reply', reply: b })) },
+    },
+  });
+  return data;
+}
+
 // ─── WhatsApp Flows (a form screen inside the chat) ──────────────────────────
 //
 // A Flow is a screen with inputs and a Submit button that opens over the chat.

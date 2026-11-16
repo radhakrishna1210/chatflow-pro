@@ -5,6 +5,11 @@ import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate, whatsappFormSchemas } from '../validators/index.js';
+import { uploader, verifyFileContents } from '../lib/uploadGuard.js';
+
+// The owner's UPI QR code: a JPG or PNG, and the bytes must really be one
+// (lib/uploadGuard.js). WhatsApp does not accept WebP as a message image.
+const qrUpload = uploader(['image/jpeg', 'image/png'], 2 * 1024 * 1024);
 
 const router = Router({ mergeParams: true });
 
@@ -28,6 +33,13 @@ router.patch('/:id/screen', authorize('CLIENT'), whatsappFormsController.updateS
 // (by default) starts a fresh count, which is how a new day begins.
 router.get('/:id/stock', whatsappFormsController.getStock);
 router.put('/:id/stock', authorize('CLIENT'), whatsappFormsController.setStock);
+// Owner approval of orders: who approves on WhatsApp, how the customer pays,
+// the time limits and the daily cutoff; plus the orders and where each stands.
+router.get('/:id/order-flow', whatsappFormsController.getOrderFlow);
+router.put('/:id/order-flow', authorize('CLIENT'), whatsappFormsController.saveOrderFlow);
+router.post('/:id/order-flow/qr', authorize('CLIENT'), qrUpload.single('file'), verifyFileContents, whatsappFormsController.uploadOrderQr);
+router.delete('/:id/order-flow/qr', authorize('CLIENT'), whatsappFormsController.removeOrderQr);
+router.get('/:id/orders', whatsappFormsController.listOrders);
 router.post('/', validate({ body: whatsappFormSchemas.create }), whatsappFormsController.createForm);
 router.patch('/:id', validate({ body: whatsappFormSchemas.update }), whatsappFormsController.updateForm);
 router.delete('/:id', whatsappFormsController.deleteForm);
