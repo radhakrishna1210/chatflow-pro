@@ -4,6 +4,18 @@ import { Btn } from '../components/Btn.jsx';
 import { apiFetch, wDownload } from '../lib/api.js';
 import { wJson } from '../lib/automationApi.js';
 import { validateMeaningfulText } from '../lib/validation.js';
+
+// Where an owner-approved order stands, in the words the form editor shows.
+const ORDER_STATUS_LABEL = {
+  PENDING_OWNER: 'Waiting for owner',
+  OWNER_EDITING: 'Owner is changing quantities',
+  PENDING_CUSTOMER: 'Waiting for customer',
+  AWAITING_PAYMENT: 'Waiting for payment',
+  PAYMENT_REVIEW: 'Payment to confirm',
+  CONFIRMED: 'Confirmed',
+  DISPATCHED: 'Dispatched',
+  CANCELLED: 'Cancelled',
+};
 import MobileNavButton from '../components/MobileNavButton.jsx';
 import { useIsMobile } from '../lib/useMediaQuery.js';
 import { canManage } from '../lib/permissions.js';
@@ -3304,6 +3316,56 @@ const WhatsAppFormsTab = () => {
     }
   };
 
+  // Owner approval for the form being edited: orders go to the owner on
+  // WhatsApp before the customer is asked to pay. `approval` is what is typed.
+  const [approval, setApproval] = useState(null);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [approvalNote, setApprovalNote] = useState(null);
+  const [orders, setOrders] = useState([]);
+  const qrRef = useRef(null);
+
+  const loadApproval = async (formId) => {
+    setApproval(null); setApprovalNote(null); setOrders([]);
+    const r = await wJson(`/whatsapp-forms/${formId}/order-flow`);
+    if (r.ok && r.data) setApproval(r.data);
+    const o = await wJson(`/whatsapp-forms/${formId}/orders`);
+    if (o.ok && Array.isArray(o.data)) setOrders(o.data);
+  };
+
+  const saveApproval = async () => {
+    if (!editing || !approval) return;
+    setApprovalBusy(true); setApprovalNote(null);
+    const r = await wJson(`/whatsapp-forms/${editing.id}/order-flow`, { method:'PUT', body: JSON.stringify(approval) });
+    setApprovalBusy(false);
+    if (r.ok && r.data) {
+      setApproval(r.data);
+      setApprovalNote({ tone:'ok', text: r.data.enabled
+        ? 'Saved. New orders now go to the owner on WhatsApp for approval.'
+        : 'Saved. Owner approval is off, so orders are confirmed straight away.' });
+    } else {
+      setApprovalNote({ tone:'error', text: r.error || 'Could not save.' });
+    }
+  };
+
+  const uploadQr = async (file) => {
+    if (!editing || !file) return;
+    setApprovalBusy(true); setApprovalNote(null);
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await wJson(`/whatsapp-forms/${editing.id}/order-flow/qr`, { method:'POST', body: fd });
+    setApprovalBusy(false);
+    if (r.ok && r.data) { setApproval(a => ({ ...a, hasQr: r.data.hasQr })); setApprovalNote({ tone:'ok', text:'QR code saved.' }); }
+    else setApprovalNote({ tone:'error', text: r.error || 'Could not upload the QR code.' });
+  };
+
+  const removeQr = async () => {
+    if (!editing) return;
+    setApprovalBusy(true);
+    const r = await wJson(`/whatsapp-forms/${editing.id}/order-flow/qr`, { method:'DELETE' });
+    setApprovalBusy(false);
+    if (r.ok && r.data) setApproval(a => ({ ...a, hasQr: r.data.hasQr }));
+  };
+
   const toggleScreen = async () => {
     if (!editing || !screen) return;
     setScreenBusy(true); setScreenError('');
@@ -3379,6 +3441,7 @@ const WhatsAppFormsTab = () => {
     setEditing(f);
     loadScreen(f.id);
     loadStock(f.id);
+    loadApproval(f.id);
     setPickedTemplate(null);
     setDraft({
       name: f.name, keyword: f.keyword || '', status: f.status,
@@ -3853,6 +3916,113 @@ const WhatsAppFormsTab = () => {
 
               {stockNote && (
                 <p style={{ fontSize:12, color: stockNote.tone === 'error' ? '#f87171' : 'var(--green)', margin:0, lineHeight:1.5 }}>{stockNote.text}</p>
+              )}
+            </div>
+          )}
+
+          {/* Owner approval: orders go to the owner on WhatsApp, then to
+              payment, before they are confirmed. Only for a saved form. */}
+          {editing && approval && (
+            <div style={{ border:'1px solid var(--bd)', borderRadius:10, padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                <div style={{ flex:1, minWidth:220 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                    <span style={{ fontSize:13.5, fontWeight:700, color:'var(--t1)' }}>Owner approval and payment</span>
+                    {approval.enabled && <Pill tone="green">On</Pill>}
+                  </div>
+                  <p style={{ fontSize:12, color:'var(--t2)', margin:'4px 0 0', lineHeight:1.55 }}>
+                    Each order goes to the owner on WhatsApp, who marks it available, changes the quantities or cancels it.
+                    The customer then gets the final price with these payment details, sends a screenshot, and the owner
+                    confirms. Stock is reduced only when the owner confirms the payment.
+                  </p>
+                </div>
+                <Toggle on={approval.enabled} onToggle={() => setApproval(a => ({ ...a, enabled: !a.enabled }))} disabled={approvalBusy} />
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))', gap:12 }}>
+                <div>
+                  <label style={labelStyle}>Owner's WhatsApp number</label>
+                  <input value={approval.ownerPhone} onChange={e => setApproval(a => ({ ...a, ownerPhone: e.target.value }))}
+                    placeholder="+919876543210" style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>UPI ID</label>
+                  <input value={approval.upiId} onChange={e => setApproval(a => ({ ...a, upiId: e.target.value }))}
+                    placeholder="name@bank" style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Payee name</label>
+                  <input value={approval.payeeName} onChange={e => setApproval(a => ({ ...a, payeeName: e.target.value }))} style={inputStyle} />
+                </div>
+              </div>
+
+              <div>
+                <label style={labelStyle}>Bank details</label>
+                <textarea value={approval.bankDetails} onChange={e => setApproval(a => ({ ...a, bankDetails: e.target.value }))}
+                  rows={3} maxLength={600} placeholder={'Account name\nAccount number\nIFSC'} style={{ ...inputStyle, resize:'vertical', fontFamily:'inherit' }} />
+              </div>
+
+              <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                <span style={{ fontSize:12.5, color:'var(--t1)' }}>UPI QR code</span>
+                <input ref={qrRef} type="file" accept="image/png,image/jpeg" style={{ display:'none' }}
+                  onChange={e => { uploadQr(e.target.files[0]); e.target.value = ''; }} />
+                <Btn variant="ghost" onClick={() => qrRef.current?.click()} disabled={approvalBusy}>{approval.hasQr ? 'Replace image' : 'Upload image'}</Btn>
+                {approval.hasQr && <Btn variant="ghost" onClick={removeQr} disabled={approvalBusy}>Remove</Btn>}
+                <span style={{ fontSize:11.5, color:'var(--t3)' }}>{approval.hasQr ? 'Saved. It is sent with the payment details.' : 'JPG or PNG, under 2 MB.'}</span>
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))', gap:12 }}>
+                <div>
+                  <label style={labelStyle}>Wait for the customer's answer (minutes)</label>
+                  <input type="number" min="5" max="1440" value={approval.replyMinutes}
+                    onChange={e => setApproval(a => ({ ...a, replyMinutes: e.target.value === '' ? '' : Number(e.target.value) }))} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Wait for payment (minutes)</label>
+                  <input type="number" min="5" max="1440" value={approval.paymentMinutes}
+                    onChange={e => setApproval(a => ({ ...a, paymentMinutes: e.target.value === '' ? '' : Number(e.target.value) }))} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Daily order cutoff (optional)</label>
+                  <input type="time" value={approval.cutoffTime} onChange={e => setApproval(a => ({ ...a, cutoffTime: e.target.value }))} style={inputStyle} />
+                </div>
+              </div>
+
+              <p style={{ fontSize:11.5, color:'var(--t3)', margin:0, lineHeight:1.55 }}>
+                WhatsApp only delivers these messages to the owner within 24 hours of the owner's last message to your
+                business number. If an order cannot reach the owner you get a notification; any message from the owner
+                then sends every waiting order again.
+              </p>
+
+              <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                <Btn onClick={saveApproval} disabled={approvalBusy}>{approvalBusy ? 'Saving…' : 'Save'}</Btn>
+                {approvalNote && (
+                  <span style={{ fontSize:12, color: approvalNote.tone === 'error' ? '#f87171' : 'var(--green)', lineHeight:1.5 }}>{approvalNote.text}</span>
+                )}
+              </div>
+
+              {orders.length > 0 && (
+                <div style={{ overflowX:'auto' }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse', textAlign:'left', minWidth:420, fontSize:12.5 }}>
+                    <thead>
+                      <tr style={{ borderBottom:'1px solid var(--bd)' }}>
+                        {['Order','Customer','Total','Status'].map(h => (
+                          <th key={h} style={{ padding:'8px 10px', fontSize:11, fontWeight:600, color:'var(--t3)', textTransform:'uppercase' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orders.slice(0, 20).map(o => (
+                        <tr key={o.id} style={{ borderBottom:'1px solid var(--bd)' }}>
+                          <td style={{ padding:'8px 10px', color:'var(--t1)', fontWeight:600 }}>#{o.number}</td>
+                          <td style={{ padding:'8px 10px', color:'var(--t2)' }}>{o.contactName || o.contactPhone || '—'}</td>
+                          <td style={{ padding:'8px 10px', color:'var(--t2)' }}>{o.total === null || o.total === undefined ? '—' : `₹${Number(o.total).toLocaleString('en-IN')}`}</td>
+                          <td style={{ padding:'8px 10px', color:'var(--t2)' }}>{ORDER_STATUS_LABEL[o.status] || o.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           )}

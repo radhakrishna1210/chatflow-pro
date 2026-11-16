@@ -311,6 +311,13 @@ const schemaOf = (form) => (Array.isArray(form.schema) ? form.schema : []);
 // "no stock limits".
 const stockModule = () => import('./whatsappFormStock.service.js');
 
+// Owner approval of orders, loaded on demand for the same reason.
+const orderModule = () => import('./formOrder.service.js');
+
+// Where a submission going through owner approval keeps its state:
+// PENDING, CONFIRMED or CANCELLED.
+const STATUS_KEY = '__status';
+
 // Closes any in-flight submission on a conversation. Used when a control word
 // or an escalation ends the flow from outside this module.
 export async function cancelOpenSubmission(conversationId) {
@@ -457,6 +464,14 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
     .sort((a, b) => (b.keyword?.length || 0) - (a.keyword?.length || 0))[0];
   if (!started) return false;
 
+  // Past the day's order cutoff (owner approval settings): the form does not
+  // start, and the customer is told when they can order again.
+  const closed = await orderModule().then((m) => m.ordersClosedMessage(started)).catch(() => null);
+  if (closed) {
+    await reply(closed);
+    return true;
+  }
+
   // Everything with a stock limit has run out: the form does not start. The
   // customer is told, and tagged so they can be messaged when stock is back.
   const stock = await stockModule().then((m) => m.stockFor(started)).catch(() => null);
@@ -502,7 +517,16 @@ export async function completeSubmission({ workspaceId, submission, form, fields
   // is sent exactly as written, as it always was.
   const ordering = await isOrderingEnabled(workspaceId);
   const total = ordering ? closingTotal(form.completionMessage, { contact, fields, answers }) : null;
-  const saved = total === null ? answers : { ...answers, [TOTAL_KEY]: total };
+
+  // Owner approval (services/formOrder.service.js): the order is not final
+  // yet. It is marked pending, so it takes no stock, and instead of the
+  // closing message the customer is told it is being checked.
+  const approval = await orderModule().then((m) => m.activeFlow(form)).catch(() => null);
+  const saved = {
+    ...answers,
+    ...(total === null ? {} : { [TOTAL_KEY]: total }),
+    ...(approval ? { [STATUS_KEY]: 'PENDING' } : {}),
+  };
 
   await prisma.whatsappFormSubmission.update({
     where: { id: submission.id },
@@ -523,6 +547,20 @@ export async function completeSubmission({ workspaceId, submission, form, fields
     where: { id: form.id },
     data: { submissions: { increment: 1 } },
   });
+
+  if (approval) {
+    const placed = await orderModule()
+      .then((m) => m.placeOrder({ workspaceId, form, submission, contact, answers: saved }))
+      .then(() => true)
+      .catch((err) => {
+        console.error('[Forms] Could not send the order for approval:', err.message);
+        return false;
+      });
+    if (placed) return;
+    // The order could not be opened for approval. Rather than leave the
+    // customer with silence, fall through to the ordinary closing message.
+  }
+
   // {{q1}}, {{name}}, sheet columns and {{= q1 * price}} totals; a message
   // without "{{" is sent exactly as written.
   await reply(ordering

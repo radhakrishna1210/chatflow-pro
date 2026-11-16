@@ -654,6 +654,20 @@ async function handleInboundMessage(value, msg) {
     return;
   }
 
+  // Owner-approved orders (services/formOrder.service.js): a tap on an order
+  // button, anything from the owner's number, or a payment screenshot from a
+  // customer who has been asked to pay. Ahead of the hand-off check for the
+  // same reason as the form screen — an order in progress must not stall
+  // because a person is in the thread — and ahead of forms and workflows so
+  // the owner's replies are never read as a customer's.
+  const handledByOrders = await import('./formOrder.service.js')
+    .then((m) => m.handleOrderInbound({ workspaceId, waNumber, conversation, contact, fromPhone, parsed }))
+    .catch((err) => {
+      console.error('[Inbound] Order handling failed:', err.message);
+      return false;
+    });
+  if (handledByOrders) return;
+
   // A person is holding this conversation. The message is stored, the inbox
   // shows it and the webhook fires, but no automation runs — replying over an
   // agent mid-conversation is worse than not replying at all, and it is exactly

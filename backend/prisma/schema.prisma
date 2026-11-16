@@ -1017,8 +1017,70 @@ model WhatsappForm {
   formSubmissions   WhatsappFormSubmission[]
   screen            WhatsappFormScreen?
   stock             WhatsappFormStock?
+  orderFlow         WhatsappFormOrderFlow?
+  orders            WhatsappFormOrder[]
 
   @@unique([workspaceId, keyword])
+}
+
+// Owner approval for an order form (services/formOrder.service.js): who
+// approves orders on WhatsApp, how the customer pays, and how long to wait.
+// Its own guarded table, like WhatsappFormScreen: a form without a row, or a
+// database without the table, confirms orders straight away as before.
+model WhatsappFormOrderFlow {
+  id             String       @id @default(cuid())
+  workspaceId    String
+  formId         String       @unique
+  enabled        Boolean      @default(false)
+  // The WhatsApp number that approves orders, with country code.
+  ownerPhone     String?
+  upiId          String?
+  payeeName      String?
+  bankDetails    String?
+  // The owner's UPI QR code, sent with the payment details.
+  qrImage        Bytes?
+  qrMime         String?
+  // How long the customer has to answer a revised order, and to pay.
+  replyMinutes   Int          @default(60)
+  paymentMinutes Int          @default(120)
+  // "HH:MM" in `timezone`. After it, and until midnight, the form does not
+  // take orders. Null = no cutoff.
+  cutoffTime     String?
+  timezone       String       @default("Asia/Kolkata")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  form           WhatsappForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+// One order moving through owner approval. The quantities and address stay in
+// the form submission it came from; this row is where the order stands.
+model WhatsappFormOrder {
+  id             String       @id @default(cuid())
+  workspaceId    String
+  formId         String
+  submissionId   String       @unique
+  contactId      String
+  conversationId String
+  // Per-form running number, shown to the customer and the owner as "#12".
+  number         Int
+  // PENDING_OWNER | OWNER_EDITING | PENDING_CUSTOMER | AWAITING_PAYMENT |
+  // PAYMENT_REVIEW | CONFIRMED | DISPATCHED | CANCELLED
+  status         String       @default("PENDING_OWNER")
+  // owner | customer_rejected | customer_deleted | customer_edit | no_reply | no_payment
+  cancelReason   String?
+  total          Float?
+  // When a waiting order is cancelled for silence (revised order, payment).
+  expiresAt      DateTime?
+  confirmedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  form           WhatsappForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, formId, createdAt])
+  @@index([status, expiresAt])
+  @@index([contactId, status])
 }
 
 // Today's stock for an order form: how much of each quantity question can
