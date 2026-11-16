@@ -30,8 +30,23 @@ const backendDir = path.resolve(import.meta.dirname, '..');
 const cli = path.join(backendDir, 'scripts', 'prisma-cli.js');
 const prisma = (...args) => execFileSync(process.execPath, [cli, ...args], { cwd: backendDir, stdio: 'inherit', env: process.env });
 
+/**
+ * Prisma's engine and libpq treat `sslmode=require` (and `prefer`) as
+ * "encrypt, but do not verify the certificate". node-postgres treats them as
+ * `verify-full`, so a pooler whose chain ends in a private root (Supabase)
+ * is rejected with "self-signed certificate in certificate chain" — here
+ * only, while the app and `prisma migrate deploy` connect fine with the very
+ * same URL. `uselibpqcompat=true` makes node-postgres read the mode the way
+ * Prisma does. Stricter modes (verify-ca, verify-full) are left untouched.
+ */
+export function pgConnectionString(url) {
+  if (!/[?&]sslmode=(require|prefer)(&|$)/.test(url)) return url;
+  if (/[?&]uselibpqcompat=/.test(url)) return url;
+  return `${url}&uselibpqcompat=true`;
+}
+
 async function schemaExists(url) {
-  const client = new pg.Client({ connectionString: url });
+  const client = new pg.Client({ connectionString: pgConnectionString(url) });
   await client.connect();
   try {
     const { rows } = await client.query(`SELECT to_regclass('public."Workspace"') IS NOT NULL AS present`);
