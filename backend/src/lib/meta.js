@@ -799,7 +799,7 @@ export async function sendReplyButtons(phoneNumberId, accessToken, to, { body, b
 
   const { data } = await metaClient(accessToken).post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to: toRecipient(to),
+    to: await resolveRecipient(phoneNumberId, to),
     type: 'interactive',
     interactive: {
       type: 'button',
@@ -881,7 +881,7 @@ export async function sendFlowMessage(phoneNumberId, accessToken, to, { body, ct
   const client = metaClient(accessToken);
   const { data } = await client.post(`/${phoneNumberId}/messages`, {
     messaging_product: 'whatsapp',
-    to: toRecipient(to),
+    to: await resolveRecipient(phoneNumberId, to),
     type: 'interactive',
     interactive: {
       type: 'flow',
