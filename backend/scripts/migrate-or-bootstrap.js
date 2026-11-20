@@ -30,8 +30,35 @@ const backendDir = path.resolve(import.meta.dirname, '..');
 const cli = path.join(backendDir, 'scripts', 'prisma-cli.js');
 const prisma = (...args) => execFileSync(process.execPath, [cli, ...args], { cwd: backendDir, stdio: 'inherit', env: process.env });
 
+/**
+ * How the schema check connects, so that it reaches every database Prisma
+ * reaches.
+ *
+ * `sslmode=require` (and `prefer`) mean "encrypt, do not verify the
+ * certificate" to Prisma and to libpq. The `pg` driver reads them as
+ * verify-full instead, so against a database whose certificate chain is not in
+ * Node's trust store (a managed Postgres behind a pooler, typically) this
+ * check failed with "self-signed certificate in certificate chain" before any
+ * migration ran — on a database Prisma itself connects to without complaint.
+ *
+ * So those two modes are taken off the URL and given to `pg` as what they
+ * mean. `verify-ca` / `verify-full` are left alone (they ask for
+ * verification), as are `disable` and a URL with no sslmode.
+ */
+export function pgConfig(url) {
+  const match = /[?&]sslmode=([^&#]*)/i.exec(String(url));
+  const mode = match ? decodeURIComponent(match[1]).toLowerCase() : '';
+  if (mode !== 'require' && mode !== 'prefer') return { connectionString: url };
+  // Remove just that parameter, leaving the rest of the URL byte for byte
+  // (a re-serialised URL can re-encode the password).
+  const connectionString = String(url)
+    .replace(/([?&])sslmode=[^&#]*&/i, '$1')
+    .replace(/[?&]sslmode=[^&#]*/i, '');
+  return { connectionString, ssl: { rejectUnauthorized: false } };
+}
+
 async function schemaExists(url) {
-  const client = new pg.Client({ connectionString: url });
+  const client = new pg.Client(pgConfig(url));
   await client.connect();
   try {
     const { rows } = await client.query(`SELECT to_regclass('public."Workspace"') IS NOT NULL AS present`);
@@ -54,7 +81,20 @@ async function main() {
     process.exit(1);
   }
 
-  if (await schemaExists(url)) {
+  // The check exists only to tell an empty database from an existing one. If
+  // it cannot be made at all, the safe reading is "existing": `migrate deploy`
+  // changes nothing it should not on a live database, and on an empty one it
+  // fails loudly (as it always did) rather than this script guessing and
+  // running `db push` against a database it could not look at.
+  let exists;
+  try {
+    exists = await schemaExists(url);
+  } catch (err) {
+    console.warn(`[migrate] Could not check for an existing schema (${err.message}). Assuming an existing database.`);
+    exists = true;
+  }
+
+  if (exists) {
     console.log('[migrate] Existing schema found — running prisma migrate deploy.');
     prisma('migrate', 'deploy');
     return;
