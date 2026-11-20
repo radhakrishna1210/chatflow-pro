@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto';
 import { redis } from './redis.js';
+import { takeKey } from './redisTake.js';
 
 // Binds an OAuth callback to the signed-in user who started the flow.
 //
@@ -40,7 +41,7 @@ export async function claimOAuthCallback(id, { kind, workspaceId, userId }) {
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(id)) {
     throw refuse(400, 'Missing or malformed connection reference.', 'OAUTH_PENDING_INVALID');
   }
-  const raw = await redis.getdel(key(id));
+  const raw = await takeKey(key(id));
   if (!raw) throw refuse(410, 'This connection request has expired or was already used — start again.', 'OAUTH_PENDING_EXPIRED');
   let rec;
   try { rec = JSON.parse(raw); } catch { rec = null; }

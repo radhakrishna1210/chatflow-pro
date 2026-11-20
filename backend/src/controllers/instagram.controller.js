@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { answerChallenge, checkMetaSignature } from './webhook.controller.js';
 import { env } from '../config/env.js';
 import { redis } from '../lib/redis.js';
+import { takeKey } from '../lib/redisTake.js';
 import * as ig from '../services/instagram.service.js';
 import { parkOAuthCallback, claimOAuthCallback } from '../lib/oauthPending.js';
 
@@ -55,7 +56,7 @@ export async function oauthCallback(req, res) {
   if (!state || typeof state !== 'string') return fail('missing_state');
 
   try {
-    const raw = await redis.getdel(`ig:oauth:${state}`);
+    const raw = await takeKey(`ig:oauth:${state}`);
     if (!raw) return fail('expired_state');
     const { workspaceId, userId, redirectUri } = JSON.parse(raw);
     if (!userId) return fail('expired_state');

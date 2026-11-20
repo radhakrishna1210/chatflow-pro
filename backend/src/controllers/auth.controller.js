@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import * as authService from '../services/auth.service.js';
 import { redis } from '../lib/redis.js';
+import { takeKey } from '../lib/redisTake.js';
 import { revokeAccessToken } from '../lib/tokenDenylist.js';
 import { env } from '../config/env.js';
 
@@ -84,8 +85,10 @@ export async function exchangeOneTimeCode(req, res) {
   
   if (redis.status === 'ready') {
     // One atomic read-and-delete: a GET followed by a DEL let two concurrent
-    // exchanges of the same code both receive the session.
-    raw = await redis.getdel(key);
+    // exchanges of the same code both receive the session. Not GETDEL: that
+    // command needs Redis 6.2, and on an older server it failed every sign-in
+    // (see lib/redisTake.js).
+    raw = await takeKey(key);
   } else {
     raw = memoryCodes.get(code);
     memoryCodes.delete(code);
