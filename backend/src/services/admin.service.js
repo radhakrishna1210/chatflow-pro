@@ -829,6 +829,16 @@ function buildPlanData(body, { partial } = {}) {
     if (!Number.isInteger(q) || q < -1) badRequest('Message quota must be a whole number (use -1 for unlimited)');
     data.messageQuota = q;
   }
+  // AI credits: how many a cycle includes, and what one more costs from the
+  // wallet (0 = cannot buy more). Only written when sent, so a plan form that
+  // does not know about them leaves the saved figures alone.
+  if (has('aiCreditsMonthly')) {
+    const n = Number(body.aiCreditsMonthly ?? 0);
+    if (!Number.isInteger(n) || n < 0) badRequest('AI credits per cycle must be a non-negative whole number');
+    data.aiCreditsMonthly = n;
+  }
+  if (has('aiCreditRate')) data.aiCreditRate = normMoney(body.aiCreditRate ?? 0, 'AI credit price');
+
   if (!partial || has('contactLimit')) data.contactLimit = normLimit(body.contactLimit, 'Contact limit');
   if (!partial || has('memberLimit')) data.memberLimit = normLimit(body.memberLimit, 'Member limit');
   if (!partial || has('campaignLimit')) data.campaignLimit = normLimit(body.campaignLimit, 'Campaign limit');

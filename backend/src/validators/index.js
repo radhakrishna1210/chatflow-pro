@@ -965,6 +965,25 @@ export const copilotSchemas = {
   }).strict(),
 };
 
+// The onboarding agent. An edited item is deliberately loose here: it is
+// cleaned by lib/agentBlueprint.js#normalizeItem, and anything wrong with it
+// is reported on the item so a half-finished edit can still be saved.
+export const onboardingAgentSchemas = {
+  create: z.object({
+    prompt: z.string().trim().min(1, 'Tell the assistant what you want to set up').max(4000),
+  }).strict(),
+  message: z.object({
+    message: z.string().trim().min(1, 'Type a message').max(4000),
+    itemKey: z.string().trim().max(40).optional(),
+  }).strict(),
+  item: z.object({ item: z.record(z.any()) }).strict(),
+  apply: z.object({
+    activate: z.boolean().optional(),
+    waNumberId: z.string().trim().min(1).max(64).optional(),
+  }).strict(),
+  live: z.object({ on: z.boolean() }).strict(),
+};
+
 export const workflowCompilerSchemas = {
   compile: z.object({
     description: z.string().trim().min(1, 'Describe the automation you want').max(1000),

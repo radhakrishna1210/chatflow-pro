@@ -113,7 +113,7 @@ export async function simulateWorkflow(workspaceId, workflowId, sampleMessage = 
 
     for (let i = 0; i < steps.length; i += 1) {
       const node = steps[i];
-      if (handedOff && ['message', 'buttons', 'template', 'wait_reply'].includes(node.subtype)) {
+      if (handedOff && ['message', 'buttons', 'template', 'form', 'wait_reply'].includes(node.subtype)) {
         trace.push({ step: 'action', subtype: node.subtype, detail: 'Skipped — the chat was handed to a person', result: 'skipped' });
         continue;
       }
@@ -157,6 +157,7 @@ export async function simulateWorkflow(workspaceId, workflowId, sampleMessage = 
       if (node.subtype === 'message' || node.subtype === 'template') lastOptions = [];
       if (node.subtype === 'message') detail = `Would send: "${node.value}"`;
       else if (node.subtype === 'template') detail = `Would send template: "${node.value}"`;
+      else if (node.subtype === 'form') detail = `Would start the form "${node.value}" and ask its questions`;
       else if (node.subtype === 'buttons') {
         const parts = String(node.value ?? '').split('|').map((p) => p.trim()).filter(Boolean);
         lastOptions = parts.slice(1);

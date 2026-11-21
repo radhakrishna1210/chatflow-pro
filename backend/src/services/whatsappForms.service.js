@@ -464,12 +464,31 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
     .sort((a, b) => (b.keyword?.length || 0) - (a.keyword?.length || 0))[0];
   if (!started) return false;
 
+  await startForm({ workspaceId, form: started, conversation, contact, reply });
+  return true;
+}
+
+// Opens `form` for a customer: the checks that can stop it (order cutoff, sold
+// out), then the submission and the first question or the form screen.
+//
+// Shared by the keyword start above and the workflow engine's "start a form"
+// step, so a form opened from a workflow behaves exactly like one opened by
+// its keyword. Returns 'started', or the reason it did not start ('closed',
+// 'sold_out'); in both of those the customer has been told why.
+export async function startForm({ workspaceId, form: started, conversation, contact, reply: replyWith }) {
+  const reply = replyWith || ((text) => sendAutomatedReply({
+    conversationId: conversation.id,
+    waNumberId: conversation.waNumberId,
+    toPhone: contact.phoneNumber,
+    body: text,
+  }));
+
   // Past the day's order cutoff (owner approval settings): the form does not
   // start, and the customer is told when they can order again.
   const closed = await orderModule().then((m) => m.ordersClosedMessage(started)).catch(() => null);
   if (closed) {
     await reply(closed);
-    return true;
+    return 'closed';
   }
 
   // Everything with a stock limit has run out: the form does not start. The
@@ -478,7 +497,7 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
   if (stock?.soldOut) {
     await reply(stock.message);
     await stockModule().then((m) => m.addToWaitlist(contact.id)).catch(() => {});
-    return true;
+    return 'sold_out';
   }
 
   const submission = await prisma.whatsappFormSubmission.create({
@@ -503,7 +522,7 @@ export async function handleFormInbound({ workspaceId, conversation, contact, me
       return false;
     });
   if (!onScreen) await reply(promptFor(schemaOf(started)[0]));
-  return true;
+  return 'started';
 }
 
 // Finishes a submission: saves the answers (and the order total), writes them

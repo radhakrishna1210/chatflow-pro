@@ -66,6 +66,10 @@ async function initializeSubscriptions() {
       apiKeyLimit: 1,
       // Flat rate for a send with no template category (an inbox reply).
       overageRatePerMsg: 0.02,
+      // AI credits included each cycle, and the wallet price of one more
+      // (services/aiCredits.service.js).
+      aiCreditsMonthly: 20,
+      aiCreditRate: 1,
       // Free pays a markup on over-quota template sends — 2x cost, mirroring
       // the 2x ratio Free already carried against the paid tiers. Basic and
       // Growth leave this null and are charged cost (lib/messagePricing.js).
@@ -88,6 +92,10 @@ async function initializeSubscriptions() {
       campaignLimit: null,
       apiKeyLimit: 10,
       overageRatePerMsg: 0.01,
+      // AI credits included each cycle, and the wallet price of one more
+      // (services/aiCredits.service.js).
+      aiCreditsMonthly: 300,
+      aiCreditRate: 0.75,
       // null = charge cost: the shared per-category rates.
       overageRates: null,
       features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
@@ -104,6 +112,10 @@ async function initializeSubscriptions() {
       campaignLimit: null,
       apiKeyLimit: null,
       overageRatePerMsg: 0.008,
+      // AI credits included each cycle, and the wallet price of one more
+      // (services/aiCredits.service.js).
+      aiCreditsMonthly: 1000,
+      aiCreditRate: 0.5,
       overageRates: null,
       features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
     },

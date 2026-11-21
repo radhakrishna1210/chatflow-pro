@@ -372,6 +372,54 @@ async function actionAgent(run, node) {
   return { result: 'ok', detail: `Assigned to ${assignee.user.name}${exact}` };
 }
 
+// Hands the customer into a WhatsApp form. The step's value is the form's id
+// or its name. From here the form owns the conversation — the inbound handler
+// gives an open submission every message until it finishes — so this is
+// normally the last step of a workflow.
+//
+// Before this step a form could only be opened by its own keyword, so a
+// workflow that ended in "fill in this form" had to send a button whose label
+// happened to match that keyword, and renaming either one silently broke it.
+async function actionForm(run, node) {
+  if (!run.conversationId) return { result: 'skipped', detail: 'No conversation to open the form in' };
+  const val = String(node.value || '').trim();
+  if (!val) return { result: 'skipped', detail: 'No form chosen' };
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: run.conversationId },
+    include: { contact: true },
+  });
+  if (!conversation?.waNumberId || !conversation.contact) {
+    return { result: 'skipped', detail: 'Conversation has no connected number' };
+  }
+
+  const form = await prisma.whatsappForm.findFirst({
+    where: {
+      workspaceId: run.workspaceId,
+      OR: [{ id: val }, { name: val }, { name: { equals: val, mode: 'insensitive' } }],
+    },
+  });
+  if (!form) return { result: 'failed', detail: `Form "${val}" not found` };
+  if (form.status !== 'Active') return { result: 'failed', detail: `Form "${form.name}" is a draft — activate it first` };
+  if (!Array.isArray(form.schema) || form.schema.length === 0) {
+    return { result: 'failed', detail: `Form "${form.name}" has no questions` };
+  }
+
+  const { startForm, hasOpenSubmission } = await import('./whatsappForms.service.js');
+  if (await hasOpenSubmission(conversation.id)) {
+    return { result: 'skipped', detail: 'The customer is already filling in a form' };
+  }
+  const outcome = await startForm({
+    workspaceId: run.workspaceId,
+    form,
+    conversation,
+    contact: conversation.contact,
+  });
+  return outcome === 'started'
+    ? { result: 'sent', detail: `Started form "${form.name}"` }
+    : { result: 'ok', detail: `Form "${form.name}" did not open (${outcome === 'sold_out' ? 'sold out' : 'orders are closed'}); the customer was told` };
+}
+
 // ── Run lifecycle ──────────────────────────────────────────────────────────
 
 // `leadId`/`dealId` are set for CRM-triggered runs; conversation-triggered
@@ -592,6 +640,7 @@ export async function advanceRun(runId, { reply } = {}) {
       else if (node.subtype === 'tag') outcome = await actionTag(run, node);
       else if (node.subtype === 'agent') outcome = await actionAgent(run, node);
       else if (node.subtype === 'buttons') outcome = await actionButtons(run, node);
+      else if (node.subtype === 'form') outcome = await actionForm(run, node);
       else {
           const { runCrmAction } = await import('./workflowCrm.service.js');
           outcome = await runCrmAction(run, node) ?? { result: 'skipped', detail: `Unknown action "${node.subtype}"` };
@@ -726,7 +775,8 @@ export async function runWorkflowsForInbound(workspaceId, ctx) {
 // Steps that put a message in front of the customer. A 'buttons' step is a
 // message too, so a run that ends on one has replied and the inbound handler
 // must not add a welcome or AI answer on top of it.
-const REPLY_SUBTYPES = new Set(['message', 'buttons', 'template']);
+// 'form' opens a form, which sends its first question (or the form screen).
+const REPLY_SUBTYPES = new Set(['message', 'buttons', 'template', 'form']);
 
 // True if the run actually sent something — lets the inbound handler decide
 // whether a further auto-reply would be a duplicate.

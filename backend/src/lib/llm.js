@@ -187,18 +187,31 @@ function isTransient(err) {
 
 const RETRY_DELAYS_MS = [400];
 
-// One attempt against one model.
-async function generateOnce(ai, model, contents, json) {
+// One attempt against one model. Returns the text and what the call cost in
+// tokens, which is what AI credits are charged on.
+async function generateOnce(ai, model, contents, json, timeoutMs = GEMINI_TIMEOUT_MS) {
   const res = await ai.models.generateContent({
     model,
     contents,
     config: {
-      httpOptions: { timeout: GEMINI_TIMEOUT_MS },
+      httpOptions: { timeout: timeoutMs },
       ...(json ? { responseMimeType: 'application/json' } : {}),
     },
   });
-  return (res.text || '').trim() || null;
+  const u = res.usageMetadata || {};
+  const inputTokens = Number(u.promptTokenCount) || 0;
+  // totalTokenCount also covers the model's thinking tokens, which are billed
+  // as output but are not part of candidatesTokenCount.
+  const outputTokens = Math.max(
+    Number(u.candidatesTokenCount) || 0,
+    (Number(u.totalTokenCount) || 0) - inputTokens,
+  );
+  return { text: (res.text || '').trim() || null, usage: { inputTokens, outputTokens, model } };
 }
+
+// Roughly four characters to a token. Used only when a provider reports no
+// usage (the local Ollama fallback), so a call is never charged as free.
+const estimateTokens = (text) => Math.ceil(String(text || '').length / 4);
 
 // Gemini's flash tier answers 503 "experiencing high demand" a meaningful share
 // of the time — measured at roughly two calls in five against
@@ -210,7 +223,15 @@ async function generateOnce(ai, model, contents, json) {
 // So a transient failure is retried with a short backoff, and if the preferred
 // model is still busy the request moves to GEMINI_FALLBACK_MODEL — a lighter
 // model on separate capacity, which is available when the main one is not.
-async function callGemini(prompt, system, { json = false } = {}) {
+async function callGemini(prompt, system, opts = {}) {
+  return (await callGeminiDetailed(prompt, system, opts))?.text ?? null;
+}
+
+// As callGemini, but returns { text, usage } so the caller can meter the call.
+// `timeoutMs` is for the few callers that ask for a long structured answer
+// (the onboarding agent writes a whole setup in one reply) and would always
+// hit the default ceiling.
+async function callGeminiDetailed(prompt, system, { json = false, timeoutMs } = {}) {
   const ai = gemini();
   if (!ai) return null;
   if (Date.now() < geminiCooldownUntil) return null;
@@ -224,12 +245,14 @@ async function callGemini(prompt, system, { json = false } = {}) {
   for (const model of models) {
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
       try {
-        const text = await generateOnce(ai, model, contents, json);
+        const result = await generateOnce(ai, model, contents, json, timeoutMs);
         if (model !== models[0]) {
           console.warn(`[llm] Answered with fallback model "${model}" — "${models[0]}" was unavailable.`);
         }
         lastFailure = null;
-        return text;
+        if (!result.usage.inputTokens) result.usage.inputTokens = estimateTokens(contents);
+        if (!result.usage.outputTokens) result.usage.outputTokens = estimateTokens(result.text);
+        return result;
       } catch (err) {
         lastErr = err;
         if (!isTransient(err)) break; // permanent for this model: try the next one, or give up
@@ -271,9 +294,7 @@ export async function llmText(prompt, system = '', opts = {}) {
   return (await callGemini(prompt, system, opts)) ?? (await callOllama(prompt, system));
 }
 
-// Returns a parsed JSON object, or null.
-export async function llmJson(prompt, system = '') {
-  const raw = await llmText(prompt, system, { json: true });
+const parseJsonReply = (raw) => {
   if (!raw) return null;
   try {
     const cleaned = raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
@@ -281,4 +302,25 @@ export async function llmJson(prompt, system = '') {
   } catch {
     return null;
   }
+};
+
+// Returns a parsed JSON object, or null.
+export async function llmJson(prompt, system = '') {
+  return parseJsonReply(await llmText(prompt, system, { json: true }));
+}
+
+// As llmJson, for callers that charge AI credits: returns
+// { data, usage: { inputTokens, outputTokens, model } }, or null when no
+// provider answered. `data` is null when the model answered but not in JSON —
+// that call still cost tokens, so its usage is still reported.
+export async function llmJsonMetered(prompt, system = '', { timeoutMs } = {}) {
+  const viaGemini = await callGeminiDetailed(prompt, system, { json: true, timeoutMs });
+  if (viaGemini?.text) return { data: parseJsonReply(viaGemini.text), usage: viaGemini.usage };
+
+  const text = await callOllama(prompt, system);
+  if (!text) return null;
+  return {
+    data: parseJsonReply(text),
+    usage: { inputTokens: estimateTokens(`${system}\n\n${prompt}`), outputTokens: estimateTokens(text), model: env.OLLAMA_MODEL },
+  };
 }

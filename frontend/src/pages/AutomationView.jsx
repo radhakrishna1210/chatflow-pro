@@ -3,6 +3,7 @@ import { I } from '../components/Icons.jsx';
 import { Btn } from '../components/Btn.jsx';
 import { apiFetch, wDownload } from '../lib/api.js';
 import { wJson } from '../lib/automationApi.js';
+import OnboardingAgentTab from '../components/OnboardingAgentTab.jsx';
 import { validateMeaningfulText } from '../lib/validation.js';
 
 // Where an owner-approved order stands, in the words the form editor shows.
@@ -103,6 +104,9 @@ const TAB_ROUTES = {
 };
 
 const TABS = [
+  // Describe a setup in words and have its forms, workflows and replies built
+  // and connected for you (components/OnboardingAgentTab.jsx).
+  { id: 'assistant', label: 'Setup Assistant',           icon: 'spark' },
   { id: 'basic',     label: 'Basic Automations',        icon: 'play'  },
   { id: 'custom',    label: 'Custom Auto Reply',         icon: 'msg'   },
   { id: 'workflows', label: 'Workflows',                 icon: 'wflow' },
@@ -1150,6 +1154,9 @@ const ACTION_SUBTYPES = [
   // answer, and a name here saves it as {{name}} for later messages.
   ['wait_reply', 'Wait for reply'],
   ['template', 'Send approved template'],
+  // Hands the customer into a WhatsApp form (by its name); the form then asks
+  // its own questions, so this is normally the last step.
+  ['form', 'Start a WhatsApp form'],
   ['delay', 'Wait / Delay'], ['tag', 'Add contact tag'], ['agent', 'Assign to agent'],
   ['task', 'CRM: Create task'],
   ['lead_status', 'CRM: Set lead status'],
@@ -1214,7 +1221,7 @@ const PALETTE = [
 const NODE_ICON = {
   keyword: 'key', welcome: 'user', missed: 'phone',
   message: 'send', buttons: 'check', delay: 'clock', tag: 'file', agent: 'users',
-  wait_reply: 'msg', template: 'file',
+  wait_reply: 'msg', template: 'file', form: 'note',
 };
 
 // Auto-layout: a single column, in execution order. A node that has been
@@ -1449,6 +1456,7 @@ placeholder={
             : step.subtype === 'buttons' ? 'Question | Option A | Option B (max 20 chars each)'
             : step.subtype === 'wait_reply' ? 'Save reply as (optional), e.g. order_id'
             : step.subtype === 'template' ? 'Approved template name'
+            : step.subtype === 'form' ? 'Name of an active WhatsApp form'
             : step.subtype === 'agent' ? 'Agent name or email'
             : 'Message text — use {{name}} or {{custom.order_number}}'
           }
@@ -1514,6 +1522,7 @@ export function chatFlowError(steps) {
       if (i + 1 >= list.length) return 'A condition is the last step, so it guards nothing — add the steps it should control after it.';
     }
     if (s.subtype === 'template' && !String(s.value || '').trim()) return 'The template step needs the name of an approved template.';
+    if (s.subtype === 'form' && !String(s.value || '').trim()) return 'The form step needs the name of a WhatsApp form.';
     if (s.subtype === 'wait_reply' && s.remindAfter && !String(s.reminder || '').trim()) return 'Write the reminder text for the "Wait for reply" step, or set its reminder to Never.';
   }
   return '';
@@ -1534,6 +1543,7 @@ const stepLabel = (step) => {
       return step.remindAfter && step.reminder ? `${base} (remind after ${step.remindAfter})` : base;
     }
     case 'template': return `Template: ${step.value}`;
+    case 'form': return `Start form: ${step.value}`;
     case 'contains': return `If message contains "${step.value}"`;
     case 'equals':   return `If message is "${step.value}"`;
     case 'is_new_contact': return 'If new contact';
@@ -4772,6 +4782,7 @@ export default function AutomationView({ initialTab }) {
 
   const renderContent = () => {
     switch (activeTab) {
+      case 'assistant':   return <OnboardingAgentTab />;
       case 'basic':       return <BasicAutomationsTab />;
       case 'custom':      return <CustomAutoReplyTab />;
       case 'workflows':   return <WorkflowsTab />;

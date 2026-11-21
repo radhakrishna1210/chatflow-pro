@@ -46,6 +46,9 @@ export const ACTIONS = {
   buttons: { needsValue: true, describe: (v) => `ask "${String(v).split('|')[0].trim()}" with options` },
   wait_reply: { needsValue: false, describe: (v) => (v ? `wait for their reply (saved as {{${v}}})` : 'wait for their reply') },
   template: { needsValue: true, describe: (v) => `send template "${v}"` },
+  // Hands the customer into a WhatsApp form, named by id or name. The form
+  // then owns the conversation, so this is normally the last step.
+  form: { needsValue: true, describe: (v) => `start the form "${v}"` },
   delay: { needsValue: true, describe: (v) => `wait ${v}` },
   tag: { needsValue: true, describe: (v) => `tag the contact "${v}"` },
   // The engine's `agent` step assigns the conversation to a workspace member
@@ -222,6 +225,8 @@ Rules:
   acting on the answer; wait_reply's optional value names a variable, used
   later as {{name}}. Branch on a choice with one "equals" condition per option.
 - agent hands the chat to a person; nothing automated runs after it.
+- form starts an existing WhatsApp form; its value is the form's exact name,
+  and it must be the last step.
 - lead_status values are one of ${LEAD_STATUSES.join(', ')}.
 - deal_stage values are one of ${DEAL_STAGES.join(', ')}.
 - Do not invent a trigger the user did not describe.`;

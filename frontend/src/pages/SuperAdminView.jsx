@@ -56,6 +56,8 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
     currency: src.currency || 'INR',
     messageQuota: numOrBlank(src.messageQuota ?? 0),
     overageRatePerMsg: numOrBlank(src.overageRatePerMsg ?? 0),
+    aiCreditsMonthly: numOrBlank(src.aiCreditsMonthly ?? 0),
+    aiCreditRate: numOrBlank(src.aiCreditRate ?? 0),
     // Blank = charge cost (the shared per-category rates).
     ovMarketing: numOrBlank(src.overageRates?.MARKETING),
     ovUtility: numOrBlank(src.overageRates?.UTILITY),
@@ -89,6 +91,8 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
       currency: f.currency.trim().toUpperCase(),
       messageQuota: Number(f.messageQuota),
       overageRatePerMsg: Number(f.overageRatePerMsg || 0),
+      aiCreditsMonthly: Math.max(0, Math.round(Number(f.aiCreditsMonthly || 0))),
+      aiCreditRate: Number(f.aiCreditRate || 0),
       // All three blank -> null, i.e. this plan charges cost.
       overageRates: (String(f.ovMarketing).trim() === '' && String(f.ovUtility).trim() === '' && String(f.ovAuth).trim() === '')
         ? null
@@ -154,6 +158,12 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
               </Field>
               <Field label="Service msg" hint="No-template sends past quota">
                 <TInput type="number" min="0" step="0.0001" value={f.overageRatePerMsg} onChange={e => set('overageRatePerMsg', e.target.value)} />
+              </Field>
+              <Field label="AI credits / cycle" hint="Included with the plan; do not roll over">
+                <TInput type="number" min="0" step="1" value={f.aiCreditsMonthly} onChange={e => set('aiCreditsMonthly', e.target.value)} />
+              </Field>
+              <Field label="Extra AI credit price" hint="From the wallet, per credit. 0 = cannot buy more">
+                <TInput type="number" min="0" step="0.01" value={f.aiCreditRate} onChange={e => set('aiCreditRate', e.target.value)} />
               </Field>
             </div>
 
