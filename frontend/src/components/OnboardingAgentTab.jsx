@@ -580,6 +580,14 @@ export default function OnboardingAgentTab() {
                     </div>
                   </div>
                 ))}
+                {/* The message just sent, shown while the assistant works; the
+                    server's copy replaces it when the answer arrives. */}
+                {thinking && message.trim() && (
+                  <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                    <div style={{ maxWidth: '85%', padding: '8px 11px', borderRadius: 10, fontSize: 13, lineHeight: 1.55, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+                      background: 'rgba(var(--accent-rgb),0.14)', color: 'var(--t1)', border: '1px solid var(--bd)' }}>{message.trim()}</div>
+                  </div>
+                )}
                 {thinking && <div style={{ fontSize: 12.5, color: 'var(--t3)' }}>The assistant is working on it…</div>}
               </div>
               {focusItem && (

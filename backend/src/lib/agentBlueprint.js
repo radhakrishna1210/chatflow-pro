@@ -234,7 +234,12 @@ export function checkBlueprint(blueprint, existing = {}) {
           if (!key && !have.forms.some((f) => f.name.toLowerCase() === String(node.value).toLowerCase())) {
             error(item.key, `Workflow "${item.name}" starts the form "${node.value}", which does not exist.`);
           }
-          if (i < steps.length - 1) warn(item.key, `In "${item.name}", the steps after "start the form" run straight away, before the customer has answered it.`);
+          // A condition right after it is another branch of the same menu
+          // ("if they tapped Talk to us…"), which the form's branch skips. Only
+          // an unguarded step would actually run on top of the form.
+          if (i < steps.length - 1 && steps[i + 1].type !== 'condition') {
+            warn(item.key, `In "${item.name}", the step after "start the form" runs straight away, before the customer has answered it.`);
+          }
         }
         if (node.subtype === 'template') {
           const key = refKey(node.value);
@@ -364,6 +369,8 @@ export function hashItem(item) {
 export function resolveNodes(nodes, namesByKey) {
   return nodes.map((n, i) => {
     const key = ['form', 'template'].includes(n.subtype) ? refKey(n.value) : null;
-    return { id: `step_${i + 1}`, ...n, ...(key ? { value: namesByKey[key] ?? n.value } : {}) };
+    // Every step carries a value, even an empty one: the workflow builder
+    // prints it, and a missing one showed as "Assign: undefined".
+    return { id: `step_${i + 1}`, ...n, value: key ? (namesByKey[key] ?? n.value) : (n.value ?? '') };
   });
 }

@@ -47,6 +47,33 @@ test('a welcome menu that starts a form from a button is accepted', () => {
   assert.equal(hasErrors(r.issues), false);
 });
 
+test('only an unguarded step after "start the form" is flagged, not the next branch of a menu', () => {
+  const menu = check([
+    form({ keyword: '' }),
+    workflow([
+      trigger('welcome'),
+      action('buttons', 'How can we help? | Place an order | Talk to us'),
+      action('wait_reply'),
+      condition('equals', 'Place an order', 1),
+      action('form', '@order_form'),
+      condition('equals', 'Talk to us', 1),
+      action('agent'),
+    ]),
+  ]);
+  assert.deepEqual(warningsOf(menu), []);
+
+  const unguarded = check([
+    form({ keyword: '' }),
+    workflow([trigger('keyword', 'BUY'), action('form', '@order_form'), action('message', 'Thanks for ordering!')]),
+  ]);
+  assert.equal(warningsOf(unguarded).some((w) => /runs straight away/.test(w)), true);
+});
+
+test('every applied step carries a value, so the builder never prints "undefined"', () => {
+  const nodes = resolveNodes([{ type: 'trigger', subtype: 'welcome' }, { type: 'action', subtype: 'agent' }], {});
+  assert.deepEqual(nodes.map((n) => n.value), ['', '']);
+});
+
 test('a form nothing can start is refused', () => {
   const r = check([form({ keyword: '' })]);
   assert.match(errorsOf(r).join(' '), /Nothing starts the form/);
