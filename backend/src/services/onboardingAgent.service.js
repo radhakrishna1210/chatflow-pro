@@ -70,7 +70,7 @@ ITEMS (at most ${MAX_ITEMS}). Every item has a unique "key" (lowercase letters, 
 
 2. Workflow — one trigger, then steps that run top to bottom in a chat with one customer.
 {"key":"welcome_flow","type":"workflow","name":"Welcome menu","nodes":[
-  {"type":"trigger","subtype":"welcome"},
+  {"type":"trigger","subtype":"keyword","value":"HI, HELLO, HEY"},
   {"type":"action","subtype":"buttons","value":"Hi {{name}}! How can we help? | Place an order | Talk to us"},
   {"type":"action","subtype":"wait_reply"},
   {"type":"condition","subtype":"equals","value":"Place an order","skipIfFalse":1},
@@ -83,7 +83,12 @@ ITEMS (at most ${MAX_ITEMS}). Every item has a unique "key" (lowercase letters, 
  conditions: {"type":"condition","subtype":"<${Object.keys(CONDITIONS).join('|')}>","value":"...","skipIfFalse":N}
    A condition checks the customer's latest message; when false the next N steps are skipped.
  - keyword trigger value: the word(s) that start it, alternatives separated by commas ("PRICE, RATES").
- - welcome trigger: fires on a new contact's first message. No value.
+ - welcome trigger: fires ONLY on a brand-new contact's very first message, whatever it says. No value.
+   It never fires again for that person, so use it only when the owner clearly means first-time customers
+   ("new customers", "first message", "when someone contacts us for the first time").
+ - When the owner says "when someone says hi / hello / messages us / greets us", they mean anyone, new or
+   returning. Use a keyword trigger with the usual greetings: "HI, HELLO, HEY, HII, NAMASTE" (add the greeting
+   words of the owner's language). Returning customers saying "hi" must get the menu too.
  - message value: the text to send. {{name}} is the customer's name.
  - buttons value: "Question | Option A | Option B". At most 3 options, at most 20 characters each.
    To act on the choice: follow buttons with wait_reply, then one "equals" condition per option.

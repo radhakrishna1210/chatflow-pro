@@ -11,11 +11,13 @@ process.env.GEMINI_API_KEY = '';
 
 const script = [];          // replies the model will give, in order
 const prompts = [];         // what it was asked
+const systems = [];         // the standing instructions it was given
 mock.module('../lib/llm.js', {
   namedExports: {
     llmAvailable: () => true,
-    llmJsonMetered: async (prompt) => {
+    llmJsonMetered: async (prompt, system) => {
       prompts.push(prompt);
+      systems.push(system);
       const data = script.shift();
       return data === undefined ? null : { data, usage: { inputTokens: 1500, outputTokens: 900, model: 'test-model' } };
     },
@@ -164,6 +166,21 @@ test('a request becomes a reviewable setup, and nothing is created until it is a
   assert.match(prompts[0], /Asha Mushrooms/);
   // Described, not created.
   assert.equal(tables.whatsappForm.length + tables.workflow.length + tables.automationTrigger.length, 0);
+});
+
+// Found on the live app: "when someone says hi" was built as a new-contact
+// trigger, which never fires for a returning customer. The instructions now
+// say a greeting means everyone, and the worked example no longer models the
+// new-contact trigger for a menu.
+test('the model is told that "says hi" means every contact, not only new ones', async () => {
+  reset();
+  script.push(design([orderForm, welcomeFlow]));
+  await agent.createBuild('ws_A', 'u_1', { prompt: 'when someone says hi, show a menu' });
+  const system = systems.at(-1);
+  assert.match(system, /anyone, new or\s+returning/);
+  assert.match(system, /"HI, HELLO, HEY/);
+  assert.match(system, /fires ONLY on a brand-new contact/);
+  assert.doesNotMatch(system, /"welcome_flow"[^\]]*"subtype":"welcome"/);
 });
 
 test('apply creates connected records through the real services, and re-applying does not duplicate them', async () => {
