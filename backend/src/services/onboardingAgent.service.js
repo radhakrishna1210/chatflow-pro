@@ -267,10 +267,27 @@ async function present(workspaceId, build, { existing, credits } = {}) {
 // ── Talking to the agent ────────────────────────────────────────────────────
 
 async function ask(workspaceId, userId, buildId, promptArgs) {
-  const result = await llmJsonMetered(buildPrompt(promptArgs), SYSTEM, { timeoutMs: LLM_TIMEOUT_MS });
+  const prompt = buildPrompt(promptArgs);
+  const readable = (r) => r?.data && typeof r.data === 'object' && !Array.isArray(r.data);
+
+  let result = await llmJsonMetered(prompt, SYSTEM, { timeoutMs: LLM_TIMEOUT_MS });
   if (!result) fail('The assistant did not respond. Nothing was charged — please try again in a moment.', 503);
+
+  // An answer that is not the JSON object asked for is useless to the person,
+  // so it is retried once here rather than handed back as an error, and it is
+  // never charged: seen on the live app from the lighter fallback model, which
+  // answered at normal length but with JSON that would not parse.
+  if (!readable(result)) {
+    console.error(`[OnboardingAgent] Unreadable answer from ${result.usage?.model} for build ${buildId}: ${String(result.raw || '').slice(0, 400)}`);
+    result = await llmJsonMetered(prompt, SYSTEM, { timeoutMs: LLM_TIMEOUT_MS });
+    if (!readable(result)) {
+      if (result) console.error(`[OnboardingAgent] Unreadable again from ${result.usage?.model}: ${String(result.raw || '').slice(0, 400)}`);
+      fail('The assistant could not produce a usable answer just now. Nothing was charged — please try again in a moment.', 502);
+    }
+  }
+
   const charge = await chargeAiCredits(workspaceId, result.usage, { userId, feature: FEATURE, reference: buildId });
-  return { data: result.data && typeof result.data === 'object' ? result.data : null, credits: charge.credits };
+  return { data: result.data, credits: charge.credits };
 }
 
 // One turn: the owner's message in, the agent's reply and (usually) a new
@@ -290,7 +307,6 @@ async function turn(workspaceId, userId, build, message, { focus = null } = {}) 
   let spent = 0;
   let { data, credits } = await ask(workspaceId, userId, build.id, { ...base, message });
   spent += credits;
-  if (!data) fail('The assistant gave an answer that could not be read. Please try again, perhaps with a shorter request.', 502, { creditsSpent: spent });
 
   let reply = String(data.reply || '').trim().slice(0, 2000);
   let next = null;

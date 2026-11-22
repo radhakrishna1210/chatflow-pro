@@ -346,6 +346,9 @@ export default function OnboardingAgentTab() {
     if (!r.ok) { setLoadError(r.error || 'Could not load the assistant.'); return; }
     setLoadError(null);
     setList(r.data);
+    // The list carries the current credit balance. The open setup keeps its
+    // own copy, which went stale after a request that failed part-way.
+    setBuild((prev) => (prev ? { ...prev, credits: r.data.credits } : prev));
   }, []);
   useEffect(() => { loadList(); }, [loadList]);
 
@@ -590,6 +593,9 @@ export default function OnboardingAgentTab() {
                 )}
                 {thinking && <div style={{ fontSize: 12.5, color: 'var(--t3)' }}>The assistant is working on it…</div>}
               </div>
+              {/* Repeated here: the banner at the top of the page is out of
+                  sight when the person is typing down here. */}
+              {banner?.tone === 'error' && !thinking && <Banner tone="error">{banner.text}</Banner>}
               {focusItem && (
                 <div style={{ fontSize: 12, color: 'var(--green)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                   About: {focusItem.name || focusItem.keyword}

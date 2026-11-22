@@ -329,6 +329,29 @@ test('when the model does not answer nothing is charged and nothing is saved', a
   assert.equal(tables.agentBuild.length, 0);
 });
 
+// Found on the live app: the model answered at normal length but with JSON
+// that would not parse. The person saw an error and was charged for it.
+test('an unreadable answer is retried once and only the usable answer is charged', async () => {
+  reset();
+  script.push(null, design([orderForm, welcomeFlow]));
+  const build = await agent.createBuild('ws_A', 'u_1', { prompt: 'take orders' });
+  assert.equal(prompts.length, 2);
+  assert.equal(charges.length, 1);
+  assert.equal(build.items.length, 2);
+});
+
+test('two unreadable answers in a row fail without charging anything', async () => {
+  reset();
+  script.push(null, null);
+  await assert.rejects(
+    agent.createBuild('ws_A', 'u_1', { prompt: 'take orders' }),
+    (err) => err.status === 502 && /Nothing was charged/.test(err.message),
+  );
+  assert.equal(prompts.length, 2, 'retried once, not forever');
+  assert.equal(charges.length, 0);
+  assert.equal(tables.agentBuild.length, 0);
+});
+
 test('a workflow that sends a new template stays off until Meta approves it', async () => {
   reset();
   const template = { key: 'offer', type: 'template', name: 'weekend_offer', category: 'MARKETING', body: 'Hi {{1}}, fresh stock this weekend.', examples: ['Asha'], buttons: [] };

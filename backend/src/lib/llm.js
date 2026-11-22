@@ -296,13 +296,25 @@ export async function llmText(prompt, system = '', opts = {}) {
 
 const parseJsonReply = (raw) => {
   if (!raw) return null;
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
   try {
-    const cleaned = raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
     return JSON.parse(cleaned);
   } catch {
-    return null;
+    // A lighter model sometimes wraps the object in a sentence or leaves text
+    // after it. The object itself is usually intact, so take the outermost
+    // braces before giving the whole answer up as unreadable.
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start === -1 || end <= start) return null;
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    } catch {
+      return null;
+    }
   }
 };
+
+export const __testing = { parseJsonReply };
 
 // Returns a parsed JSON object, or null.
 export async function llmJson(prompt, system = '') {
@@ -311,15 +323,17 @@ export async function llmJson(prompt, system = '') {
 
 // As llmJson, for callers that charge AI credits: returns
 // { data, usage: { inputTokens, outputTokens, model } }, or null when no
-// provider answered. `data` is null when the model answered but not in JSON —
-// that call still cost tokens, so its usage is still reported.
+// provider answered. `data` is null when the model answered but not in JSON;
+// `raw` is then the text it gave, so the caller can log what went wrong and
+// decide whether that call should be charged.
 export async function llmJsonMetered(prompt, system = '', { timeoutMs } = {}) {
   const viaGemini = await callGeminiDetailed(prompt, system, { json: true, timeoutMs });
-  if (viaGemini?.text) return { data: parseJsonReply(viaGemini.text), usage: viaGemini.usage };
+  if (viaGemini?.text) return { data: parseJsonReply(viaGemini.text), usage: viaGemini.usage, raw: viaGemini.text };
 
   const text = await callOllama(prompt, system);
   if (!text) return null;
   return {
+    raw: text,
     data: parseJsonReply(text),
     usage: { inputTokens: estimateTokens(`${system}\n\n${prompt}`), outputTokens: estimateTokens(text), model: env.OLLAMA_MODEL },
   };
