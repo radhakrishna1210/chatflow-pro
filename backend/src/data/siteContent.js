@@ -131,22 +131,28 @@ export const USE_CASES = [
 // therefore has no Plan row at all.
 export const PLAN_CARDS = [
   {
-    name: 'Basic', planKey: 'BASIC', popular: false,
-    price: '₹1,500', per: '/mo', note: 'or ₹3,500 per quarter',
+    name: 'Starter', planKey: 'BASIC', popular: false,
+    price: '₹1,500', per: '/mo', note: 'or ₹3,499 per quarter',
     desc: 'For a small team running its first campaigns.',
     features: ['1 WhatsApp number', 'Up to 10 team members', '10,000 messages per cycle', 'Campaigns, templates, team inbox', 'Workflows and auto-replies', 'Email support'],
   },
   {
     name: 'Growth', planKey: 'GROWTH', popular: true,
-    price: '₹2,500', per: '/mo', note: 'or ₹7,500 per quarter',
+    price: '₹2,799', per: '/mo', note: 'or ₹7,699 per quarter',
     desc: 'For teams whose WhatsApp runs itself.',
     features: ['Unlimited numbers and members', 'Unlimited messages', 'Campaign AI Agent', 'AI intent matching and smart replies', 'Retries with SMS and email fallback', 'Voice AI and Instagram flows', 'Revenue and delivery analytics', 'Priority support'],
+  },
+  {
+    name: 'Advanced', planKey: 'ADVANCED', popular: false,
+    price: '₹3,799', per: '/mo', note: 'or ₹10,499 per quarter',
+    desc: 'For teams leaning hard on the AI agents.',
+    features: ['Everything in Growth', '2,500 AI credits per cycle', 'Lowest price on extra AI credits'],
   },
   {
     name: 'Enterprise', planKey: null, popular: false, enquiry: true,
     price: 'Custom', per: '',
     desc: 'For volume, review requirements and bespoke work.',
-    features: ['Everything in Growth', 'Custom message volume', 'Dedicated account manager', 'SSO and audit logs', 'Custom integrations', 'SLA'],
+    features: ['Everything in Advanced','Custom message volume', 'Dedicated account manager', 'SSO and audit logs', 'Custom integrations', 'SLA'],
   },
 ];
 

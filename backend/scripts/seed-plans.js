@@ -26,13 +26,15 @@ const PLANS = [
     // meters usage — gating the feature only made the tab look broken.
     features: { automation: true, workflows: true },
   },
-  // Basic carries the former Pro limits and features; Growth carries the
-  // former Enterprise ones.
+  // The paid ladder is Starter / Growth / Advanced. The entry tier is sold as
+  // "Starter" but keeps the key BASIC (the STARTER key belongs to a retired
+  // legacy plan). It carries the former Pro limits and features; Growth
+  // carries the former Enterprise ones.
   {
     key: 'BASIC',
-    name: 'Basic',
+    name: 'Starter',
     priceMonthly: 1500,
-    priceQuarterly: 3500,
+    priceQuarterly: 3499,
     currency: 'INR',
     messageQuota: 10000,
     contactLimit: null,
@@ -47,8 +49,8 @@ const PLANS = [
   {
     key: 'GROWTH',
     name: 'Growth',
-    priceMonthly: 2500,
-    priceQuarterly: 7500,
+    priceMonthly: 2799,
+    priceQuarterly: 7699,
     currency: 'INR',
     messageQuota: -1,
     contactLimit: null,
@@ -56,6 +58,25 @@ const PLANS = [
     campaignLimit: null,
     apiKeyLimit: null,
     overageRatePerMsg: 0.008,
+    overageRates: null,
+    features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
+  },
+  // Same limits and feature flags as Growth; what it adds is a larger AI
+  // credit allowance at a lower top-up price.
+  {
+    key: 'ADVANCED',
+    name: 'Advanced',
+    priceMonthly: 3799,
+    priceQuarterly: 10499,
+    currency: 'INR',
+    messageQuota: -1,
+    contactLimit: null,
+    memberLimit: null,
+    campaignLimit: null,
+    apiKeyLimit: null,
+    overageRatePerMsg: 0.008,
+    aiCreditsMonthly: 2500,
+    aiCreditRate: 0.4,
     overageRates: null,
     features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
   },
