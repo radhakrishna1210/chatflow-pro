@@ -79,15 +79,18 @@ export default function WalletStatusBanner({ hideWhenHealthy = false, compact = 
         <I n={state.icon} s={15} c={state.accent} />
       </div>
 
-      <div style={{ flex: 1, minWidth: 200 }}>
+      <div style={{ flex: '1 1 200px', minWidth: 0 }}>
         <p style={{ fontSize: 13, fontWeight: 700, color: state.accent, marginBottom: 2 }}>{state.title}</p>
         {!compact && (
           <p style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>{state.message}</p>
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-        <div style={{ textAlign: 'right' }}>
+      {/* Allowed to shrink and wrap: with flexShrink 0 the balance, the runway
+          line and the Add Money button formed one unbreakable row wider than
+          a phone, and the button ran out of the card. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%', flex: '0 1 auto' }}>
+        <div style={{ textAlign: 'right', minWidth: 0 }}>
           <p style={{ fontSize: 10, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>Available</p>
           <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--t1)', fontVariantNumeric: 'tabular-nums' }}>{inr(wallet.balance)}</p>
           {/* Runway, not just rupees — it is what makes "low" mean something.

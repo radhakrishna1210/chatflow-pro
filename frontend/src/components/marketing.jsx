@@ -391,7 +391,11 @@ export const MARKETING_CSS = `
     -webkit-background-clip: text; background-clip: text;
   }
   .marquee-track { animation: marquee linear infinite; }
-  .marquee:hover .marquee-track { animation-play-state: paused; }
+  /* Pause-on-hover only where there is a pointer to move away again. On a
+     touch screen :hover sticks after a tap, which left the strip frozen. */
+  @media (hover: hover) {
+    .marquee:hover .marquee-track { animation-play-state: paused; }
+  }
   @keyframes marquee { to { transform: translateX(calc(-50% - 6px)); } }
   .grad-text {
     background: linear-gradient(90deg, var(--lime), var(--cyan), var(--violet), var(--cyan), var(--lime));
@@ -413,20 +417,32 @@ export const MARKETING_CSS = `
   }
   @media (max-width: 1024px) {
     .nav-burger { display: inline-flex !important; }
-    .calc { grid-template-columns: 1fr !important; gap: 26px !important; }
+    .calc { grid-template-columns: minmax(0, 1fr) !important; gap: 26px !important; }
     .hero-grid { flex-direction: column; align-items: flex-start !important; gap: 56px !important; }
     .hero-visual { width: 100%; }
-    .bento { grid-template-columns: repeat(2, 1fr) !important; }
+    .bento { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
     .bento > * { grid-column: span 1 !important; }
-    .case-grid, .plan-grid { grid-template-columns: repeat(2, 1fr) !important; }
-    .footer-grid { grid-template-columns: 1fr 1fr !important; }
+    .case-grid, .plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    .footer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
     .nav-links { display: none !important; }
   }
   @media (max-width: 720px) {
-    .hero-back-panel, .float-toast { display: none !important; }
+    .hero-back-panel { display: none !important; }
+    /* The toasts used to be hidden here, which took the hero's only ambient
+       motion off every phone. They hang outside the card on a wide screen;
+       on a narrow one they tuck under it instead, staggered so the two never
+       collide, and the visual reserves the room they hang into. */
+    .float-toast { padding: 8px 11px !important; }
+    .float-toast-0 { left: 0 !important; bottom: -60px !important; }
+    .float-toast-1 { right: 0 !important; bottom: -118px !important; }
+    .hero-visual { padding-bottom: 126px; }
     .nav-login { display: none !important; }
-    .steps-grid { grid-template-columns: 1fr !important; }
-    .step-connector { display: none !important; }
+    .steps-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 30px !important; }
+    /* Stacked steps: the connector turns to run down the column and draws
+       itself top to bottom, rather than being dropped. */
+    .step-connector { top: 24px !important; bottom: 24px !important; left: 50% !important; right: auto !important; width: 2px !important; height: auto !important; margin-left: -1px; }
+    .step-line { background: linear-gradient(180deg, var(--lime), var(--cyan)); transform-origin: 50% 0; transform: scaleY(0); }
+    .in .step-line { transform: scaleY(1); }
     .cmp-table td, .cmp-table th { padding: 11px 10px; font-size: 12.5px; }
     .cmp-table .cmp-theirs { display: none; }
     /* The deliberate line break is for the wide layout; on a phone it left
@@ -434,9 +450,9 @@ export const MARKETING_CSS = `
     .hero-heading br { display: none; }
     .hero-heading > span::after { content: ' '; }
     .cmp-table .cmp-vs { display: block !important; }
-    .proof-grid { grid-template-columns: 1fr 1fr !important; gap: 20px 0; }
+    .proof-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 20px 0; }
     .proof-grid > * { border-left: none !important; }
-    .bento, .case-grid, .plan-grid { grid-template-columns: 1fr !important; }
-    .footer-grid { grid-template-columns: 1fr !important; gap: 30px !important; }
+    .bento, .case-grid, .plan-grid { grid-template-columns: minmax(0, 1fr) !important; }
+    .footer-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 30px !important; }
   }
 `;

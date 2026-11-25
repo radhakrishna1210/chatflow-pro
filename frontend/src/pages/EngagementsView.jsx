@@ -282,7 +282,7 @@ export default function EngagementsView({ user, initialTab }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
       {/* ── TOP PAGE HEADER ── */}
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <MobileNavButton />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
@@ -478,7 +478,7 @@ export default function EngagementsView({ user, initialTab }) {
       </div>
 
       {/* ── MAIN DATA TABLE ── */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 24px 24px' }}>
+      <div className="dash-page" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 24px 24px' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
           <thead>
             <tr

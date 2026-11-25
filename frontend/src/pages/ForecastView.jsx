@@ -171,7 +171,7 @@ export const ForecastView = ({ user }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', gap: 12, flexWrap: 'wrap' }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Forecast</div>
           <div style={{ fontSize: 11.5, color: 'var(--t3)', marginTop: 2 }}>
@@ -186,7 +186,7 @@ export const ForecastView = ({ user }) => {
         </div>
       </div>
 
-      <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="dash-page" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {err && <ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner>}
         {rangeInvalid && <ErrorBanner>Choose a start date on or before the end date.</ErrorBanner>}
         {loading && <div style={{ fontSize: 12.5, color: 'var(--t3)' }}>Loading forecast…</div>}

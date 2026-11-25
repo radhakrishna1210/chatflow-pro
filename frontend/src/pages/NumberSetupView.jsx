@@ -148,7 +148,7 @@ const NumberCard = ({ number, isPrimary, onDisconnect, disconnecting, onRefresh 
             {number.displayName || 'No display name'}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
           <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '.06em', padding: '3px 8px', borderRadius: 6,
             background: isVerified ? 'var(--gbg)' : 'rgba(245,158,11,.08)',
             border: `1px solid ${isVerified ? 'var(--gbd)' : 'rgba(245,158,11,.28)'}`,
@@ -612,12 +612,12 @@ export default function NumberSetupView() {
         )}
 
         {/* Active number */}
-        <div style={{ ...card, padding:'22px 24px' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:18 }}>
+        <div style={{ ...card, padding:'22px 24px' }} className="card-pad">
+          <div style={{ display:'flex', alignItems:'center', gap:18, flexWrap:'wrap' }}>
             <div style={{ width:52, height:52, borderRadius:14, background:'var(--gbg)', border:'1px solid var(--gbd)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
               <I n={number ? 'checkc' : 'alertc'} s={24} c={number ? 'var(--green)' : '#fbbf24'} />
             </div>
-            <div style={{ flex:1 }}>
+            <div style={{ flex:'1 1 180px', minWidth:0 }}>
               <p style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:800, fontSize:22, color:'var(--t1)', letterSpacing:'-.03em', marginBottom:6 }}>{number?.phoneNumber || 'No number connected'}</p>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
                 {number?.codeVerificationStatus && (
@@ -644,7 +644,7 @@ export default function NumberSetupView() {
                 refreshing (which provision or re-read billable resources on
                 the business account) stay admin-only. */}
             {(isAdmin || (number && canDisconnect)) && (
-              <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
                 {isAdmin && (
                 <Btn variant="outline" onClick={async () => {
                   setRefreshing(true);
@@ -717,8 +717,8 @@ export default function NumberSetupView() {
         {/* Connect via Meta */}
         {isAdmin && <div style={{ ...card, border:'2px solid var(--gbd)', padding:'22px 24px', position:'relative' }}>
           <span style={{ position:'absolute', top:-11, left:20, padding:'2px 10px', borderRadius:10, fontSize:11, fontWeight:700, background:'var(--green)', color:'#05080f' }}>Recommended</span>
-          <div style={{ display:'flex', alignItems:'flex-start', gap:18 }}>
-            <div style={{ flex:1 }}>
+          <div style={{ display:'flex', alignItems:'flex-start', gap:18, flexWrap:'wrap' }}>
+            <div style={{ flex:'1 1 240px', minWidth:0 }}>
               <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M8 12c0-2.21 1.79-4 4-4s4 1.79 4 4-1.79 4-4 4"/><circle cx="12" cy="12" r="2"/></svg>
                 <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:15, color:'var(--t1)' }}>Connect via Meta</span>

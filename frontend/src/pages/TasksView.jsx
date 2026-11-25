@@ -192,7 +192,7 @@ export default function TasksView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
       {/* Top Header */}
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Tasks</span>
           <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{tasks.length} task{tasks.length === 1 ? '' : 's'}</span>
@@ -221,7 +221,7 @@ export default function TasksView() {
         </div>
       </div>
 
-      <div style={{ padding: '24px', flex: 1 }}>
+      <div className="dash-page" style={{ padding: '24px', flex: 1 }}>
         {err && <ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner>}
 
         {selected.size > 0 && (

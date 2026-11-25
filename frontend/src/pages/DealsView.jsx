@@ -579,7 +579,7 @@ export default function DealsView({ initialTab }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: mobile ? '10px 16px' : '10px 28px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 10 }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: mobile ? '10px 16px' : '10px 28px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Deals</span>
           <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{deals.length}</span>

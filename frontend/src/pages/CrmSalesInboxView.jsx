@@ -727,8 +727,8 @@ export default function CrmSalesInboxView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%', overflow: 'hidden' }}>
       {/* Top Header Bar */}
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <I n="msg" s={18} c="var(--accent, #2af5d6)" />
             <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 17, fontWeight: 700, color: 'var(--t1)' }}>CRM Sales Inbox</span>
@@ -739,7 +739,10 @@ export default function CrmSalesInboxView() {
         </div>
 
         {/* TAB SWITCHER */}
-        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', padding: 3, borderRadius: 8, border: '1px solid var(--bd)' }}>
+        {/* Three labelled tabs are wider than a phone; .hscroll lets the strip
+            scroll under the thumb instead of squeezing the labels onto two
+            lines and clipping the last one. */}
+        <div className="hscroll" style={{ display: 'flex', maxWidth: '100%', whiteSpace: 'nowrap', background: 'rgba(255,255,255,0.04)', padding: 3, borderRadius: 8, border: '1px solid var(--bd)' }}>
           <button
             onClick={() => setActiveTab('individual')}
             style={{
@@ -1352,7 +1355,7 @@ export default function CrmSalesInboxView() {
               1. Select CRM Segment & Filters
             </h3>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+            <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
               <div>
                 <FLabel>Lead Category Segment</FLabel>
                 <FSelect value={segCategory} onChange={(e) => setSegCategory(e.target.value)}>
@@ -1386,7 +1389,7 @@ export default function CrmSalesInboxView() {
           </div>
 
           {/* AUDIENCE REVIEW SUMMARY CARDS */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+          <div className="rgrid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
             <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: 20 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', textTransform: 'uppercase' }}>
                 Total Matching CRM Leads
@@ -1418,7 +1421,7 @@ export default function CrmSalesInboxView() {
 
           {/* LAUNCH BAR & AUDIENCE REVIEW TABLE */}
           <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 14, padding: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--t1)' }}>
                 2. Audience Review ({(audienceData?.leads || []).length} Leads)
               </h3>
@@ -1543,7 +1546,7 @@ export default function CrmSalesInboxView() {
       {activeTab === 'analytics' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
           {/* TOP STATS CARDS */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, flexShrink: 0 }}>
+          <div className="rgrid-5" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, flexShrink: 0 }}>
             <div style={{ background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--card-shadow)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--t2)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Target Audience

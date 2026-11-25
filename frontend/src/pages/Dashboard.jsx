@@ -178,6 +178,9 @@ const ProfileMenu = () => {
           // unreachable at 100% zoom and only appeared once zooming out made the
           // viewport taller in CSS pixels. Cap the height and let it scroll.
           maxHeight:'calc(100vh - 96px)', overflowY:'auto', overflowX:'hidden',
+          // The menu is 280px wide and anchored to the avatar; on a narrow
+          // phone that must not run off the left edge.
+          maxWidth:'calc(100vw - 24px)',
         }}>
           {/* Header — identity */}
           <div style={{ padding:'16px 18px', display:'flex', alignItems:'center', gap:12, borderBottom:'1px solid var(--bd)', background:'linear-gradient(135deg, rgba(var(--accent-rgb),0.06), transparent)' }}>
@@ -746,7 +749,7 @@ const LegalView = ({ initialTab }) => {
   return (
     <div data-legal-scroll style={{ flex: 1, overflowY: 'auto' }}>
       <DashHeader title="Legal & Policies" subtitle="Terms, privacy, refunds and cookies" />
-      <div style={{ padding: '24px 28px' }}>
+      <div className="dash-page" style={{ padding: '24px 28px' }}>
         <LegalCenter active={active} onSelect={select} compact />
       </div>
     </div>
@@ -818,7 +821,7 @@ const HomeView = () => {
   return (
     <div style={{ flex: 1, overflowY: 'auto' }}>
       <DashHeader title="Dashboard" subtitle={niceDateLabel()} />
-      <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      <div className="dash-page" style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
         {loading && (
           <div style={{ textAlign:'center', padding:'40px 0', color:'var(--t2)', fontSize:13 }}>
             <div style={{ width:24, height:24, border:'2px solid var(--green)', borderTopColor:'transparent', borderRadius:'50%', margin:'0 auto 10px', animation:'spin 1s linear infinite' }} />
@@ -2059,10 +2062,10 @@ const TemplatesView = () => {
             with more than one must pick which number Library installs and
             Meta syncs apply to. */}
         {numbers.length > 1 && (
-          <div style={{ marginBottom:16, display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ marginBottom:16, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
             <label style={{ fontSize:12, fontWeight:700, color:'var(--t2)', whiteSpace:'nowrap' }}>WhatsApp Number</label>
             <select value={waNumberId} onChange={e => setWaNumberId(e.target.value)}
-              style={{ maxWidth:280, padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box', appearance:'auto', colorScheme:'dark' }}>
+              style={{ maxWidth:280, minWidth:0, flex:'1 1 180px', padding:'9px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none', boxSizing:'border-box', appearance:'auto', colorScheme:'dark' }}>
               <option value="">Select a number…</option>
               {numbers.map(n => <option key={n.id} value={n.id}>{n.phoneNumber}{n.displayName ? ` · ${n.displayName}` : ''}</option>)}
             </select>
@@ -3246,7 +3249,10 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
     // Two very low-opacity washes behind everything, so the panels above them
     // read as translucent panes rather than flat blocks. Static, not animated:
     // this is a work surface, not a landing page.
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'radial-gradient(1200px 600px at 12% -8%, rgba(var(--accent-rgb),0.07), transparent 60%), radial-gradient(1000px 520px at 100% 0%, rgba(var(--violet-rgb),0.06), transparent 62%), #060B18' }}>
+    // Height comes from .app-shell (100dvh with a 100vh fallback) rather than
+    // an inline 100vh: on a phone 100vh is taller than the visible area, which
+    // pushed the bottom tab bar under the browser's own toolbar.
+    <div className="app-shell" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'radial-gradient(1200px 600px at 12% -8%, rgba(var(--accent-rgb),0.07), transparent 60%), radial-gradient(1000px 520px at 100% 0%, rgba(var(--violet-rgb),0.06), transparent 62%), #060B18' }}>
       {impersonator && (
         <div style={{ flexShrink: 0, height: 38, background: 'linear-gradient(135deg, rgba(245,158,11,.16), rgba(245,158,11,.06))', borderBottom: '1px solid rgba(245,158,11,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 12.5, color: '#fbbf24', fontWeight: 600 }}>
           <I n="eye" s={13} c="#fbbf24" />
@@ -3265,7 +3271,12 @@ export default function Dashboard({ onNav, routePath, routeSearch }) {
             sat on the last table row's actions, and most CRM views scroll
             inside their own container, so padding the page alone can't clear
             it. Reserving the strip here keeps every inner scroller above it. */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0, paddingBottom: isCrmTab && !copilotOpen ? 72 : 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: (isInbox || page === 'campaigns-create') ? 'hidden' : 'auto', minWidth: 0,
+          // On a phone every page has a floating launcher bottom-right (the
+          // assistant, or "Ask your CRM"), so the pane always reserves the
+          // strip — otherwise the last row's actions can never be scrolled
+          // out from under it. The two full-height screens manage their own.
+          paddingBottom: (isCrmTab && !copilotOpen) || (mobile && !isInbox && page !== 'campaigns-create') ? 72 : 0 }}>
           <Suspense fallback={
             <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--t2)', fontSize: 13 }}>
               <div style={{ width: 24, height: 24, border: '2px solid var(--green)', borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 10px', animation: 'spin 1s linear infinite' }} />

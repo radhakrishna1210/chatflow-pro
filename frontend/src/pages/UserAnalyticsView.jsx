@@ -56,6 +56,9 @@ const Avatar = ({ name = '?', size = 30 }) => {
 
 // ─── growth ──────────────────────────────────────────────────────────────────
 
+// Tallest bar, in px: the 150px row less the value label above each bar.
+const GROWTH_BAR_MAX = 124;
+
 const GrowthChart = ({ growth }) => {
   const max = Math.max(1, ...growth.map(g => g.added));
   return (
@@ -65,17 +68,22 @@ const GrowthChart = ({ growth }) => {
           <div key={g.label} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:6, minWidth:0 }}>
             <span style={{ fontFamily:'var(--mono)', fontSize:9.5, color:'var(--t3)' }}>{g.added || ''}</span>
             <div title={`${g.added} added in the week of ${g.label}`}
-              style={{ width:'100%', height:`${Math.max(2, (g.added / max) * 100)}%`, minHeight:2, borderRadius:'4px 4px 0 0', background:'linear-gradient(180deg, var(--cyan), rgba(var(--accent-rgb),0.25))' }} />
+              // Pixels, not a percentage: the column has no definite height
+              // (it is bottom-aligned in the row), so `height: N%` resolved to
+              // auto and every bar drew at its 2px minimum whatever its value.
+              style={{ width:'100%', height: Math.max(2, Math.round((g.added / max) * GROWTH_BAR_MAX)), minHeight:2, borderRadius:'4px 4px 0 0', background:'linear-gradient(180deg, var(--cyan), rgba(var(--accent-rgb),0.25))' }} />
           </div>
         ))}
       </div>
       <div style={{ display:'flex', gap:6, marginTop:8 }}>
-        {growth.map((g, i) => (
-          <span key={g.label} style={{ flex:1, textAlign:'center', fontSize:9, color:'var(--t3)', minWidth:0, overflow:'hidden', whiteSpace:'nowrap' }}>
-            {/* Every other label on a 12-week chart: all twelve overlap. */}
-            {i % 2 === 0 ? g.label : ''}
+        {/* Every other label on a 12-week chart: all twelve overlap. Each one
+            spans its own bar and the next, so "23 Sep" has two columns of
+            room instead of being cut to "23 S" on a phone. */}
+        {growth.map((g, i) => (i % 2 === 0 ? (
+          <span key={g.label} style={{ flex: i === growth.length - 1 ? 1 : 2, textAlign:'left', fontSize:9, color:'var(--t3)', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {g.label}
           </span>
-        ))}
+        ) : null))}
       </div>
     </div>
   );

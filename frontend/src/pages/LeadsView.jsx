@@ -1356,7 +1356,7 @@ export default function LeadsView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
       {/* Top Header */}
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: mobile ? '10px 16px' : '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 10 }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: mobile ? '10px 16px' : '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Leads Workspace</span>
           <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{leads.length} leads</span>
@@ -1668,14 +1668,17 @@ export default function LeadsView() {
                     {/* Operational Next Task / Activity Indicator (Gap Analysis Part 1, Page 3; Part 2, Page 17) */}
                     {earliestTask ? (
                       <div style={{ fontSize: 10.5, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <span>⏳</span>
-                        <span>{earliestTask.title}</span>
-                        {earliestTask.dueDate && <span>({new Date(earliestTask.dueDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })})</span>}
+                        <span style={{ flexShrink: 0 }}>⏳</span>
+                        {/* The title is the part that gives way. text-overflow on
+                            the flex row itself does nothing, so a long title
+                            used to push the due date out of the card. */}
+                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{earliestTask.title}</span>
+                        {earliestTask.dueDate && <span style={{ flexShrink: 0 }}>({new Date(earliestTask.dueDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })})</span>}
                       </div>
                     ) : latestAct ? (
                       <div style={{ fontSize: 10.5, color: 'var(--t3)', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <span>💬</span>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{pretty(latestAct.type)}: {activityText(latestAct.content)}</span>
+                        <span style={{ flexShrink: 0 }}>💬</span>
+                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{pretty(latestAct.type)}: {activityText(latestAct.content)}</span>
                       </div>
                     ) : (
                       <div style={{ fontSize: 10, color: '#f87171' }}>⚠️ Awaiting first task</div>

@@ -548,7 +548,7 @@ const FormDetail = ({ form, onClose, onEdit, onChanged }) => {
         <div>
           <FLabel>Public URL</FLabel>
           <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 0, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--bd)', background: 'rgba(255,255,255,.02)', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--t2)', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+            <div style={{ flex: '1 1 220px', minWidth: 0, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--bd)', background: 'rgba(255,255,255,.02)', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--t2)', overflowX: 'auto', whiteSpace: 'nowrap' }}>
               {url}
             </div>
             <Btn variant="ghost" size="sm" onClick={copy}>
@@ -644,7 +644,7 @@ export default function LeadFormsView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
       {/* Top Header */}
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
             <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Lead Forms</span>

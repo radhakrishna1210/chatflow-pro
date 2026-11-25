@@ -32,13 +32,13 @@ const PAGE_CSS = `
   .ca-limits{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
   .ca-row   { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 0; align-items: center; }
   @media (max-width: 1024px) {
-    .ca-hero  { grid-template-columns: 1fr; gap: 44px; }
-    .ca-steps { grid-template-columns: repeat(2, 1fr); }
-    .ca-caps  { grid-template-columns: repeat(2, 1fr); }
-    .ca-cases { grid-template-columns: repeat(2, 1fr); }
+    .ca-hero  { grid-template-columns: minmax(0, 1fr); gap: 44px; }
+    .ca-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ca-caps  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ca-cases { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   @media (max-width: 720px) {
-    .ca-steps, .ca-caps, .ca-cases, .ca-limits { grid-template-columns: 1fr; }
+    .ca-steps, .ca-caps, .ca-cases, .ca-limits { grid-template-columns: minmax(0, 1fr); }
   }
 `;
 

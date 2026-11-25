@@ -224,7 +224,7 @@ export function CrmDashboardView({ user }) {
         </div>
       )}
       {/* Top Header Bar */}
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 28px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 28px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
             <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>
@@ -338,9 +338,9 @@ export function CrmDashboardView({ user }) {
       </div>
 
       {/* Main Content Area - Full width space utilization */}
-      <div style={{ padding: '24px 28px', width: '100%', boxSizing: 'border-box', fontFamily: 'Inter, sans-serif' }}>
+      <div className="dash-page" style={{ padding: '24px 28px', width: '100%', boxSizing: 'border-box', fontFamily: 'Inter, sans-serif' }}>
         {/* Primary Dashboard Navigation Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 28, gap: 24 }}>
+        <div className="hscroll" style={{ whiteSpace: 'nowrap', display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 28, gap: 24 }}>
         <button
           onClick={() => setActiveTab('overview')}
           style={{
@@ -408,7 +408,7 @@ export function CrmDashboardView({ user }) {
       {activeTab === 'overview' && (
         <div>
           {/* Top 4 Pipeline KPIs (Gap Analysis Part 1, Page 2) */}
-          <div style={{
+          <div className="rgrid-kpi" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(4, 1fr)',
             gap: 16,
@@ -452,7 +452,7 @@ export function CrmDashboardView({ user }) {
           </div>
 
           {/* Secondary Financial & Conversion Metrics */}
-          <div style={{
+          <div className="rgrid-kpi" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(4, 1fr)',
             gap: 16,
@@ -527,7 +527,7 @@ export function CrmDashboardView({ user }) {
           </div>
 
           {/* Charts Row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 24, marginBottom: 32 }}>
+          <div className="dash-split" style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 24, marginBottom: 32 }}>
             {/* Area Chart: Closed Won vs New Pipeline */}
             <div>
               <div style={{ marginBottom: 14 }}>
@@ -608,7 +608,7 @@ export function CrmDashboardView({ user }) {
           </div>
 
           {/* Deals In Progress & Recent Activity */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 24, marginBottom: 32 }}>
+          <div className="dash-split" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 24, marginBottom: 32 }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                 <h3 style={{ fontSize: 13.5, fontWeight: 600, color: '#fff', margin: 0 }}>Top deals in progress</h3>

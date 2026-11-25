@@ -183,12 +183,13 @@ export default function CustomizeBusinessView({ user, initialTab }) {
       )}
 
       {/* Top Header Bar */}
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <div
             style={{
               width: 32,
               height: 32,
+              flexShrink: 0,
               borderRadius: 8,
               background: 'rgba(59, 130, 246, 0.15)',
               color: 'var(--accent, #3b82f6)',
@@ -209,7 +210,7 @@ export default function CustomizeBusinessView({ user, initialTab }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="head-actions" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {hasUnsavedChanges && (
             <span
               style={{
@@ -251,10 +252,11 @@ export default function CustomizeBusinessView({ user, initialTab }) {
         </div>
       </div>
 
-      <div style={{ padding: '24px 32px', width: '100%', boxSizing: 'border-box' }}>
+      <div className="dash-page" style={{ padding: '24px 32px', width: '100%', boxSizing: 'border-box' }}>
 
       {/* Tab Navigation Pill Bar */}
       <div
+        className="hscroll"
         style={{
           display: 'flex',
           gap: 6,
@@ -295,6 +297,7 @@ export default function CustomizeBusinessView({ user, initialTab }) {
 
       {/* Main Tab Content */}
       <div
+        className="card-pad"
         style={{
           background: 'var(--bg-surface)',
           border: '1px solid var(--border)',

@@ -424,7 +424,7 @@ export default function TicketsView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
       {/* Top Header */}
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
             <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Support Tickets</span>
@@ -437,7 +437,7 @@ export default function TicketsView() {
         <Btn size="sm" onClick={() => setCreating(true)}><I n="plus" s={14} c="#060A10" /> New ticket</Btn>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '24px 32px', flex: 1 }}>
+      <div className="dash-page" style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '24px 32px', flex: 1 }}>
 
       {error && <ErrorBanner onDismiss={() => setError(null)}>{error}</ErrorBanner>}
 

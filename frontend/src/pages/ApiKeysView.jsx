@@ -322,9 +322,9 @@ export default function ApiKeysView() {
                   </p>
                 </div>
               )}
-              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
               <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Key name (optional)"
-                style={{ flex:1, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none' }}
+                style={{ flex:'1 1 160px', minWidth:0, padding:'8px 12px', borderRadius:8, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', color:'var(--t1)', fontSize:13, fontFamily:"'Manrope',sans-serif", outline:'none' }}
                 onKeyDown={e=>e.key==='Enter'&&generate()} />
               <Btn size="sm" style={{ background:'rgba(var(--accent-rgb),0.1)', color:'var(--green)', border:'1px solid var(--gbd)' }} onClick={generate}>
                 <I n="plus" s={13} c="var(--green)" />

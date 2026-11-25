@@ -236,9 +236,9 @@ const selectStyle = { ...inputStyle, cursor: 'pointer', colorScheme: 'dark' };
 const optionStyle = { background: '#0b1220', color: '#e8eaf0' };
 
 const StatCard = ({ label, value, color = 'var(--t1)' }) => (
-  <div style={{ ...card, padding: 16 }}>
+  <div style={{ ...card, padding: 16, minWidth: 0 }}>
     <span style={{ fontSize: 11, color: 'var(--t3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</span>
-    <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 20, color, marginTop: 4 }}>{value}</div>
+    <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 'clamp(15px, 4.6vw, 20px)', color, marginTop: 4, overflowWrap: 'anywhere' }}>{value}</div>
   </div>
 );
 
@@ -1076,9 +1076,9 @@ function PaymentsTab({ workspaces }) {
               <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>By workspace</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {s.byWorkspace.map(w => (
-                  <div key={w.workspaceId} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--bd)', fontSize: 12.5 }}>
-                    <span style={{ color: 'var(--t1)' }}>{w.workspaceName}</span>
-                    <span style={{ color: 'var(--t2)' }}>{money(w.total)} · {w.count} payment{w.count === 1 ? '' : 's'}</span>
+                  <div key={w.workspaceId} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '7px 0', borderBottom: '1px solid var(--bd)', fontSize: 12.5 }}>
+                    <span style={{ color: 'var(--t1)', minWidth: 0 }}>{w.workspaceName}</span>
+                    <span style={{ color: 'var(--t2)', flexShrink: 0, textAlign: 'right' }}>{money(w.total)} · {w.count} payment{w.count === 1 ? '' : 's'}</span>
                   </div>
                 ))}
               </div>
@@ -1548,11 +1548,13 @@ export default function SuperAdminView({ tab }) {
             {tickets.length === 0 && <div style={{ ...card, padding: 32, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>No support tickets.</div>}
             {tickets.map((t) => (
               <div key={t.id} style={{ ...card, padding: '16px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)' }}>{t.subject}</p>
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 12, background: 'rgba(255,255,255,0.05)', color: 'var(--t3)', textTransform: 'uppercase' }}>{t.category}</span>
+                {/* Wraps: on a phone the status and its buttons drop under the
+                    message instead of squeezing it into a 120px column. */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 0, flex: '1 1 240px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                      <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--t1)', minWidth: 0 }}>{t.subject}</p>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 12, background: 'rgba(255,255,255,0.05)', color: 'var(--t3)', textTransform: 'uppercase', flexShrink: 0 }}>{t.category}</span>
                     </div>
                     <p style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.5, marginBottom: 6 }}>{t.message}</p>
                     <p style={{ fontSize: 11, color: 'var(--t3)' }}>{t.workspace?.name || '—'} · {new Date(t.createdAt).toLocaleString('en-IN')}</p>

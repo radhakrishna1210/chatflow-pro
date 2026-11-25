@@ -73,8 +73,17 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  /* Phones in landscape otherwise inflate text they judge "too small", which
+     breaks every fixed-height row in the dashboard. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 body {
+  /* The grey flash a touch browser paints over a tapped element. Every control
+     here has its own pressed state, so the flash only reads as a glitch. */
+  -webkit-tap-highlight-color: transparent;
   background: var(--bg);
   color: var(--t1);
   font-family: 'Manrope', system-ui, sans-serif;
@@ -159,7 +168,16 @@ a { color: inherit; text-decoration: none; }
 
 /* Interactive surfaces: one hover treatment, applied consistently. */
 .m-lift { transition: transform var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard); }
-.m-lift:hover { transform: translateY(-1px); }
+/* Hover is gated to devices that can hover. A touch screen has no pointer to
+   leave with, so a :hover rule there sticks after a tap until something else
+   is touched — a card left raised, a marquee left paused. Touch gets the same
+   feedback on :active instead, which ends when the finger lifts. */
+@media (hover: hover) {
+  .m-lift:hover { transform: translateY(-1px); }
+}
+@media (hover: none) {
+  .m-lift:active { transform: scale(.985); }
+}
 .m-press { transition: transform var(--dur-instant) var(--ease-standard); }
 .m-press:active { transform: scale(.97); }
 
@@ -220,9 +238,17 @@ a { color: inherit; text-decoration: none; }
   background: radial-gradient(340px circle at var(--mx,50%) var(--my,0%), rgba(255,255,255,.07), transparent 62%);
   opacity: 0; transition: opacity .35s ease;
 }
-.glass-lit:hover::after { opacity: 1; }
 .glass-lift { transition: transform .3s cubic-bezier(.2,.7,.3,1), border-color .3s ease; }
-.glass-lift:hover { transform: translateY(-3px); border-color: rgba(255,255,255,.18); }
+@media (hover: hover) {
+  .glass-lit:hover::after { opacity: 1; }
+  .glass-lift:hover { transform: translateY(-3px); border-color: rgba(255,255,255,.18); }
+}
+/* The touch equivalent: the pane lights where it is pressed and settles
+   slightly, then releases with the finger. */
+@media (hover: none) {
+  .glass-lit:active::after { opacity: 1; }
+  .glass-lift:active { transform: scale(.985); border-color: rgba(255,255,255,.18); }
+}
 
 /* Enters once, on scroll. Stagger comes from an inline transition-delay. */
 .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s cubic-bezier(.2,.7,.3,1), transform .6s cubic-bezier(.2,.7,.3,1); }
@@ -271,7 +297,9 @@ button:not(:disabled):active { transform: translateY(1px); }
 
 /* Rows in every list view respond to the pointer. */
 tbody tr { transition: background .14s ease; }
-tbody tr:hover { background: rgba(255,255,255,0.022); }
+@media (hover: hover) {
+  tbody tr:hover { background: rgba(255,255,255,0.022); }
+}
 
 /* Keyboard users get the same affordances as mouse users. */
 :where(a, button, [tabindex]):focus-visible {
@@ -316,7 +344,7 @@ tbody tr:hover { background: rgba(255,255,255,0.022); }
      purpose was to animate into view stays fully visible and in place. */
   .m-rise, .m-check, .m-celebrate, .m-value { animation: none; opacity: 1; transform: none; }
   .m-settle { animation: none; }
-  .m-lift:hover, .m-press:active { transform: none; }
+  .m-lift:hover, .m-lift:active, .m-press:active, .glass-lift:active { transform: none; }
 }
 
 /* ── Legal centre prose ──────────────────────────────────────────────────
@@ -396,6 +424,11 @@ tbody tr:hover { background: rgba(255,255,255,0.022); }
 @media (max-width: 1100px) {
   .rgrid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   .rail-split { grid-template-columns: minmax(0, 1fr) !important; }
+}
+/* KPI tiles: small enough to sit two-up on a phone, where a single column
+   would put four numbers on four screens. */
+@media (max-width: 900px) {
+  .rgrid-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; }
 }
 @media (max-width: 900px) {
   .rgrid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
@@ -497,3 +530,93 @@ tbody tr:hover { background: rgba(255,255,255,0.022); }
   content: ''; width: 32%; height: 32%; border-radius: 50%;
   background: var(--accent); box-shadow: 0 0 8px var(--accent);
 }
+
+/* ── Viewport height ─────────────────────────────────────────────────────────
+   On a phone `100vh` is the height with the browser's address bar *hidden*, so
+   a full-height shell is taller than what is actually visible and its last row
+   — the dashboard's bottom tab bar — sits under the browser chrome. `dvh`
+   tracks the visible height. Declared twice so a browser without dvh keeps the
+   old behaviour rather than getting no height at all, which is also why this is
+   a class: an inline style cannot carry a fallback. */
+.app-shell {
+  height: 100vh; height: 100dvh;
+  /* Customer data is full of strings with no break opportunity — URLs, email
+     addresses, snake_case keys, hashes. Left alone they run straight out of
+     their card on a narrow screen. break-word only breaks a word that would
+     otherwise overflow, and (unlike `anywhere`) does not let columns collapse
+     to one letter wide. Inherited by everything in the dashboard. */
+  overflow-wrap: break-word;
+  /* Also the containing block for anything absolutely positioned inside the
+     dashboard. Without it a .sr-only label in the far column of a wide,
+     sideways-scrolling table is positioned against the page, escapes the
+     table's scroller, and makes the whole document 700px wide on a phone. */
+  position: relative;
+}
+
+/* ── Touch ergonomics ────────────────────────────────────────────────────────
+   iOS Safari zooms the page when a focused field's text is under 16px, and does
+   not zoom back out — the layout is left scrolled sideways after every tap into
+   a form. The dashboard sets its fields at 12–13.5px inline, hence !important.
+   Scoped to touch devices at phone/tablet widths so the dense desktop scale is
+   untouched. */
+@media (max-width: 860px) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ── Tables on small screens ─────────────────────────────────────────────────
+   Most tables in the dashboard sit directly inside a rounded card that sets
+   `overflow: hidden` to clip the corners. On a phone that same rule clips the
+   table: the right-hand columns — usually the row actions — are simply cut off
+   with no way to reach them. Below the shell breakpoint the wrapper scrolls
+   sideways instead. Written against the structure (`:has(> table)`) rather than
+   a class so it covers the ~40 tables that exist and the next one someone adds.
+
+   Header cells stop wrapping at the same point: that gives every column a
+   sensible floor, so the table scrolls rather than crushing six columns into
+   300px of one-word-per-line text. */
+@media (max-width: 860px) {
+  .app-shell :is(div, section):has(> table) {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .app-shell th { white-space: nowrap; }
+  /* A table told to be 100% of a 328px card shares that width between every
+     column, and the browser takes it from the one column that can wrap — so a
+     task title or campaign name ended up 90px wide and nine lines tall while
+     the rest sat off-screen anyway. Sizing to content instead gives each
+     column its natural width, capped so a long description still wraps, and
+     the wrapper above scrolls. min-width keeps a short table filling its card. */
+  .app-shell table { width: max-content !important; min-width: 100% !important; }
+  .app-shell :is(td, th) { max-width: 240px; }
+}
+
+/* Cards that carry a roomy desktop inset. Inside a 16px page gutter a 24–32px
+   card inset leaves under 250px for the content on a 360px phone. */
+@media (max-width: 720px) {
+  .card-pad { padding: 16px !important; }
+  /* A header's action cluster: let it wrap under the title and share the row
+     evenly instead of running off the right edge. */
+  .head-actions { flex-wrap: wrap; width: 100%; }
+  .head-actions > button { flex: 1 1 auto; justify-content: center; }
+}
+
+/* Working-hours rows: day toggle, start, "to", end. On a phone the day takes
+   its own line so the two time fields sit together beneath it, rather than
+   the end time wrapping alone under the word "to". */
+@media (max-width: 520px) {
+  .hours-row > :first-child { width: 100% !important; }
+}
+
+/* Horizontal strips (tab rows, filter chips) scroll with the thumb on a phone
+   and do not need a scrollbar drawn under them. */
+.hscroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.hscroll::-webkit-scrollbar { display: none; }
+.hscroll > * { flex-shrink: 0; }

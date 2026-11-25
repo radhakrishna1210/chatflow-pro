@@ -443,12 +443,16 @@ export default function AnalyticsView() {
             <p style={{ textAlign:'center', padding:'30px 0', color:'var(--t3)', fontSize:12 }}>No campaign sends in the last {range} days yet.</p>
           )}
           {/* bars */}
-          <div style={{ display:'flex', gap:8, alignItems:'flex-end', height:BAR_H+48 }}>
+          {/* A bar per day cannot shrink below its own "97.9%" label, so 14 or
+              30 of them are wider than a phone. The strip scrolls inside the
+              card instead of dragging the whole page sideways. */}
+          <div className="dash-scroll-x" style={{ paddingBottom: 4 }}>
+          <div style={{ display:'flex', gap:8, alignItems:'flex-end', height:BAR_H+48, minWidth:'min-content' }}>
             {delivery.map((d, i) => {
               const h = Math.max(8, (d.sent / maxBar) * BAR_H);
               const bc = barColor(d.rate);
               return (
-                <div key={d.iso || `${d.date}-${i}`} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                <div key={d.iso || `${d.date}-${i}`} style={{ flex:'1 0 34px', display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
                   <span style={{ fontSize:11, fontWeight:700, color:bc }}>{d.rate}%</span>
                   <div style={{ width:'100%', maxWidth:48 }}>
                     <div style={{ height:h, borderRadius:'6px 6px 0 0', background:bc, opacity:0.85, transition:'height .3s', position:'relative' }}>
@@ -459,6 +463,7 @@ export default function AnalyticsView() {
                 </div>
               );
             })}
+          </div>
           </div>
 
           {/* legend */}

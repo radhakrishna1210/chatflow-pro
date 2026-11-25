@@ -799,9 +799,9 @@ export default function WidgetsView() {
                   <div style={{ width: 34, height: 34, borderRadius: 9, background: `${w.config?.primaryColor || '#2af5d6'}18`, border: `1px solid ${w.config?.primaryColor || '#2af5d6'}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <I n="msg" s={15} c={w.config?.primaryColor || '#2af5d6'} />
                   </div>
-                  <div style={{ flex: 1, minWidth: 160 }}>
+                  <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                      <p style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)' }}>{w.name}</p>
+                      <p style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--t1)', minWidth: 0 }}>{w.name}</p>
                       <span style={{ padding: '1px 7px', borderRadius: 8, fontSize: 10, fontWeight: 700, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--bd)', color: 'var(--t2)' }}>
                         {TYPES.find(t => t.id === w.type)?.label || w.type}
                       </span>

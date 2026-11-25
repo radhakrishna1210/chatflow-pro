@@ -216,15 +216,22 @@ export default function SiteAssistant() {
   const p = typeof window !== 'undefined' ? window.location.pathname : '';
   const overTabBar = mobile && (p.startsWith('/dashboard') || p.startsWith('/resources'));
   const launcherBottom = overTabBar ? 'calc(76px + env(safe-area-inset-bottom, 0px))' : 22;
+  // Two phone screens keep their primary action pinned bottom-right — the
+  // inbox composer's Send and the campaign wizard's Go Live. A floating
+  // launcher there sits on the one button the screen exists for, so it steps
+  // aside; the assistant is still one tap away from every other screen.
+  const ownsBottomRight = mobile && (p === '/dashboard/inbox' || p.startsWith('/dashboard/campaigns/create'));
+  const size = mobile ? 46 : 52;
 
   if (!open) {
+    if (ownsBottomRight) return null;
     return (
       <button
         onClick={() => setOpen(true)}
         aria-label="Open the Svann assistant"
         style={{
           position: 'fixed', right: overTabBar ? 14 : 22, bottom: launcherBottom, zIndex: 900,
-          width: 52, height: 52, borderRadius: '50%',
+          width: size, height: size, borderRadius: '50%',
           background: 'var(--green)', border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: '0 8px 30px rgba(var(--accent-rgb),0.38), inset 0 1px 0 rgba(255,255,255,0.25)',
@@ -390,10 +397,16 @@ const ASSISTANT_CSS = `
   }
   /* On a phone the panel takes the screen: a 386px card floating over a
      360px viewport is just a broken layout with a shadow. */
+  /* dvh, not vh: on a phone 100vh is taller than the visible area, so a panel
+     capped against it ran up under the address bar and took its own close
+     button with it. A browser without dvh drops this line and keeps the
+     inline vh cap. */
+  .cfp-assistant { max-height: calc(100dvh - 44px) !important; }
   @media (max-width: 480px) {
     .cfp-assistant {
       right: 8px !important; bottom: 8px !important; left: 8px !important;
       width: auto !important; max-height: calc(100vh - 16px) !important;
+      max-height: calc(100dvh - 16px) !important;
     }
   }
 `;

@@ -300,18 +300,18 @@ const WorkingHours = ({ cfg, patch, saving }) => {
           </div>
 
           {(hours?.days || []).map(d => (
-            <div key={d.day} style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+            <div key={d.day} className="hours-row" style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
               <div style={{ width:110, display:'flex', alignItems:'center', gap:8 }}>
                 <Toggle on={d.enabled} onToggle={() => setDay(d.day, { enabled: !d.enabled })} />
                 <span style={{ fontSize:12.5, color: d.enabled ? 'var(--t1)' : 'var(--t3)' }}>{DAY_NAMES[d.day]}</span>
               </div>
               <input type="time" value={d.start} disabled={!d.enabled}
                 onChange={e => setDay(d.day, { start: e.target.value })}
-                style={{ ...inputStyle, width:120, opacity: d.enabled ? 1 : .4 }} />
+                style={{ ...inputStyle, width:120, minWidth:0, flex:'0 1 120px', opacity: d.enabled ? 1 : .4 }} />
               <span style={{ color:'var(--t3)', fontSize:12 }}>to</span>
               <input type="time" value={d.end} disabled={!d.enabled}
                 onChange={e => setDay(d.day, { end: e.target.value })}
-                style={{ ...inputStyle, width:120, opacity: d.enabled ? 1 : .4 }} />
+                style={{ ...inputStyle, width:120, minWidth:0, flex:'0 1 120px', opacity: d.enabled ? 1 : .4 }} />
             </div>
           ))}
 
@@ -1931,11 +1931,11 @@ const AIIntentMatchingTab = () => {
 
           {rules.map(rule => (
             <div key={rule.id} style={{ ...card, padding:'16px 18px', opacity: rule.isActive ? 1 : 0.6, transition:'opacity .15s' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
                 <span style={{ width:36, height:36, borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid var(--bd)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, flexShrink:0 }}>
                   {rule.icon}
                 </span>
-                <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ flex:'1 1 150px', minWidth:0 }}>
                   <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:14.5, color:'var(--t1)' }}>{rule.name}</div>
                   <div style={{ fontSize:12, color:'var(--t2)', marginTop:2 }}>→ {rule.routedTo}</div>
                 </div>
@@ -4347,6 +4347,14 @@ export default function AutomationView({ initialTab }) {
 
   const isMobile = useIsMobile();
 
+  // Nine tabs do not fit a phone, so the strip scrolls — and the AI Agent and
+  // Intent Matching routes open on tabs four and five, which start off-screen.
+  // Without this the page loaded with no tab visibly selected.
+  const activeTabRef = useRef(null);
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, [activeTab, isMobile]);
+
   const renderContent = () => {
     switch (activeTab) {
       case 'basic':       return <BasicAutomationsTab />;
@@ -4371,13 +4379,17 @@ export default function AutomationView({ initialTab }) {
       {isMobile && (
         <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px 0', flexShrink:0, background:'var(--surf)' }}>
           <MobileNavButton />
+          {/* The bar held only the hamburger, which read as a broken header. */}
+          <span style={{ fontFamily:"'Space Grotesk',sans-serif", fontWeight:700, fontSize:16, color:'var(--t1)', letterSpacing:'-.02em', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {TABS.find(t => t.id === activeTab)?.label || 'Automation'}
+          </span>
         </div>
       )}
-      <div style={{ padding:'20px 32px 0 32px', borderBottom:'1px solid var(--bd)', display:'flex', gap:'4px', overflowX:'auto', flexShrink:0, background:'var(--surf)' }}>
+      <div className="hscroll" style={{ padding: isMobile ? '8px 12px 0 12px' : '20px 32px 0 32px', borderBottom:'1px solid var(--bd)', display:'flex', gap:'4px', overflowX:'auto', flexShrink:0, background:'var(--surf)' }}>
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
           return (
-            <button key={tab.id} onClick={() => selectTab(tab.id)}
+            <button key={tab.id} ref={isActive ? activeTabRef : null} onClick={() => selectTab(tab.id)}
               style={{
                 display:'flex', alignItems:'center', gap:'8px', padding:'12px 16px', cursor:'pointer',
                 background: isActive ? 'rgba(var(--accent-rgb),0.1)' : 'transparent', border:'none',
@@ -4394,7 +4406,7 @@ export default function AutomationView({ initialTab }) {
         })}
       </div>
 
-      <div className="dash-page" style={{ flex:1, overflowY:'auto', padding:'32px' }}>
+      <div className="dash-page" style={{ flex:1, overflowY:'auto', padding: isMobile ? '16px' : '32px' }}>
         <div style={{ maxWidth:'1000px', margin:'0 auto' }}>
           {renderContent()}
         </div>

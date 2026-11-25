@@ -370,6 +370,7 @@ export default function AiAgentsView({ user, initialTab }) {
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
       {/* ── TOP HEADER ── */}
       <div
+        className="dash-page-head"
         style={{
           minHeight: 58,
           borderBottom: '1px solid var(--bd)',
@@ -436,13 +437,13 @@ export default function AiAgentsView({ user, initialTab }) {
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
           padding: '10px 24px',
           borderBottom: '1px solid var(--bd)',
           background: 'rgba(255,255,255,0.01)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto' }}>
+        <div className="hscroll" style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', minWidth: 0, maxWidth: '100%', whiteSpace: 'nowrap' }}>
           {[
             { id: 'chat-bots', label: 'Chat Bots' },
             { id: 'agents', label: 'Agents', badge: agents.length },
@@ -498,7 +499,7 @@ export default function AiAgentsView({ user, initialTab }) {
 
       {/* ── TAB 1: AGENTS (Active Grid from Screenshot) ── */}
       {activeTab === 'agents' && (
-        <div style={{ padding: '24px', flex: 1 }}>
+        <div className="dash-page" style={{ padding: '24px', flex: 1 }}>
           {loading ? (
             <div style={{ padding: 60, textAlign: 'center', color: 'var(--t2)' }}>
               <div style={{ width: 24, height: 24, border: '2px solid var(--accent)', borderTopColor: 'transparent', borderRadius: '50%', margin: '0 auto 10px', animation: 'spin 1s linear infinite' }} />
@@ -633,7 +634,7 @@ export default function AiAgentsView({ user, initialTab }) {
 
       {/* ── TAB 2: KNOWLEDGE BASE ── */}
       {activeTab === 'knowledge' && (
-        <div style={{ padding: 24, maxWidth: 900 }}>
+        <div className="dash-page" style={{ padding: 24, maxWidth: 900 }}>
           <div style={{ marginBottom: 24 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--t1)' }}>Knowledge Base & RAG Context</h2>
             <p style={{ margin: 0, fontSize: 13, color: 'var(--t2)' }}>
@@ -683,7 +684,7 @@ export default function AiAgentsView({ user, initialTab }) {
 
       {/* ── TAB 3: GUIDELINES & SAFETY ── */}
       {activeTab === 'guidelines' && (
-        <div style={{ padding: 24, maxWidth: 900 }}>
+        <div className="dash-page" style={{ padding: 24, maxWidth: 900 }}>
           <div style={{ marginBottom: 20 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--t1)' }}>Agent Guidelines & Guardrails</h2>
             <p style={{ margin: 0, fontSize: 13, color: 'var(--t2)' }}>
@@ -718,7 +719,7 @@ export default function AiAgentsView({ user, initialTab }) {
 
       {/* ── TAB 4: CRM ACTIONS ── */}
       {activeTab === 'actions' && (
-        <div style={{ padding: 24, maxWidth: 900 }}>
+        <div className="dash-page" style={{ padding: 24, maxWidth: 900 }}>
           <div style={{ marginBottom: 20 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--t1)' }}>Callable CRM Action Tools</h2>
             <p style={{ margin: 0, fontSize: 13, color: 'var(--t2)' }}>
@@ -745,7 +746,7 @@ export default function AiAgentsView({ user, initialTab }) {
 
       {/* ── TAB 5: CHAT BOTS (CHANNELS) ── */}
       {activeTab === 'chat-bots' && (
-        <div style={{ padding: 24, maxWidth: 900 }}>
+        <div className="dash-page" style={{ padding: 24, maxWidth: 900 }}>
           <div style={{ marginBottom: 20 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px', color: 'var(--t1)' }}>Chatbot Deployments & Channels</h2>
             <p style={{ margin: 0, fontSize: 13, color: 'var(--t2)' }}>
@@ -759,8 +760,8 @@ export default function AiAgentsView({ user, initialTab }) {
               { channelKey: 'website', channel: 'Website Live Chat Widget', icon: 'globe', assignedAgent: 'Fund Information Agent', status: 'Connected & Active', color: '#22c55e', enabled: true },
               { channelKey: 'instagram', channel: 'Instagram Direct Messages', icon: 'insta', assignedAgent: 'Investor Support Agent', status: 'Standby / Ready', color: '#38bdf8', enabled: false },
             ]).map((ch) => (
-              <div key={ch.channelKey || ch.channel} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div key={ch.channelKey || ch.channel} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, padding: '16px 20px', background: 'var(--surf)', border: '1px solid var(--bd)', borderRadius: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 220px', minWidth: 0 }}>
                   <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <I n={ch.icon} s={16} />
                   </div>
@@ -772,7 +773,7 @@ export default function AiAgentsView({ user, initialTab }) {
                     </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 11.5, fontWeight: 600, color: ch.color || (ch.enabled ? '#22c55e' : '#38bdf8') }}>
                     ● {ch.status || (ch.enabled ? 'Connected & Active' : 'Standby / Ready')}
                   </span>

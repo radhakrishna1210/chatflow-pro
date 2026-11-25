@@ -180,7 +180,7 @@ export const ProductsView = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
-      <div style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', gap: 12, flexWrap: 'wrap' }}>
+      <div className="dash-page-head" style={{ minHeight: 58, borderBottom: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px', flexShrink: 0, background: 'var(--surf)', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 17, color: 'var(--t1)' }}>Products &amp; services</span>
           <span style={{ fontSize: 12.5, color: 'var(--t3)' }}>{products.length}</span>
@@ -203,7 +203,7 @@ export const ProductsView = () => {
         </div>
       </div>
 
-      <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className="dash-page" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {err && <ErrorBanner onDismiss={() => setErr(null)}>{err}</ErrorBanner>}
         {notice && (
           <div style={{ ...card, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 9, fontSize: 12, color: 'var(--t2)' }}>

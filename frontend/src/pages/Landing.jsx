@@ -83,8 +83,8 @@ const HERO_TOASTS = [
 
 const HeroToasts = () => (
   <>
-    {HERO_TOASTS.map((t) => (
-      <Glass key={t.title} lit={false} className="float-toast" aria-hidden="true"
+    {HERO_TOASTS.map((t, i) => (
+      <Glass key={t.title} lit={false} className={`float-toast float-toast-${i}`} aria-hidden="true"
         style={{ position: 'absolute', zIndex: 2, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px', borderRadius: 12, animationDelay: `${t.delay}s, ${t.delay + 0.6}s`, ...t.style }}>
         <span style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--bd)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <I n={t.icon} s={13} c={t.color} />
@@ -208,7 +208,7 @@ const CampaignTap = () => {
 const Hero = ({ onNav }) => (
   <section style={{ position: 'relative', overflow: 'hidden', paddingTop: 150, paddingBottom: 90 }}>
     <Aurora />
-    <div className="hero-grid" style={{ position: 'relative', maxWidth: 1240, margin: '0 auto', padding: '0 32px', display: 'flex', alignItems: 'center', gap: 64 }}>
+    <div className="hero-grid" style={{ position: 'relative', maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)', display: 'flex', alignItems: 'center', gap: 64 }}>
       <div style={{ flex: 1.2, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'flex-start' }}>
         <Reveal>
           {/* The newest thing is the reason to read on, so it gets the badge.
@@ -276,7 +276,7 @@ const Hero = ({ onNav }) => (
 // (PROOF is imported — see the note at the top of the file.)
 
 const ProofStrip = () => (
-  <section style={{ padding: '0 32px 90px' }}>
+  <section style={{ padding: '0 clamp(18px,4vw,32px) 90px' }}>
     <div style={{ maxWidth: 1240, margin: '0 auto' }}>
       <Reveal>
         <Glass lit={false} className="proof-grid" style={{ padding: '26px 8px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', borderRadius: 'var(--rxl)' }}>
@@ -327,7 +327,7 @@ const AIPromptSection = ({ onNav }) => {
   };
 
   return (
-    <section style={{ padding: '0 32px 100px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <section style={{ padding: '0 clamp(18px,4vw,32px) 100px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       <LoginRequiredModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onNav={onNav} />
       <div style={{ width: '100%', maxWidth: 720 }}>
         <Reveal>
@@ -432,7 +432,7 @@ const CostCalculator = () => {
 
   return (
     <section style={{ padding: '20px 0 100px' }}>
-      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
+      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
         <SectionHead
           eyebrow="Run the numbers"
           title={<>What your next send<br /><span style={{ color: 'var(--green)' }}>actually costs</span></>}
@@ -596,7 +596,7 @@ const FCard = ({ span = 2, icon, color = 'var(--green)', title, desc, visual, de
 
 const Features = () => (
   <section id="features" style={{ padding: '20px 0 100px', position: 'relative' }}>
-    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
+    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
       <SectionHead
         eyebrow="What's inside"
         title={<>Everything the campaign needs<br />after <span style={{ color: 'var(--green)' }}>you press send</span></>}
@@ -629,7 +629,7 @@ const Features = () => (
 
 const UseCases = () => (
   <section id="usecases" style={{ padding: '100px 0', borderTop: '1px solid var(--bd)', borderBottom: '1px solid var(--bd)', background: 'rgba(8,13,23,0.6)' }}>
-    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
+    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
       <SectionHead eyebrow="Who runs it" title={<>Built for <span style={{ color: 'var(--green)' }}>every industry</span></>}
         sub="Same platform, different conversations. These are the ones it gets used for most." />
       <div style={{ marginBottom: 28 }}>
@@ -669,7 +669,7 @@ const UseCases = () => (
 const Pricing = ({ onNav }) => (
   <section id="pricing" style={{ padding: '110px 0', position: 'relative', overflow: 'hidden' }}>
     <div className="aurora-a" style={{ position: 'absolute', bottom: '-20%', left: '30%', width: 560, height: 560, background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.10), transparent 62%)', filter: 'blur(50px)', pointerEvents: 'none' }} />
-    <div style={{ position: 'relative', maxWidth: 1240, margin: '0 auto', padding: '0 32px' }}>
+    <div style={{ position: 'relative', maxWidth: 1240, margin: '0 auto', padding: '0 clamp(18px,4vw,32px)' }}>
       <SectionHead eyebrow="Pricing" title={<>Plans that cost what they say.<br /><span style={{ color: 'var(--green)' }}>Messages cost what Meta charges.</span></>}
         sub="No per-agent seats. On a paid plan the per-message rate you are billed is the one Meta bills us — the wallet ledger shows every deduction and every refund." />
       {/* Cards stretch to the tallest plan and the CTA is pinned to the
@@ -741,10 +741,10 @@ const Pricing = ({ onNav }) => (
 // ─── closing ─────────────────────────────────────────────────────────────────
 
 const CTA = ({ onNav }) => (
-  <section style={{ padding: '30px 32px 110px', position: 'relative' }}>
+  <section style={{ padding: '30px clamp(18px,4vw,32px) 110px', position: 'relative' }}>
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
       <Reveal>
-        <Glass lit={false} style={{ padding: '64px 40px', borderRadius: 'var(--rxl)', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+        <Glass lit={false} style={{ padding: 'clamp(40px,7vw,64px) clamp(20px,5vw,40px)', borderRadius: 'var(--rxl)', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
           <div className="aurora-b" style={{ position: 'absolute', top: '-60%', left: '50%', width: 700, height: 700, marginLeft: -350, background: 'radial-gradient(circle, rgba(var(--accent-rgb),0.12), transparent 60%)', filter: 'blur(40px)', pointerEvents: 'none' }} />
           <div style={{ position: 'relative' }}>
             <Eyebrow>Start today</Eyebrow>
@@ -1153,7 +1153,7 @@ const PlatformMap = () => (
 const PAGE_CSS = `
   ${MARKETING_CSS}
   @media (max-width: 900px) {
-    .reactor-grid, .playground-grid { grid-template-columns: 1fr !important; gap: 26px !important; }
+    .reactor-grid, .playground-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 26px !important; }
   }
 `;
 

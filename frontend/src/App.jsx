@@ -268,7 +268,10 @@ export default function App() {
   // - /auth/callback (redirect in progress)
   // - /oauth/consent (security decision)
   // - CRM tabs (which have their own dedicated "Ask your CRM" copilot)
-  const bareScreen = path === '/auth/callback' || path === '/oauth/consent' || isCrmPath(path);
+  // - /forms/* (a workspace's own public form, filled in by *their* customer:
+  //   our assistant has no business there, and on a phone its launcher sat on
+  //   the form's fields)
+  const bareScreen = path === '/auth/callback' || path === '/oauth/consent' || path.startsWith('/forms/') || isCrmPath(path);
   return (
     <>
       {page}
