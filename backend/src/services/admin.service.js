@@ -766,6 +766,13 @@ function buildPlanData(body, { partial } = {}) {
       ? null
       : normMoney(raw, 'Quarterly price');
   }
+  // Same rule for the yearly option.
+  if (!partial || has('priceYearly')) {
+    const raw = body.priceYearly;
+    data.priceYearly = raw === null || raw === undefined || raw === ''
+      ? null
+      : normMoney(raw, 'Yearly price');
+  }
   if (!partial || has('currency')) data.currency = String(body.currency || 'INR').trim().toUpperCase().slice(0, 8) || 'INR';
   if (!partial || has('overageRatePerMsg')) data.overageRatePerMsg = normMoney(body.overageRatePerMsg ?? 0, 'Overage rate per message');
   // null clears the override so the plan charges cost (the shared rates in

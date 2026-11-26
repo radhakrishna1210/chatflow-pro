@@ -673,10 +673,10 @@ const Pricing = ({ onNav }) => (
       <SectionHead eyebrow="Pricing" title={<>Plans that cost what they say.<br /><span style={{ color: 'var(--green)' }}>Messages cost what Meta charges.</span></>}
         sub="No per-agent seats. On a paid plan the per-message rate you are billed is the one Meta bills us — the wallet ledger shows every deduction and every refund." />
       {/* Cards stretch to the tallest plan and the CTA is pinned to the
-          bottom of each, so the three buttons land on one line. Sized to
-          content they sat at three different heights, and the popular card's
-          button hung below the panel it belongs to. */}
-      <div className="plan-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, maxWidth: 1000, margin: '0 auto' }}>
+          bottom of each, so the buttons land on one line. Sized to content
+          they sat at different heights, and the popular card's button hung
+          below the panel it belongs to. */}
+      <div className="plan-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(${PLAN_CARDS.length},1fr)`, gap: 16, margin: '0 auto' }}>
         {PLAN_CARDS.map((p, i) => (
           <Reveal key={p.name} delay={i * 80} style={{ height: '100%' }}>
             <Glass lit={!p.popular} style={{
@@ -712,7 +712,7 @@ const Pricing = ({ onNav }) => (
               {/* No extra glow on the popular plan's button: the card is
                   already glowing, and two overlapping halos made the button
                   look detached from the card it sits in. */}
-              {/* Names the plan, because "Start free" on a ₹2,500/mo
+              {/* Names the plan, because "Start free" on a ₹2,799/mo
                   subscription promises something this button cannot do — the
                   free plan is its own tier, called out under the grid. */}
               <Btn variant={p.popular ? 'primary' : 'ghost'} style={{ width: '100%', justifyContent: 'center' }} onClick={() => onNav(startPath())}>

@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js';
 import { env } from '../config/env.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError, lockPayment } from '../lib/razorpay.js';
 import { ADDONS, CURRENCY, getAddon, priceInPaise, assertPurchasable } from '../lib/addonCatalogue.js';
+import { planAllowance } from '../data/planCatalog.js';
 
 // Add-on purchase, server-authoritative end to end.
 //
@@ -201,10 +202,18 @@ export async function hasAddon(workspaceId, addonKey) {
 // Quantities add up, so a workspace that buys the field pack twice gets ten
 // fields. `active` is re-derived from the row rather than trusted, because a
 // cancelled add-on keeps working only until the period it paid for runs out.
+//
+// The workspace's plan may include some of the capability outright
+// (data/planCatalog.js#PLAN_ALLOWANCES); purchased packs stack on top of that.
 export async function addonAllowance(workspaceId, capability) {
-  const rows = await prisma.workspaceAddon.findMany({ where: { workspaceId } }).catch(() => []);
+  const [rows, subscription] = await Promise.all([
+    prisma.workspaceAddon.findMany({ where: { workspaceId } }).catch(() => []),
+    prisma.subscription.findUnique({ where: { workspaceId }, select: { status: true, plan: { select: { key: true } } } }).catch(() => null),
+  ]);
   const now = new Date();
-  let total = 0;
+  // A lapsed subscription includes nothing; add-ons already paid for still count.
+  const planIsLive = subscription && ['ACTIVE', 'PAST_DUE'].includes(subscription.status);
+  let total = planIsLive ? planAllowance(subscription.plan?.key, capability) : 0;
   for (const row of rows) {
     if (row.currentPeriodEnd <= now) continue;
     if (row.status !== 'ACTIVE' && row.status !== 'CANCELLED') continue;

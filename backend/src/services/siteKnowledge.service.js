@@ -297,7 +297,7 @@ async function planDocuments() {
 
     const price = isFree
       ? `The ${plan.name} plan is free — there is no monthly charge and no card is required.`
-      : `The ${plan.name} plan costs ${monthly} per month${quarterly ? `, or ${quarterly} per quarter` : ''}.`;
+      : `The ${plan.name} plan costs ${monthly} per month${quarterly ? `, or ${quarterly} per quarter` : ''}${plan.priceYearly == null ? '' : `, or ${money(plan.priceYearly, plan.currency)} per year`}.`;
 
     const quota = plan.messageQuota === -1
       ? 'It includes unlimited messages per billing cycle.'
@@ -338,7 +338,11 @@ async function planDocuments() {
       topic: 'Plans',
       body: `${site.SITE_NAME} currently offers these plans:\n\n${bulletList(plans.map((plan) => {
         const monthly = Number(plan.priceMonthly) === 0 ? 'free' : `${money(plan.priceMonthly, plan.currency)} per month`;
-        const quarterly = plan.priceQuarterly === null ? '' : ` (or ${money(plan.priceQuarterly, plan.currency)} per quarter)`;
+        const longer = [
+          plan.priceQuarterly == null ? null : `${money(plan.priceQuarterly, plan.currency)} per quarter`,
+          plan.priceYearly == null ? null : `${money(plan.priceYearly, plan.currency)} per year`,
+        ].filter(Boolean);
+        const quarterly = longer.length ? ` (or ${longer.join(', or ')})` : '';
         const quota = plan.messageQuota === -1 ? 'unlimited messages' : `${plan.messageQuota.toLocaleString('en-IN')} messages per cycle`;
         return `${plan.name}: ${monthly}${quarterly}, ${quota}`;
       }))}\n\nEnterprise pricing is bespoke and arranged through "Talk to sales" rather than bought from the site.`,

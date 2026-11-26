@@ -42,6 +42,7 @@ import { sequenceQueue } from './queues/sequence.queue.js';
 import { prisma } from './lib/prisma.js';
 import { loadPlatformSettings } from './services/platformSettings.service.js';
 import { redis, assertRedisHealthy } from './lib/redis.js';
+import { PLANS, RETIRED_PLAN_SUCCESSOR } from './data/planCatalog.js';
 
 let campaignWorker = null;
 let emailWorker = null;
@@ -52,70 +53,9 @@ let sequenceWorker = null;
 let httpServer = null;
 
 async function initializeSubscriptions() {
-  const PLANS = [
-    {
-      key: 'FREE',
-      name: 'Free',
-      priceMonthly: 0,
-      priceQuarterly: null,
-      currency: 'INR',
-      messageQuota: 100,
-      contactLimit: 100,
-      memberLimit: 1,
-      campaignLimit: null,
-      apiKeyLimit: 1,
-      // Flat rate for a send with no template category (an inbox reply).
-      overageRatePerMsg: 0.02,
-      // Free pays a markup on over-quota template sends — 2x cost, mirroring
-      // the 2x ratio Free already carried against the paid tiers. Basic and
-      // Growth leave this null and are charged cost (lib/messagePricing.js).
-      overageRates: { MARKETING: 2.18, UTILITY: 0.32, AUTHENTICATION: 0.26 },
-      // Keep in sync with scripts/seed-plans.js — this list is upserted on
-      // every boot, so a change made only there would be overwritten.
-      features: { automation: true, workflows: true },
-    },
-    // Basic carries the former Pro limits and features; Growth carries the
-    // former Enterprise ones. STARTER/PRO/ENTERPRISE are retired below.
-    {
-      key: 'BASIC',
-      name: 'Basic',
-      priceMonthly: 1500,
-      priceQuarterly: 3500,
-      currency: 'INR',
-      messageQuota: 10000,
-      contactLimit: null,
-      memberLimit: 10,
-      campaignLimit: null,
-      apiKeyLimit: 10,
-      overageRatePerMsg: 0.01,
-      // null = charge cost: the shared per-category rates.
-      overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
-    },
-    {
-      key: 'GROWTH',
-      name: 'Growth',
-      priceMonthly: 2500,
-      priceQuarterly: 7500,
-      currency: 'INR',
-      messageQuota: -1,
-      contactLimit: null,
-      memberLimit: null,
-      campaignLimit: null,
-      apiKeyLimit: null,
-      overageRatePerMsg: 0.008,
-      overageRates: null,
-      features: { automation: true, workflows: true, aiOnboarding: true, integrations: true },
-    },
-  ];
-
-  // Plans the catalog no longer sells. They are deactivated rather than
-  // deleted because Subscription.planId still references them, and any
-  // workspace left on one is moved onto its successor so nobody is stranded
-  // on a plan that can no longer be renewed or displayed. Each retired tier
-  // maps to the plan that inherited its limits and features, so the move
-  // costs no capability.
-  const RETIRED_PLAN_SUCCESSOR = { STARTER: 'BASIC', PRO: 'BASIC', ENTERPRISE: 'GROWTH' };
+  // The catalogue lives in data/planCatalog.js, shared with
+  // scripts/seed-plans.js. It is upserted below on every boot, so what is
+  // written there is what subscribers are charged at their next renewal.
   const RETIRED_PLAN_KEYS = Object.keys(RETIRED_PLAN_SUCCESSOR);
 
   try {

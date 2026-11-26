@@ -1356,6 +1356,8 @@ model Plan {
   // Discounted three-month price. Null on plans sold monthly only (and on the
   // free plan); checkout falls back to the monthly cycle when it is absent.
   priceQuarterly    Decimal?       @db.Decimal(10, 2)
+  // Discounted twelve-month price. Null on plans not sold yearly.
+  priceYearly       Decimal?       @db.Decimal(10, 2)
   currency          String         @default("INR")
   messageQuota      Int // included messages per billing cycle; 0 = none, -1 = unlimited
   contactLimit      Int? // null = unlimited

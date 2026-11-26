@@ -124,7 +124,7 @@ The published per-category rate card is the same table campaign launches are bil
 
 Paid plans also include a message quota per billing cycle. Sends inside the quota draw on it; sends past it are charged at the plan's per-message overage rate. The Free plan pays a markup on over-quota template sends rather than cost.
 
-Money for messages comes out of the workspace wallet, which is separate from the plan subscription. The plan is the monthly or quarterly platform fee; the wallet pays for the traffic.`,
+Money for messages comes out of the workspace wallet, which is separate from the plan subscription. The plan is the monthly, quarterly or yearly platform fee; the wallet pays for the traffic.`,
   },
 
   // ─── contacts ──────────────────────────────────────────────────────────────
@@ -367,7 +367,7 @@ Payments also shows how many messages have been used against the plan's included
     topic: 'Billing',
     body: `Every workspace is on a plan. The plan sets the included message quota per billing cycle and the limits on numbers, team members, contacts and API keys, plus which features are switched on. New workspaces start on Free, which needs no card.
 
-Available plans and the current one are shown under Payments. Choose a plan to buy or change to it. Some plans can be billed monthly or quarterly at a discount; others are monthly only, which the plan card says.
+Available plans and the current one are shown under Payments. Choose a plan to buy or change to it. Some plans can be billed monthly, or quarterly or yearly at a discount; others are monthly only, which the plan card says.
 
 Changing plan is an administrator action — other roles see a prompt to ask a workspace admin instead of the buttons.
 

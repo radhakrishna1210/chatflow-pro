@@ -3,6 +3,7 @@ import { debit, credit } from './wallet.service.js';
 import { overageRateFor } from '../lib/messagePricing.js';
 import { getRazorpayClient, verifyPaymentSignature, normalizeRazorpayError, lockPayment } from '../lib/razorpay.js';
 import { env } from '../config/env.js';
+import { CYCLES, normalizeCycle, renewalCharge } from '../lib/billingCycles.js';
 
 // Returns the workspace's subscription + plan + the UsageCounter for the
 // subscription's current billing cycle, creating the counter if it doesn't
@@ -227,11 +228,11 @@ export async function createCheckoutOrder(workspaceId, planId, cycle = 'monthly'
   const plan = await prisma.plan.findFirst({ where: { id: planId, isActive: true } });
   if (!plan) { const e = new Error('Plan not found'); e.status = 404; throw e; }
 
-  const billingCycle = cycle === 'quarterly' ? 'quarterly' : 'monthly';
-  if (billingCycle === 'quarterly' && plan.priceQuarterly == null) {
-    const e = new Error('This plan is not sold on a quarterly cycle'); e.status = 400; throw e;
+  const billingCycle = normalizeCycle(cycle);
+  const price = plan[CYCLES[billingCycle].priceField];
+  if (price == null) {
+    const e = new Error(`This plan is not sold on a ${billingCycle} cycle`); e.status = 400; throw e;
   }
-  const price = billingCycle === 'quarterly' ? plan.priceQuarterly : plan.priceMonthly;
 
   const amountPaise = Math.round(Number(price) * 100);
   if (amountPaise <= 0) { const e = new Error("This plan is free — there's nothing to check out"); e.status = 400; throw e; }
@@ -254,7 +255,7 @@ export async function createCheckoutOrder(workspaceId, planId, cycle = 'monthly'
     cycle: billingCycle,
     plan: {
       id: plan.id, key: plan.key, name: plan.name,
-      priceMonthly: plan.priceMonthly, priceQuarterly: plan.priceQuarterly,
+      priceMonthly: plan.priceMonthly, priceQuarterly: plan.priceQuarterly, priceYearly: plan.priceYearly,
     },
   };
 }
@@ -317,7 +318,7 @@ export async function applyCheckoutPayment(workspaceId, order, paymentId) {
       data: {
         workspaceId,
         invoiceDate: new Date(),
-        description: `${plan.name} plan subscription (${order.notes?.cycle === 'quarterly' ? 'quarterly' : 'monthly'})`,
+        description: `${plan.name} plan subscription (${normalizeCycle(order.notes?.cycle)})`,
         amount: Number(order.amount) / 100,
         currency: order.currency,
         status: 'PAID',
@@ -326,9 +327,10 @@ export async function applyCheckoutPayment(workspaceId, order, paymentId) {
     });
 
     // Cycle length comes from the order's own notes, so a quarterly purchase
-    // gets a 90-day period. runBillingCycleSweep() rolls forward by whatever
-    // this period's length is, so quarterly renewals stay quarterly.
-    const cycleDays = order.notes?.cycle === 'quarterly' ? 90 : 30;
+    // gets a 90-day period and a yearly one 365. runBillingCycleSweep() rolls
+    // forward by whatever this period's length is, so renewals stay on the
+    // cycle that was bought.
+    const cycleDays = CYCLES[normalizeCycle(order.notes?.cycle)].days;
     const periodStart = new Date();
     const periodEnd = new Date(periodStart.getTime() + cycleDays * 24 * 60 * 60 * 1000);
     await tx.subscription.update({
@@ -370,26 +372,6 @@ const formatMoney = (value) => `₹${Number(value || 0).toLocaleString('en-IN', 
 // exists so a customer whose wallet ran dry over a weekend can top up before
 // their campaigns and inbox go dark.
 const RENEWAL_GRACE_DAYS = 3;
-
-// A period of roughly three months is a quarterly subscription. Compared
-// loosely because month lengths vary: Jan 31 → Apr 30 is 89 days, Mar → Jun 92.
-const QUARTERLY_MIN_DAYS = 80;
-
-// What this subscription owes for its next period, and which cycle it is on.
-function renewalCharge(subscription, plan) {
-  const cycleMs = subscription.currentPeriodEnd.getTime() - subscription.currentPeriodStart.getTime();
-  const cycleDays = Math.round(cycleMs / 86_400_000);
-  const quarterly = cycleDays >= QUARTERLY_MIN_DAYS && plan.priceQuarterly != null;
-  const amount = Number(quarterly ? plan.priceQuarterly : plan.priceMonthly) || 0;
-  return {
-    amount,
-    cycleDays,
-    cycle: quarterly ? 'quarterly' : 'monthly',
-    // Guards a malformed row with a zero-length cycle, which would otherwise
-    // roll the period to exactly where it already is and be swept forever.
-    cycleMs: cycleMs > 0 ? cycleMs : 30 * 86_400_000,
-  };
-}
 
 export async function runBillingCycleSweep(now = new Date()) {
   // PAST_DUE is included so a failed charge is retried on the next sweep. This
