@@ -132,21 +132,21 @@ export const USE_CASES = [
 export const PLAN_CARDS = [
   {
     name: 'Starter', planKey: 'BASIC', popular: false,
-    price: '₹1,500', per: '/mo', note: 'or ₹3,499 per quarter',
+    price: '₹999', per: '/mo', note: '₹3,499 per quarter · ₹11,999 per year',
     desc: 'For a small team running its first campaigns.',
-    features: ['1 WhatsApp number', 'Up to 10 team members', '10,000 messages per cycle', 'Campaigns, templates, team inbox', 'Workflows and auto-replies', 'Email support'],
+    features: ['WhatsApp included, on every billing cycle', 'Unlimited team members', 'Unlimited messages and contacts', 'Campaigns, templates, team inbox', 'Workflows and auto-replies', '15 custom fields', 'Email support'],
   },
   {
     name: 'Growth', planKey: 'GROWTH', popular: true,
-    price: '₹2,799', per: '/mo', note: 'or ₹7,699 per quarter',
+    price: '₹2,799', per: '/mo', note: '₹7,699 per quarter · ₹26,399 per year',
     desc: 'For teams whose WhatsApp runs itself.',
-    features: ['Unlimited numbers and members', 'Unlimited messages', 'Campaign AI Agent', 'AI intent matching and smart replies', 'Retries with SMS and email fallback', 'Voice AI and Instagram flows', 'Revenue and delivery analytics', 'Priority support'],
+    features: ['Unlimited numbers and members', 'Unlimited messages', 'Campaign AI Agent', 'AI intent matching and smart replies', 'Retries with SMS and email fallback', 'Voice AI and Instagram flows', 'Revenue and delivery analytics', '25 custom fields, 5 custom events', 'Priority support'],
   },
   {
     name: 'Advanced', planKey: 'ADVANCED', popular: false,
-    price: '₹3,799', per: '/mo', note: 'or ₹10,499 per quarter',
-    desc: 'For teams leaning hard on the AI agents.',
-    features: ['Everything in Growth', '2,500 AI credits per cycle', 'Lowest price on extra AI credits'],
+    price: '₹3,799', per: '/mo', note: '₹10,499 per quarter · ₹35,999 per year',
+    desc: 'For teams tracking more about every customer.',
+    features: ['Everything in Growth', '30 custom fields', '7 custom events'],
   },
   {
     name: 'Enterprise', planKey: null, popular: false, enquiry: true,

@@ -53,6 +53,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
     priceMonthly: numOrBlank(src.priceMonthly ?? 0),
     // Blank = plan is sold monthly only.
     priceQuarterly: numOrBlank(src.priceQuarterly),
+    priceYearly: numOrBlank(src.priceYearly),
     currency: src.currency || 'INR',
     messageQuota: numOrBlank(src.messageQuota ?? 0),
     overageRatePerMsg: numOrBlank(src.overageRatePerMsg ?? 0),
@@ -86,6 +87,7 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
       priceMonthly: Number(f.priceMonthly || 0),
       // null clears the quarterly option rather than pricing it at zero.
       priceQuarterly: String(f.priceQuarterly).trim() === '' ? null : Number(f.priceQuarterly),
+      priceYearly: String(f.priceYearly).trim() === '' ? null : Number(f.priceYearly),
       currency: f.currency.trim().toUpperCase(),
       messageQuota: Number(f.messageQuota),
       overageRatePerMsg: Number(f.overageRatePerMsg || 0),
@@ -148,6 +150,9 @@ function PlanEditor({ plan, knownFeatures, onClose, onSaved }) {
               </Field>
               <Field label="Quarterly price" hint="Blank = monthly only">
                 <TInput type="number" min="0" step="0.01" value={f.priceQuarterly} onChange={e => set('priceQuarterly', e.target.value)} />
+              </Field>
+              <Field label="Yearly price" hint="Blank = not sold yearly">
+                <TInput type="number" min="0" step="0.01" value={f.priceYearly} onChange={e => set('priceYearly', e.target.value)} />
               </Field>
               <Field label="Currency">
                 <TInput value={f.currency} onChange={e => set('currency', e.target.value.toUpperCase())} />
@@ -1497,6 +1502,14 @@ export default function SuperAdminView({ tab }) {
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 800, fontSize: 20, color: 'var(--green)' }}>{p.currency} {Number(p.priceMonthly).toLocaleString()}</div>
                       <span style={{ fontSize: 10.5, color: 'var(--t3)' }}>per month</span>
+                      {/* The longer cycles were only visible inside the edit
+                          form, so the card could not answer "what does a year
+                          of this cost?". */}
+                      {[['priceQuarterly', '/qtr'], ['priceYearly', '/yr']].filter(([k]) => p[k] != null).map(([k, per]) => (
+                        <div key={k} style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--t2)', marginTop: 2 }}>
+                          {Number(p[k]).toLocaleString('en-IN')}{per}
+                        </div>
+                      ))}
                     </div>
                   </div>
 

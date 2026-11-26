@@ -44,6 +44,14 @@ const PRICING_CATEGORIES = [
   ['AUTHENTICATION', 'Authentication'],
 ];
 
+// The billing cycles longer than a month: which plan field prices them and how
+// many months they cover, so the picker can show an effective monthly figure.
+// Monthly is the absence of an entry.
+const LONG_CYCLES = {
+  quarterly: { field: 'priceQuarterly', months: 3, per: '/quarter', adverb: 'quarterly' },
+  yearly: { field: 'priceYearly', months: 12, per: '/year', adverb: 'yearly' },
+};
+
 const inrRate = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v).toFixed(2));
 
 // Per-message pricing for one plan. `rates` is the plan's messagePricing (or
@@ -144,7 +152,7 @@ export default function PaymentsView({ initialTab } = {}) {
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
   const [invoiceError, setInvoiceError] = useState('');
 
-  // Billing cycle the plan catalog is priced in ('monthly' | 'quarterly')
+  // Billing cycle the plan catalog is priced in ('monthly' | 'quarterly' | 'yearly')
   const [billingCycle, setBillingCycle] = useState('monthly');
 
   // Insights state
@@ -292,7 +300,7 @@ export default function PaymentsView({ initialTab } = {}) {
     setCheckoutError(''); setCheckoutMessage(''); setCheckoutPlanId(plan.id);
     // A plan with no quarterly price is monthly-only; the server rejects a
     // quarterly order for it, so send the cycle it actually supports.
-    const cycle = billingCycle === 'quarterly' && plan.priceQuarterly != null ? 'quarterly' : 'monthly';
+    const cycle = LONG_CYCLES[billingCycle] && plan[LONG_CYCLES[billingCycle].field] != null ? billingCycle : 'monthly';
     try {
       const orderRes = await wFetch('/subscription/checkout', { method: 'POST', body: JSON.stringify({ planId: plan.id, cycle }) });
       const order = await orderRes.json();
@@ -748,7 +756,7 @@ export default function PaymentsView({ initialTab } = {}) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <h4 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 14, fontWeight: 700, color: 'var(--t1)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Available Plans</h4>
             <div style={{ display: 'flex', padding: 3, borderRadius: 9, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--bd)' }}>
-              {[['monthly', 'Monthly'], ['quarterly', 'Quarterly']].map(([id, label]) => (
+              {[['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['yearly', 'Yearly']].map(([id, label]) => (
                 <button key={id} onClick={() => setBillingCycle(id)}
                   style={{ padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
                            fontFamily: "'Manrope',sans-serif",
@@ -768,10 +776,13 @@ export default function PaymentsView({ initialTab } = {}) {
               const busy = checkoutPlanId === plan.id;
               // Quarterly pricing is optional per plan — fall back to monthly
               // rather than showing a blank price.
-              const quarterly = billingCycle === 'quarterly' && plan.priceQuarterly != null;
-              const shownPrice = quarterly ? plan.priceQuarterly : plan.priceMonthly;
-              const perMonth = quarterly ? Number(plan.priceQuarterly) / 3 : null;
-              const quarterlySaving = quarterly ? Number(plan.priceMonthly) * 3 - Number(plan.priceQuarterly) : 0;
+              // The same holds for yearly. `quarterly` here means "priced on a
+              // longer cycle than monthly", whichever of the two was picked.
+              const longCycle = LONG_CYCLES[billingCycle];
+              const quarterly = !!longCycle && plan[longCycle.field] != null;
+              const shownPrice = quarterly ? plan[longCycle.field] : plan.priceMonthly;
+              const perMonth = quarterly ? Number(plan[longCycle.field]) / longCycle.months : null;
+              const quarterlySaving = quarterly ? Number(plan.priceMonthly) * longCycle.months - Number(plan[longCycle.field]) : 0;
               return (
                 <div key={plan.id} style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 12, border: isCurrent ? '1px solid var(--gbd)' : '1px solid var(--bd)' }}>
                   <div>
@@ -783,7 +794,7 @@ export default function PaymentsView({ initialTab } = {}) {
                     </div>
                     <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)' }}>
                       {isFree ? 'Free' : `₹${Number(shownPrice).toLocaleString('en-IN')}`}
-                      {!isFree && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--t3)' }}>{quarterly ? '/quarter' : '/month'}</span>}
+                      {!isFree && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--t3)' }}>{quarterly ? longCycle.per : '/month'}</span>}
                     </p>
                     {!isFree && quarterly && (
                       <p style={{ fontSize: 11, color: quarterlySaving > 0 ? 'var(--green)' : 'var(--t3)', marginTop: 2 }}>
@@ -793,8 +804,8 @@ export default function PaymentsView({ initialTab } = {}) {
                         {quarterlySaving > 0 && ` · save ₹${quarterlySaving.toLocaleString('en-IN')}`}
                       </p>
                     )}
-                    {!isFree && !quarterly && billingCycle === 'quarterly' && (
-                      <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Monthly billing only</p>
+                    {!isFree && !quarterly && longCycle && (
+                      <p style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>Not sold {longCycle.adverb} — monthly price shown</p>
                     )}
                   </div>
                   <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'var(--t2)', padding: 0, margin: 0 }}>

@@ -11,7 +11,7 @@ export async function getSummary(req, res) {
   res.json({
     plan: {
       key: plan.key, name: plan.name, priceMonthly: plan.priceMonthly,
-      priceQuarterly: plan.priceQuarterly, currency: plan.currency,
+      priceQuarterly: plan.priceQuarterly, priceYearly: plan.priceYearly, currency: plan.currency,
       messageQuota: plan.messageQuota, contactLimit: plan.contactLimit, memberLimit: plan.memberLimit,
       apiKeyLimit: plan.apiKeyLimit, overageRatePerMsg: plan.overageRatePerMsg,
       // Null means the plan charges the shared cost rates; resolve them here so
